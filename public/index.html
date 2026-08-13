@@ -1,0 +1,1559 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hệ Thống Quản Lý Tài Liệu - DMS v6.0</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .dash-card.active-card {
+      ring-width: 2px;
+      --tw-ring-color: #2563eb;
+      background-color: #f0f9ff;
+    }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen p-4 md:p-6 font-sans">
+  <div class="max-w-7xl mx-auto bg-white p-4 md:p-6 rounded-lg shadow-md space-y-6">
+    
+    <!-- Header -->
+    <div class="flex justify-between items-center border-b pb-4">
+      <div>
+        <h1 class="text-xl md:text-2xl font-bold text-gray-800">Hệ Thống Quản Lý Tài Liệu (DMS v6.0)</h1>
+        <p class="text-xs text-gray-500">Quản lý tài liệu | Luồng quy trình phê duyệt | Phân quyền truy cập | Log hệ thống</p>
+      </div>
+      <div id="userHeader" class="text-right hidden">
+        <div class="cursor-pointer group inline-block" onclick="openProfileModal()" title="Bấm để cập nhật thông tin cá nhân & đổi mật khẩu">
+          <span id="userInfo" class="font-bold text-blue-600 block text-sm group-hover:underline"></span>
+          <span id="userPhoneInfo" class="text-xs text-gray-500 block"></span>
+        </div>
+        <div class="flex gap-2 justify-end mt-2 flex-wrap">
+          <button id="btnDocTab" onclick="switchTab('doc')" class="hidden text-xs bg-blue-600 text-white px-2.5 py-1 rounded hover:bg-blue-700 font-semibold">📂 Quản lý tài liệu</button>
+          <button id="btnWorkflowTab" onclick="switchTab('workflow')" class="hidden text-xs bg-emerald-600 text-white px-2.5 py-1 rounded hover:bg-emerald-700 font-semibold">🔄 Quy trình & Luồng duyệt</button>
+          <button id="btnAdminTab" onclick="switchTab('admin')" class="hidden text-xs bg-purple-600 text-white px-2.5 py-1 rounded hover:bg-purple-700 font-semibold">⚙️ Quản trị & Phân quyền</button>
+          <button id="btnLogTab" onclick="switchTab('log')" class="hidden text-xs bg-stone-600 text-white px-2.5 py-1 rounded hover:bg-stone-700 font-semibold">📊 Log Hệ Thống</button>
+          <button onclick="logout()" class="text-xs text-red-500 underline py-1 hover:text-red-700 font-semibold">Đăng xuất</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Màn hình 1: Đăng nhập -->
+    <div id="loginSection" class="max-w-md mx-auto my-12 p-6 border rounded-lg bg-gray-50 space-y-4 shadow-sm">
+      <h2 class="text-xl font-bold text-center text-gray-800">Đăng Nhập Hệ Thống DMS</h2>
+      
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Tên đăng nhập</label>
+        <input id="txtUser" type="text" placeholder="Nhập tên đăng nhập..." autocomplete="username" class="w-full border p-2 rounded text-sm focus:outline-none focus:border-blue-500">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Mật khẩu</label>
+        <input id="txtPass" type="password" placeholder="Nhập mật khẩu..." autocomplete="current-password" class="w-full border p-2 rounded text-sm focus:outline-none focus:border-blue-500">
+      </div>
+      <button onclick="login()" class="w-full bg-blue-600 text-white p-2 rounded font-bold hover:bg-blue-700 transition">Đăng Nhập</button>
+    </div>
+
+    <!-- Màn hình 2: Tab Quản Lý Tài Liệu -->
+    <div id="docSection" class="hidden space-y-6">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div id="card-ALL" onclick="filterByCard('')" class="dash-card bg-white border rounded-lg p-4 shadow-sm border-l-4 border-l-blue-500 flex justify-between items-center cursor-pointer transition-all hover:scale-[1.02]">
+          <div>
+            <p class="text-xs text-gray-500 uppercase font-bold">Tổng Tài Liệu</p>
+            <h3 id="dashTotal" class="text-2xl font-bold text-gray-800">0</h3>
+          </div>
+          <div class="bg-blue-100 p-3 rounded-full text-blue-600">📊</div>
+        </div>
+        <div id="card-APPROVED" onclick="filterByCard('APPROVED')" class="dash-card bg-white border rounded-lg p-4 shadow-sm border-l-4 border-l-green-500 flex justify-between items-center cursor-pointer transition-all hover:scale-[1.02]">
+          <div>
+            <p class="text-xs text-gray-500 uppercase font-bold">Đã Phê Duyệt</p>
+            <h3 id="dashApproved" class="text-2xl font-bold text-green-600">0</h3>
+          </div>
+          <div class="bg-green-100 p-3 rounded-full text-green-600">✅</div>
+        </div>
+        <div id="card-PENDING" onclick="filterByCard('PENDING')" class="dash-card bg-white border rounded-lg p-4 shadow-sm border-l-4 border-l-yellow-500 flex justify-between items-center cursor-pointer transition-all hover:scale-[1.02]">
+          <div>
+            <p class="text-xs text-gray-500 uppercase font-bold">Đang Chờ Duyệt</p>
+            <h3 id="dashPending" class="text-2xl font-bold text-yellow-600">0</h3>
+          </div>
+          <div class="bg-yellow-100 p-3 rounded-full text-yellow-600">⏳</div>
+        </div>
+        <div id="card-REJECTED" onclick="filterByCard('REJECTED')" class="dash-card bg-white border rounded-lg p-4 shadow-sm border-l-4 border-l-red-500 flex justify-between items-center cursor-pointer transition-all hover:scale-[1.02]">
+          <div>
+            <p class="text-xs text-gray-500 uppercase font-bold">Từ Chối / Trả Về</p>
+            <h3 id="dashRejected" class="text-2xl font-bold text-red-600">0</h3>
+          </div>
+          <div class="bg-red-100 p-3 rounded-full text-red-600">❌</div>
+        </div>
+      </div>
+
+      <div id="uploadBox" class="bg-blue-50 p-4 rounded border border-blue-200 hidden">
+        <h3 class="font-bold mb-1 text-blue-900 flex items-center gap-2">
+          📄 Tải Lên Tài Liệu Mới (PDF, Word, Excel, PowerPoint, Image)
+        </h3>
+        <p class="text-xs text-blue-700 mb-3 font-semibold">Hệ thống áp dụng phân quyền upload theo từng Phòng ban mà bạn được phân công.</p>
+        
+        <form id="docForm" onsubmit="uploadDoc(event)" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <input id="docCode" placeholder="Mã tài liệu (VD: HD-2026-001)" class="border p-2 rounded text-sm" required>
+          <input id="docTitle" placeholder="Tên / Tiêu đề tài liệu" class="border p-2 rounded text-sm" required>
+          <input id="docVer" placeholder="Phiên bản (VD: v1.0)" value="v1.0" class="border p-2 rounded text-sm" required>
+          
+          <select id="selDept" class="border p-2 rounded text-sm" required><option value="">-- Chọn Phòng Ban Trình --</option></select>
+          <select id="selCat" class="border p-2 rounded text-sm" required><option value="">-- Chọn Phân Loại --</option></select>
+          <input id="docFile" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,image/*" class="border p-1 bg-white rounded text-sm" required>
+
+          <textarea id="docSummary" placeholder="Tóm tắt / Trích yếu nội dung tài liệu..." class="md:col-span-3 border p-2 rounded text-sm h-16" required></textarea>
+          
+          <button type="submit" class="md:col-span-3 bg-green-600 text-white p-2 rounded font-bold hover:bg-green-700 transition">Tải Lên & Trình Ký Phê Duyệt</button>
+        </form>
+      </div>
+
+      <div class="bg-gray-50 p-4 rounded-lg border space-y-3">
+        <h4 class="font-bold text-gray-700 text-sm">🔍 Tìm Kiếm & Lọc Tài Liệu</h4>
+        <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Phòng Ban</label>
+            <select id="filterDept" onchange="onFilterChange()" class="w-full border p-2 rounded text-sm bg-white">
+              <option value="">-- Tất cả phòng ban --</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Trạng Thái</label>
+            <select id="filterStatus" onchange="onFilterChange()" class="w-full border p-2 rounded text-sm bg-white">
+              <option value="">-- Tất cả trạng thái --</option>
+              <option value="APPROVED">Đã Phê Duyệt</option>
+              <option value="PENDING">Đang Chờ Duyệt</option>
+              <option value="REJECTED">Bị Từ Chối / Trả Về</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Từ Ngày</label>
+            <input id="filterFromDate" type="date" onchange="onFilterChange()" class="w-full border p-2 rounded text-sm bg-white">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Đến Ngày</label>
+            <input id="filterToDate" type="date" onchange="onFilterChange()" class="w-full border p-2 rounded text-sm bg-white">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Từ Khóa</label>
+            <input id="filterKeyword" oninput="onFilterChange()" placeholder="Mã, Tiêu đề, Nội dung..." class="w-full border p-2 rounded text-sm">
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="flex justify-between items-center mb-3">
+          <h3 class="font-bold text-gray-800">Danh Sách Tài Liệu Trong Hệ Thống</h3>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse border text-sm bg-white">
+            <thead>
+              <tr class="bg-gray-200 text-left text-gray-700">
+                <th class="border p-2">Mã Doc</th>
+                <th class="border p-2">Tên & Trích Yếu Nội Dung</th>
+                <th class="border p-2">Phòng Ban</th>
+                <th class="border p-2">Phân Loại</th>
+                <th class="border p-2 text-center">Phiên Bản</th>
+                <th class="border p-2">Tiến Trình Phê Duyệt</th>
+                <th class="border p-2 text-center min-w-[140px]">Thao Tác</th>
+              </tr>
+            </thead>
+            <tbody id="docTableBody"></tbody>
+          </table>
+        </div>
+        <div id="paginationBox" class="mt-4 flex flex-col sm:flex-row justify-between items-center gap-3 bg-gray-50 p-3 rounded border text-xs text-gray-700">
+          <div class="flex items-center gap-2">
+            <span>Hiển thị</span>
+            <select id="pageSizeSelect" onchange="changePageSize(this.value)" class="border p-1 rounded bg-white font-semibold">
+              <option value="5" selected>5</option>
+              <option value="10">10</option>
+              <option value="20">20</option>
+            </select>
+            <span>dòng / trang.</span>
+            <span id="pageInfoText" class="font-semibold text-gray-600 border-l pl-2 ml-1"></span>
+          </div>
+          <div id="paginationButtons" class="flex items-center gap-1"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Màn hình 3: Tab Quản Lý Quy Trình & Luồng Phê Duyệt -->
+    <div id="workflowSection" class="hidden space-y-6">
+      <div class="bg-emerald-50 p-4 rounded border border-emerald-200 space-y-3">
+        <h3 class="font-bold text-emerald-900 text-base flex items-center gap-2">
+          🏢 Cấu Hình Quy Trình & Chỉ Định Người Duyệt Cho Từng Phòng Ban
+        </h3>
+        <p class="text-xs text-emerald-800">Gán quy trình phê duyệt tài liệu riêng cho từng phòng ban và thiết lập tài khoản người phê duyệt chi tiết.</p>
+        <div id="deptWorkflowConfigContainer" class="space-y-4"></div>
+      </div>
+
+      <div class="bg-slate-50 p-4 rounded border space-y-4">
+        <h3 class="font-bold text-slate-800 text-base">🛠️ Định Nghĩa Mẫu Quy Trình (Workflow Templates)</h3>
+        
+        <form onsubmit="saveWorkflowTemplate(event)" class="bg-white p-3 rounded border space-y-3">
+          <input id="editingWfCode" type="hidden">
+          
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 mb-1">Mã Quy Trình (VD: WF_3STEP)</label>
+              <input id="wfCode" placeholder="WF_..." class="w-full border p-1.5 rounded text-xs disabled:bg-gray-100 font-mono font-bold" required>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 mb-1">Tên Quy Trình</label>
+              <input id="wfName" placeholder="Ví dụ: Quy trình chuẩn 3 bước" class="w-full border p-1.5 rounded text-xs" required>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-gray-700 mb-2">Thứ Tự Các Bước Duyệt (Tối đa 5 bước):</label>
+            <div id="stepBuilderContainer" class="space-y-2"></div>
+            <button type="button" onclick="addStepRow()" class="mt-2 text-xs bg-gray-200 text-gray-800 px-2 py-1 rounded font-semibold hover:bg-gray-300">+ Thêm Bước Duyệt</button>
+          </div>
+
+          <div class="flex justify-end gap-2">
+            <button id="btnCancelWf" type="button" onclick="resetWorkflowForm()" class="hidden bg-gray-400 text-white text-xs px-3 py-1.5 rounded font-bold">Hủy</button>
+            <button id="btnSaveWf" type="submit" class="bg-emerald-600 text-white text-xs px-4 py-1.5 rounded font-bold hover:bg-emerald-700">Lưu Mẫu Quy Trình</button>
+          </div>
+        </form>
+
+        <div class="overflow-x-auto bg-white rounded border">
+          <table class="w-full text-xs text-left">
+            <thead class="bg-gray-100 text-gray-700 font-bold">
+              <tr>
+                <th class="p-2 border">Mã WF</th>
+                <th class="p-2 border">Tên Quy Trình</th>
+                <th class="p-2 border">Số Bước</th>
+                <th class="p-2 border">Cấu Trúc Các Bước</th>
+                <th class="p-2 border text-center">Thao Tác</th>
+              </tr>
+            </thead>
+            <tbody id="workflowTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Màn hình 4: Tab Quản Trị Hệ Thống & Phân Quyền -->
+    <div id="adminSection" class="hidden space-y-6">
+      <div class="bg-amber-50 p-4 rounded border border-amber-300 space-y-3">
+        <h3 class="font-bold text-amber-900 text-sm flex items-center gap-1">✉️ Cấu Hình Server Email Thông Báo (SMTP Server)</h3>
+        
+        <form onsubmit="saveEmailConfig(event)" class="grid grid-cols-1 md:grid-cols-4 gap-3 bg-white p-3 rounded border text-xs">
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Trạng Thái Mail</label>
+            <select id="cfgEmailEnabled" class="w-full border p-1.5 rounded bg-white font-bold text-green-700">
+              <option value="true">Bật (Active)</option>
+              <option value="false">Tắt (Disabled)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">SMTP Server</label>
+            <input id="cfgSmtpHost" placeholder="smtp.gmail.com" class="w-full border p-1.5 rounded" required>
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">SMTP Port</label>
+            <input id="cfgSmtpPort" type="number" placeholder="587" class="w-full border p-1.5 rounded" required>
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Email Hệ Thống (Sender)</label>
+            <input id="cfgSenderEmail" type="email" placeholder="dms-noreply@company.com" class="w-full border p-1.5 rounded" required>
+          </div>
+          <div class="md:col-span-4 flex justify-between items-center pt-1">
+            <span class="text-gray-500 italic text-[11px]">Cấu hình mail hệ thống dùng để thông báo tự động khi phát sinh tài liệu cần duyệt.</span>
+            <button type="submit" class="bg-amber-600 text-white px-4 py-1.5 rounded font-bold hover:bg-amber-700">Lưu Cấu Hình Email</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="bg-indigo-50 p-4 rounded border border-indigo-200 space-y-3">
+          <h3 class="font-bold text-indigo-900 text-sm flex items-center gap-1">🏢 Quản Lý Phòng Ban</h3>
+          <form onsubmit="saveDept(event)" class="flex gap-2">
+            <input id="txtDeptName" placeholder="Tên phòng ban mới..." class="border p-1.5 rounded text-xs flex-1" required>
+            <button type="submit" class="bg-indigo-600 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-indigo-700">Thêm</button>
+          </form>
+          <div class="max-h-36 overflow-y-auto bg-white rounded border">
+            <ul id="deptList" class="divide-y text-xs"></ul>
+          </div>
+        </div>
+
+        <div class="bg-emerald-50 p-4 rounded border border-emerald-200 space-y-3">
+          <h3 class="font-bold text-emerald-900 text-sm flex items-center gap-1">🏷️ Quản Lý Phân Loại Tài Liệu</h3>
+          <form onsubmit="saveCat(event)" class="flex gap-2">
+            <input id="txtCatName" placeholder="Tên loại tài liệu mới..." class="border p-1.5 rounded text-xs flex-1" required>
+            <button type="submit" class="bg-emerald-600 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-emerald-700">Thêm</button>
+          </form>
+          <div class="max-h-36 overflow-y-auto bg-white rounded border">
+            <ul id="catList" class="divide-y text-xs"></ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- CẤU HÌNH USER & PHÂN QUYỀN MATRIX -->
+      <div class="bg-slate-50 p-4 rounded border border-slate-300 space-y-4">
+        <h3 class="font-bold text-base text-gray-800">Tài Khoản Người Dùng & Phân Quyền Chi Tiết theo Phòng Ban</h3>
+
+        <form onsubmit="saveUser(event)" class="space-y-4">
+          <input id="editUserId" type="hidden">
+          
+          <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3 bg-white p-3 rounded border">
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 mb-1">Tên đăng nhập</label>
+              <input id="uUsername" placeholder="username" class="w-full border p-1.5 rounded text-xs" required>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 mb-1">Mật khẩu</label>
+              <input id="uPassword" type="password" placeholder="******" class="w-full border p-1.5 rounded text-xs" required>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 mb-1">Họ và Tên</label>
+              <input id="uFullName" placeholder="Nguyễn Văn A" class="w-full border p-1.5 rounded text-xs" required>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 mb-1">Email</label>
+              <input id="uEmail" type="email" placeholder="name@company.com" class="w-full border p-1.5 rounded text-xs" required>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 mb-1">Số điện thoại</label>
+              <input id="uPhone" type="tel" placeholder="0912345678" class="w-full border p-1.5 rounded text-xs" required>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 mb-1">Phòng Ban</label>
+              <select id="uDept" class="w-full border p-1.5 rounded text-xs" required></select>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 text-xs">
+            <div class="bg-white p-3 rounded border space-y-2">
+              <h4 class="font-bold text-purple-800 border-b pb-1 text-xs">1. Quyền Admin</h4>
+              <label class="flex items-center gap-2 text-purple-700 font-semibold cursor-pointer">
+                <input type="checkbox" id="pAdmin"> Admin (Toàn quyền hệ thống)
+              </label>
+            </div>
+
+            <div class="bg-white p-3 rounded border space-y-2">
+              <div class="flex justify-between items-center border-b pb-1">
+                <h4 class="font-bold text-blue-800 text-xs">2. Upload / Trình Ký</h4>
+                <label class="flex items-center gap-1 font-bold text-blue-700 cursor-pointer text-[11px]">
+                  <input type="checkbox" id="pUploadAll" onchange="toggleScopeGroup('pUploadAll', 'pUploadDept')"> ALL
+                </label>
+              </div>
+              <div id="pUploadDeptContainer" class="space-y-1 pl-1 max-h-36 overflow-y-auto"></div>
+            </div>
+
+            <div class="bg-white p-3 rounded border space-y-2">
+              <div class="flex justify-between items-center border-b pb-1">
+                <h4 class="font-bold text-amber-800 text-xs">3. Xem Bản Nháp</h4>
+                <label class="flex items-center gap-1 font-bold text-amber-700 cursor-pointer text-[11px]">
+                  <input type="checkbox" id="pViewDraftAll" onchange="toggleScopeGroup('pViewDraftAll', 'pViewDraftDept')"> ALL
+                </label>
+              </div>
+              <div id="pViewDraftDeptContainer" class="space-y-1 pl-1 max-h-36 overflow-y-auto"></div>
+            </div>
+
+            <div class="bg-white p-3 rounded border space-y-2">
+              <div class="flex justify-between items-center border-b pb-1">
+                <h4 class="font-bold text-emerald-800 text-xs">4. Xem Đã Duyệt</h4>
+                <label class="flex items-center gap-1 font-bold text-emerald-700 cursor-pointer text-[11px]">
+                  <input type="checkbox" id="pViewApprovedAll" onchange="toggleScopeGroup('pViewApprovedAll', 'pViewApprovedDept')"> ALL
+                </label>
+              </div>
+              <div id="pViewApprovedDeptContainer" class="space-y-1 pl-1 max-h-36 overflow-y-auto"></div>
+            </div>
+
+            <div class="bg-white p-3 rounded border space-y-2">
+              <div class="flex justify-between items-center border-b pb-1">
+                <h4 class="font-bold text-rose-800 text-xs">5. Quyền Tải File</h4>
+                <label class="flex items-center gap-1 font-bold text-rose-700 cursor-pointer text-[11px]">
+                  <input type="checkbox" id="pDownloadAll" onchange="toggleScopeGroup('pDownloadAll', 'pDownloadDept')"> ALL
+                </label>
+              </div>
+              <div id="pDownloadDeptContainer" class="space-y-1 pl-1 max-h-36 overflow-y-auto"></div>
+            </div>
+          </div>
+
+          <div class="flex justify-end gap-2 pt-2">
+            <button type="button" onclick="resetUserForm()" class="bg-gray-400 text-white px-4 py-1.5 rounded text-xs font-bold">Hủy</button>
+            <button type="submit" class="bg-purple-600 text-white px-6 py-1.5 rounded text-xs font-bold hover:bg-purple-700">Lưu Người Dùng & Phân Quyền</button>
+          </div>
+        </form>
+
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 my-3 border-t pt-3">
+          <h4 class="font-bold text-sm text-gray-800">Danh Sách Tài Khoản & Quyền Hạn</h4>
+          <div class="flex flex-wrap gap-2 text-xs">
+            <button type="button" onclick="downloadUserTemplate()" class="bg-gray-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-gray-700 transition">📄 Tải File CSV Mẫu</button>
+            <button type="button" onclick="exportUsersCSV()" class="bg-emerald-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-emerald-700 transition">📤 Xuất CSV</button>
+            <label class="bg-blue-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-blue-700 cursor-pointer transition">
+              📥 Import CSV <input type="file" accept=".csv" onchange="importUsersCSV(event)" class="hidden">
+            </label>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse border bg-white text-xs">
+            <thead>
+              <tr class="bg-gray-100 text-left">
+                <th class="border p-2">Username</th>
+                <th class="border p-2">Họ Tên</th>
+                <th class="border p-2">Liên Hệ (Email / SĐT)</th>
+                <th class="border p-2">Phòng Ban</th>
+                <th class="border p-2">Chi Tiết Quyền Hạn</th>
+                <th class="border p-2 text-center min-w-[100px]">Thao Tác</th>
+              </tr>
+            </thead>
+            <tbody id="userTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Màn hình 5: Tab Quản Trị Log Hệ Thống -->
+    <div id="logSection" class="hidden space-y-6">
+      <div class="bg-stone-50 p-4 rounded border border-stone-300 space-y-3">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+          <div>
+            <h3 class="font-bold text-stone-900 text-base flex items-center gap-1">📊 Quản Trị Log Hệ Thống</h3>
+            <p class="text-xs text-stone-800">Giám sát và truy xuất nhật ký thao tác người dùng, gửi email, phân quyền và cấu hình hệ thống.</p>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="clearSystemLogs()" class="text-xs bg-red-600 text-white px-3 py-1.5 rounded font-bold hover:bg-red-700">🗑️ Xóa Log</button>
+            <button onclick="exportSystemLogsCSV()" class="text-xs bg-emerald-600 text-white px-3 py-1.5 rounded font-bold hover:bg-emerald-700">📥 Xuất Log CSV</button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-3 bg-white p-3 rounded border text-xs">
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Lọc Theo Phân Hệ</label>
+            <select id="filterLogModule" onchange="renderSystemLogs()" class="w-full border p-1.5 rounded bg-white font-semibold">
+              <option value="">-- Tất cả phân hệ --</option>
+              <option value="EMAIL">Log Gửi Email (EMAIL)</option>
+              <option value="CONFIG">Log Cấu Hình Hệ Thống (CONFIG)</option>
+              <option value="USER_MGM">Log Quản Lý User (USER_MGM)</option>
+              <option value="PERMISSION">Log Đổi Phân Quyền (PERMISSION)</option>
+              <option value="INTERACTION">Log Tương Tác Tài Liệu (INTERACTION)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Lọc Trạng Thái</label>
+            <select id="filterLogStatus" onchange="renderSystemLogs()" class="w-full border p-1.5 rounded bg-white font-semibold">
+              <option value="">-- Tất cả trạng thái --</option>
+              <option value="SUCCESS">Thành công (SUCCESS)</option>
+              <option value="FAILED">Thất bại (FAILED)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Tìm Kiếm</label>
+            <input id="filterLogKeyword" oninput="renderSystemLogs()" placeholder="Username, IP, hành động..." class="w-full border p-1.5 rounded">
+          </div>
+          <div class="flex items-end">
+            <button onclick="resetLogFilters()" class="w-full bg-gray-200 text-gray-700 p-1.5 rounded font-bold hover:bg-gray-300">Đặt Lại Bộ Lọc</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto bg-white rounded border">
+        <table class="w-full border-collapse text-xs">
+          <thead>
+            <tr class="bg-gray-100 text-left text-gray-700">
+              <th class="border p-2">Thời Gian</th>
+              <th class="border p-2">Người Thực Hiện</th>
+              <th class="border p-2">IP Thiết Bị</th>
+              <th class="border p-2">Phân Hệ</th>
+              <th class="border p-2">Hành Động</th>
+              <th class="border p-2">Mô Tả Chi Tiết</th>
+              <th class="border p-2 text-center">Trạng Thái</th>
+            </tr>
+          </thead>
+          <tbody id="systemLogTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- MODAL XEM TÀI LIỆU (PROTECTED VIEWER) -->
+  <div id="viewDocModal" class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center hidden z-50 p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-4xl w-full flex flex-col max-h-[90vh] overflow-hidden">
+      <div class="flex justify-between items-center bg-gray-800 text-white p-4">
+        <div>
+          <h3 id="viewModalTitle" class="font-bold text-base flex items-center gap-2">📄 Xem Tài Liệu Nội Bộ</h3>
+          <p id="viewModalSub" class="text-xs text-gray-300"></p>
+        </div>
+        <button onclick="closeViewDocModal()" class="text-gray-300 hover:text-white font-bold text-xl px-2">✕</button>
+      </div>
+      <div class="bg-amber-100 text-amber-900 px-4 py-2 text-xs font-semibold flex items-center justify-between border-b border-amber-200 select-none">
+        <span>🔒 Chế độ xem an toàn (Chỉ xem trực tiếp trên ứng dụng)</span>
+        <span class="text-[10px] bg-amber-200 text-amber-900 font-bold px-2 py-0.5 rounded">Protected Viewer</span>
+      </div>
+      <div class="p-4 overflow-y-auto flex-1 bg-gray-100 flex flex-col items-center justify-center" id="viewModalContent" oncontextmenu="return false;"></div>
+      <div class="p-3 bg-gray-50 border-t flex justify-between items-center text-xs">
+        <span id="viewModalFooterInfo" class="text-gray-500 italic"></span>
+        <button onclick="closeViewDocModal()" class="bg-gray-600 text-white px-5 py-1.5 rounded font-bold hover:bg-gray-700">Đóng</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL CÁ NHÂN HÓA -->
+  <div id="profileModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50 p-4">
+    <div class="bg-white p-6 rounded-lg shadow-xl max-w-md w-full space-y-4">
+      <div class="flex justify-between items-center border-b pb-3">
+        <h3 class="font-bold text-gray-800 text-base">⚙️ Cập Nhật Thông Tin Cá Nhân</h3>
+        <button onclick="closeProfileModal()" class="text-gray-500 font-bold hover:text-gray-700 text-lg">✕</button>
+      </div>
+
+      <form onsubmit="savePersonalProfile(event)" class="space-y-3 text-xs">
+        <div>
+          <label class="block font-semibold text-gray-600 mb-1">Tên đăng nhập</label>
+          <input id="pfUsername" type="text" disabled class="w-full border p-2 rounded bg-gray-100 font-bold">
+        </div>
+        <div>
+          <label class="block font-semibold text-gray-600 mb-1">Họ và Tên</label>
+          <input id="pfFullName" type="text" class="w-full border p-2 rounded font-semibold" required>
+        </div>
+        <div>
+          <label class="block font-semibold text-gray-600 mb-1">Email Nhận Thông Báo</label>
+          <input id="pfEmail" type="email" class="w-full border p-2 rounded" required>
+        </div>
+        <div>
+          <label class="block font-semibold text-gray-600 mb-1">Số Điện Thoại</label>
+          <input id="pfPhone" type="tel" class="w-full border p-2 rounded" placeholder="0912345678" required>
+        </div>
+        
+        <div class="border-t pt-3 space-y-3">
+          <h4 class="font-bold text-gray-700">🔒 Đổi Mật Khẩu (Để trống nếu giữ nguyên)</h4>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Mật khẩu mới</label>
+            <input id="pfNewPass" type="password" class="w-full border p-2 rounded">
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Xác nhận mật khẩu mới</label>
+            <input id="pfConfirmPass" type="password" class="w-full border p-2 rounded">
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" onclick="closeProfileModal()" class="bg-gray-400 text-white px-4 py-2 rounded font-bold">Hủy</button>
+          <button type="submit" class="bg-blue-600 text-white px-5 py-2 rounded font-bold hover:bg-blue-700">Lưu Thay Đổi</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // --- KHỞI TẠO STATE & CLIENT DATABASE ---
+    const DB = { 
+      depts: [], cats: [], users: [], docs: [], 
+      workflows: [], deptWorkflows: {}, 
+      emailConfig: {}, systemLogs: [] 
+    };
+
+    let currentUser = null;
+    let currentPage = 1;
+    let pageSize = 5;
+    let currentFilterCard = '';
+
+    async function initDatabase() {
+      try {
+        const res = await fetch('/api/bootstrap');
+        const data = await res.json();
+        DB.depts = data.depts || [];
+        DB.cats = data.cats || [];
+        DB.users = data.users || [];
+        DB.docs = data.docs || [];
+        DB.workflows = data.workflows || [];
+        DB.deptWorkflows = data.deptWorkflows || {};
+        DB.emailConfig = data.emailConfig || {};
+        DB.systemLogs = data.systemLogs || [];
+      } catch (e) {
+        console.error('Lỗi kết nối Server API:', e);
+        alert('Không thể kết nối đến Máy chủ API DMS!');
+      }
+    }
+
+    async function syncStorage(key) {
+      try {
+        await fetch(`/api/sync/${key}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: DB[key] })
+        });
+        return true;
+      } catch (e) {
+        alert('Lỗi đồng bộ dữ liệu: ' + e.message);
+        return false;
+      }
+    }
+
+    initDatabase();
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
+
+    function logSystemAction(module, actionType, description, status = 'SUCCESS', target = '') {
+      const logEntry = {
+        id: Date.now() + Math.random(),
+        timestamp: new Date().toLocaleString('vi-VN'),
+        username: currentUser ? currentUser.username : 'system',
+        fullName: currentUser ? currentUser.name : 'Hệ Thống',
+        ipAddress: '127.0.0.1',
+        module: module,
+        actionType: actionType,
+        targetObject: target,
+        description: description,
+        status: status
+      };
+
+      DB.systemLogs.unshift(logEntry);
+      if (DB.systemLogs.length > 300) DB.systemLogs.pop();
+      syncStorage('system_logs');
+    }
+
+    function sendNotificationEmail(recipientEmail, recipientName, subject, messageBody) {
+      if (!DB.emailConfig.enabled) {
+        logSystemAction('EMAIL', 'SEND_EMAIL_SKIPPED', `Email gửi tới ${recipientName} (${recipientEmail}) bỏ qua do SMTP disabled.`, 'WARNING', recipientEmail);
+        return;
+      }
+      if (!recipientEmail) return;
+      console.log(`[DMS EMAIL SENT] To: ${recipientName} <${recipientEmail}> | Subject: ${subject}`);
+      logSystemAction('EMAIL', 'SEND_EMAIL_SUCCESS', `Đã gửi mail tự động tới [${recipientName} - ${recipientEmail}] với tiêu đề: "${subject}"`, 'SUCCESS', recipientEmail);
+    }
+
+    // --- AUTHENTICATION ---
+    function login() {
+      const u = document.getElementById('txtUser').value.trim();
+      const p = document.getElementById('txtPass').value.trim();
+
+      if (!u || !p) return alert('Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu!');
+
+      const user = DB.users.find(item => item.username === u && item.pass === p);
+      if (!user) return alert('Tài khoản hoặc mật khẩu không chính xác!');
+
+      currentUser = user;
+      logSystemAction('USER_MGM', 'LOGIN_SUCCESS', `Đăng nhập hệ thống thành công.`, 'SUCCESS', user.username);
+
+      document.getElementById('loginSection').classList.add('hidden');
+      document.getElementById('userHeader').classList.remove('hidden');
+      document.getElementById('userInfo').innerText = `${user.name} (${user.dept})`;
+      document.getElementById('userPhoneInfo').innerText = `📞 ${user.phone || 'Chưa có SĐT'} | ✉️ ${user.email || 'Chưa có Email'}`;
+
+      document.getElementById('btnAdminTab').classList.toggle('hidden', !user.perms.admin);
+      document.getElementById('btnWorkflowTab').classList.toggle('hidden', !user.perms.admin);
+      document.getElementById('btnLogTab').classList.toggle('hidden', !user.perms.admin);
+      document.getElementById('btnDocTab').classList.remove('hidden');
+
+      populateDropdowns();
+      switchTab('doc');
+    }
+
+    function logout() {
+      currentUser = null;
+      document.getElementById('loginSection').classList.remove('hidden');
+      document.getElementById('docSection').classList.add('hidden');
+      document.getElementById('adminSection').classList.add('hidden');
+      document.getElementById('workflowSection').classList.add('hidden');
+      document.getElementById('logSection').classList.add('hidden');
+      document.getElementById('userHeader').classList.add('hidden');
+      document.getElementById('txtUser').value = '';
+      document.getElementById('txtPass').value = '';
+    }
+
+    function switchTab(tabName) {
+      if (!currentUser) return logout();
+
+      document.getElementById('docSection').classList.toggle('hidden', tabName !== 'doc');
+      document.getElementById('adminSection').classList.toggle('hidden', tabName !== 'admin');
+      document.getElementById('workflowSection').classList.toggle('hidden', tabName !== 'workflow');
+      document.getElementById('logSection').classList.toggle('hidden', tabName !== 'log');
+
+      if (tabName === 'doc') { renderDocs(); updateUploadDeptDropdown(); }
+      if (tabName === 'workflow' && currentUser.perms.admin) { renderWorkflowTab(); }
+      if (tabName === 'admin' && currentUser.perms.admin) { renderDeptList(); renderCatList(); renderDeptCheckboxes(); renderUsers(); loadEmailConfigToForm(); }
+      if (tabName === 'log' && currentUser.perms.admin) { renderSystemLogs(); }
+    }
+
+    function populateDropdowns() {
+      const deptOptions = DB.depts.map(d => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('');
+      const catOptions = DB.cats.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+
+      document.getElementById('filterDept').innerHTML = '<option value="">-- Tất cả phòng ban --</option>' + deptOptions;
+      document.getElementById('uDept').innerHTML = deptOptions;
+      document.getElementById('selCat').innerHTML = '<option value="">-- Chọn Phân Loại --</option>' + catOptions;
+      
+      updateUploadDeptDropdown();
+    }
+
+    function updateUploadDeptDropdown() {
+      const selDept = document.getElementById('selDept');
+      if (!selDept || !currentUser) return;
+      const allowedDepts = DB.depts.filter(d => currentUser.perms?.uploadAll || (currentUser.perms?.uploadDepts && currentUser.perms.uploadDepts.includes(d)));
+      
+      if (allowedDepts.length > 0) {
+        document.getElementById('uploadBox').classList.remove('hidden');
+        selDept.innerHTML = '<option value="">-- Chọn Phòng Ban Trình --</option>' + allowedDepts.map(d => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('');
+      } else {
+        document.getElementById('uploadBox').classList.add('hidden');
+      }
+    }
+
+    // --- QUẢN LÝ TÀI LIỆU ---
+    function canUserViewDoc(user, doc) {
+      if (!user || !doc) return false;
+      if (user.perms?.admin) return true;
+      if (doc.status === 'APPROVED') {
+        if (user.perms?.viewApprovedAll) return true;
+        if (user.perms?.viewApprovedDepts && user.perms.viewApprovedDepts.includes(doc.dept)) return true;
+      } else {
+        if (user.perms?.viewDraftAll) return true;
+        if (user.perms?.viewDraftDepts && user.perms.viewDraftDepts.includes(doc.dept)) return true;
+        if (doc.creatorUsername === user.username) return true;
+      }
+      const deptConfig = DB.deptWorkflows[doc.dept];
+      if (deptConfig && deptConfig.approvers && deptConfig.approvers[doc.currentStepOrder] === user.username) return true;
+      return false;
+    }
+
+    function canUserDownloadDoc(user, doc) {
+      if (!user || !doc) return false;
+      if (user.perms?.admin) return true;
+      if (user.perms?.downloadAll) return true;
+      if (user.perms?.downloadDepts && user.perms.downloadDepts.includes(doc.dept)) return true;
+      return false;
+    }
+
+    function canUserApproveDoc(user, doc) {
+      if (!user || !doc || doc.status !== 'PENDING') return false;
+      if (user.perms?.admin) return true;
+      const deptConfig = DB.deptWorkflows[doc.dept];
+      if (!deptConfig || !deptConfig.approvers) return false;
+      return deptConfig.approvers[doc.currentStepOrder] === user.username;
+    }
+
+    function uploadDoc(e) {
+      e.preventDefault();
+      const fileInput = document.getElementById('docFile');
+      const file = fileInput.files[0];
+      if (!file) return alert('Vui lòng chọn file tài liệu!');
+
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        const fileDataUrl = evt.target.result;
+        const selDept = document.getElementById('selDept').value;
+        const newDoc = {
+          id: Date.now(),
+          code: document.getElementById('docCode').value.trim(),
+          title: document.getElementById('docTitle').value.trim(),
+          ver: document.getElementById('docVer').value.trim(),
+          dept: selDept,
+          cat: document.getElementById('selCat').value,
+          summary: document.getElementById('docSummary').value.trim(),
+          fileName: file.name,
+          fileType: file.type,
+          fileData: fileDataUrl,
+          createdBy: currentUser.name,
+          creatorUsername: currentUser.username,
+          createdAt: new Date().toISOString(),
+          workflowId: DB.deptWorkflows[selDept]?.workflowId || 'WF_1STEP',
+          currentStepOrder: 1,
+          status: 'PENDING',
+          history: []
+        };
+
+        DB.docs.unshift(newDoc);
+        syncStorage('docs');
+        logSystemAction('INTERACTION', 'UPLOAD_DOC', `Tải lên tài liệu: ${newDoc.code} - ${newDoc.title}`, 'SUCCESS', newDoc.code);
+        
+        const deptConfig = DB.deptWorkflows[selDept];
+        const firstApprover = deptConfig?.approvers?.[1];
+        const approverUser = DB.users.find(u => u.username === firstApprover);
+        if (approverUser && approverUser.email) {
+          sendNotificationEmail(approverUser.email, approverUser.name, `[DMS] Tài liệu mới chờ duyệt: ${newDoc.code}`, `Tài liệu ${newDoc.title} trình từ ${currentUser.name} đang chờ bạn phê duyệt.`);
+        }
+
+        alert('✅ Đã tải lên và trình ký tài liệu thành công!');
+        document.getElementById('docForm').reset();
+        renderDocs();
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function approveDoc(docId) {
+      const doc = DB.docs.find(d => d.id === docId);
+      if (!doc) return;
+
+      const deptConfig = DB.deptWorkflows[doc.dept];
+      const wf = DB.workflows.find(w => w.id === (doc.workflowId || deptConfig?.workflowId));
+      const totalSteps = wf ? wf.steps.length : 1;
+
+      doc.history.push({
+        stepOrder: doc.currentStepOrder,
+        action: 'APPROVED',
+        by: currentUser.name,
+        username: currentUser.username,
+        at: new Date().toLocaleString('vi-VN')
+      });
+
+      if (doc.currentStepOrder < totalSteps) {
+        doc.currentStepOrder += 1;
+        const nextApproverUsername = deptConfig?.approvers?.[doc.currentStepOrder];
+        const nextUser = DB.users.find(u => u.username === nextApproverUsername);
+        if (nextUser && nextUser.email) {
+          sendNotificationEmail(nextUser.email, nextUser.name, `[DMS] Chuyển duyệt tài liệu: ${doc.code}`, `Tài liệu ${doc.title} đã được thông qua cấp ${doc.currentStepOrder - 1} và cần bạn duyệt cấp tiếp theo.`);
+        }
+      } else {
+        doc.status = 'APPROVED';
+        logSystemAction('INTERACTION', 'APPROVE_DOC_FINAL', `Phê duyệt hoàn tất tài liệu: ${doc.code}`, 'SUCCESS', doc.code);
+      }
+
+      syncStorage('docs');
+      alert('✅ Đã phê duyệt tài liệu thành công!');
+      renderDocs();
+    }
+
+    function rejectDoc(docId) {
+      const doc = DB.docs.find(d => d.id === docId);
+      if (!doc) return;
+
+      const reason = prompt('Nhập lý do từ chối / trả về tài liệu:');
+      if (reason === null) return;
+
+      doc.history.push({
+        stepOrder: doc.currentStepOrder,
+        action: 'REJECTED',
+        by: currentUser.name,
+        username: currentUser.username,
+        reason: reason,
+        at: new Date().toLocaleString('vi-VN')
+      });
+
+      doc.status = 'REJECTED';
+      syncStorage('docs');
+      logSystemAction('INTERACTION', 'REJECT_DOC', `Từ chối tài liệu ${doc.code}. Lý do: ${reason}`, 'SUCCESS', doc.code);
+      alert('❌ Đã trả về tài liệu!');
+      renderDocs();
+    }
+
+    function renderDocs() {
+      const tbody = document.getElementById('docTableBody');
+      if (!tbody) return;
+
+      // Cập nhật Dashboard Counters
+      const viewableDocs = DB.docs.filter(d => canUserViewDoc(currentUser, d));
+      document.getElementById('dashTotal').innerText = viewableDocs.length;
+      document.getElementById('dashApproved').innerText = viewableDocs.filter(d => d.status === 'APPROVED').length;
+      document.getElementById('dashPending').innerText = viewableDocs.filter(d => d.status === 'PENDING').length;
+      document.getElementById('dashRejected').innerText = viewableDocs.filter(d => d.status === 'REJECTED').length;
+
+      // Filtering
+      const dept = document.getElementById('filterDept').value;
+      const status = currentFilterCard || document.getElementById('filterStatus').value;
+      const fromDate = document.getElementById('filterFromDate').value;
+      const toDate = document.getElementById('filterToDate').value;
+      const kw = document.getElementById('filterKeyword').value.toLowerCase().trim();
+
+      let filtered = viewableDocs.filter(d => {
+        if (dept && d.dept !== dept) return false;
+        if (status && d.status !== status) return false;
+        if (fromDate && new Date(d.createdAt) < new Date(fromDate)) return false;
+        if (toDate && new Date(d.createdAt) > new Date(toDate + 'T23:59:59')) return false;
+        if (kw && !(d.code.toLowerCase().includes(kw) || d.title.toLowerCase().includes(kw) || d.summary.toLowerCase().includes(kw))) return false;
+        return true;
+      });
+
+      // Pagination
+      const totalItems = filtered.length;
+      const totalPages = Math.ceil(totalItems / pageSize) || 1;
+      if (currentPage > totalPages) currentPage = totalPages;
+
+      const startIdx = (currentPage - 1) * pageSize;
+      const pageData = filtered.slice(startIdx, startIdx + pageSize);
+
+      if (pageData.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center p-4 text-gray-500">Không tìm thấy tài liệu phù hợp.</td></tr>`;
+      } else {
+        tbody.innerHTML = pageData.map(d => {
+          const statusBadge = d.status === 'APPROVED' ? `<span class="bg-green-100 text-green-800 text-[11px] font-bold px-2 py-0.5 rounded">Đã Duyệt</span>` :
+                              d.status === 'PENDING' ? `<span class="bg-yellow-100 text-yellow-800 text-[11px] font-bold px-2 py-0.5 rounded">Chờ Duyệt (Bước ${d.currentStepOrder})</span>` :
+                              `<span class="bg-red-100 text-red-800 text-[11px] font-bold px-2 py-0.5 rounded">Từ Chối</span>`;
+
+          const canDownload = canUserDownloadDoc(currentUser, d);
+          const canApprove = canUserApproveDoc(currentUser, d);
+
+          return `
+            <tr class="hover:bg-gray-50">
+              <td class="border p-2 font-mono font-bold text-xs">${escapeHtml(d.code)}</td>
+              <td class="border p-2">
+                <div class="font-bold text-blue-900">${escapeHtml(d.title)}</div>
+                <div class="text-gray-500 text-[11px]">${escapeHtml(d.summary)}</div>
+              </td>
+              <td class="border p-2">${escapeHtml(d.dept)}</td>
+              <td class="border p-2">${escapeHtml(d.cat)}</td>
+              <td class="border p-2 text-center font-bold">${escapeHtml(d.ver)}</td>
+              <td class="border p-2">${statusBadge}</td>
+              <td class="border p-2 text-center space-x-1">
+                <button onclick="openViewDocModal(${d.id})" class="text-xs bg-blue-600 text-white px-2 py-1 rounded font-semibold hover:bg-blue-700">Xem</button>
+                ${canDownload ? `<a href="${d.fileData}" download="${escapeHtml(d.fileName)}" class="text-xs bg-emerald-600 text-white px-2 py-1 rounded font-semibold hover:bg-emerald-700 inline-block">Tải</a>` : ''}
+                ${canApprove ? `<button onclick="approveDoc(${d.id})" class="text-xs bg-amber-500 text-white px-2 py-1 rounded font-semibold hover:bg-amber-600">Duyệt</button>
+                                <button onclick="rejectDoc(${d.id})" class="text-xs bg-red-600 text-white px-2 py-1 rounded font-semibold hover:bg-red-700">Trả về</button>` : ''}
+              </td>
+            </tr>
+          `;
+        }).join('');
+      }
+
+      renderPagination(totalItems, totalPages);
+    }
+
+    function filterByCard(status) {
+      currentFilterCard = status;
+      document.querySelectorAll('.dash-card').forEach(c => c.classList.remove('active-card'));
+      const activeCard = document.getElementById(status ? `card-${status}` : 'card-ALL');
+      if (activeCard) activeCard.classList.add('active-card');
+      currentPage = 1;
+      renderDocs();
+    }
+
+    function onFilterChange() {
+      currentPage = 1;
+      renderDocs();
+    }
+
+    function changePageSize(val) {
+      pageSize = parseInt(val, 10);
+      currentPage = 1;
+      renderDocs();
+    }
+
+    function renderPagination(totalItems, totalPages) {
+      document.getElementById('pageInfoText').innerText = `Tổng: ${totalItems} tài liệu (Trang ${currentPage}/${totalPages})`;
+      const btnsContainer = document.getElementById('paginationButtons');
+      btnsContainer.innerHTML = '';
+
+      for (let i = 1; i <= totalPages; i++) {
+        btnsContainer.innerHTML += `<button onclick="goToPage(${i})" class="px-2.5 py-1 text-xs rounded font-bold ${i === currentPage ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">${i}</button>`;
+      }
+    }
+
+    function goToPage(page) {
+      currentPage = page;
+      renderDocs();
+    }
+
+    function openViewDocModal(docId) {
+      const doc = DB.docs.find(d => d.id === docId);
+      if (!doc) return alert('Không tìm thấy tài liệu!');
+      if (!canUserViewDoc(currentUser, doc)) return alert('⛔ Bạn không có quyền xem tài liệu này!');
+
+      document.getElementById('viewModalTitle').innerText = `📄 Xem Tài Liệu: ${doc.title}`;
+      document.getElementById('viewModalSub').innerText = `Mã: ${doc.code} | Phiên bản: ${doc.ver} | Phòng ban: ${doc.dept} | Loại: ${doc.cat}`;
+      document.getElementById('viewModalFooterInfo').innerText = `Người tạo: ${doc.createdBy} - Trích lược: ${doc.summary}`;
+
+      const container = document.getElementById('viewModalContent');
+      container.innerHTML = '';
+
+      if (doc.fileData) {
+        if (doc.fileType && (doc.fileType.includes('pdf') || doc.fileData.startsWith('data:application/pdf'))) {
+          container.innerHTML = `<iframe src="${doc.fileData}#toolbar=0&navpanes=0&scrollbar=0" class="w-full h-[500px] border-0 rounded bg-white shadow" sandbox="allow-scripts allow-same-origin"></iframe>`;
+        } else if (doc.fileType && (doc.fileType.includes('image') || doc.fileData.startsWith('data:image/'))) {
+          container.innerHTML = `<img src="${doc.fileData}" class="max-h-[500px] max-w-full object-contain rounded shadow">`;
+        } else {
+          container.innerHTML = `<div class="p-8 text-center text-gray-600 space-y-2">
+            <p class="font-bold text-base">📄 Định dạng tệp: ${escapeHtml(doc.fileName)}</p>
+            <p class="text-xs">Xem trực tiếp áp dụng cho PDF/Hình ảnh. Dùng nút Tải file nếu được cấp quyền.</p>
+          </div>`;
+        }
+      }
+
+      document.getElementById('viewDocModal').classList.remove('hidden');
+    }
+
+    function closeViewDocModal() {
+      document.getElementById('viewDocModal').classList.add('hidden');
+    }
+
+    // --- QUẢN LÝ QUY TRÌNH ---
+    function renderWorkflowTab() {
+      renderDeptWorkflowConfig();
+      renderWorkflowTemplates();
+    }
+
+    function renderDeptWorkflowConfig() {
+      const container = document.getElementById('deptWorkflowConfigContainer');
+      if (!container) return;
+
+      container.innerHTML = DB.depts.map(dept => {
+        const config = DB.deptWorkflows[dept] || { workflowId: 'WF_1STEP', approvers: {} };
+        const selectedWf = DB.workflows.find(w => w.id === config.workflowId) || DB.workflows[0];
+
+        const wfOptions = DB.workflows.map(w => `<option value="${w.id}" ${w.id === config.workflowId ? 'selected' : ''}>${escapeHtml(w.name)}</option>`).join('');
+
+        let stepApproverInputs = '';
+        if (selectedWf && selectedWf.steps) {
+          stepApproverInputs = selectedWf.steps.map(step => {
+            const currentApprover = config.approvers ? config.approvers[step.order] || '' : '';
+            const userOptions = DB.users.map(u => `<option value="${u.username}" ${u.username === currentApprover ? 'selected' : ''}>${escapeHtml(u.name)} (${u.username})</option>`).join('');
+
+            return `
+              <div class="flex items-center gap-2 text-xs">
+                <span class="font-bold text-gray-600 min-w-[120px]">Bước ${step.order}: ${escapeHtml(step.name)}</span>
+                <select id="approver_${dept}_${step.order}" class="border p-1 rounded bg-white font-semibold">
+                  <option value="">-- Chọn Người Duyệt --</option>
+                  ${userOptions}
+                </select>
+              </div>
+            `;
+          }).join('');
+        }
+
+        return `
+          <div class="bg-white p-3 rounded border space-y-2">
+            <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-2 border-b pb-2">
+              <h4 class="font-bold text-emerald-900 text-sm">🏬 Phòng Ban: ${escapeHtml(dept)}</h4>
+              <div class="flex items-center gap-2">
+                <label class="text-xs font-semibold text-gray-600">Mẫu Quy Trình:</label>
+                <select id="wfSelect_${dept}" onchange="saveDeptWorkflow('${dept}')" class="border p-1 rounded text-xs bg-white font-bold">
+                  ${wfOptions}
+                </select>
+                <button onclick="saveDeptWorkflow('${dept}')" class="bg-emerald-600 text-white text-xs px-3 py-1 rounded font-bold hover:bg-emerald-700">Lưu Gán Quy Trình</button>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
+              ${stepApproverInputs}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function saveDeptWorkflow(dept) {
+      const wfSelect = document.getElementById(`wfSelect_${dept}`);
+      if (!wfSelect) return;
+
+      const selectedWfId = wfSelect.value;
+      const selectedWf = DB.workflows.find(w => w.id === selectedWfId);
+
+      let approvers = {};
+      if (selectedWf && selectedWf.steps) {
+        selectedWf.steps.forEach(step => {
+          const appEl = document.getElementById(`approver_${dept}_${step.order}`);
+          if (appEl) approvers[step.order] = appEl.value;
+        });
+      }
+
+      DB.deptWorkflows[dept] = {
+        workflowId: selectedWfId,
+        approvers: approvers
+      };
+
+      syncStorage('deptWorkflows');
+      logSystemAction('CONFIG', 'UPDATE_DEPT_WORKFLOW', `Cập nhật gán quy trình cho phòng ban [${dept}] sang [${selectedWfId}]`, 'SUCCESS', dept);
+      alert(`✅ Đã lưu cấu hình quy trình cho ${dept}!`);
+      renderDeptWorkflowConfig();
+    }
+
+    function renderWorkflowTemplates() {
+      const tbody = document.getElementById('workflowTableBody');
+      if (!tbody) return;
+
+      tbody.innerHTML = DB.workflows.map(w => `
+        <tr class="hover:bg-gray-50">
+          <td class="border p-2 font-mono font-bold">${escapeHtml(w.id)}</td>
+          <td class="border p-2 font-semibold">${escapeHtml(w.name)}</td>
+          <td class="border p-2 font-bold text-center">${w.steps ? w.steps.length : 0} bước</td>
+          <td class="border p-2">${w.steps ? w.steps.map(s => `<span class="bg-slate-100 text-slate-800 text-[11px] px-2 py-0.5 rounded border mr-1">Bước ${s.order}: ${escapeHtml(s.name)}</span>`).join('') : ''}</td>
+          <td class="border p-2 text-center space-x-1">
+            <button onclick="editWorkflowTemplate('${w.id}')" class="bg-blue-600 text-white px-2 py-0.5 rounded font-bold">Sửa</button>
+            <button onclick="deleteWorkflowTemplate('${w.id}')" class="bg-red-600 text-white px-2 py-0.5 rounded font-bold">Xóa</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function addStepRow(name = '') {
+      const container = document.getElementById('stepBuilderContainer');
+      const stepCount = container.children.length + 1;
+      if (stepCount > 5) return alert('Tối đa 5 bước phê duyệt!');
+
+      const row = document.createElement('div');
+      row.className = 'flex items-center gap-2 step-row';
+      row.innerHTML = `
+        <span class="font-bold text-xs text-gray-500 w-16">Bước ${stepCount}:</span>
+        <input placeholder="Tên bước (VD: Trưởng phòng)" value="${escapeHtml(name)}" class="step-name-input border p-1 rounded text-xs flex-1" required>
+        <button type="button" onclick="this.parentElement.remove(); reorderStepRows();" class="text-xs text-red-600 font-bold hover:underline">Xóa</button>
+      `;
+      container.appendChild(row);
+    }
+
+    function reorderStepRows() {
+      const container = document.getElementById('stepBuilderContainer');
+      Array.from(container.children).forEach((row, idx) => {
+        row.querySelector('span').innerText = `Bước ${idx + 1}:`;
+      });
+    }
+
+    function saveWorkflowTemplate(e) {
+      e.preventDefault();
+      const editingCode = document.getElementById('editingWfCode').value;
+      const code = document.getElementById('wfCode').value.trim().toUpperCase();
+      const name = document.getElementById('wfName').value.trim();
+
+      const stepInputs = document.querySelectorAll('.step-name-input');
+      if (stepInputs.length === 0) return alert('Vui lòng thêm ít nhất 1 bước duyệt!');
+
+      const steps = Array.from(stepInputs).map((inp, idx) => ({
+        order: idx + 1,
+        name: inp.value.trim()
+      }));
+
+      if (editingCode) {
+        const idx = DB.workflows.findIndex(w => w.id === editingCode);
+        if (idx !== -1) DB.workflows[idx] = { id: editingCode, name, steps };
+      } else {
+        if (DB.workflows.some(w => w.id === code)) return alert('Mã quy trình này đã tồn tại!');
+        DB.workflows.push({ id: code, name, steps });
+      }
+
+      syncStorage('workflows');
+      logSystemAction('CONFIG', 'SAVE_WORKFLOW_TEMPLATE', `Lưu mẫu quy trình [${code}] - ${name}`, 'SUCCESS', code);
+      alert('✅ Đã lưu mẫu quy trình!');
+      resetWorkflowForm();
+      renderWorkflowTab();
+    }
+
+    function editWorkflowTemplate(code) {
+      const wf = DB.workflows.find(w => w.id === code);
+      if (!wf) return;
+
+      document.getElementById('editingWfCode').value = wf.id;
+      document.getElementById('wfCode').value = wf.id;
+      document.getElementById('wfCode').disabled = true;
+      document.getElementById('wfName').value = wf.name;
+
+      const container = document.getElementById('stepBuilderContainer');
+      container.innerHTML = '';
+      if (wf.steps) {
+        wf.steps.forEach(s => addStepRow(s.name));
+      }
+
+      document.getElementById('btnCancelWf').classList.remove('hidden');
+    }
+
+    function deleteWorkflowTemplate(code) {
+      if (!confirm(`Bạn có chắc chắn muốn xóa mẫu quy trình [${code}]?`)) return;
+      DB.workflows = DB.workflows.filter(w => w.id !== code);
+      syncStorage('workflows');
+      logSystemAction('CONFIG', 'DELETE_WORKFLOW_TEMPLATE', `Xóa mẫu quy trình [${code}]`, 'SUCCESS', code);
+      renderWorkflowTab();
+    }
+
+    function resetWorkflowForm() {
+      document.getElementById('editingWfCode').value = '';
+      document.getElementById('wfCode').value = '';
+      document.getElementById('wfCode').disabled = false;
+      document.getElementById('wfName').value = '';
+      document.getElementById('stepBuilderContainer').innerHTML = '';
+      document.getElementById('btnCancelWf').classList.add('hidden');
+      addStepRow();
+    }
+
+    // --- QUẢN TRỊ ADMIN ---
+    function renderDeptList() {
+      const ul = document.getElementById('deptList');
+      if (!ul) return;
+      ul.innerHTML = DB.depts.map(d => `
+        <li class="p-2 flex justify-between items-center hover:bg-gray-50">
+          <span>${escapeHtml(d)}</span>
+          <button onclick="deleteDept('${d}')" class="text-xs text-red-600 font-bold hover:underline">Xóa</button>
+        </li>
+      `).join('');
+    }
+
+    function saveDept(e) {
+      e.preventDefault();
+      const val = document.getElementById('txtDeptName').value.trim();
+      if (!val) return;
+      if (DB.depts.includes(val)) return alert('Phòng ban đã tồn tại!');
+      DB.depts.push(val);
+      syncStorage('depts');
+      document.getElementById('txtDeptName').value = '';
+      populateDropdowns();
+      renderDeptList();
+      renderDeptCheckboxes();
+    }
+
+    function deleteDept(name) {
+      if (!confirm(`Xóa phòng ban ${name}?`)) return;
+      DB.depts = DB.depts.filter(d => d !== name);
+      syncStorage('depts');
+      populateDropdowns();
+      renderDeptList();
+      renderDeptCheckboxes();
+    }
+
+    function renderCatList() {
+      const ul = document.getElementById('catList');
+      if (!ul) return;
+      ul.innerHTML = DB.cats.map(c => `
+        <li class="p-2 flex justify-between items-center hover:bg-gray-50">
+          <span>${escapeHtml(c)}</span>
+          <button onclick="deleteCat('${c}')" class="text-xs text-red-600 font-bold hover:underline">Xóa</button>
+        </li>
+      `).join('');
+    }
+
+    function saveCat(e) {
+      e.preventDefault();
+      const val = document.getElementById('txtCatName').value.trim();
+      if (!val) return;
+      if (DB.cats.includes(val)) return alert('Loại tài liệu đã tồn tại!');
+      DB.cats.push(val);
+      syncStorage('cats');
+      document.getElementById('txtCatName').value = '';
+      populateDropdowns();
+      renderCatList();
+    }
+
+    function deleteCat(name) {
+      if (!confirm(`Xóa phân loại ${name}?`)) return;
+      DB.cats = DB.cats.filter(c => c !== name);
+      syncStorage('cats');
+      populateDropdowns();
+      renderCatList();
+    }
+
+    function renderDeptCheckboxes() {
+      const makeBoxes = (prefix) => DB.depts.map(d => `
+        <label class="flex items-center gap-1.5 text-gray-700 cursor-pointer">
+          <input type="checkbox" class="${prefix}Dept" value="${escapeHtml(d)}">
+          <span>${escapeHtml(d)}</span>
+        </label>
+      `).join('');
+
+      document.getElementById('pUploadDeptContainer').innerHTML = makeBoxes('pUpload');
+      document.getElementById('pViewDraftDeptContainer').innerHTML = makeBoxes('pViewDraft');
+      document.getElementById('pViewApprovedDeptContainer').innerHTML = makeBoxes('pViewApproved');
+      document.getElementById('pDownloadDeptContainer').innerHTML = makeBoxes('pDownload');
+    }
+
+    function toggleScopeGroup(allId, deptClass) {
+      const isAll = document.getElementById(allId).checked;
+      document.querySelectorAll(`.${deptClass}`).forEach(cb => {
+        cb.disabled = isAll;
+        if (isAll) cb.checked = false;
+      });
+    }
+
+    function saveUser(e) {
+      e.preventDefault();
+      const editId = document.getElementById('editUserId').value;
+      const username = document.getElementById('uUsername').value.trim();
+      const pass = document.getElementById('uPassword').value.trim();
+      const name = document.getElementById('uFullName').value.trim();
+      const email = document.getElementById('uEmail').value.trim();
+      const phone = document.getElementById('uPhone').value.trim();
+      const dept = document.getElementById('uDept').value;
+
+      const perms = {
+        admin: document.getElementById('pAdmin').checked,
+        uploadAll: document.getElementById('pUploadAll').checked,
+        uploadDepts: Array.from(document.querySelectorAll('.pUploadDept:checked')).map(c => c.value),
+        viewDraftAll: document.getElementById('pViewDraftAll').checked,
+        viewDraftDepts: Array.from(document.querySelectorAll('.pViewDraftDept:checked')).map(c => c.value),
+        viewApprovedAll: document.getElementById('pViewApprovedAll').checked,
+        viewApprovedDepts: Array.from(document.querySelectorAll('.pViewApprovedDept:checked')).map(c => c.value),
+        downloadAll: document.getElementById('pDownloadAll').checked,
+        downloadDepts: Array.from(document.querySelectorAll('.pDownloadDept:checked')).map(c => c.value)
+      };
+
+      if (editId) {
+        const idx = DB.users.findIndex(u => u.id == editId);
+        if (idx !== -1) {
+          DB.users[idx] = { id: Number(editId), username, pass, name, email, phone, dept, perms };
+          logSystemAction('USER_MGM', 'UPDATE_USER', `Cập nhật tài khoản và quyền hạn cho user: ${username}`, 'SUCCESS', username);
+        }
+      } else {
+        if (DB.users.some(u => u.username === username)) return alert('Username đã tồn tại!');
+        const newUser = { id: Date.now(), username, pass, name, email, phone, dept, perms };
+        DB.users.push(newUser);
+        logSystemAction('USER_MGM', 'CREATE_USER', `Tạo mới tài khoản user: ${username}`, 'SUCCESS', username);
+      }
+
+      syncStorage('users');
+      alert('✅ Đã lưu thông tin người dùng & phân quyền!');
+      resetUserForm();
+      renderUsers();
+    }
+
+    function editUser(id) {
+      const u = DB.users.find(item => item.id == id);
+      if (!u) return;
+
+      document.getElementById('editUserId').value = u.id;
+      document.getElementById('uUsername').value = u.username;
+      document.getElementById('uPassword').value = u.pass;
+      document.getElementById('uFullName').value = u.name;
+      document.getElementById('uEmail').value = u.email || '';
+      document.getElementById('uPhone').value = u.phone || '';
+      document.getElementById('uDept').value = u.dept;
+
+      const p = u.perms || {};
+      document.getElementById('pAdmin').checked = !!p.admin;
+
+      document.getElementById('pUploadAll').checked = !!p.uploadAll;
+      document.querySelectorAll('.pUploadDept').forEach(cb => cb.checked = p.uploadDepts ? p.uploadDepts.includes(cb.value) : false);
+      toggleScopeGroup('pUploadAll', 'pUploadDept');
+
+      document.getElementById('pViewDraftAll').checked = !!p.viewDraftAll;
+      document.querySelectorAll('.pViewDraftDept').forEach(cb => cb.checked = p.viewDraftDepts ? p.viewDraftDepts.includes(cb.value) : false);
+      toggleScopeGroup('pViewDraftAll', 'pViewDraftDept');
+
+      document.getElementById('pViewApprovedAll').checked = !!p.viewApprovedAll;
+      document.querySelectorAll('.pViewApprovedDept').forEach(cb => cb.checked = p.viewApprovedDepts ? p.viewApprovedDepts.includes(cb.value) : false);
+      toggleScopeGroup('pViewApprovedAll', 'pViewApprovedDept');
+
+      document.getElementById('pDownloadAll').checked = !!p.downloadAll;
+      document.querySelectorAll('.pDownloadDept').forEach(cb => cb.checked = p.downloadDepts ? p.downloadDepts.includes(cb.value) : false);
+      toggleScopeGroup('pDownloadAll', 'pDownloadDept');
+    }
+
+    function deleteUser(id) {
+      const u = DB.users.find(item => item.id == id);
+      if (!u) return;
+      if (u.username === 'admin') return alert('Không thể xóa tài khoản Admin gốc!');
+      if (!confirm(`Bạn có chắc chắn muốn xóa user ${u.username}?`)) return;
+
+      DB.users = DB.users.filter(item => item.id != id);
+      syncStorage('users');
+      logSystemAction('USER_MGM', 'DELETE_USER', `Xóa tài khoản user: ${u.username}`, 'SUCCESS', u.username);
+      renderUsers();
+    }
+
+    function resetUserForm() {
+      document.getElementById('editUserId').value = '';
+      document.getElementById('uUsername').value = '';
+      document.getElementById('uPassword').value = '';
+      document.getElementById('uFullName').value = '';
+      document.getElementById('uEmail').value = '';
+      document.getElementById('uPhone').value = '';
+      document.getElementById('pAdmin').checked = false;
+
+      ['pUploadAll', 'pViewDraftAll', 'pViewApprovedAll', 'pDownloadAll'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.checked = false; }
+      });
+
+      ['pUploadDept', 'pViewDraftDept', 'pViewApprovedDept', 'pDownloadDept'].forEach(cls => {
+        document.querySelectorAll(`.${cls}`).forEach(cb => { cb.checked = false; cb.disabled = false; });
+      });
+    }
+
+    function renderUsers() {
+      const tbody = document.getElementById('userTableBody');
+      if (!tbody) return;
+
+      tbody.innerHTML = DB.users.map(u => {
+        const p = u.perms || {};
+        const permTags = [
+          p.admin ? '<span class="bg-purple-100 text-purple-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">Admin</span>' : '',
+          p.uploadAll ? '<span class="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">Upload:ALL</span>' : '',
+          p.downloadAll ? '<span class="bg-rose-100 text-rose-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">Tải:ALL</span>' : ''
+        ].join('');
+
+        return `
+          <tr class="hover:bg-gray-50">
+            <td class="border p-2 font-bold font-mono text-blue-900">${escapeHtml(u.username)}</td>
+            <td class="border p-2 font-semibold">${escapeHtml(u.name)}</td>
+            <td class="border p-2 text-gray-600">${escapeHtml(u.email || 'N/A')} / ${escapeHtml(u.phone || 'N/A')}</td>
+            <td class="border p-2">${escapeHtml(u.dept)}</td>
+            <td class="border p-2">${permTags || '<span class="text-gray-400">Quyền cơ bản</span>'}</td>
+            <td class="border p-2 text-center space-x-1">
+              <button onclick="editUser(${u.id})" class="bg-blue-600 text-white px-2 py-0.5 rounded font-bold">Sửa</button>
+              <button onclick="deleteUser(${u.id})" class="bg-red-600 text-white px-2 py-0.5 rounded font-bold">Xóa</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function saveEmailConfig(e) {
+      e.preventDefault();
+      DB.emailConfig = {
+        enabled: document.getElementById('cfgEmailEnabled').value === 'true',
+        smtpHost: document.getElementById('cfgSmtpHost').value.trim(),
+        smtpPort: parseInt(document.getElementById('cfgSmtpPort').value, 10) || 587,
+        senderEmail: document.getElementById('cfgSenderEmail').value.trim()
+      };
+      syncStorage('emailConfig');
+      logSystemAction('CONFIG', 'UPDATE_SMTP_CONFIG', `Cập nhật cấu hình SMTP Server thành công.`, 'SUCCESS', 'SMTP');
+      alert('✅ Đã lưu cấu hình Email thành công!');
+    }
+
+    function loadEmailConfigToForm() {
+      if (!DB.emailConfig) return;
+      document.getElementById('cfgEmailEnabled').value = DB.emailConfig.enabled !== false ? 'true' : 'false';
+      document.getElementById('cfgSmtpHost').value = DB.emailConfig.smtpHost || 'smtp.gmail.com';
+      document.getElementById('cfgSmtpPort').value = DB.emailConfig.smtpPort || 587;
+      document.getElementById('cfgSenderEmail').value = DB.emailConfig.senderEmail || 'dms-noreply@company.com';
+    }
+
+    function downloadUserTemplate() {
+      const csv = `username,password,fullName,email,phone,dept\nuser_demo,123456,Nguyễn Văn Demo,demo@company.com,0987654321,Phòng IT`;
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'user_import_template.csv';
+      link.click();
+    }
+
+    function exportUsersCSV() {
+      let csv = 'username,fullName,email,phone,dept\n';
+      DB.users.forEach(u => {
+        csv += `"${u.username}","${u.name}","${u.email || ''}","${u.phone || ''}","${u.dept}"\n`;
+      });
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `dms_users_export_${Date.now()}.csv`;
+      link.click();
+    }
+
+    function importUsersCSV(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        const lines = evt.target.result.split('\n');
+        let count = 0;
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) continue;
+          const parts = line.split(',').map(p => p.replace(/^"|"$/g, '').trim());
+          if (parts.length >= 6) {
+            const [username, pass, name, email, phone, dept] = parts;
+            if (!DB.users.some(u => u.username === username)) {
+              DB.users.push({
+                id: Date.now() + Math.random(),
+                username, pass, name, email, phone, dept,
+                perms: { admin: false, uploadAll: false, viewDraftAll: false, viewApprovedAll: false, downloadAll: false }
+              });
+              count++;
+            }
+          }
+        }
+        syncStorage('users');
+        alert(`✅ Đã import thành công ${count} tài khoản người dùng!`);
+        renderUsers();
+      };
+      reader.readAsText(file);
+    }
+
+    // --- LOG HỆ THỐNG ---
+    function renderSystemLogs() {
+      const tbody = document.getElementById('systemLogTableBody');
+      if (!tbody) return;
+
+      const mod = document.getElementById('filterLogModule').value;
+      const status = document.getElementById('filterLogStatus').value;
+      const kw = document.getElementById('filterLogKeyword').value.toLowerCase().trim();
+
+      const filtered = DB.systemLogs.filter(l => {
+        if (mod && l.module !== mod) return false;
+        if (status && l.status !== status) return false;
+        if (kw && !(l.username.toLowerCase().includes(kw) || l.description.toLowerCase().includes(kw) || l.ipAddress.includes(kw))) return false;
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center p-4 text-gray-500">Không tìm thấy dữ liệu nhật ký hệ thống.</td></tr>`;
+      } else {
+        tbody.innerHTML = filtered.map(l => `
+          <tr class="hover:bg-gray-50">
+            <td class="border p-2 font-mono text-[11px] text-gray-600">${escapeHtml(l.timestamp)}</td>
+            <td class="border p-2 font-bold">${escapeHtml(l.fullName)} (${escapeHtml(l.username)})</td>
+            <td class="border p-2 font-mono text-[11px]">${escapeHtml(l.ipAddress)}</td>
+            <td class="border p-2 font-bold text-blue-900">${escapeHtml(l.module)}</td>
+            <td class="border p-2 font-semibold">${escapeHtml(l.actionType)}</td>
+            <td class="border p-2">${escapeHtml(l.description)}</td>
+            <td class="border p-2 text-center">
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold ${l.status === 'SUCCESS' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${escapeHtml(l.status)}</span>
+            </td>
+          </tr>
+        `).join('');
+      }
+    }
+
+    function clearSystemLogs() {
+      if (!confirm('Bạn có chắc chắn muốn xóa toàn bộ log nhật ký hệ thống?')) return;
+      DB.systemLogs = [];
+      syncStorage('system_logs');
+      renderSystemLogs();
+    }
+
+    function exportSystemLogsCSV() {
+      let csv = 'Timestamp,Username,FullName,IP,Module,ActionType,Description,Status\n';
+      DB.systemLogs.forEach(l => {
+        csv += `"${l.timestamp}","${l.username}","${l.fullName}","${l.ipAddress}","${l.module}","${l.actionType}","${l.description}","${l.status}"\n`;
+      });
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `system_logs_${Date.now()}.csv`;
+      link.click();
+    }
+
+    function resetLogFilters() {
+      document.getElementById('filterLogModule').value = '';
+      document.getElementById('filterLogStatus').value = '';
+      document.getElementById('filterLogKeyword').value = '';
+      renderSystemLogs();
+    }
+
+    // --- CÁ NHÂN HÓA PROFILE ---
+    function openProfileModal() {
+      if (!currentUser) return;
+      document.getElementById('pfUsername').value = currentUser.username;
+      document.getElementById('pfFullName').value = currentUser.name || '';
+      document.getElementById('pfEmail').value = currentUser.email || '';
+      document.getElementById('pfPhone').value = currentUser.phone || '';
+      document.getElementById('pfNewPass').value = '';
+      document.getElementById('pfConfirmPass').value = '';
+      document.getElementById('profileModal').classList.remove('hidden');
+    }
+
+    function closeProfileModal() {
+      document.getElementById('profileModal').classList.add('hidden');
+    }
+
+    function savePersonalProfile(e) {
+      e.preventDefault();
+      const newName = document.getElementById('pfFullName').value.trim();
+      const newEmail = document.getElementById('pfEmail').value.trim();
+      const newPhone = document.getElementById('pfPhone').value.trim();
+      const newPass = document.getElementById('pfNewPass').value.trim();
+      const confirmPass = document.getElementById('pfConfirmPass').value.trim();
+
+      if (newPass || confirmPass) {
+        if (newPass !== confirmPass) return alert('❌ Mật khẩu xác nhận không khớp!');
+        if (newPass.length < 6) return alert('❌ Mật khẩu mới phải có ít nhất 6 ký tự!');
+        currentUser.pass = newPass;
+      }
+
+      currentUser.name = newName;
+      currentUser.email = newEmail;
+      currentUser.phone = newPhone;
+
+      const userIdx = DB.users.findIndex(u => u.username === currentUser.username);
+      if (userIdx !== -1) {
+        DB.users[userIdx] = JSON.parse(JSON.stringify(currentUser));
+        syncStorage('users');
+      }
+
+      document.getElementById('userInfo').innerText = `${currentUser.name} (${currentUser.dept})`;
+      document.getElementById('userPhoneInfo').innerText = `📞 ${currentUser.phone || 'Chưa có SĐT'} | ✉️ ${currentUser.email || 'Chưa có Email'}`;
+
+      closeProfileModal();
+      alert('✅ Cập nhật thông tin cá nhân thành công!');
+    }
+  </script>
+</body>
+</html>
