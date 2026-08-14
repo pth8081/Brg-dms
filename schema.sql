@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS cats (
 
 -- 3. Bảng Người Dùng & Phân Quyền
 CREATE TABLE IF NOT EXISTS users (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
     username VARCHAR(100) UNIQUE NOT NULL,
     pass VARCHAR(255) NOT NULL,
     name VARCHAR(255) NOT NULL,
@@ -80,8 +80,10 @@ ON DUPLICATE KEY UPDATE name=name;
 INSERT INTO cats (name) VALUES ('Quy trình / Quy định'), ('Báo cáo tài chính'), ('Hợp đồng / Hồ sơ')
 ON DUPLICATE KEY UPDATE name=name;
 
-INSERT INTO users (username, pass, name, email, phone, dept, perms) VALUES 
-('admin', 'Admin@123456', 'Quản Trị Viên Hệ Thống', 'admin@company.com', '0901112223', 'Phòng IT', '{"admin": true, "uploadAll": true, "uploadDepts": [], "viewDraftAll": true, "viewDraftDepts": [], "viewApprovedAll": true, "viewApprovedDepts": [], "downloadAll": true, "downloadDepts": []}')
+-- Mật khẩu mặc định: Admin@123456 (đã hash bằng bcrypt, cost=12).
+-- BẮT BUỘC đổi mật khẩu này ngay sau lần đăng nhập đầu tiên trên môi trường production.
+INSERT INTO users (username, pass, name, email, phone, dept, perms) VALUES
+('admin', '$2b$12$oMp2RrpBU3Yij0zky5NVGeWI5FUPjHKZh7Bi3zX/NHT5olFKfDLSW', 'Quản Trị Viên Hệ Thống', 'admin@company.com', '0901112223', 'Phòng IT', '{"admin": true, "uploadAll": true, "uploadDepts": [], "viewDraftAll": true, "viewDraftDepts": [], "viewApprovedAll": true, "viewApprovedDepts": [], "downloadAll": true, "downloadDepts": []}')
 ON DUPLICATE KEY UPDATE name=name;
 
 INSERT INTO workflows (id, name, steps) VALUES 

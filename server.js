@@ -1,10 +1,53 @@
+require('dotenv').config();
+
+const crypto = require('crypto');
 const express = require('express');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
+const helmet = require('helmet');
+const cookieParser = require('cookie-parser');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const rateLimit = require('express-rate-limit');
 const path = require('path');
 
 const app = express();
-app.use(cors());
+const isProd = process.env.NODE_ENV === 'production';
+
+if (process.env.TRUST_PROXY === 'true') {
+    app.set('trust proxy', 1);
+}
+
+// --- BẢO MẬT: HTTP Security Headers ---
+// CSP nới lỏng cho script-src/style-src 'unsafe-inline' vì frontend hiện dùng
+// onclick= inline và <script>/<style> nội tuyến (chưa tách file riêng).
+app.use(helmet({
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'", "https://cdn.tailwindcss.com", "'unsafe-inline'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            imgSrc: ["'self'", "data:"],
+            frameSrc: ["'self'", "data:"],
+            objectSrc: ["'none'"],
+            baseUri: ["'self'"],
+            formAction: ["'self'"]
+        }
+    }
+}));
+
+// --- BẢO MẬT: CORS giới hạn theo whitelist (mặc định không cho cross-origin) ---
+const allowedOrigins = (process.env.CORS_ORIGIN || '').split(',').map(s => s.trim()).filter(Boolean);
+app.use(cors({
+    origin(origin, callback) {
+        if (!origin) return callback(null, true); // same-origin / curl / server-to-server
+        if (allowedOrigins.includes(origin)) return callback(null, true);
+        return callback(new Error('CORS: origin không được phép'));
+    },
+    credentials: true
+}));
+
+app.use(cookieParser());
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
@@ -33,8 +76,147 @@ async function initPool() {
 }
 initPool();
 
+// --- JWT ---
+let JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+    JWT_SECRET = crypto.randomBytes(48).toString('hex');
+    console.warn('⚠️  Chưa cấu hình JWT_SECRET trong biến môi trường — đã sinh secret ngẫu nhiên tạm thời.');
+    console.warn('⚠️  Phiên đăng nhập sẽ mất hiệu lực mỗi khi khởi động lại server. Vui lòng đặt JWT_SECRET cố định trong .env cho môi trường production.');
+}
+const TOKEN_COOKIE = 'dms_token';
+const TOKEN_TTL = '8h';
+
+function signToken(user) {
+    return jwt.sign(
+        { id: user.id, username: user.username },
+        JWT_SECRET,
+        { expiresIn: TOKEN_TTL }
+    );
+}
+
+function setAuthCookie(res, token) {
+    res.cookie(TOKEN_COOKIE, token, {
+        httpOnly: true,
+        secure: isProd,
+        sameSite: 'strict',
+        maxAge: 8 * 60 * 60 * 1000
+    });
+}
+
+function sanitizeUser(u) {
+    if (!u) return u;
+    const { pass, ...rest } = u;
+    return rest;
+}
+
+// --- MIDDLEWARE XÁC THỰC / PHÂN QUYỀN ---
+async function requireAuth(req, res, next) {
+    try {
+        const token = req.cookies[TOKEN_COOKIE];
+        if (!token) return res.status(401).json({ error: 'Chưa đăng nhập.' });
+
+        const payload = jwt.verify(token, JWT_SECRET);
+        const [rows] = await pool.query('SELECT * FROM users WHERE id = ?', [payload.id]);
+        const dbUser = rows[0];
+        if (!dbUser) return res.status(401).json({ error: 'Tài khoản không tồn tại.' });
+
+        req.user = dbUser;
+        req.user.perms = typeof dbUser.perms === 'string' ? JSON.parse(dbUser.perms || '{}') : (dbUser.perms || {});
+        next();
+    } catch (err) {
+        return res.status(401).json({ error: 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn.' });
+    }
+}
+
+function requireAdmin(req, res, next) {
+    if (!req.user || !req.user.perms || !req.user.perms.admin) {
+        return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên.' });
+    }
+    next();
+}
+
+const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Quá nhiều lần đăng nhập thất bại. Vui lòng thử lại sau ít phút.' }
+});
+
+const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 600,
+    standardHeaders: true,
+    legacyHeaders: false
+});
+app.use('/api', apiLimiter);
+
+// --- API AUTH ---
+app.post('/api/auth/login', loginLimiter, async (req, res) => {
+    try {
+        const { username, password } = req.body || {};
+        if (!username || !password) {
+            return res.status(400).json({ error: 'Vui lòng nhập tên đăng nhập và mật khẩu.' });
+        }
+
+        const [rows] = await pool.query('SELECT * FROM users WHERE username = ?', [username]);
+        const user = rows[0];
+        if (!user) return res.status(401).json({ error: 'Tài khoản hoặc mật khẩu không chính xác!' });
+
+        const ok = await bcrypt.compare(password, user.pass);
+        if (!ok) return res.status(401).json({ error: 'Tài khoản hoặc mật khẩu không chính xác!' });
+
+        const token = signToken(user);
+        setAuthCookie(res, token);
+
+        const perms = typeof user.perms === 'string' ? JSON.parse(user.perms || '{}') : user.perms;
+        res.json({ user: sanitizeUser({ ...user, perms }) });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/auth/logout', (req, res) => {
+    res.clearCookie(TOKEN_COOKIE, { httpOnly: true, secure: isProd, sameSite: 'strict' });
+    res.json({ success: true });
+});
+
+app.get('/api/auth/me', requireAuth, (req, res) => {
+    res.json({ user: sanitizeUser(req.user) });
+});
+
+// --- API CẬP NHẬT HỒ SƠ CÁ NHÂN (tự phục vụ, không cần quyền admin) ---
+app.post('/api/profile', requireAuth, async (req, res) => {
+    try {
+        const { name, email, phone, newPassword } = req.body || {};
+        if (!name || !email) {
+            return res.status(400).json({ error: 'Họ tên và Email là bắt buộc.' });
+        }
+        if (newPassword && newPassword.length < 6) {
+            return res.status(400).json({ error: 'Mật khẩu mới phải có ít nhất 6 ký tự.' });
+        }
+
+        let passHash = req.user.pass;
+        if (newPassword) {
+            passHash = await bcrypt.hash(newPassword, 12);
+        }
+
+        await pool.query(
+            'UPDATE users SET name = ?, email = ?, phone = ?, pass = ? WHERE id = ?',
+            [name, email, phone || '', passHash, req.user.id]
+        );
+
+        const [rows] = await pool.query('SELECT * FROM users WHERE id = ?', [req.user.id]);
+        const updated = rows[0];
+        const perms = typeof updated.perms === 'string' ? JSON.parse(updated.perms || '{}') : updated.perms;
+        res.json({ user: sanitizeUser({ ...updated, perms }) });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // --- API BOOTSTRAP (Lấy toàn bộ dữ liệu khởi tạo cho 4 Module) ---
-app.get('/api/bootstrap', async (req, res) => {
+app.get('/api/bootstrap', requireAuth, async (req, res) => {
     try {
         const [depts] = await pool.query('SELECT name FROM depts');
         const [cats] = await pool.query('SELECT name FROM cats');
@@ -50,7 +232,7 @@ app.get('/api/bootstrap', async (req, res) => {
         res.json({
             depts: depts.map(d => d.name),
             cats: cats.map(c => c.name),
-            users: users.map(u => ({ ...u, perms: typeof u.perms === 'string' ? JSON.parse(u.perms || '{}') : u.perms })),
+            users: users.map(u => sanitizeUser({ ...u, perms: typeof u.perms === 'string' ? JSON.parse(u.perms || '{}') : u.perms })),
             docs: docs.map(d => ({ ...d, history: typeof d.history === 'string' ? JSON.parse(d.history || '[]') : d.history })),
             workflows: workflows.map(w => ({ ...w, steps: typeof w.steps === 'string' ? JSON.parse(w.steps || '[]') : w.steps })),
             deptWorkflows: configMap.deptWorkflows || {},
@@ -62,25 +244,128 @@ app.get('/api/bootstrap', async (req, res) => {
     }
 });
 
+// Các bảng cấu hình hệ thống chỉ Admin mới được ghi
+const ADMIN_ONLY_TABLES = new Set(['users', 'workflows', 'depts', 'cats', 'deptWorkflows', 'emailConfig']);
+const KNOWN_TABLES = new Set(['docs', 'users', 'depts', 'cats', 'workflows', 'deptWorkflows', 'emailConfig', 'system_logs']);
+const MAX_SYNC_ROWS = 5000;
+
 // --- API SYNC / LƯU DỮ LIỆU ĐỒNG BỘ ---
-app.post('/api/sync/:table', async (req, res) => {
+app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
+    if (ADMIN_ONLY_TABLES.has(req.params.table)) return requireAdmin(req, res, next);
+    next();
+}, async (req, res) => {
     const { table } = req.params;
     const data = req.body.data;
+
+    if (!KNOWN_TABLES.has(table)) {
+        return res.status(400).json({ error: `Bảng dữ liệu không hợp lệ: ${table}` });
+    }
+    if (['docs', 'users', 'depts', 'cats', 'workflows', 'system_logs'].includes(table)) {
+        if (!Array.isArray(data)) return res.status(400).json({ error: 'Dữ liệu gửi lên phải là một mảng.' });
+        if (data.length > MAX_SYNC_ROWS) return res.status(400).json({ error: 'Số lượng bản ghi vượt giới hạn cho phép.' });
+    }
+
     try {
         if (table === 'docs') {
-            await pool.query('DELETE FROM docs');
-            for (let d of data) {
+            // Bảo mật: không xoá-chèn-lại toàn bảng nữa (tránh 2 người dùng ghi đè
+            // mất tài liệu của nhau). Chỉ ghi (thêm mới / cập nhật) đúng những dòng
+            // thực sự thay đổi, và kiểm tra quyền ở server thay vì tin client:
+            //  - Tài liệu mới: kiểm tra quyền upload theo phòng ban, ép trạng thái
+            //    khởi tạo (PENDING, bước 1, không lịch sử) và người tạo do server
+            //    xác định — client không thể tự tạo tài liệu "đã duyệt sẵn".
+            //  - Tài liệu đã có: không cho sửa nội dung/metadata (không có tính
+            //    năng sửa tài liệu trên UI); chỉ cho đổi trạng thái/bước duyệt nếu
+            //    người dùng là admin hoặc đúng người duyệt của bước hiện tại.
+            const [existingRows] = await pool.query('SELECT * FROM docs');
+            const existingMap = new Map(existingRows.map(r => [String(r.id), r]));
+
+            const [cfgRows] = await pool.query("SELECT config_value FROM app_configs WHERE config_key = 'deptWorkflows'");
+            const deptWorkflows = cfgRows[0]
+                ? (typeof cfgRows[0].config_value === 'string' ? JSON.parse(cfgRows[0].config_value) : cfgRows[0].config_value)
+                : {};
+
+            function canApproveStep(existingDoc) {
+                if (req.user.perms.admin) return true;
+                const cfg = deptWorkflows[existingDoc.dept];
+                if (!cfg || !cfg.approvers) return false;
+                return cfg.approvers[existingDoc.current_step_order] === req.user.username;
+            }
+
+            const toUpsert = [];
+            for (const d of data) {
+                const existing = existingMap.get(String(d.id));
+
+                if (!existing) {
+                    const canUpload = req.user.perms.admin || req.user.perms.uploadAll ||
+                        (req.user.perms.uploadDepts || []).includes(d.dept);
+                    if (!canUpload) {
+                        return res.status(403).json({ error: `Bạn không có quyền tải lên tài liệu cho phòng ban [${d.dept}].` });
+                    }
+                    toUpsert.push([
+                        d.id, d.code, d.title, d.ver, d.dept, d.cat, d.summary, d.fileName, d.fileType, d.fileData,
+                        req.user.name, req.user.username, d.createdAt, d.workflowId, 1, 'PENDING', JSON.stringify([])
+                    ]);
+                    continue;
+                }
+
+                const existingHistory = typeof existing.history === 'string' ? JSON.parse(existing.history || '[]') : (existing.history || []);
+                const metadataChanged = existing.code !== d.code || existing.title !== d.title || existing.ver !== d.ver ||
+                    existing.dept !== d.dept || existing.cat !== d.cat || existing.summary !== d.summary ||
+                    existing.file_name !== d.fileName || existing.file_type !== d.fileType || existing.file_data !== d.fileData;
+                const workflowChanged = existing.status !== d.status || existing.current_step_order !== d.currentStepOrder ||
+                    JSON.stringify(existingHistory) !== JSON.stringify(d.history || []);
+
+                if (!metadataChanged && !workflowChanged) continue; // không đổi gì, bỏ qua
+
+                if (metadataChanged) {
+                    return res.status(400).json({ error: `Không được phép sửa thông tin tài liệu đã tồn tại [${d.code}].` });
+                }
+                if (!canApproveStep(existing)) {
+                    return res.status(403).json({ error: `Bạn không có quyền duyệt/từ chối tài liệu [${d.code}] ở bước hiện tại.` });
+                }
+                toUpsert.push([
+                    d.id, existing.code, existing.title, existing.ver, existing.dept, existing.cat, existing.summary,
+                    existing.file_name, existing.file_type, existing.file_data, existing.created_by, existing.creator_username,
+                    existing.created_at, d.workflowId, d.currentStepOrder, d.status, JSON.stringify(d.history || [])
+                ]);
+            }
+
+            for (const row of toUpsert) {
                 await pool.query(
-                    'INSERT INTO docs (id, code, title, ver, dept, cat, summary, file_name, file_type, file_data, created_by, creator_username, created_at, workflow_id, current_step_order, status, history) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    [d.id, d.code, d.title, d.ver, d.dept, d.cat, d.summary, d.fileName, d.fileType, d.fileData, d.createdBy, d.creatorUsername, d.createdAt, d.workflowId, d.currentStepOrder, d.status, JSON.stringify(d.history || [])]
+                    `INSERT INTO docs (id, code, title, ver, dept, cat, summary, file_name, file_type, file_data, created_by, creator_username, created_at, workflow_id, current_step_order, status, history)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     ON DUPLICATE KEY UPDATE current_step_order = VALUES(current_step_order), status = VALUES(status), history = VALUES(history)`,
+                    row
                 );
             }
         } else if (table === 'users') {
-            await pool.query('DELETE FROM users');
+            // Bảo mật: mật khẩu không bao giờ được client gửi dạng đã biết trước (bootstrap không trả field `pass`).
+            // Nếu client không gửi mật khẩu mới (trống) cho một user đã tồn tại, giữ nguyên hash cũ trong DB.
+            const [existingRows] = await pool.query('SELECT username, pass FROM users');
+            const existingPassMap = {};
+            existingRows.forEach(r => existingPassMap[r.username] = r.pass);
+
+            const rowsToInsert = [];
             for (let u of data) {
+                let passHash;
+                if (u.pass && String(u.pass).trim()) {
+                    if (String(u.pass).trim().length < 6) {
+                        return res.status(400).json({ error: `Mật khẩu cho user [${u.username}] phải có ít nhất 6 ký tự.` });
+                    }
+                    passHash = await bcrypt.hash(String(u.pass).trim(), 12);
+                } else if (existingPassMap[u.username]) {
+                    passHash = existingPassMap[u.username];
+                } else {
+                    return res.status(400).json({ error: `Thiếu mật khẩu cho tài khoản mới: ${u.username}` });
+                }
+                rowsToInsert.push([u.id, u.username, passHash, u.name, u.email, u.phone, u.dept, JSON.stringify(u.perms || {})]);
+            }
+
+            await pool.query('DELETE FROM users');
+            for (let row of rowsToInsert) {
                 await pool.query(
                     'INSERT INTO users (id, username, pass, name, email, phone, dept, perms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                    [u.id, u.username, u.pass, u.name, u.email, u.phone, u.dept, JSON.stringify(u.perms || {})]
+                    row
                 );
             }
         } else if (table === 'depts') {
@@ -104,11 +389,29 @@ app.post('/api/sync/:table', async (req, res) => {
                 [table, JSON.stringify(data), JSON.stringify(data)]
             );
         } else if (table === 'system_logs') {
-            await pool.query('DELETE FROM system_logs');
-            for (let l of data) {
+            // Bảo mật: chống giả mạo nhật ký. Log đã tồn tại là bất biến (không cho
+            // sửa nội dung); chỉ chèn log THỰC SỰ MỚI, và danh tính/IP của log mới
+            // do server tự xác định từ phiên đăng nhập thật (không tin client).
+            // Xoá bớt log khỏi hệ thống (kể cả xoá toàn bộ qua nút "Xóa Log") chỉ
+            // Admin mới được phép.
+            const [existingRows] = await pool.query('SELECT id FROM system_logs');
+            const existingIds = new Set(existingRows.map(r => String(r.id)));
+            const incomingIds = new Set(data.map(l => String(l.id)));
+
+            const isRemovingAny = existingRows.some(r => !incomingIds.has(String(r.id)));
+            if (isRemovingAny && !req.user.perms.admin) {
+                return res.status(403).json({ error: 'Chỉ Quản trị viên mới được phép xoá nhật ký hệ thống.' });
+            }
+
+            if (isRemovingAny) {
+                await pool.query('DELETE FROM system_logs');
+            }
+
+            for (const l of data) {
+                if (!isRemovingAny && existingIds.has(String(l.id))) continue; // log cũ, giữ nguyên, không ghi đè
                 await pool.query(
                     'INSERT INTO system_logs (id, timestamp, username, fullName, ipAddress, module, actionType, targetObject, description, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    [l.id, l.timestamp, l.username, l.fullName, l.ipAddress, l.module, l.actionType, l.targetObject, l.description, l.status]
+                    [l.id, l.timestamp, req.user.username, req.user.name, req.ip || '', l.module, l.actionType, l.targetObject, l.description, l.status]
                 );
             }
         }
