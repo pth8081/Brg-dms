@@ -302,6 +302,7 @@
             <div>
               <label class="block text-xs font-semibold text-gray-600 mb-1">Mật khẩu</label>
               <input id="uPassword" type="password" placeholder="******" class="w-full border p-1.5 rounded text-xs" required>
+              <p class="text-[10px] text-gray-400 mt-0.5">Khi sửa tài khoản: để trống nếu muốn giữ nguyên mật khẩu hiện tại.</p>
             </div>
             <div>
               <label class="block text-xs font-semibold text-gray-600 mb-1">Họ và Tên</label>
@@ -550,29 +551,40 @@
     let pageSize = 5;
     let currentFilterCard = '';
 
-    async function initDatabase() {
-      try {
-        const res = await fetch('/api/bootstrap');
-        const data = await res.json();
-        DB.depts = data.depts || [];
-        DB.cats = data.cats || [];
-        DB.users = data.users || [];
-        DB.docs = data.docs || [];
-        DB.workflows = data.workflows || [];
-        DB.deptWorkflows = data.deptWorkflows || {};
-        DB.emailConfig = data.emailConfig || {};
-        DB.systemLogs = data.systemLogs || [];
-      } catch (e) {
-        console.error('Lỗi kết nối Server API:', e);
-        alert('Không thể kết nối đến Máy chủ API DMS!');
+    // --- LỚP GỌI API (xử lý lỗi 401 dùng chung: tự đưa về màn hình đăng nhập) ---
+    async function apiFetch(url, options = {}) {
+      const res = await fetch(url, {
+        ...options,
+        headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }
+      });
+      let body = null;
+      try { body = await res.json(); } catch (e) { /* no body */ }
+
+      if (!res.ok) {
+        if (res.status === 401) showLoginScreen();
+        const err = new Error((body && body.error) || `Lỗi HTTP ${res.status}`);
+        err.status = res.status;
+        throw err;
       }
+      return body;
+    }
+
+    async function loadBootstrapData() {
+      const data = await apiFetch('/api/bootstrap');
+      DB.depts = data.depts || [];
+      DB.cats = data.cats || [];
+      DB.users = data.users || [];
+      DB.docs = data.docs || [];
+      DB.workflows = data.workflows || [];
+      DB.deptWorkflows = data.deptWorkflows || {};
+      DB.emailConfig = data.emailConfig || {};
+      DB.systemLogs = data.systemLogs || [];
     }
 
     async function syncStorage(key) {
       try {
-        await fetch(`/api/sync/${key}`, {
+        await apiFetch(`/api/sync/${key}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ data: DB[key] })
         });
         return true;
@@ -582,7 +594,16 @@
       }
     }
 
-    initDatabase();
+    // Khôi phục phiên đăng nhập khi tải lại trang (cookie httpOnly vẫn còn hiệu lực trên server)
+    async function restoreSession() {
+      try {
+        const data = await apiFetch('/api/auth/me');
+        await enterApp(data.user, { logLogin: false });
+      } catch (e) {
+        // Chưa đăng nhập / phiên hết hạn -> giữ nguyên màn hình đăng nhập mặc định.
+      }
+    }
+    restoreSession();
 
     function escapeHtml(str) {
       if (!str) return '';
@@ -619,17 +640,27 @@
     }
 
     // --- AUTHENTICATION ---
-    function login() {
+    async function login() {
       const u = document.getElementById('txtUser').value.trim();
       const p = document.getElementById('txtPass').value.trim();
 
       if (!u || !p) return alert('Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu!');
 
-      const user = DB.users.find(item => item.username === u && item.pass === p);
-      if (!user) return alert('Tài khoản hoặc mật khẩu không chính xác!');
+      try {
+        const data = await apiFetch('/api/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({ username: u, password: p })
+        });
+        await enterApp(data.user, { logLogin: true });
+      } catch (e) {
+        alert(e.message || 'Tài khoản hoặc mật khẩu không chính xác!');
+      }
+    }
 
+    async function enterApp(user, { logLogin }) {
       currentUser = user;
-      logSystemAction('USER_MGM', 'LOGIN_SUCCESS', `Đăng nhập hệ thống thành công.`, 'SUCCESS', user.username);
+      await loadBootstrapData();
+      if (logLogin) logSystemAction('USER_MGM', 'LOGIN_SUCCESS', `Đăng nhập hệ thống thành công.`, 'SUCCESS', user.username);
 
       document.getElementById('loginSection').classList.add('hidden');
       document.getElementById('userHeader').classList.remove('hidden');
@@ -645,7 +676,7 @@
       switchTab('doc');
     }
 
-    function logout() {
+    function showLoginScreen() {
       currentUser = null;
       document.getElementById('loginSection').classList.remove('hidden');
       document.getElementById('docSection').classList.add('hidden');
@@ -653,6 +684,11 @@
       document.getElementById('workflowSection').classList.add('hidden');
       document.getElementById('logSection').classList.add('hidden');
       document.getElementById('userHeader').classList.add('hidden');
+    }
+
+    async function logout() {
+      try { await apiFetch('/api/auth/logout', { method: 'POST' }); } catch (e) { /* ignore */ }
+      showLoginScreen();
       document.getElementById('txtUser').value = '';
       document.getElementById('txtPass').value = '';
     }
@@ -952,7 +988,7 @@
 
       if (doc.fileData) {
         if (doc.fileType && (doc.fileType.includes('pdf') || doc.fileData.startsWith('data:application/pdf'))) {
-          container.innerHTML = `<iframe src="${doc.fileData}#toolbar=0&navpanes=0&scrollbar=0" class="w-full h-[500px] border-0 rounded bg-white shadow" sandbox="allow-scripts allow-same-origin"></iframe>`;
+          container.innerHTML = `<iframe src="${doc.fileData}#toolbar=0&navpanes=0&scrollbar=0" class="w-full h-[500px] border-0 rounded bg-white shadow" sandbox=""></iframe>`;
         } else if (doc.fileType && (doc.fileType.includes('image') || doc.fileData.startsWith('data:image/'))) {
           container.innerHTML = `<img src="${doc.fileData}" class="max-h-[500px] max-w-full object-contain rounded shadow">`;
         } else {
@@ -1252,6 +1288,9 @@
       const phone = document.getElementById('uPhone').value.trim();
       const dept = document.getElementById('uDept').value;
 
+      if (!editId && !pass) return alert('Vui lòng nhập mật khẩu cho tài khoản mới!');
+      if (pass && pass.length < 6) return alert('Mật khẩu phải có ít nhất 6 ký tự!');
+
       const perms = {
         admin: document.getElementById('pAdmin').checked,
         uploadAll: document.getElementById('pUploadAll').checked,
@@ -1289,7 +1328,8 @@
 
       document.getElementById('editUserId').value = u.id;
       document.getElementById('uUsername').value = u.username;
-      document.getElementById('uPassword').value = u.pass;
+      document.getElementById('uPassword').value = '';
+      document.getElementById('uPassword').required = false;
       document.getElementById('uFullName').value = u.name;
       document.getElementById('uEmail').value = u.email || '';
       document.getElementById('uPhone').value = u.phone || '';
@@ -1331,6 +1371,7 @@
       document.getElementById('editUserId').value = '';
       document.getElementById('uUsername').value = '';
       document.getElementById('uPassword').value = '';
+      document.getElementById('uPassword').required = true;
       document.getElementById('uFullName').value = '';
       document.getElementById('uEmail').value = '';
       document.getElementById('uPhone').value = '';
@@ -1524,7 +1565,7 @@
       document.getElementById('profileModal').classList.add('hidden');
     }
 
-    function savePersonalProfile(e) {
+    async function savePersonalProfile(e) {
       e.preventDefault();
       const newName = document.getElementById('pfFullName').value.trim();
       const newEmail = document.getElementById('pfEmail').value.trim();
@@ -1535,24 +1576,25 @@
       if (newPass || confirmPass) {
         if (newPass !== confirmPass) return alert('❌ Mật khẩu xác nhận không khớp!');
         if (newPass.length < 6) return alert('❌ Mật khẩu mới phải có ít nhất 6 ký tự!');
-        currentUser.pass = newPass;
       }
 
-      currentUser.name = newName;
-      currentUser.email = newEmail;
-      currentUser.phone = newPhone;
+      try {
+        const data = await apiFetch('/api/profile', {
+          method: 'POST',
+          body: JSON.stringify({ name: newName, email: newEmail, phone: newPhone, newPassword: newPass || undefined })
+        });
+        currentUser = data.user;
+        const userIdx = DB.users.findIndex(u => u.username === currentUser.username);
+        if (userIdx !== -1) DB.users[userIdx] = currentUser;
 
-      const userIdx = DB.users.findIndex(u => u.username === currentUser.username);
-      if (userIdx !== -1) {
-        DB.users[userIdx] = JSON.parse(JSON.stringify(currentUser));
-        syncStorage('users');
+        document.getElementById('userInfo').innerText = `${currentUser.name} (${currentUser.dept})`;
+        document.getElementById('userPhoneInfo').innerText = `📞 ${currentUser.phone || 'Chưa có SĐT'} | ✉️ ${currentUser.email || 'Chưa có Email'}`;
+
+        closeProfileModal();
+        alert('✅ Cập nhật thông tin cá nhân thành công!');
+      } catch (err) {
+        alert('❌ ' + err.message);
       }
-
-      document.getElementById('userInfo').innerText = `${currentUser.name} (${currentUser.dept})`;
-      document.getElementById('userPhoneInfo').innerText = `📞 ${currentUser.phone || 'Chưa có SĐT'} | ✉️ ${currentUser.email || 'Chưa có Email'}`;
-
-      closeProfileModal();
-      alert('✅ Cập nhật thông tin cá nhân thành công!');
     }
   </script>
 </body>
