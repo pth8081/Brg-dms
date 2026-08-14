@@ -988,7 +988,14 @@
 
       if (doc.fileData) {
         if (doc.fileType && (doc.fileType.includes('pdf') || doc.fileData.startsWith('data:application/pdf'))) {
-          container.innerHTML = `<iframe src="${doc.fileData}#toolbar=0&navpanes=0&scrollbar=0" class="w-full h-[500px] border-0 rounded bg-white shadow" sandbox=""></iframe>`;
+          // Lưu ý: KHÔNG dùng thuộc tính sandbox ở đây. Đã kiểm chứng bằng Chromium
+          // thật: bất kỳ giá trị sandbox nào (kể cả "allow-scripts") đều khiến
+          // Chrome/Edge chặn hẳn việc render PDF từ data: URI (ERR_BLOCKED_BY_CLIENT).
+          // Việc bỏ sandbox vẫn an toàn cho data: URI vì trình duyệt luôn gán cho
+          // nó origin "null" (cô lập hoàn toàn khỏi trang cha) bất kể có sandbox
+          // hay không — đã kiểm chứng script trong iframe không đọc được DOM/tiêu
+          // đề của trang cha trong cả 2 trường hợp.
+          container.innerHTML = `<iframe src="${doc.fileData}#toolbar=0&navpanes=0&scrollbar=0" class="w-full h-[500px] border-0 rounded bg-white shadow"></iframe>`;
         } else if (doc.fileType && (doc.fileType.includes('image') || doc.fileData.startsWith('data:image/'))) {
           container.innerHTML = `<img src="${doc.fileData}" class="max-h-[500px] max-w-full object-contain rounded shadow">`;
         } else {
