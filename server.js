@@ -267,11 +267,75 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
 
     try {
         if (table === 'docs') {
-            await pool.query('DELETE FROM docs');
-            for (let d of data) {
+            // Bảo mật: không xoá-chèn-lại toàn bảng nữa (tránh 2 người dùng ghi đè
+            // mất tài liệu của nhau). Chỉ ghi (thêm mới / cập nhật) đúng những dòng
+            // thực sự thay đổi, và kiểm tra quyền ở server thay vì tin client:
+            //  - Tài liệu mới: kiểm tra quyền upload theo phòng ban, ép trạng thái
+            //    khởi tạo (PENDING, bước 1, không lịch sử) và người tạo do server
+            //    xác định — client không thể tự tạo tài liệu "đã duyệt sẵn".
+            //  - Tài liệu đã có: không cho sửa nội dung/metadata (không có tính
+            //    năng sửa tài liệu trên UI); chỉ cho đổi trạng thái/bước duyệt nếu
+            //    người dùng là admin hoặc đúng người duyệt của bước hiện tại.
+            const [existingRows] = await pool.query('SELECT * FROM docs');
+            const existingMap = new Map(existingRows.map(r => [String(r.id), r]));
+
+            const [cfgRows] = await pool.query("SELECT config_value FROM app_configs WHERE config_key = 'deptWorkflows'");
+            const deptWorkflows = cfgRows[0]
+                ? (typeof cfgRows[0].config_value === 'string' ? JSON.parse(cfgRows[0].config_value) : cfgRows[0].config_value)
+                : {};
+
+            function canApproveStep(existingDoc) {
+                if (req.user.perms.admin) return true;
+                const cfg = deptWorkflows[existingDoc.dept];
+                if (!cfg || !cfg.approvers) return false;
+                return cfg.approvers[existingDoc.current_step_order] === req.user.username;
+            }
+
+            const toUpsert = [];
+            for (const d of data) {
+                const existing = existingMap.get(String(d.id));
+
+                if (!existing) {
+                    const canUpload = req.user.perms.admin || req.user.perms.uploadAll ||
+                        (req.user.perms.uploadDepts || []).includes(d.dept);
+                    if (!canUpload) {
+                        return res.status(403).json({ error: `Bạn không có quyền tải lên tài liệu cho phòng ban [${d.dept}].` });
+                    }
+                    toUpsert.push([
+                        d.id, d.code, d.title, d.ver, d.dept, d.cat, d.summary, d.fileName, d.fileType, d.fileData,
+                        req.user.name, req.user.username, d.createdAt, d.workflowId, 1, 'PENDING', JSON.stringify([])
+                    ]);
+                    continue;
+                }
+
+                const existingHistory = typeof existing.history === 'string' ? JSON.parse(existing.history || '[]') : (existing.history || []);
+                const metadataChanged = existing.code !== d.code || existing.title !== d.title || existing.ver !== d.ver ||
+                    existing.dept !== d.dept || existing.cat !== d.cat || existing.summary !== d.summary ||
+                    existing.file_name !== d.fileName || existing.file_type !== d.fileType || existing.file_data !== d.fileData;
+                const workflowChanged = existing.status !== d.status || existing.current_step_order !== d.currentStepOrder ||
+                    JSON.stringify(existingHistory) !== JSON.stringify(d.history || []);
+
+                if (!metadataChanged && !workflowChanged) continue; // không đổi gì, bỏ qua
+
+                if (metadataChanged) {
+                    return res.status(400).json({ error: `Không được phép sửa thông tin tài liệu đã tồn tại [${d.code}].` });
+                }
+                if (!canApproveStep(existing)) {
+                    return res.status(403).json({ error: `Bạn không có quyền duyệt/từ chối tài liệu [${d.code}] ở bước hiện tại.` });
+                }
+                toUpsert.push([
+                    d.id, existing.code, existing.title, existing.ver, existing.dept, existing.cat, existing.summary,
+                    existing.file_name, existing.file_type, existing.file_data, existing.created_by, existing.creator_username,
+                    existing.created_at, d.workflowId, d.currentStepOrder, d.status, JSON.stringify(d.history || [])
+                ]);
+            }
+
+            for (const row of toUpsert) {
                 await pool.query(
-                    'INSERT INTO docs (id, code, title, ver, dept, cat, summary, file_name, file_type, file_data, created_by, creator_username, created_at, workflow_id, current_step_order, status, history) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    [d.id, d.code, d.title, d.ver, d.dept, d.cat, d.summary, d.fileName, d.fileType, d.fileData, d.createdBy, d.creatorUsername, d.createdAt, d.workflowId, d.currentStepOrder, d.status, JSON.stringify(d.history || [])]
+                    `INSERT INTO docs (id, code, title, ver, dept, cat, summary, file_name, file_type, file_data, created_by, creator_username, created_at, workflow_id, current_step_order, status, history)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     ON DUPLICATE KEY UPDATE current_step_order = VALUES(current_step_order), status = VALUES(status), history = VALUES(history)`,
+                    row
                 );
             }
         } else if (table === 'users') {
@@ -325,11 +389,29 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                 [table, JSON.stringify(data), JSON.stringify(data)]
             );
         } else if (table === 'system_logs') {
-            await pool.query('DELETE FROM system_logs');
-            for (let l of data) {
+            // Bảo mật: chống giả mạo nhật ký. Log đã tồn tại là bất biến (không cho
+            // sửa nội dung); chỉ chèn log THỰC SỰ MỚI, và danh tính/IP của log mới
+            // do server tự xác định từ phiên đăng nhập thật (không tin client).
+            // Xoá bớt log khỏi hệ thống (kể cả xoá toàn bộ qua nút "Xóa Log") chỉ
+            // Admin mới được phép.
+            const [existingRows] = await pool.query('SELECT id FROM system_logs');
+            const existingIds = new Set(existingRows.map(r => String(r.id)));
+            const incomingIds = new Set(data.map(l => String(l.id)));
+
+            const isRemovingAny = existingRows.some(r => !incomingIds.has(String(r.id)));
+            if (isRemovingAny && !req.user.perms.admin) {
+                return res.status(403).json({ error: 'Chỉ Quản trị viên mới được phép xoá nhật ký hệ thống.' });
+            }
+
+            if (isRemovingAny) {
+                await pool.query('DELETE FROM system_logs');
+            }
+
+            for (const l of data) {
+                if (!isRemovingAny && existingIds.has(String(l.id))) continue; // log cũ, giữ nguyên, không ghi đè
                 await pool.query(
                     'INSERT INTO system_logs (id, timestamp, username, fullName, ipAddress, module, actionType, targetObject, description, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    [l.id, l.timestamp, l.username, l.fullName, l.ipAddress, l.module, l.actionType, l.targetObject, l.description, l.status]
+                    [l.id, l.timestamp, req.user.username, req.user.name, req.ip || '', l.module, l.actionType, l.targetObject, l.description, l.status]
                 );
             }
         }
