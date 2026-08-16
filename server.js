@@ -115,7 +115,7 @@ async function requireAuth(req, res, next) {
         const token = req.cookies[TOKEN_COOKIE];
         if (!token) return res.status(401).json({ error: 'Chưa đăng nhập.' });
 
-        const payload = jwt.verify(token, JWT_SECRET);
+        const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
         const [rows] = await pool.query('SELECT * FROM users WHERE id = ?', [payload.id]);
         const dbUser = rows[0];
         if (!dbUser) return res.status(401).json({ error: 'Tài khoản không tồn tại.' });
@@ -249,6 +249,57 @@ const ADMIN_ONLY_TABLES = new Set(['users', 'workflows', 'depts', 'cats', 'deptW
 const KNOWN_TABLES = new Set(['docs', 'users', 'depts', 'cats', 'workflows', 'deptWorkflows', 'emailConfig', 'system_logs']);
 const MAX_SYNC_ROWS = 5000;
 
+// --- BẢO MẬT: Zero Trust cho file upload — không tin định dạng client khai báo.
+// Chỉ chấp nhận PDF, xác thực bằng magic bytes thật của file (%PDF- ở đầu file),
+// không chỉ dựa vào đuôi file hay MIME type (dễ giả mạo).
+const MAX_PDF_SIZE_BYTES = 20 * 1024 * 1024; // 20MB — điều chỉnh nếu cần
+const PDF_MAGIC_BYTES = Buffer.from('%PDF-', 'ascii');
+
+function validatePdfUpload(fileName, fileType, fileDataUri) {
+    if (fileType !== 'application/pdf') {
+        return 'Chỉ chấp nhận file PDF (định dạng application/pdf).';
+    }
+    if (!fileName || !/\.pdf$/i.test(String(fileName))) {
+        return 'Tên file phải có đuôi .pdf.';
+    }
+    if (typeof fileDataUri !== 'string') {
+        return 'Dữ liệu file không hợp lệ.';
+    }
+    const match = fileDataUri.match(/^data:application\/pdf;base64,([A-Za-z0-9+/=]+)$/);
+    if (!match) {
+        return 'Dữ liệu file không đúng định dạng data URI của PDF.';
+    }
+    let buffer;
+    try {
+        buffer = Buffer.from(match[1], 'base64');
+    } catch (e) {
+        return 'Không thể giải mã dữ liệu file.';
+    }
+    if (buffer.length === 0) {
+        return 'File rỗng.';
+    }
+    if (buffer.length > MAX_PDF_SIZE_BYTES) {
+        return `Kích thước file vượt quá giới hạn cho phép (${MAX_PDF_SIZE_BYTES / (1024 * 1024)}MB).`;
+    }
+    if (!buffer.subarray(0, PDF_MAGIC_BYTES.length).equals(PDF_MAGIC_BYTES)) {
+        return 'Nội dung file không phải PDF hợp lệ (sai magic bytes ở đầu file).';
+    }
+    return null; // hợp lệ
+}
+
+const DOC_FIELD_LIMITS = { code: 100, title: 500, ver: 50, summary: 5000, fileName: 255 };
+function validateDocFieldLengths(d) {
+    for (const [field, max] of Object.entries(DOC_FIELD_LIMITS)) {
+        const val = d[field];
+        if (val != null && String(val).length > max) {
+            return `Trường [${field}] vượt quá ${max} ký tự cho phép.`;
+        }
+    }
+    if (!d.code || !String(d.code).trim()) return 'Thiếu mã tài liệu.';
+    if (!d.title || !String(d.title).trim()) return 'Thiếu tiêu đề tài liệu.';
+    return null;
+}
+
 // --- API SYNC / LƯU DỮ LIỆU ĐỒNG BỘ ---
 app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
     if (ADMIN_ONLY_TABLES.has(req.params.table)) return requireAdmin(req, res, next);
@@ -301,6 +352,16 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                     if (!canUpload) {
                         return res.status(403).json({ error: `Bạn không có quyền tải lên tài liệu cho phòng ban [${d.dept}].` });
                     }
+
+                    const fieldError = validateDocFieldLengths(d);
+                    if (fieldError) {
+                        return res.status(400).json({ error: fieldError });
+                    }
+                    const pdfError = validatePdfUpload(d.fileName, d.fileType, d.fileData);
+                    if (pdfError) {
+                        return res.status(400).json({ error: `Tài liệu [${d.code}]: ${pdfError}` });
+                    }
+
                     toUpsert.push([
                         d.id, d.code, d.title, d.ver, d.dept, d.cat, d.summary, d.fileName, d.fileType, d.fileData,
                         req.user.name, req.user.username, d.createdAt, d.workflowId, 1, 'PENDING', JSON.stringify([])
