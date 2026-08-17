@@ -21,11 +21,18 @@ if (process.env.TRUST_PROXY === 'true') {
 // --- BẢO MẬT: HTTP Security Headers ---
 // CSP nới lỏng cho script-src/style-src 'unsafe-inline' vì frontend hiện dùng
 // onclick= inline và <script>/<style> nội tuyến (chưa tách file riêng).
+// LƯU Ý QUAN TRỌNG: script-src-attr là directive RIÊNG (CSP Level 3) áp dụng
+// cho thuộc tính sự kiện inline (onclick=, onchange=...), TÁCH BIỆT với
+// script-src. Helmet mặc định set script-src-attr: 'none' nếu không khai báo
+// rõ, và giá trị đó SẼ GHI ĐÈ 'unsafe-inline' trong script-src đối với riêng
+// onclick/onchange — làm toàn bộ nút bấm trong app ngừng hoạt động dù
+// script-src đã cho phép 'unsafe-inline'. Phải khai báo scriptSrcAttr riêng.
 app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
             scriptSrc: ["'self'", "https://cdn.tailwindcss.com", "'unsafe-inline'"],
+            scriptSrcAttr: ["'unsafe-inline'"],
             styleSrc: ["'self'", "'unsafe-inline'"],
             imgSrc: ["'self'", "data:"],
             frameSrc: ["'self'", "data:"],
@@ -37,15 +44,22 @@ app.use(helmet({
 }));
 
 // --- BẢO MẬT: CORS giới hạn theo whitelist (mặc định không cho cross-origin) ---
+// Lưu ý: trình duyệt vẫn gửi header Origin cho các request fetch() same-origin
+// (không chỉ request thật sự cross-origin), nên phải tự so sánh Origin với
+// chính origin đang phục vụ request để không chặn nhầm request hợp lệ.
 const allowedOrigins = (process.env.CORS_ORIGIN || '').split(',').map(s => s.trim()).filter(Boolean);
-app.use(cors({
-    origin(origin, callback) {
-        if (!origin) return callback(null, true); // same-origin / curl / server-to-server
-        if (allowedOrigins.includes(origin)) return callback(null, true);
-        return callback(new Error('CORS: origin không được phép'));
-    },
-    credentials: true
-}));
+app.use((req, res, next) => {
+    const selfOrigin = `${req.protocol}://${req.get('host')}`;
+    cors({
+        origin(origin, callback) {
+            if (!origin || origin === selfOrigin || allowedOrigins.includes(origin)) {
+                return callback(null, true);
+            }
+            return callback(new Error('CORS: origin không được phép'));
+        },
+        credentials: true
+    })(req, res, next);
+});
 
 app.use(cookieParser());
 app.use(express.json({ limit: '100mb' }));
@@ -233,7 +247,29 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
             depts: depts.map(d => d.name),
             cats: cats.map(c => c.name),
             users: users.map(u => sanitizeUser({ ...u, perms: typeof u.perms === 'string' ? JSON.parse(u.perms || '{}') : u.perms })),
-            docs: docs.map(d => ({ ...d, history: typeof d.history === 'string' ? JSON.parse(d.history || '[]') : d.history })),
+            // Bảng docs lưu cột dạng snake_case (file_name, current_step_order...) nhưng
+            // toàn bộ frontend dùng camelCase (fileName, currentStepOrder...) — phải ánh
+            // xạ lại đây, nếu không mọi thao tác xem/tải/duyệt tài liệu cũ (đã qua
+            // bootstrap) sẽ nhận giá trị undefined ngay sau khi tải lại trang.
+            docs: docs.map(d => ({
+                id: d.id,
+                code: d.code,
+                title: d.title,
+                ver: d.ver,
+                dept: d.dept,
+                cat: d.cat,
+                summary: d.summary,
+                fileName: d.file_name,
+                fileType: d.file_type,
+                fileData: d.file_data,
+                createdBy: d.created_by,
+                creatorUsername: d.creator_username,
+                createdAt: d.created_at,
+                workflowId: d.workflow_id,
+                currentStepOrder: d.current_step_order,
+                status: d.status,
+                history: typeof d.history === 'string' ? JSON.parse(d.history || '[]') : d.history
+            })),
             workflows: workflows.map(w => ({ ...w, steps: typeof w.steps === 'string' ? JSON.parse(w.steps || '[]') : w.steps })),
             deptWorkflows: configMap.deptWorkflows || {},
             emailConfig: configMap.emailConfig || { enabled: true, smtpHost: 'smtp.gmail.com', smtpPort: 587, senderEmail: 'dms-noreply@company.com' },
