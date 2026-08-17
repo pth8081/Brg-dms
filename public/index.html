@@ -87,19 +87,33 @@
 
       <div id="uploadBox" class="bg-blue-50 p-4 rounded border border-blue-200 hidden">
         <h3 class="font-bold mb-1 text-blue-900 flex items-center gap-2">
-          📄 Tải Lên Tài Liệu Mới (chỉ chấp nhận file PDF, có thể chọn nhiều file)
+          📄 Tải Lên Tài Liệu (chỉ chấp nhận file PDF)
         </h3>
-        <p class="text-xs text-blue-700 mb-1 font-semibold">Hệ thống áp dụng phân quyền upload theo từng Phòng ban mà bạn được phân công.</p>
-        <p class="text-[11px] text-blue-700 mb-3">💡 Chọn nhiều file cùng lúc: mỗi file thành 1 tài liệu riêng. <b>Mã tài liệu</b> sẽ tự thêm số thứ tự (-1, -2...), <b>Tên/Tiêu đề</b> sẽ tự lấy theo tên từng file.</p>
+        <p class="text-xs text-blue-700 mb-1 font-semibold">Hệ thống áp dụng phân quyền upload theo từng Phòng ban mà bạn được phân công. Mã tài liệu và phiên bản do hệ thống tự sinh.</p>
+
+        <div class="mb-3">
+          <label class="block text-xs font-semibold text-blue-900 mb-1">Chế độ</label>
+          <select id="docMode" onchange="onDocModeChange()" class="border p-2 rounded text-sm bg-white w-full md:w-72">
+            <option value="new">🆕 Nhập mới</option>
+            <option value="update">🔄 Cập nhật phiên bản tài liệu đã có</option>
+          </select>
+        </div>
+
+        <div id="updateTargetBox" class="hidden mb-3">
+          <label class="block text-xs font-semibold text-blue-900 mb-1">Chọn tài liệu cần cập nhật</label>
+          <select id="selUpdateTarget" onchange="onUpdateTargetChange()" class="border p-2 rounded text-sm bg-white w-full" required>
+            <option value="">-- Chọn tài liệu --</option>
+          </select>
+          <p class="text-[11px] text-blue-700 mt-1">Phòng ban, Phân loại, Tên tài liệu sẽ tự lấy theo tài liệu gốc. Chỉ hiện các tài liệu không còn phiên bản nào đang chờ duyệt.</p>
+        </div>
+
+        <p id="multiHint" class="text-[11px] text-blue-700 mb-3">💡 Chọn nhiều file PDF cùng lúc (chỉ áp dụng khi Nhập mới): mỗi file thành 1 tài liệu riêng, mã tài liệu và tiêu đề tự sinh theo tên file.</p>
 
         <form id="docForm" onsubmit="uploadDoc(event)" class="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <input id="docCode" placeholder="Mã tài liệu (VD: HD-2026-001)" class="border p-2 rounded text-sm" required>
           <input id="docTitle" placeholder="Tên / Tiêu đề tài liệu" class="border p-2 rounded text-sm" required>
-          <input id="docVer" placeholder="Phiên bản (VD: v1.0)" value="v1.0" class="border p-2 rounded text-sm" required>
-
           <select id="selDept" class="border p-2 rounded text-sm" required><option value="">-- Chọn Phòng Ban Trình --</option></select>
           <select id="selCat" class="border p-2 rounded text-sm" required><option value="">-- Chọn Phân Loại --</option></select>
-          <input id="docFile" type="file" accept=".pdf,application/pdf" multiple onchange="onDocFileChange()" class="border p-1 bg-white rounded text-sm" required>
+          <input id="docFile" type="file" accept=".pdf,application/pdf" multiple onchange="onDocFileChange()" class="md:col-span-3 border p-1 bg-white rounded text-sm" required>
 
           <textarea id="docSummary" placeholder="Tóm tắt / Trích yếu nội dung tài liệu... (dùng chung cho tất cả file đã chọn)" class="md:col-span-3 border p-2 rounded text-sm h-16" required></textarea>
 
@@ -267,8 +281,10 @@
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div class="bg-indigo-50 p-4 rounded border border-indigo-200 space-y-3">
           <h3 class="font-bold text-indigo-900 text-sm flex items-center gap-1">🏢 Quản Lý Phòng Ban</h3>
+          <p class="text-[11px] text-indigo-700">Viết tắt dùng để tự sinh mã tài liệu (VD: IT, NS...), chỉ chữ/số không dấu, tối đa 10 ký tự.</p>
           <form onsubmit="saveDept(event)" class="flex gap-2">
             <input id="txtDeptName" placeholder="Tên phòng ban mới..." class="border p-1.5 rounded text-xs flex-1" required>
+            <input id="txtDeptAbbr" placeholder="Viết tắt (VD: IT)" maxlength="10" class="border p-1.5 rounded text-xs w-24" required>
             <button type="submit" class="bg-indigo-600 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-indigo-700">Thêm</button>
           </form>
           <div class="max-h-36 overflow-y-auto bg-white rounded border">
@@ -278,8 +294,10 @@
 
         <div class="bg-emerald-50 p-4 rounded border border-emerald-200 space-y-3">
           <h3 class="font-bold text-emerald-900 text-sm flex items-center gap-1">🏷️ Quản Lý Phân Loại Tài Liệu</h3>
+          <p class="text-[11px] text-emerald-700">Viết tắt dùng để tự sinh mã tài liệu (VD: HD, BC...), chỉ chữ/số không dấu, tối đa 10 ký tự.</p>
           <form onsubmit="saveCat(event)" class="flex gap-2">
             <input id="txtCatName" placeholder="Tên loại tài liệu mới..." class="border p-1.5 rounded text-xs flex-1" required>
+            <input id="txtCatAbbr" placeholder="Viết tắt (VD: HD)" maxlength="10" class="border p-1.5 rounded text-xs w-24" required>
             <button type="submit" class="bg-emerald-600 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-emerald-700">Thêm</button>
           </form>
           <div class="max-h-36 overflow-y-auto bg-white rounded border">
@@ -493,6 +511,23 @@
     </div>
   </div>
 
+  <!-- MODAL CHI TIẾT TÀI LIỆU & LỊCH SỬ PHIÊN BẢN -->
+  <div id="docDetailModal" class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center hidden z-50 p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-3xl w-full flex flex-col max-h-[90vh] overflow-hidden">
+      <div class="flex justify-between items-center bg-slate-700 text-white p-4">
+        <div>
+          <h3 id="docDetailTitle" class="font-bold text-base flex items-center gap-2">📋 Chi Tiết Tài Liệu & Lịch Sử Phiên Bản</h3>
+          <p id="docDetailSub" class="text-xs text-slate-300"></p>
+        </div>
+        <button onclick="closeDocDetailModal()" class="text-slate-300 hover:text-white font-bold text-xl px-2">✕</button>
+      </div>
+      <div class="p-4 overflow-y-auto flex-1 bg-gray-50 space-y-3" id="docDetailContent"></div>
+      <div class="p-3 bg-gray-50 border-t flex justify-end">
+        <button onclick="closeDocDetailModal()" class="bg-gray-600 text-white px-5 py-1.5 rounded font-bold hover:bg-gray-700">Đóng</button>
+      </div>
+    </div>
+  </div>
+
   <!-- MODAL CÁ NHÂN HÓA -->
   <div id="profileModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50 p-4">
     <div class="bg-white p-6 rounded-lg shadow-xl max-w-md w-full space-y-4">
@@ -551,6 +586,7 @@
     let currentPage = 1;
     let pageSize = 5;
     let currentFilterCard = '';
+    let expandedGroups = new Set(); // các nhóm tài liệu đang mở rộng xem phiên bản cũ
 
     // --- LỚP GỌI API (xử lý lỗi 401 dùng chung: tự đưa về màn hình đăng nhập) ---
     async function apiFetch(url, options = {}) {
@@ -732,24 +768,24 @@
     }
 
     function populateDropdowns() {
-      const deptOptions = DB.depts.map(d => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('');
-      const catOptions = DB.cats.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+      const deptOptions = DB.depts.map(d => `<option value="${escapeHtml(d.name)}">${escapeHtml(d.name)}</option>`).join('');
+      const catOptions = DB.cats.map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
 
       document.getElementById('filterDept').innerHTML = '<option value="">-- Tất cả phòng ban --</option>' + deptOptions;
       document.getElementById('uDept').innerHTML = deptOptions;
       document.getElementById('selCat').innerHTML = '<option value="">-- Chọn Phân Loại --</option>' + catOptions;
-      
+
       updateUploadDeptDropdown();
     }
 
     function updateUploadDeptDropdown() {
       const selDept = document.getElementById('selDept');
       if (!selDept || !currentUser) return;
-      const allowedDepts = DB.depts.filter(d => currentUser.perms?.uploadAll || (currentUser.perms?.uploadDepts && currentUser.perms.uploadDepts.includes(d)));
-      
+      const allowedDepts = DB.depts.filter(d => currentUser.perms?.uploadAll || (currentUser.perms?.uploadDepts && currentUser.perms.uploadDepts.includes(d.name)));
+
       if (allowedDepts.length > 0) {
         document.getElementById('uploadBox').classList.remove('hidden');
-        selDept.innerHTML = '<option value="">-- Chọn Phòng Ban Trình --</option>' + allowedDepts.map(d => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('');
+        selDept.innerHTML = '<option value="">-- Chọn Phòng Ban Trình --</option>' + allowedDepts.map(d => `<option value="${escapeHtml(d.name)}">${escapeHtml(d.name)}</option>`).join('');
       } else {
         document.getElementById('uploadBox').classList.add('hidden');
       }
@@ -789,6 +825,7 @@
     }
 
     function onDocFileChange() {
+      if (document.getElementById('docMode').value === 'update') return; // tên khoá theo tài liệu gốc
       const files = document.getElementById('docFile').files;
       const isMulti = files.length > 1;
       const titleInput = document.getElementById('docTitle');
@@ -796,6 +833,84 @@
       titleInput.placeholder = isMulti
         ? `Sẽ tự lấy theo tên từng file (${files.length} file đã chọn)`
         : 'Tên / Tiêu đề tài liệu';
+    }
+
+    // Lấy danh sách "tài liệu gốc" (mỗi nhóm phiên bản chỉ lấy bản mới nhất) mà
+    // user hiện tại có quyền cập nhật: có quyền upload cho đúng phòng ban đó,
+    // và KHÔNG còn phiên bản nào đang chờ duyệt (đúng quy tắc đã thống nhất).
+    function getUpdatableDocGroups() {
+      const latestByGroup = new Map();
+      DB.docs.forEach(d => {
+        const gid = d.docGroupId || d.id;
+        const cur = latestByGroup.get(gid);
+        if (!cur || (d.versionNo || 1) > (cur.versionNo || 1)) latestByGroup.set(gid, d);
+      });
+      return Array.from(latestByGroup.values()).filter(d => {
+        if (d.status === 'PENDING') return false;
+        return currentUser.perms?.admin || currentUser.perms?.uploadAll ||
+          (currentUser.perms?.uploadDepts && currentUser.perms.uploadDepts.includes(d.dept));
+      }).sort((a, b) => (a.code || '').localeCompare(b.code || ''));
+    }
+
+    function refreshUpdateTargetOptions() {
+      const sel = document.getElementById('selUpdateTarget');
+      const groups = getUpdatableDocGroups();
+      sel.innerHTML = '<option value="">-- Chọn tài liệu --</option>' +
+        groups.map(d => `<option value="${escapeHtml(String(d.docGroupId || d.id))}">${escapeHtml(d.code)} - ${escapeHtml(d.title)} (đang ${escapeHtml(d.ver)})</option>`).join('');
+    }
+
+    function onDocModeChange() {
+      const mode = document.getElementById('docMode').value;
+      const updateBox = document.getElementById('updateTargetBox');
+      const multiHint = document.getElementById('multiHint');
+      const fileInput = document.getElementById('docFile');
+      const titleInput = document.getElementById('docTitle');
+      const deptSelect = document.getElementById('selDept');
+      const catSelect = document.getElementById('selCat');
+
+      if (mode === 'update') {
+        updateBox.classList.remove('hidden');
+        multiHint.classList.add('hidden');
+        fileInput.multiple = false;
+        refreshUpdateTargetOptions();
+        document.getElementById('selUpdateTarget').value = '';
+        titleInput.value = '';
+        titleInput.disabled = true;
+        titleInput.required = false;
+        titleInput.placeholder = 'Sẽ tự lấy theo tài liệu gốc';
+        deptSelect.value = '';
+        catSelect.value = '';
+        deptSelect.disabled = true;
+        catSelect.disabled = true;
+      } else {
+        updateBox.classList.add('hidden');
+        multiHint.classList.remove('hidden');
+        fileInput.multiple = true;
+        titleInput.disabled = false;
+        titleInput.required = fileInput.files.length <= 1;
+        titleInput.placeholder = 'Tên / Tiêu đề tài liệu';
+        deptSelect.disabled = false;
+        catSelect.disabled = false;
+        updateUploadDeptDropdown();
+      }
+    }
+
+    function onUpdateTargetChange() {
+      const gid = document.getElementById('selUpdateTarget').value;
+      const deptSelect = document.getElementById('selDept');
+      const catSelect = document.getElementById('selCat');
+      const titleInput = document.getElementById('docTitle');
+      if (!gid) {
+        deptSelect.value = '';
+        catSelect.value = '';
+        titleInput.value = '';
+        return;
+      }
+      const target = DB.docs.find(d => String(d.docGroupId || d.id) === String(gid));
+      if (!target) return;
+      deptSelect.value = target.dept;
+      catSelect.value = target.cat;
+      titleInput.value = target.title;
     }
 
     function readFileAsDataURL(file) {
@@ -809,74 +924,83 @@
 
     async function uploadDoc(e) {
       e.preventDefault();
+      const mode = document.getElementById('docMode').value;
       const fileInput = document.getElementById('docFile');
       const files = Array.from(fileInput.files);
       if (files.length === 0) return alert('Vui lòng chọn file tài liệu!');
 
       // Kiểm tra nhanh phía client để UX tốt hơn. Đây KHÔNG phải lớp bảo mật thật —
-      // server luôn tự kiểm tra lại (kể cả magic bytes) và không tin dữ liệu này.
+      // server luôn tự kiểm tra lại (kể cả magic bytes, mã/version tự sinh) và
+      // không tin dữ liệu client gửi.
       const invalidFile = files.find(f => f.type !== 'application/pdf' && !f.name.toLowerCase().endsWith('.pdf'));
       if (invalidFile) return alert(`File "${invalidFile.name}" không phải PDF. Chỉ được phép tải lên file PDF!`);
+      if (mode === 'update' && files.length > 1) return alert('Chế độ Cập nhật chỉ được chọn 1 file!');
 
-      const isMulti = files.length > 1;
-      const baseCode = document.getElementById('docCode').value.trim();
+      let targetGroupId = null;
+      if (mode === 'update') {
+        targetGroupId = document.getElementById('selUpdateTarget').value;
+        if (!targetGroupId) return alert('Vui lòng chọn tài liệu cần cập nhật!');
+      }
+
+      const isMulti = mode === 'new' && files.length > 1;
       const baseTitle = document.getElementById('docTitle').value.trim();
       const selDept = document.getElementById('selDept').value;
-      const ver = document.getElementById('docVer').value.trim();
       const cat = document.getElementById('selCat').value;
       const summary = document.getElementById('docSummary').value.trim();
-
-      if (isMulti && !baseCode) return alert('Vui lòng nhập Mã tài liệu (sẽ tự thêm số thứ tự -1, -2... cho từng file)!');
 
       const submitBtn = document.querySelector('#docForm button[type="submit"]');
       submitBtn.disabled = true;
       submitBtn.textContent = `Đang tải lên ${files.length} file...`;
 
       try {
-        const newDocs = [];
+        const newDocsPayload = [];
         for (let i = 0; i < files.length; i++) {
           const file = files[i];
           const fileDataUrl = await readFileAsDataURL(file);
-          newDocs.push({
+          const entry = {
             id: Date.now() + i,
-            code: isMulti ? `${baseCode}-${i + 1}` : baseCode,
             title: isMulti ? file.name.replace(/\.pdf$/i, '') : baseTitle,
-            ver, dept: selDept, cat, summary,
+            dept: selDept, cat, summary,
             fileName: file.name,
             fileType: file.type,
             fileData: fileDataUrl,
-            createdBy: currentUser.name,
-            creatorUsername: currentUser.username,
             createdAt: new Date().toISOString(),
-            workflowId: DB.deptWorkflows[selDept]?.workflowId || 'WF_1STEP',
-            currentStepOrder: 1,
-            status: 'PENDING',
-            history: []
-          });
+            workflowId: DB.deptWorkflows[selDept]?.workflowId || 'WF_1STEP'
+          };
+          if (targetGroupId) entry.targetGroupId = targetGroupId;
+          newDocsPayload.push(entry);
         }
 
-        DB.docs.unshift(...newDocs);
+        // Mã, phiên bản, (và với chế độ Cập nhật: cả phòng ban/phân loại/tên) do
+        // server tự quyết định — sau khi sync thành công phải tải lại toàn bộ dữ
+        // liệu (bootstrap) để lấy đúng giá trị thật, không tự đoán ở client.
+        const prevDocs = DB.docs;
+        DB.docs = [...DB.docs, ...newDocsPayload];
         const ok = await syncStorage('docs');
-        if (!ok) {
-          newDocs.forEach(d => { const idx = DB.docs.indexOf(d); if (idx !== -1) DB.docs.splice(idx, 1); });
-          return;
-        }
+        if (!ok) { DB.docs = prevDocs; return; }
 
-        newDocs.forEach(d => {
-          logSystemAction('INTERACTION', 'UPLOAD_DOC', `Tải lên tài liệu: ${d.code} - ${d.title}`, 'SUCCESS', d.code);
+        await loadBootstrapData();
+        const createdDocs = newDocsPayload.map(p => DB.docs.find(d => d.id === p.id)).filter(Boolean);
+
+        const actionLabel = mode === 'update' ? 'CẬP NHẬT PHIÊN BẢN' : 'TẢI LÊN';
+        createdDocs.forEach(d => {
+          logSystemAction('INTERACTION', mode === 'update' ? 'UPDATE_DOC_VERSION' : 'UPLOAD_DOC', `${actionLabel} tài liệu: ${d.code} (${d.ver}) - ${d.title}`, 'SUCCESS', d.code);
         });
 
-        const deptConfig = DB.deptWorkflows[selDept];
+        const notifyDept = createdDocs[0]?.dept || selDept;
+        const deptConfig = DB.deptWorkflows[notifyDept];
         const firstApprover = deptConfig?.approvers?.[1];
         const approverUser = DB.users.find(u => u.username === firstApprover);
         if (approverUser && approverUser.email) {
-          newDocs.forEach(d => {
-            sendNotificationEmail(approverUser.email, approverUser.name, `[DMS] Tài liệu mới chờ duyệt: ${d.code}`, `Tài liệu ${d.title} trình từ ${currentUser.name} đang chờ bạn phê duyệt.`);
+          createdDocs.forEach(d => {
+            sendNotificationEmail(approverUser.email, approverUser.name, `[DMS] Tài liệu chờ duyệt: ${d.code} (${d.ver})`, `Tài liệu ${d.title} trình từ ${currentUser.name} đang chờ bạn phê duyệt.`);
           });
         }
 
-        alert(`✅ Đã tải lên và trình ký ${newDocs.length} tài liệu thành công!`);
+        alert(`✅ Đã tải lên và trình ký ${createdDocs.length} tài liệu thành công!\n` + createdDocs.map(d => `- ${d.code} (${d.ver})`).join('\n'));
         document.getElementById('docForm').reset();
+        document.getElementById('docMode').value = 'new';
+        onDocModeChange();
         renderDocs();
       } catch (err) {
         alert('❌ Lỗi khi tải lên: ' + err.message);
@@ -942,25 +1066,85 @@
       renderDocs();
     }
 
+    // Vẽ 1 dòng tài liệu (dùng chung cho dòng cha = phiên bản mới nhất, và dòng
+    // con = các phiên bản cũ hơn khi mở rộng nhóm).
+    function renderDocRow(d, { isChild = false, groupSize = 1, groupId = null } = {}) {
+      const statusBadge = d.status === 'APPROVED' ? `<span class="bg-green-100 text-green-800 text-[11px] font-bold px-2 py-0.5 rounded">Đã Duyệt</span>` :
+                          d.status === 'PENDING' ? `<span class="bg-yellow-100 text-yellow-800 text-[11px] font-bold px-2 py-0.5 rounded">Chờ Duyệt (Bước ${d.currentStepOrder})</span>` :
+                          `<span class="bg-red-100 text-red-800 text-[11px] font-bold px-2 py-0.5 rounded">Từ Chối</span>`;
+
+      const canDownload = canUserDownloadDoc(currentUser, d);
+      const canApprove = canUserApproveDoc(currentUser, d);
+      const hasVersions = !isChild && groupSize > 1;
+      const isExpanded = groupId && expandedGroups.has(groupId);
+
+      const expandToggle = hasVersions
+        ? `<button onclick="toggleVersionGroup('${escapeJsAttr(String(groupId))}')" class="text-gray-500 hover:text-gray-800 font-bold mr-1 w-3 inline-block" title="Xem các phiên bản trước">${isExpanded ? '▾' : '▸'}</button>`
+        : '';
+      const versionBadge = hasVersions
+        ? `<span class="ml-1 bg-slate-200 text-slate-700 text-[10px] font-bold px-1.5 py-0.5 rounded align-middle" title="${groupSize} phiên bản">🕒 v${d.versionNo || 1}</span>`
+        : '';
+
+      return `
+        <tr class="hover:bg-gray-50 ${isChild ? 'bg-gray-50' : ''}">
+          <td class="border p-2 font-mono font-bold text-xs ${isChild ? 'pl-6 text-gray-500 font-normal' : ''}">
+            ${isChild ? '↳ ' : expandToggle}${escapeHtml(d.code)}${versionBadge}
+          </td>
+          <td class="border p-2">
+            <div class="font-bold text-blue-900">${escapeHtml(d.title)}</div>
+            <div class="text-gray-500 text-[11px]">${escapeHtml(d.summary)}</div>
+          </td>
+          <td class="border p-2">${escapeHtml(d.dept)}</td>
+          <td class="border p-2">${escapeHtml(d.cat)}</td>
+          <td class="border p-2 text-center font-bold">${escapeHtml(d.ver)}</td>
+          <td class="border p-2">${statusBadge}</td>
+          <td class="border p-2 text-center space-x-1">
+            <button onclick="openViewDocModal(${d.id})" class="text-xs bg-blue-600 text-white px-2 py-1 rounded font-semibold hover:bg-blue-700">Xem</button>
+            ${!isChild ? `<button onclick="openDocDetailModal('${escapeJsAttr(String(groupId))}')" class="text-xs bg-slate-600 text-white px-2 py-1 rounded font-semibold hover:bg-slate-700">Chi tiết</button>` : ''}
+            ${canDownload ? `<a href="${d.fileData}" download="${escapeHtml(d.fileName)}" class="text-xs bg-emerald-600 text-white px-2 py-1 rounded font-semibold hover:bg-emerald-700 inline-block">Tải</a>` : ''}
+            ${canApprove ? `<button onclick="approveDoc(${d.id})" class="text-xs bg-amber-500 text-white px-2 py-1 rounded font-semibold hover:bg-amber-600">Duyệt</button>
+                            <button onclick="rejectDoc(${d.id})" class="text-xs bg-red-600 text-white px-2 py-1 rounded font-semibold hover:bg-red-700">Trả về</button>` : ''}
+          </td>
+        </tr>
+      `;
+    }
+
+    function toggleVersionGroup(gid) {
+      if (expandedGroups.has(gid)) expandedGroups.delete(gid); else expandedGroups.add(gid);
+      renderDocs();
+    }
+
     function renderDocs() {
       const tbody = document.getElementById('docTableBody');
       if (!tbody) return;
 
-      // Cập nhật Dashboard Counters
+      // Gộp các phiên bản cùng 1 tài liệu (cùng docGroupId) lại thành 1 nhóm,
+      // sắp theo versionNo giảm dần — phần tử đầu là phiên bản mới nhất.
       const viewableDocs = DB.docs.filter(d => canUserViewDoc(currentUser, d));
-      document.getElementById('dashTotal').innerText = viewableDocs.length;
-      document.getElementById('dashApproved').innerText = viewableDocs.filter(d => d.status === 'APPROVED').length;
-      document.getElementById('dashPending').innerText = viewableDocs.filter(d => d.status === 'PENDING').length;
-      document.getElementById('dashRejected').innerText = viewableDocs.filter(d => d.status === 'REJECTED').length;
+      const groupMap = new Map();
+      viewableDocs.forEach(d => {
+        const gid = String(d.docGroupId || d.id);
+        if (!groupMap.has(gid)) groupMap.set(gid, []);
+        groupMap.get(gid).push(d);
+      });
+      groupMap.forEach(arr => arr.sort((a, b) => (b.versionNo || 1) - (a.versionNo || 1)));
+      const allGroups = Array.from(groupMap.entries()).map(([gid, versions]) => ({ gid, latest: versions[0], versions }));
 
-      // Filtering
+      // Cập nhật Dashboard Counters — tính theo phiên bản MỚI NHẤT của mỗi tài liệu
+      document.getElementById('dashTotal').innerText = allGroups.length;
+      document.getElementById('dashApproved').innerText = allGroups.filter(g => g.latest.status === 'APPROVED').length;
+      document.getElementById('dashPending').innerText = allGroups.filter(g => g.latest.status === 'PENDING').length;
+      document.getElementById('dashRejected').innerText = allGroups.filter(g => g.latest.status === 'REJECTED').length;
+
+      // Filtering (áp dụng trên phiên bản mới nhất của mỗi nhóm)
       const dept = document.getElementById('filterDept').value;
       const status = currentFilterCard || document.getElementById('filterStatus').value;
       const fromDate = document.getElementById('filterFromDate').value;
       const toDate = document.getElementById('filterToDate').value;
       const kw = document.getElementById('filterKeyword').value.toLowerCase().trim();
 
-      let filtered = viewableDocs.filter(d => {
+      let filteredGroups = allGroups.filter(g => {
+        const d = g.latest;
         if (dept && d.dept !== dept) return false;
         if (status && d.status !== status) return false;
         if (fromDate && new Date(d.createdAt) < new Date(fromDate)) return false;
@@ -969,44 +1153,23 @@
         return true;
       });
 
-      // Pagination
-      const totalItems = filtered.length;
+      // Pagination (theo số TÀI LIỆU/nhóm, không phải theo số dòng phiên bản)
+      const totalItems = filteredGroups.length;
       const totalPages = Math.ceil(totalItems / pageSize) || 1;
       if (currentPage > totalPages) currentPage = totalPages;
 
       const startIdx = (currentPage - 1) * pageSize;
-      const pageData = filtered.slice(startIdx, startIdx + pageSize);
+      const pageGroups = filteredGroups.slice(startIdx, startIdx + pageSize);
 
-      if (pageData.length === 0) {
+      if (pageGroups.length === 0) {
         tbody.innerHTML = `<tr><td colspan="7" class="text-center p-4 text-gray-500">Không tìm thấy tài liệu phù hợp.</td></tr>`;
       } else {
-        tbody.innerHTML = pageData.map(d => {
-          const statusBadge = d.status === 'APPROVED' ? `<span class="bg-green-100 text-green-800 text-[11px] font-bold px-2 py-0.5 rounded">Đã Duyệt</span>` :
-                              d.status === 'PENDING' ? `<span class="bg-yellow-100 text-yellow-800 text-[11px] font-bold px-2 py-0.5 rounded">Chờ Duyệt (Bước ${d.currentStepOrder})</span>` :
-                              `<span class="bg-red-100 text-red-800 text-[11px] font-bold px-2 py-0.5 rounded">Từ Chối</span>`;
-
-          const canDownload = canUserDownloadDoc(currentUser, d);
-          const canApprove = canUserApproveDoc(currentUser, d);
-
-          return `
-            <tr class="hover:bg-gray-50">
-              <td class="border p-2 font-mono font-bold text-xs">${escapeHtml(d.code)}</td>
-              <td class="border p-2">
-                <div class="font-bold text-blue-900">${escapeHtml(d.title)}</div>
-                <div class="text-gray-500 text-[11px]">${escapeHtml(d.summary)}</div>
-              </td>
-              <td class="border p-2">${escapeHtml(d.dept)}</td>
-              <td class="border p-2">${escapeHtml(d.cat)}</td>
-              <td class="border p-2 text-center font-bold">${escapeHtml(d.ver)}</td>
-              <td class="border p-2">${statusBadge}</td>
-              <td class="border p-2 text-center space-x-1">
-                <button onclick="openViewDocModal(${d.id})" class="text-xs bg-blue-600 text-white px-2 py-1 rounded font-semibold hover:bg-blue-700">Xem</button>
-                ${canDownload ? `<a href="${d.fileData}" download="${escapeHtml(d.fileName)}" class="text-xs bg-emerald-600 text-white px-2 py-1 rounded font-semibold hover:bg-emerald-700 inline-block">Tải</a>` : ''}
-                ${canApprove ? `<button onclick="approveDoc(${d.id})" class="text-xs bg-amber-500 text-white px-2 py-1 rounded font-semibold hover:bg-amber-600">Duyệt</button>
-                                <button onclick="rejectDoc(${d.id})" class="text-xs bg-red-600 text-white px-2 py-1 rounded font-semibold hover:bg-red-700">Trả về</button>` : ''}
-              </td>
-            </tr>
-          `;
+        tbody.innerHTML = pageGroups.map(g => {
+          let rowsHtml = renderDocRow(g.latest, { isChild: false, groupSize: g.versions.length, groupId: g.gid });
+          if (g.versions.length > 1 && expandedGroups.has(g.gid)) {
+            rowsHtml += g.versions.slice(1).map(v => renderDocRow(v, { isChild: true, groupId: g.gid })).join('');
+          }
+          return rowsHtml;
         }).join('');
       }
 
@@ -1087,6 +1250,60 @@
       document.getElementById('viewDocModal').classList.add('hidden');
     }
 
+    // Modal "Xem chi tiết": liệt kê toàn bộ phiên bản của 1 tài liệu — người
+    // upload, người đã duyệt/từ chối (rút từ history), trạng thái, tóm tắt.
+    function openDocDetailModal(groupId) {
+      const versions = DB.docs
+        .filter(d => String(d.docGroupId || d.id) === String(groupId) && canUserViewDoc(currentUser, d))
+        .sort((a, b) => (b.versionNo || 1) - (a.versionNo || 1));
+      if (versions.length === 0) return alert('Không tìm thấy tài liệu hoặc bạn không có quyền xem!');
+
+      const latest = versions[0];
+      document.getElementById('docDetailTitle').innerText = `📋 Chi Tiết Tài Liệu: ${latest.title}`;
+      document.getElementById('docDetailSub').innerText = `Mã: ${latest.code} | Phòng ban: ${latest.dept} | Loại: ${latest.cat} | ${versions.length} phiên bản`;
+
+      const container = document.getElementById('docDetailContent');
+      container.innerHTML = versions.map(v => {
+        const statusBadge = v.status === 'APPROVED' ? `<span class="bg-green-100 text-green-800 text-[11px] font-bold px-2 py-0.5 rounded">Đã Duyệt</span>` :
+                            v.status === 'PENDING' ? `<span class="bg-yellow-100 text-yellow-800 text-[11px] font-bold px-2 py-0.5 rounded">Chờ Duyệt (Bước ${v.currentStepOrder})</span>` :
+                            `<span class="bg-red-100 text-red-800 text-[11px] font-bold px-2 py-0.5 rounded">Từ Chối</span>`;
+
+        const history = Array.isArray(v.history) ? v.history : [];
+        const historyHtml = history.length > 0
+          ? history.map(h => `
+              <div class="flex items-start gap-2 text-[11px] text-gray-600">
+                <span class="${h.action === 'APPROVED' ? 'text-green-700' : 'text-red-700'} font-bold">${h.action === 'APPROVED' ? '✅ Duyệt' : '❌ Từ chối'}</span>
+                <span>bởi <b>${escapeHtml(h.by)}</b> (${escapeHtml(h.username)}) lúc ${escapeHtml(h.at)}${h.reason ? ` — Lý do: ${escapeHtml(h.reason)}` : ''}</span>
+              </div>
+            `).join('')
+          : `<p class="text-[11px] text-gray-400 italic">Chưa có ai xử lý phiên bản này.</p>`;
+
+        const canDownload = canUserDownloadDoc(currentUser, v);
+
+        return `
+          <div class="bg-white border rounded p-3 space-y-1.5">
+            <div class="flex justify-between items-center flex-wrap gap-1">
+              <span class="font-bold text-slate-800">🕒 Phiên bản ${v.ver} ${v === latest ? '<span class=\'text-[10px] text-blue-600\'>(mới nhất)</span>' : ''}</span>
+              ${statusBadge}
+            </div>
+            <p class="text-xs text-gray-700"><b>Người upload:</b> ${escapeHtml(v.createdBy)} — ${escapeHtml(v.createdAt ? new Date(v.createdAt).toLocaleString('vi-VN') : '')}</p>
+            <p class="text-xs text-gray-700"><b>Tóm tắt:</b> ${escapeHtml(v.summary)}</p>
+            <div class="border-t pt-1.5 space-y-1">${historyHtml}</div>
+            <div class="flex gap-1.5 pt-1">
+              <button onclick="openViewDocModal(${v.id})" class="text-xs bg-blue-600 text-white px-2 py-1 rounded font-semibold hover:bg-blue-700">Xem</button>
+              ${canDownload ? `<a href="${v.fileData}" download="${escapeHtml(v.fileName)}" class="text-xs bg-emerald-600 text-white px-2 py-1 rounded font-semibold hover:bg-emerald-700 inline-block">Tải</a>` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      document.getElementById('docDetailModal').classList.remove('hidden');
+    }
+
+    function closeDocDetailModal() {
+      document.getElementById('docDetailModal').classList.add('hidden');
+    }
+
     // --- QUẢN LÝ QUY TRÌNH ---
     function renderWorkflowTab() {
       renderDeptWorkflowConfig();
@@ -1097,7 +1314,8 @@
       const container = document.getElementById('deptWorkflowConfigContainer');
       if (!container) return;
 
-      container.innerHTML = DB.depts.map(dept => {
+      container.innerHTML = DB.depts.map(deptObj => {
+        const dept = deptObj.name;
         const config = DB.deptWorkflows[dept] || { workflowId: 'WF_1STEP', approvers: {} };
         const selectedWf = DB.workflows.find(w => w.id === config.workflowId) || DB.workflows[0];
 
@@ -1278,29 +1496,39 @@
       if (!ul) return;
       ul.innerHTML = DB.depts.map(d => `
         <li class="p-2 flex justify-between items-center hover:bg-gray-50">
-          <span>${escapeHtml(d)}</span>
-          <button onclick="deleteDept('${escapeJsAttr(d)}')" class="text-xs text-red-600 font-bold hover:underline">Xóa</button>
+          <span>${escapeHtml(d.name)} <span class="text-gray-400 font-mono">(${escapeHtml(d.abbr)})</span></span>
+          <button onclick="deleteDept('${escapeJsAttr(d.name)}')" class="text-xs text-red-600 font-bold hover:underline">Xóa</button>
         </li>
       `).join('');
     }
 
-    function saveDept(e) {
+    async function saveDept(e) {
       e.preventDefault();
       const val = document.getElementById('txtDeptName').value.trim();
-      if (!val) return;
-      if (DB.depts.includes(val)) return alert('Phòng ban đã tồn tại!');
-      DB.depts.push(val);
-      syncStorage('depts');
+      const abbr = document.getElementById('txtDeptAbbr').value.trim().toUpperCase();
+      if (!val || !abbr) return;
+      if (!/^[A-Z0-9]{1,10}$/.test(abbr)) return alert('Viết tắt chỉ gồm chữ/số không dấu, tối đa 10 ký tự!');
+      if (DB.depts.some(d => d.name === val)) return alert('Phòng ban đã tồn tại!');
+      if (DB.depts.some(d => d.abbr === abbr)) return alert(`Viết tắt [${abbr}] đã được dùng bởi phòng ban khác!`);
+
+      const prevDepts = DB.depts;
+      DB.depts = [...DB.depts, { name: val, abbr }];
+      const ok = await syncStorage('depts');
+      if (!ok) { DB.depts = prevDepts; return; }
+
       document.getElementById('txtDeptName').value = '';
+      document.getElementById('txtDeptAbbr').value = '';
       populateDropdowns();
       renderDeptList();
       renderDeptCheckboxes();
     }
 
-    function deleteDept(name) {
+    async function deleteDept(name) {
       if (!confirm(`Xóa phòng ban ${name}?`)) return;
-      DB.depts = DB.depts.filter(d => d !== name);
-      syncStorage('depts');
+      const prevDepts = DB.depts;
+      DB.depts = DB.depts.filter(d => d.name !== name);
+      const ok = await syncStorage('depts');
+      if (!ok) { DB.depts = prevDepts; return; }
       populateDropdowns();
       renderDeptList();
       renderDeptCheckboxes();
@@ -1311,28 +1539,38 @@
       if (!ul) return;
       ul.innerHTML = DB.cats.map(c => `
         <li class="p-2 flex justify-between items-center hover:bg-gray-50">
-          <span>${escapeHtml(c)}</span>
-          <button onclick="deleteCat('${escapeJsAttr(c)}')" class="text-xs text-red-600 font-bold hover:underline">Xóa</button>
+          <span>${escapeHtml(c.name)} <span class="text-gray-400 font-mono">(${escapeHtml(c.abbr)})</span></span>
+          <button onclick="deleteCat('${escapeJsAttr(c.name)}')" class="text-xs text-red-600 font-bold hover:underline">Xóa</button>
         </li>
       `).join('');
     }
 
-    function saveCat(e) {
+    async function saveCat(e) {
       e.preventDefault();
       const val = document.getElementById('txtCatName').value.trim();
-      if (!val) return;
-      if (DB.cats.includes(val)) return alert('Loại tài liệu đã tồn tại!');
-      DB.cats.push(val);
-      syncStorage('cats');
+      const abbr = document.getElementById('txtCatAbbr').value.trim().toUpperCase();
+      if (!val || !abbr) return;
+      if (!/^[A-Z0-9]{1,10}$/.test(abbr)) return alert('Viết tắt chỉ gồm chữ/số không dấu, tối đa 10 ký tự!');
+      if (DB.cats.some(c => c.name === val)) return alert('Loại tài liệu đã tồn tại!');
+      if (DB.cats.some(c => c.abbr === abbr)) return alert(`Viết tắt [${abbr}] đã được dùng bởi phân loại khác!`);
+
+      const prevCats = DB.cats;
+      DB.cats = [...DB.cats, { name: val, abbr }];
+      const ok = await syncStorage('cats');
+      if (!ok) { DB.cats = prevCats; return; }
+
       document.getElementById('txtCatName').value = '';
+      document.getElementById('txtCatAbbr').value = '';
       populateDropdowns();
       renderCatList();
     }
 
-    function deleteCat(name) {
+    async function deleteCat(name) {
       if (!confirm(`Xóa phân loại ${name}?`)) return;
-      DB.cats = DB.cats.filter(c => c !== name);
-      syncStorage('cats');
+      const prevCats = DB.cats;
+      DB.cats = DB.cats.filter(c => c.name !== name);
+      const ok = await syncStorage('cats');
+      if (!ok) { DB.cats = prevCats; return; }
       populateDropdowns();
       renderCatList();
     }
@@ -1340,8 +1578,8 @@
     function renderDeptCheckboxes() {
       const makeBoxes = (prefix) => DB.depts.map(d => `
         <label class="flex items-center gap-1.5 text-gray-700 cursor-pointer">
-          <input type="checkbox" class="${prefix}Dept" value="${escapeHtml(d)}">
-          <span>${escapeHtml(d)}</span>
+          <input type="checkbox" class="${prefix}Dept" value="${escapeHtml(d.name)}">
+          <span>${escapeHtml(d.name)}</span>
         </label>
       `).join('');
 
