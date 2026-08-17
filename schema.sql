@@ -4,13 +4,15 @@ USE dms_db;
 -- 1. Bảng Phòng Ban
 CREATE TABLE IF NOT EXISTS depts (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(255) UNIQUE NOT NULL
+    name VARCHAR(255) UNIQUE NOT NULL,
+    abbr VARCHAR(20) NOT NULL DEFAULT ''
 );
 
 -- 2. Bảng Phân Loại Tài Liệu
 CREATE TABLE IF NOT EXISTS cats (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(255) UNIQUE NOT NULL
+    name VARCHAR(255) UNIQUE NOT NULL,
+    abbr VARCHAR(20) NOT NULL DEFAULT ''
 );
 
 -- 3. Bảng Người Dùng & Phân Quyền
@@ -43,8 +45,21 @@ CREATE TABLE IF NOT EXISTS docs (
     workflow_id VARCHAR(100),
     current_step_order INT,
     status VARCHAR(50),
-    history JSON
+    history JSON,
+    doc_group_id BIGINT,
+    version_no INT NOT NULL DEFAULT 1
 );
+
+-- Migrate cho CSDL đã tồn tại từ trước (không có sẵn các cột trên): thêm cột
+-- nếu thiếu, rồi gán mỗi tài liệu cũ thành nhóm 1 phiên bản của chính nó.
+-- PHẢI chạy trước CREATE INDEX bên dưới vì CSDL cũ chưa có cột doc_group_id.
+ALTER TABLE depts ADD COLUMN IF NOT EXISTS abbr VARCHAR(20) NOT NULL DEFAULT '';
+ALTER TABLE cats ADD COLUMN IF NOT EXISTS abbr VARCHAR(20) NOT NULL DEFAULT '';
+ALTER TABLE docs ADD COLUMN IF NOT EXISTS doc_group_id BIGINT;
+ALTER TABLE docs ADD COLUMN IF NOT EXISTS version_no INT NOT NULL DEFAULT 1;
+UPDATE docs SET doc_group_id = id WHERE doc_group_id IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_docs_group ON docs (doc_group_id);
 
 -- 5. Bảng Quy Trình
 CREATE TABLE IF NOT EXISTS workflows (
@@ -74,10 +89,10 @@ CREATE TABLE IF NOT EXISTS system_logs (
 );
 
 -- Khởi tạo Dữ liệu Mẫu Ban Đầu Cho Môi Trường Mới (Chỉ tạo Admin gốc nếu chưa tồn tại)
-INSERT INTO depts (name) VALUES ('Phòng IT'), ('Phòng Nhân Sự'), ('Phòng Kế Toán'), ('Ban Giám Đốc')
+INSERT INTO depts (name, abbr) VALUES ('Phòng IT', 'IT'), ('Phòng Nhân Sự', 'NS'), ('Phòng Kế Toán', 'KT'), ('Ban Giám Đốc', 'BGD')
 ON DUPLICATE KEY UPDATE name=name;
 
-INSERT INTO cats (name) VALUES ('Quy trình / Quy định'), ('Báo cáo tài chính'), ('Hợp đồng / Hồ sơ')
+INSERT INTO cats (name, abbr) VALUES ('Quy trình / Quy định', 'QT'), ('Báo cáo tài chính', 'BC'), ('Hợp đồng / Hồ sơ', 'HD')
 ON DUPLICATE KEY UPDATE name=name;
 
 -- Mật khẩu mặc định: Admin@123456 (đã hash bằng bcrypt, cost=12).

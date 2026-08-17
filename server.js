@@ -232,8 +232,8 @@ app.post('/api/profile', requireAuth, async (req, res) => {
 // --- API BOOTSTRAP (Lấy toàn bộ dữ liệu khởi tạo cho 4 Module) ---
 app.get('/api/bootstrap', requireAuth, async (req, res) => {
     try {
-        const [depts] = await pool.query('SELECT name FROM depts');
-        const [cats] = await pool.query('SELECT name FROM cats');
+        const [depts] = await pool.query('SELECT name, abbr FROM depts');
+        const [cats] = await pool.query('SELECT name, abbr FROM cats');
         const [users] = await pool.query('SELECT * FROM users');
         const [docs] = await pool.query('SELECT * FROM docs ORDER BY id DESC');
         const [workflows] = await pool.query('SELECT * FROM workflows');
@@ -244,8 +244,8 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
         configs.forEach(c => configMap[c.config_key] = c.config_value);
 
         res.json({
-            depts: depts.map(d => d.name),
-            cats: cats.map(c => c.name),
+            depts: depts.map(d => ({ name: d.name, abbr: d.abbr })),
+            cats: cats.map(c => ({ name: c.name, abbr: c.abbr })),
             users: users.map(u => sanitizeUser({ ...u, perms: typeof u.perms === 'string' ? JSON.parse(u.perms || '{}') : u.perms })),
             // Bảng docs lưu cột dạng snake_case (file_name, current_step_order...) nhưng
             // toàn bộ frontend dùng camelCase (fileName, currentStepOrder...) — phải ánh
@@ -268,7 +268,9 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
                 workflowId: d.workflow_id,
                 currentStepOrder: d.current_step_order,
                 status: d.status,
-                history: typeof d.history === 'string' ? JSON.parse(d.history || '[]') : d.history
+                history: typeof d.history === 'string' ? JSON.parse(d.history || '[]') : d.history,
+                docGroupId: d.doc_group_id,
+                versionNo: d.version_no
             })),
             workflows: workflows.map(w => ({ ...w, steps: typeof w.steps === 'string' ? JSON.parse(w.steps || '[]') : w.steps })),
             deptWorkflows: configMap.deptWorkflows || {},
@@ -378,29 +380,95 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                 return cfg.approvers[existingDoc.current_step_order] === req.user.username;
             }
 
+            // Mã tài liệu do SERVER tự sinh (Zero Trust — không tin mã do client
+            // gửi lên), theo quy tắc {Viết tắt Phân loại}-{Viết tắt Phòng ban}-{Năm}-{STT}.
+            // Bộ đếm theo prefix được cache trong 1 lần gọi API để nhiều tài liệu
+            // mới trong cùng 1 lượt upload (nhiều file) không bị trùng số thứ tự.
+            const [deptAbbrRows] = await pool.query('SELECT name, abbr FROM depts');
+            const [catAbbrRows] = await pool.query('SELECT name, abbr FROM cats');
+            const deptAbbrMap = new Map(deptAbbrRows.map(r => [r.name, r.abbr]));
+            const catAbbrMap = new Map(catAbbrRows.map(r => [r.name, r.abbr]));
+            const codeSeqCache = new Map();
+            async function nextCodeForPrefix(prefix) {
+                if (!codeSeqCache.has(prefix)) {
+                    const [rows] = await pool.query(
+                        'SELECT COUNT(DISTINCT doc_group_id) AS cnt FROM docs WHERE code LIKE ?',
+                        [`${prefix}%`]
+                    );
+                    codeSeqCache.set(prefix, (rows[0].cnt || 0) + 1);
+                }
+                const seq = codeSeqCache.get(prefix);
+                codeSeqCache.set(prefix, seq + 1);
+                return seq;
+            }
+
             const toUpsert = [];
             for (const d of data) {
                 const existing = existingMap.get(String(d.id));
 
                 if (!existing) {
-                    const canUpload = req.user.perms.admin || req.user.perms.uploadAll ||
-                        (req.user.perms.uploadDepts || []).includes(d.dept);
-                    if (!canUpload) {
-                        return res.status(403).json({ error: `Bạn không có quyền tải lên tài liệu cho phòng ban [${d.dept}].` });
+                    let finalDept = d.dept, finalCat = d.cat, finalTitle = d.title;
+                    let docGroupId, versionNo, code, ver;
+
+                    if (d.targetGroupId) {
+                        // Chế độ "Cập nhật": nộp phiên bản mới cho tài liệu đã tồn tại.
+                        // Phòng ban/Phân loại/Tên tài liệu kế thừa từ tài liệu gốc — không
+                        // tin dept/cat/title client gửi (tránh 1 phiên bản "nhảy" sang
+                        // phòng ban/phân loại khác so với các phiên bản trước).
+                        const groupRows = existingRows.filter(r => String(r.doc_group_id) === String(d.targetGroupId));
+                        if (groupRows.length === 0) {
+                            return res.status(400).json({ error: `Không tìm thấy tài liệu gốc để cập nhật (nhóm: ${d.targetGroupId}).` });
+                        }
+                        const latest = groupRows.reduce((a, b) => (a.version_no > b.version_no ? a : b));
+                        if (groupRows.some(r => r.status === 'PENDING')) {
+                            return res.status(400).json({ error: `Tài liệu [${latest.code}] còn phiên bản đang chờ duyệt, chưa thể nộp phiên bản mới.` });
+                        }
+                        finalDept = latest.dept;
+                        finalCat = latest.cat;
+                        finalTitle = latest.title;
+                        const canUploadTarget = req.user.perms.admin || req.user.perms.uploadAll ||
+                            (req.user.perms.uploadDepts || []).includes(finalDept);
+                        if (!canUploadTarget) {
+                            return res.status(403).json({ error: `Bạn không có quyền cập nhật tài liệu cho phòng ban [${finalDept}].` });
+                        }
+                        docGroupId = latest.doc_group_id;
+                        versionNo = latest.version_no + 1;
+                        ver = `v${versionNo}.0`;
+                        code = latest.code;
+                    } else {
+                        // Chế độ "Nhập mới"
+                        const canUpload = req.user.perms.admin || req.user.perms.uploadAll ||
+                            (req.user.perms.uploadDepts || []).includes(finalDept);
+                        if (!canUpload) {
+                            return res.status(403).json({ error: `Bạn không có quyền tải lên tài liệu cho phòng ban [${finalDept}].` });
+                        }
+                        const deptAbbr = deptAbbrMap.get(finalDept);
+                        const catAbbr = catAbbrMap.get(finalCat);
+                        if (!deptAbbr || !catAbbr) {
+                            return res.status(400).json({ error: `Phòng ban [${finalDept}] hoặc Phân loại [${finalCat}] chưa được cấu hình viết tắt — không thể tự sinh mã tài liệu.` });
+                        }
+                        const year = new Date().getFullYear();
+                        const prefix = `${catAbbr}-${deptAbbr}-${year}-`;
+                        const seq = await nextCodeForPrefix(prefix);
+                        code = `${prefix}${String(seq).padStart(3, '0')}`;
+                        docGroupId = d.id;
+                        versionNo = 1;
+                        ver = 'v1.0';
                     }
 
-                    const fieldError = validateDocFieldLengths(d);
+                    const fieldError = validateDocFieldLengths({ code, title: finalTitle, ver, summary: d.summary, fileName: d.fileName });
                     if (fieldError) {
                         return res.status(400).json({ error: fieldError });
                     }
                     const pdfError = validatePdfUpload(d.fileName, d.fileType, d.fileData);
                     if (pdfError) {
-                        return res.status(400).json({ error: `Tài liệu [${d.code}]: ${pdfError}` });
+                        return res.status(400).json({ error: `Tài liệu [${code}]: ${pdfError}` });
                     }
 
                     toUpsert.push([
-                        d.id, d.code, d.title, d.ver, d.dept, d.cat, d.summary, d.fileName, d.fileType, d.fileData,
-                        req.user.name, req.user.username, d.createdAt, d.workflowId, 1, 'PENDING', JSON.stringify([])
+                        d.id, code, finalTitle, ver, finalDept, finalCat, d.summary, d.fileName, d.fileType, d.fileData,
+                        req.user.name, req.user.username, d.createdAt, d.workflowId, 1, 'PENDING', JSON.stringify([]),
+                        docGroupId, versionNo
                     ]);
                     continue;
                 }
@@ -423,14 +491,15 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                 toUpsert.push([
                     d.id, existing.code, existing.title, existing.ver, existing.dept, existing.cat, existing.summary,
                     existing.file_name, existing.file_type, existing.file_data, existing.created_by, existing.creator_username,
-                    existing.created_at, d.workflowId, d.currentStepOrder, d.status, JSON.stringify(d.history || [])
+                    existing.created_at, d.workflowId, d.currentStepOrder, d.status, JSON.stringify(d.history || []),
+                    existing.doc_group_id, existing.version_no
                 ]);
             }
 
             for (const row of toUpsert) {
                 await pool.query(
-                    `INSERT INTO docs (id, code, title, ver, dept, cat, summary, file_name, file_type, file_data, created_by, creator_username, created_at, workflow_id, current_step_order, status, history)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    `INSERT INTO docs (id, code, title, ver, dept, cat, summary, file_name, file_type, file_data, created_by, creator_username, created_at, workflow_id, current_step_order, status, history, doc_group_id, version_no)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                      ON DUPLICATE KEY UPDATE current_step_order = VALUES(current_step_order), status = VALUES(status), history = VALUES(history)`,
                     row
                 );
@@ -465,15 +534,30 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                     row
                 );
             }
-        } else if (table === 'depts') {
-            await pool.query('DELETE FROM depts');
-            for (let d of data) {
-                await pool.query('INSERT INTO depts (name) VALUES (?)', [d]);
+        } else if (table === 'depts' || table === 'cats') {
+            // Viết tắt (abbr) dùng để sinh mã tài liệu tự động (VD: HD-IT-2026-001)
+            // nên bắt buộc, chỉ chữ/số không dấu, và không được trùng giữa các
+            // phòng ban/phân loại khác nhau (tránh sinh mã gây nhầm lẫn).
+            const label = table === 'depts' ? 'phòng ban' : 'phân loại';
+            const names = new Set();
+            const abbrs = new Set();
+            const normalized = [];
+            for (const item of data) {
+                const name = String((item && item.name) || '').trim();
+                const abbr = String((item && item.abbr) || '').trim().toUpperCase();
+                if (!name) return res.status(400).json({ error: `Tên ${label} không được để trống.` });
+                if (!/^[A-Z0-9]{1,10}$/.test(abbr)) {
+                    return res.status(400).json({ error: `Viết tắt của ${label} [${name}] không hợp lệ (chỉ chữ/số không dấu, tối đa 10 ký tự, không được để trống).` });
+                }
+                if (names.has(name)) return res.status(400).json({ error: `Tên ${label} [${name}] bị trùng.` });
+                if (abbrs.has(abbr)) return res.status(400).json({ error: `Viết tắt [${abbr}] bị trùng giữa các ${label}.` });
+                names.add(name);
+                abbrs.add(abbr);
+                normalized.push([name, abbr]);
             }
-        } else if (table === 'cats') {
-            await pool.query('DELETE FROM cats');
-            for (let c of data) {
-                await pool.query('INSERT INTO cats (name) VALUES (?)', [c]);
+            await pool.query(`DELETE FROM ${table}`);
+            for (const [name, abbr] of normalized) {
+                await pool.query(`INSERT INTO ${table} (name, abbr) VALUES (?, ?)`, [name, abbr]);
             }
         } else if (table === 'workflows') {
             await pool.query('DELETE FROM workflows');
