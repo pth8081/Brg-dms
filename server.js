@@ -186,7 +186,8 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
         const perms = typeof user.perms === 'string' ? JSON.parse(user.perms || '{}') : user.perms;
         res.json({ user: sanitizeUser({ ...user, perms }) });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error('❌ Lỗi đăng nhập:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
 
@@ -225,7 +226,8 @@ app.post('/api/profile', requireAuth, async (req, res) => {
         const perms = typeof updated.perms === 'string' ? JSON.parse(updated.perms || '{}') : updated.perms;
         res.json({ user: sanitizeUser({ ...updated, perms }) });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error('❌ Lỗi cập nhật hồ sơ:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
 
@@ -278,7 +280,8 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
             systemLogs: logs
         });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error('❌ Lỗi tải dữ liệu bootstrap:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
 
@@ -598,7 +601,8 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
         }
         res.json({ success: true });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error('❌ Lỗi đồng bộ dữ liệu:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
 
