@@ -29,9 +29,7 @@
         </div>
         <div class="flex gap-2 justify-end mt-2 flex-wrap">
           <button id="btnDocTab" onclick="switchTab('doc')" class="hidden text-xs bg-blue-600 text-white px-2.5 py-1 rounded hover:bg-blue-700 font-semibold">📂 Quản lý tài liệu</button>
-          <button id="btnWorkflowTab" onclick="switchTab('workflow')" class="hidden text-xs bg-emerald-600 text-white px-2.5 py-1 rounded hover:bg-emerald-700 font-semibold">🔄 Quy trình & Luồng duyệt</button>
           <button id="btnAdminTab" onclick="switchTab('admin')" class="hidden text-xs bg-purple-600 text-white px-2.5 py-1 rounded hover:bg-purple-700 font-semibold">⚙️ Quản trị & Phân quyền</button>
-          <button id="btnLogTab" onclick="switchTab('log')" class="hidden text-xs bg-stone-600 text-white px-2.5 py-1 rounded hover:bg-stone-700 font-semibold">📊 Log Hệ Thống</button>
           <button onclick="logout()" class="text-xs text-red-500 underline py-1 hover:text-red-700 font-semibold">Đăng xuất</button>
         </div>
       </div>
@@ -190,64 +188,16 @@
       </div>
     </div>
 
-    <!-- Màn hình 3: Tab Quản Lý Quy Trình & Luồng Phê Duyệt -->
-    <div id="workflowSection" class="hidden space-y-6">
-      <div class="bg-emerald-50 p-4 rounded border border-emerald-200 space-y-3">
-        <h3 class="font-bold text-emerald-900 text-base flex items-center gap-2">
-          🏢 Cấu Hình Quy Trình & Chỉ Định Người Duyệt Cho Từng Phòng Ban
-        </h3>
-        <p class="text-xs text-emerald-800">Gán quy trình phê duyệt tài liệu riêng cho từng phòng ban và thiết lập tài khoản người phê duyệt chi tiết.</p>
-        <div id="deptWorkflowConfigContainer" class="space-y-4"></div>
-      </div>
-
-      <div class="bg-slate-50 p-4 rounded border space-y-4">
-        <h3 class="font-bold text-slate-800 text-base">🛠️ Định Nghĩa Mẫu Quy Trình (Workflow Templates)</h3>
-        
-        <form onsubmit="saveWorkflowTemplate(event)" class="bg-white p-3 rounded border space-y-3">
-          <input id="editingWfCode" type="hidden">
-          
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label class="block text-xs font-semibold text-gray-600 mb-1">Mã Quy Trình (VD: WF_3STEP)</label>
-              <input id="wfCode" placeholder="WF_..." class="w-full border p-1.5 rounded text-xs disabled:bg-gray-100 font-mono font-bold" required>
-            </div>
-            <div>
-              <label class="block text-xs font-semibold text-gray-600 mb-1">Tên Quy Trình</label>
-              <input id="wfName" placeholder="Ví dụ: Quy trình chuẩn 3 bước" class="w-full border p-1.5 rounded text-xs" required>
-            </div>
-          </div>
-
-          <div>
-            <label class="block text-xs font-bold text-gray-700 mb-2">Thứ Tự Các Bước Duyệt (Tối đa 5 bước):</label>
-            <div id="stepBuilderContainer" class="space-y-2"></div>
-            <button type="button" onclick="addStepRow()" class="mt-2 text-xs bg-gray-200 text-gray-800 px-2 py-1 rounded font-semibold hover:bg-gray-300">+ Thêm Bước Duyệt</button>
-          </div>
-
-          <div class="flex justify-end gap-2">
-            <button id="btnCancelWf" type="button" onclick="resetWorkflowForm()" class="hidden bg-gray-400 text-white text-xs px-3 py-1.5 rounded font-bold">Hủy</button>
-            <button id="btnSaveWf" type="submit" class="bg-emerald-600 text-white text-xs px-4 py-1.5 rounded font-bold hover:bg-emerald-700">Lưu Mẫu Quy Trình</button>
-          </div>
-        </form>
-
-        <div class="overflow-x-auto bg-white rounded border">
-          <table class="w-full text-xs text-left">
-            <thead class="bg-gray-100 text-gray-700 font-bold">
-              <tr>
-                <th class="p-2 border">Mã WF</th>
-                <th class="p-2 border">Tên Quy Trình</th>
-                <th class="p-2 border">Số Bước</th>
-                <th class="p-2 border">Cấu Trúc Các Bước</th>
-                <th class="p-2 border text-center">Thao Tác</th>
-              </tr>
-            </thead>
-            <tbody id="workflowTableBody"></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- Màn hình 4: Tab Quản Trị Hệ Thống & Phân Quyền -->
+    <!-- Màn hình 3: Tab Quản Trị Hệ Thống, Phân Quyền, Quy Trình & Log (gộp chung 1 module) -->
     <div id="adminSection" class="hidden space-y-6">
+      <div class="flex gap-2 border-b pb-2 flex-wrap">
+        <button id="btnAdminSubUsers" onclick="switchAdminSubTab('users')" class="text-xs px-3 py-1.5 rounded font-semibold">👤 Người Dùng & Phân Quyền</button>
+        <button id="btnAdminSubWorkflow" onclick="switchAdminSubTab('workflow')" class="text-xs px-3 py-1.5 rounded font-semibold">🔄 Quy Trình & Luồng Duyệt</button>
+        <button id="btnAdminSubLog" onclick="switchAdminSubTab('log')" class="text-xs px-3 py-1.5 rounded font-semibold">📊 Log Hệ Thống</button>
+      </div>
+
+      <!-- Sub-tab: Người Dùng & Phân Quyền -->
+      <div id="adminSubUsers" class="space-y-6">
       <div class="bg-amber-50 p-4 rounded border border-amber-300 space-y-3">
         <h3 class="font-bold text-amber-900 text-sm flex items-center gap-1">✉️ Cấu Hình Server Email Thông Báo (SMTP Server)</h3>
         
@@ -416,6 +366,7 @@
                 <th class="border p-2">Liên Hệ (Email / SĐT)</th>
                 <th class="border p-2">Phòng Ban</th>
                 <th class="border p-2">Chi Tiết Quyền Hạn</th>
+                <th class="border p-2 text-center">Trạng Thái</th>
                 <th class="border p-2 text-center min-w-[100px]">Thao Tác</th>
               </tr>
             </thead>
@@ -423,68 +374,128 @@
           </table>
         </div>
       </div>
-    </div>
+      </div>
+      <!-- /Sub-tab: Người Dùng & Phân Quyền -->
 
-    <!-- Màn hình 5: Tab Quản Trị Log Hệ Thống -->
-    <div id="logSection" class="hidden space-y-6">
-      <div class="bg-stone-50 p-4 rounded border border-stone-300 space-y-3">
-        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-          <div>
-            <h3 class="font-bold text-stone-900 text-base flex items-center gap-1">📊 Quản Trị Log Hệ Thống</h3>
-            <p class="text-xs text-stone-800">Giám sát và truy xuất nhật ký thao tác người dùng, gửi email, phân quyền và cấu hình hệ thống.</p>
-          </div>
-          <div class="flex gap-2">
-            <button onclick="clearSystemLogs()" class="text-xs bg-red-600 text-white px-3 py-1.5 rounded font-bold hover:bg-red-700">🗑️ Xóa Log</button>
-            <button onclick="exportSystemLogsCSV()" class="text-xs bg-emerald-600 text-white px-3 py-1.5 rounded font-bold hover:bg-emerald-700">📥 Xuất Log CSV</button>
-          </div>
+      <!-- Sub-tab: Quy Trình & Luồng Duyệt -->
+      <div id="adminSubWorkflow" class="hidden space-y-6">
+        <div class="bg-emerald-50 p-4 rounded border border-emerald-200 space-y-3">
+          <h3 class="font-bold text-emerald-900 text-base flex items-center gap-2">
+            🏢 Cấu Hình Quy Trình & Chỉ Định Người Duyệt Cho Từng Phòng Ban
+          </h3>
+          <p class="text-xs text-emerald-800">Gán quy trình phê duyệt tài liệu riêng cho từng phòng ban và thiết lập tài khoản người phê duyệt chi tiết.</p>
+          <div id="deptWorkflowConfigContainer" class="space-y-4"></div>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-3 bg-white p-3 rounded border text-xs">
-          <div>
-            <label class="block font-semibold text-gray-600 mb-1">Lọc Theo Phân Hệ</label>
-            <select id="filterLogModule" onchange="renderSystemLogs()" class="w-full border p-1.5 rounded bg-white font-semibold">
-              <option value="">-- Tất cả phân hệ --</option>
-              <option value="EMAIL">Log Gửi Email (EMAIL)</option>
-              <option value="CONFIG">Log Cấu Hình Hệ Thống (CONFIG)</option>
-              <option value="USER_MGM">Log Quản Lý User (USER_MGM)</option>
-              <option value="PERMISSION">Log Đổi Phân Quyền (PERMISSION)</option>
-              <option value="INTERACTION">Log Tương Tác Tài Liệu (INTERACTION)</option>
-            </select>
-          </div>
-          <div>
-            <label class="block font-semibold text-gray-600 mb-1">Lọc Trạng Thái</label>
-            <select id="filterLogStatus" onchange="renderSystemLogs()" class="w-full border p-1.5 rounded bg-white font-semibold">
-              <option value="">-- Tất cả trạng thái --</option>
-              <option value="SUCCESS">Thành công (SUCCESS)</option>
-              <option value="FAILED">Thất bại (FAILED)</option>
-            </select>
-          </div>
-          <div>
-            <label class="block font-semibold text-gray-600 mb-1">Tìm Kiếm</label>
-            <input id="filterLogKeyword" oninput="renderSystemLogs()" placeholder="Username, IP, hành động..." class="w-full border p-1.5 rounded">
-          </div>
-          <div class="flex items-end">
-            <button onclick="resetLogFilters()" class="w-full bg-gray-200 text-gray-700 p-1.5 rounded font-bold hover:bg-gray-300">Đặt Lại Bộ Lọc</button>
+        <div class="bg-slate-50 p-4 rounded border space-y-4">
+          <h3 class="font-bold text-slate-800 text-base">🛠️ Định Nghĩa Mẫu Quy Trình (Workflow Templates)</h3>
+
+          <form onsubmit="saveWorkflowTemplate(event)" class="bg-white p-3 rounded border space-y-3">
+            <input id="editingWfCode" type="hidden">
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-semibold text-gray-600 mb-1">Mã Quy Trình (VD: WF_3STEP)</label>
+                <input id="wfCode" placeholder="WF_..." class="w-full border p-1.5 rounded text-xs disabled:bg-gray-100 font-mono font-bold" required>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-gray-600 mb-1">Tên Quy Trình</label>
+                <input id="wfName" placeholder="Ví dụ: Quy trình chuẩn 3 bước" class="w-full border p-1.5 rounded text-xs" required>
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-bold text-gray-700 mb-2">Thứ Tự Các Bước Duyệt (Tối đa 5 bước):</label>
+              <div id="stepBuilderContainer" class="space-y-2"></div>
+              <button type="button" onclick="addStepRow()" class="mt-2 text-xs bg-gray-200 text-gray-800 px-2 py-1 rounded font-semibold hover:bg-gray-300">+ Thêm Bước Duyệt</button>
+            </div>
+
+            <div class="flex justify-end gap-2">
+              <button id="btnCancelWf" type="button" onclick="resetWorkflowForm()" class="hidden bg-gray-400 text-white text-xs px-3 py-1.5 rounded font-bold">Hủy</button>
+              <button id="btnSaveWf" type="submit" class="bg-emerald-600 text-white text-xs px-4 py-1.5 rounded font-bold hover:bg-emerald-700">Lưu Mẫu Quy Trình</button>
+            </div>
+          </form>
+
+          <div class="overflow-x-auto bg-white rounded border">
+            <table class="w-full text-xs text-left">
+              <thead class="bg-gray-100 text-gray-700 font-bold">
+                <tr>
+                  <th class="p-2 border">Mã WF</th>
+                  <th class="p-2 border">Tên Quy Trình</th>
+                  <th class="p-2 border">Số Bước</th>
+                  <th class="p-2 border">Cấu Trúc Các Bước</th>
+                  <th class="p-2 border text-center">Thao Tác</th>
+                </tr>
+              </thead>
+              <tbody id="workflowTableBody"></tbody>
+            </table>
           </div>
         </div>
       </div>
+      <!-- /Sub-tab: Quy Trình & Luồng Duyệt -->
 
-      <div class="overflow-x-auto bg-white rounded border">
-        <table class="w-full border-collapse text-xs">
-          <thead>
-            <tr class="bg-gray-100 text-left text-gray-700">
-              <th class="border p-2">Thời Gian</th>
-              <th class="border p-2">Người Thực Hiện</th>
-              <th class="border p-2">IP Thiết Bị</th>
-              <th class="border p-2">Phân Hệ</th>
-              <th class="border p-2">Hành Động</th>
-              <th class="border p-2">Mô Tả Chi Tiết</th>
-              <th class="border p-2 text-center">Trạng Thái</th>
-            </tr>
-          </thead>
-          <tbody id="systemLogTableBody"></tbody>
-        </table>
+      <!-- Sub-tab: Log Hệ Thống -->
+      <div id="adminSubLog" class="hidden space-y-6">
+        <div class="bg-stone-50 p-4 rounded border border-stone-300 space-y-3">
+          <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+            <div>
+              <h3 class="font-bold text-stone-900 text-base flex items-center gap-1">📊 Quản Trị Log Hệ Thống</h3>
+              <p class="text-xs text-stone-800">Giám sát và truy xuất nhật ký thao tác người dùng, gửi email, phân quyền và cấu hình hệ thống.</p>
+            </div>
+            <div class="flex gap-2">
+              <button onclick="clearSystemLogs()" class="text-xs bg-red-600 text-white px-3 py-1.5 rounded font-bold hover:bg-red-700">🗑️ Xóa Log</button>
+              <button onclick="exportSystemLogsCSV()" class="text-xs bg-emerald-600 text-white px-3 py-1.5 rounded font-bold hover:bg-emerald-700">📥 Xuất Log CSV</button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-3 bg-white p-3 rounded border text-xs">
+            <div>
+              <label class="block font-semibold text-gray-600 mb-1">Lọc Theo Phân Hệ</label>
+              <select id="filterLogModule" onchange="renderSystemLogs()" class="w-full border p-1.5 rounded bg-white font-semibold">
+                <option value="">-- Tất cả phân hệ --</option>
+                <option value="EMAIL">Log Gửi Email (EMAIL)</option>
+                <option value="CONFIG">Log Cấu Hình Hệ Thống (CONFIG)</option>
+                <option value="USER_MGM">Log Quản Lý User (USER_MGM)</option>
+                <option value="PERMISSION">Log Đổi Phân Quyền (PERMISSION)</option>
+                <option value="INTERACTION">Log Tương Tác Tài Liệu (INTERACTION)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block font-semibold text-gray-600 mb-1">Lọc Trạng Thái</label>
+              <select id="filterLogStatus" onchange="renderSystemLogs()" class="w-full border p-1.5 rounded bg-white font-semibold">
+                <option value="">-- Tất cả trạng thái --</option>
+                <option value="SUCCESS">Thành công (SUCCESS)</option>
+                <option value="FAILED">Thất bại (FAILED)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block font-semibold text-gray-600 mb-1">Tìm Kiếm</label>
+              <input id="filterLogKeyword" oninput="renderSystemLogs()" placeholder="Username, IP, hành động..." class="w-full border p-1.5 rounded">
+            </div>
+            <div class="flex items-end">
+              <button onclick="resetLogFilters()" class="w-full bg-gray-200 text-gray-700 p-1.5 rounded font-bold hover:bg-gray-300">Đặt Lại Bộ Lọc</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto bg-white rounded border">
+          <table class="w-full border-collapse text-xs">
+            <thead>
+              <tr class="bg-gray-100 text-left text-gray-700">
+                <th class="border p-2">Thời Gian</th>
+                <th class="border p-2">Người Thực Hiện</th>
+                <th class="border p-2">IP Thiết Bị</th>
+                <th class="border p-2">Phân Hệ</th>
+                <th class="border p-2">Hành Động</th>
+                <th class="border p-2">Mô Tả Chi Tiết</th>
+                <th class="border p-2 text-center">Trạng Thái</th>
+              </tr>
+            </thead>
+            <tbody id="systemLogTableBody"></tbody>
+          </table>
+        </div>
       </div>
+      <!-- /Sub-tab: Log Hệ Thống -->
     </div>
 
   </div>
@@ -728,8 +739,6 @@
       document.getElementById('userPhoneInfo').innerText = `📞 ${user.phone || 'Chưa có SĐT'} | ✉️ ${user.email || 'Chưa có Email'}`;
 
       document.getElementById('btnAdminTab').classList.toggle('hidden', !user.perms.admin);
-      document.getElementById('btnWorkflowTab').classList.toggle('hidden', !user.perms.admin);
-      document.getElementById('btnLogTab').classList.toggle('hidden', !user.perms.admin);
       document.getElementById('btnDocTab').classList.remove('hidden');
 
       populateDropdowns();
@@ -741,8 +750,6 @@
       document.getElementById('loginSection').classList.remove('hidden');
       document.getElementById('docSection').classList.add('hidden');
       document.getElementById('adminSection').classList.add('hidden');
-      document.getElementById('workflowSection').classList.add('hidden');
-      document.getElementById('logSection').classList.add('hidden');
       document.getElementById('userHeader').classList.add('hidden');
     }
 
@@ -758,13 +765,29 @@
 
       document.getElementById('docSection').classList.toggle('hidden', tabName !== 'doc');
       document.getElementById('adminSection').classList.toggle('hidden', tabName !== 'admin');
-      document.getElementById('workflowSection').classList.toggle('hidden', tabName !== 'workflow');
-      document.getElementById('logSection').classList.toggle('hidden', tabName !== 'log');
 
       if (tabName === 'doc') { renderDocs(); updateUploadDeptDropdown(); }
-      if (tabName === 'workflow' && currentUser.perms.admin) { renderWorkflowTab(); }
-      if (tabName === 'admin' && currentUser.perms.admin) { renderDeptList(); renderCatList(); renderDeptCheckboxes(); renderUsers(); loadEmailConfigToForm(); }
-      if (tabName === 'log' && currentUser.perms.admin) { renderSystemLogs(); }
+      if (tabName === 'admin' && currentUser.perms.admin) { switchAdminSubTab('users'); }
+    }
+
+    function switchAdminSubTab(subName) {
+      if (!currentUser || !currentUser.perms.admin) return;
+
+      const subs = { users: 'adminSubUsers', workflow: 'adminSubWorkflow', log: 'adminSubLog' };
+      const btns = { users: 'btnAdminSubUsers', workflow: 'btnAdminSubWorkflow', log: 'btnAdminSubLog' };
+
+      Object.keys(subs).forEach(key => {
+        document.getElementById(subs[key]).classList.toggle('hidden', key !== subName);
+        const btn = document.getElementById(btns[key]);
+        btn.classList.toggle('bg-purple-600', key === subName);
+        btn.classList.toggle('text-white', key === subName);
+        btn.classList.toggle('bg-gray-200', key !== subName);
+        btn.classList.toggle('text-gray-700', key !== subName);
+      });
+
+      if (subName === 'users') { renderDeptList(); renderCatList(); renderDeptCheckboxes(); renderUsers(); loadEmailConfigToForm(); }
+      if (subName === 'workflow') { renderWorkflowTab(); }
+      if (subName === 'log') { renderSystemLogs(); }
     }
 
     function populateDropdowns() {
@@ -1625,12 +1648,13 @@
       if (editId) {
         const idx = DB.users.findIndex(u => u.id == editId);
         if (idx !== -1) {
-          DB.users[idx] = { id: Number(editId), username, pass, name, email, phone, dept, perms };
+          const active = DB.users[idx].active !== false;
+          DB.users[idx] = { id: Number(editId), username, pass, name, email, phone, dept, perms, active };
           logSystemAction('USER_MGM', 'UPDATE_USER', `Cập nhật tài khoản và quyền hạn cho user: ${username}`, 'SUCCESS', username);
         }
       } else {
         if (DB.users.some(u => u.username === username)) return alert('Username đã tồn tại!');
-        const newUser = { id: Date.now(), username, pass, name, email, phone, dept, perms };
+        const newUser = { id: Date.now(), username, pass, name, email, phone, dept, perms, active: true };
         DB.users.push(newUser);
         logSystemAction('USER_MGM', 'CREATE_USER', `Tạo mới tài khoản user: ${username}`, 'SUCCESS', username);
       }
@@ -1686,6 +1710,29 @@
       renderUsers();
     }
 
+    async function toggleUserActive(id) {
+      const idx = DB.users.findIndex(item => item.id == id);
+      if (idx === -1) return;
+      const u = DB.users[idx];
+
+      if (u.username === 'admin') return alert('Không thể khóa tài khoản Admin gốc!');
+      if (currentUser && String(u.id) === String(currentUser.id)) return alert('Không thể tự khóa chính tài khoản đang đăng nhập!');
+
+      const nextActive = !(u.active !== false);
+      if (!confirm(nextActive
+        ? `Kích hoạt lại tài khoản ${u.username}?`
+        : `Khóa tài khoản ${u.username}? Người này sẽ không thể đăng nhập cho đến khi được kích hoạt lại.`)) return;
+
+      DB.users[idx] = { ...u, active: nextActive };
+      const ok = await syncStorage('users');
+      if (!ok) {
+        DB.users[idx] = u; // rollback nếu server từ chối
+        return;
+      }
+      logSystemAction('USER_MGM', nextActive ? 'ACTIVATE_USER' : 'LOCK_USER', `${nextActive ? 'Kích hoạt' : 'Khóa'} tài khoản user: ${u.username}`, 'SUCCESS', u.username);
+      renderUsers();
+    }
+
     function resetUserForm() {
       document.getElementById('editUserId').value = '';
       document.getElementById('uUsername').value = '';
@@ -1718,15 +1765,22 @@
           p.downloadAll ? '<span class="bg-rose-100 text-rose-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">Tải:ALL</span>' : ''
         ].join('');
 
+        const isActive = u.active !== false;
+        const statusBadge = isActive
+          ? '<span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.5 rounded">🔓 Hoạt động</span>'
+          : '<span class="bg-red-100 text-red-800 text-[10px] font-bold px-1.5 py-0.5 rounded">🔒 Đã khóa</span>';
+
         return `
-          <tr class="hover:bg-gray-50">
+          <tr class="hover:bg-gray-50 ${isActive ? '' : 'opacity-60'}">
             <td class="border p-2 font-bold font-mono text-blue-900">${escapeHtml(u.username)}</td>
             <td class="border p-2 font-semibold">${escapeHtml(u.name)}</td>
             <td class="border p-2 text-gray-600">${escapeHtml(u.email || 'N/A')} / ${escapeHtml(u.phone || 'N/A')}</td>
             <td class="border p-2">${escapeHtml(u.dept)}</td>
             <td class="border p-2">${permTags || '<span class="text-gray-400">Quyền cơ bản</span>'}</td>
-            <td class="border p-2 text-center space-x-1">
+            <td class="border p-2 text-center">${statusBadge}</td>
+            <td class="border p-2 text-center space-x-1 whitespace-nowrap">
               <button onclick="editUser(${u.id})" class="bg-blue-600 text-white px-2 py-0.5 rounded font-bold">Sửa</button>
+              <button onclick="toggleUserActive(${u.id})" class="${isActive ? 'bg-amber-600' : 'bg-emerald-600'} text-white px-2 py-0.5 rounded font-bold">${isActive ? 'Khóa' : 'Kích hoạt'}</button>
               <button onclick="deleteUser(${u.id})" class="bg-red-600 text-white px-2 py-0.5 rounded font-bold">Xóa</button>
             </td>
           </tr>

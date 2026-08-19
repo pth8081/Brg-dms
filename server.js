@@ -10,6 +10,9 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
+const fs = require('fs');
+const { PDFDocument, rgb, degrees } = require('pdf-lib');
+const fontkit = require('@pdf-lib/fontkit');
 
 const app = express();
 const isProd = process.env.NODE_ENV === 'production';
@@ -133,6 +136,7 @@ async function requireAuth(req, res, next) {
         const [rows] = await pool.query('SELECT * FROM users WHERE id = ?', [payload.id]);
         const dbUser = rows[0];
         if (!dbUser) return res.status(401).json({ error: 'Tài khoản không tồn tại.' });
+        if (!dbUser.active) return res.status(401).json({ error: 'Tài khoản đã bị khóa, vui lòng liên hệ quản trị viên.' });
 
         req.user = dbUser;
         req.user.perms = typeof dbUser.perms === 'string' ? JSON.parse(dbUser.perms || '{}') : (dbUser.perms || {});
@@ -179,6 +183,8 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
 
         const ok = await bcrypt.compare(password, user.pass);
         if (!ok) return res.status(401).json({ error: 'Tài khoản hoặc mật khẩu không chính xác!' });
+
+        if (!user.active) return res.status(401).json({ error: 'Tài khoản đã bị khóa, vui lòng liên hệ quản trị viên.' });
 
         const token = signToken(user);
         setAuthCookie(res, token);
@@ -328,6 +334,50 @@ function validatePdfUpload(fileName, fileType, fileDataUri) {
     return null; // hợp lệ
 }
 
+// --- Đóng dấu bản quyền lên mọi tài liệu PDF ngay khi upload ---
+// Watermark chéo (kiểu "CONFIDENTIAL" quen thuộc) được nhúng vĩnh viễn vào file
+// trước khi lưu vào CSDL, nên luôn xuất hiện dù xem trực tiếp hay tải file về.
+const COPYRIGHT_WATERMARK_TEXT = 'Tài liệu thuộc bản quyền của Trung tâm CNTT';
+const WATERMARK_FONT_PATH = path.join(__dirname, 'assets', 'fonts', 'DejaVuSans-Bold.ttf');
+let watermarkFontBytesCache = null;
+function loadWatermarkFontBytes() {
+    if (!watermarkFontBytesCache) {
+        watermarkFontBytesCache = fs.readFileSync(WATERMARK_FONT_PATH);
+    }
+    return watermarkFontBytesCache;
+}
+
+async function stampCopyrightWatermark(fileDataUri) {
+    const match = fileDataUri.match(/^data:application\/pdf;base64,([A-Za-z0-9+/=]+)$/);
+    const originalBuffer = Buffer.from(match[1], 'base64');
+
+    const pdfDoc = await PDFDocument.load(originalBuffer);
+    pdfDoc.registerFontkit(fontkit);
+    const font = await pdfDoc.embedFont(loadWatermarkFontBytes(), { subset: true });
+
+    const angleDeg = 45;
+    const angleRad = (angleDeg * Math.PI) / 180;
+
+    for (const page of pdfDoc.getPages()) {
+        const { width, height } = page.getSize();
+        const fontSize = Math.max(18, Math.min(48, Math.min(width, height) / 12));
+        const textWidth = font.widthOfTextAtSize(COPYRIGHT_WATERMARK_TEXT, fontSize);
+        const x = width / 2 - (textWidth / 2) * Math.cos(angleRad);
+        const y = height / 2 - (textWidth / 2) * Math.sin(angleRad);
+        page.drawText(COPYRIGHT_WATERMARK_TEXT, {
+            x, y,
+            size: fontSize,
+            font,
+            color: rgb(0.6, 0.6, 0.6),
+            opacity: 0.35,
+            rotate: degrees(angleDeg)
+        });
+    }
+
+    const stampedBytes = await pdfDoc.save();
+    return `data:application/pdf;base64,${Buffer.from(stampedBytes).toString('base64')}`;
+}
+
 const DOC_FIELD_LIMITS = { code: 100, title: 500, ver: 50, summary: 5000, fileName: 255 };
 function validateDocFieldLengths(d) {
     for (const [field, max] of Object.entries(DOC_FIELD_LIMITS)) {
@@ -468,8 +518,15 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                         return res.status(400).json({ error: `Tài liệu [${code}]: ${pdfError}` });
                     }
 
+                    let stampedFileData;
+                    try {
+                        stampedFileData = await stampCopyrightWatermark(d.fileData);
+                    } catch (e) {
+                        return res.status(400).json({ error: `Tài liệu [${code}]: không thể xử lý file PDF để đóng dấu bản quyền.` });
+                    }
+
                     toUpsert.push([
-                        d.id, code, finalTitle, ver, finalDept, finalCat, d.summary, d.fileName, d.fileType, d.fileData,
+                        d.id, code, finalTitle, ver, finalDept, finalCat, d.summary, d.fileName, d.fileType, stampedFileData,
                         req.user.name, req.user.username, d.createdAt, d.workflowId, 1, 'PENDING', JSON.stringify([]),
                         docGroupId, versionNo
                     ]);
@@ -527,13 +584,22 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                 } else {
                     return res.status(400).json({ error: `Thiếu mật khẩu cho tài khoản mới: ${u.username}` });
                 }
-                rowsToInsert.push([u.id, u.username, passHash, u.name, u.email, u.phone, u.dept, JSON.stringify(u.perms || {})]);
+
+                const active = u.active !== false;
+                if (!active && u.username === 'admin') {
+                    return res.status(400).json({ error: 'Không thể khóa tài khoản Admin gốc!' });
+                }
+                if (!active && String(u.id) === String(req.user.id)) {
+                    return res.status(400).json({ error: 'Không thể tự khóa chính tài khoản đang đăng nhập!' });
+                }
+
+                rowsToInsert.push([u.id, u.username, passHash, u.name, u.email, u.phone, u.dept, JSON.stringify(u.perms || {}), active]);
             }
 
             await pool.query('DELETE FROM users');
             for (let row of rowsToInsert) {
                 await pool.query(
-                    'INSERT INTO users (id, username, pass, name, email, phone, dept, perms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                    'INSERT INTO users (id, username, pass, name, email, phone, dept, perms, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
                     row
                 );
             }
