@@ -77,7 +77,10 @@ const dbConfig = {
     database: process.env.DB_NAME || 'dms_db',
     port: process.env.DB_PORT || 3306,
     waitForConnections: true,
-    connectionLimit: 20,
+    // Tăng lên để đáp ứng nhiều người dùng đồng thời (khoảng 200-300 người);
+    // các truy vấn ở đây đa số ngắn nên pool lớn hơn giúp giảm thời gian chờ
+    // giờ cao điểm mà không tốn nhiều tài nguyên CSDL.
+    connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT, 10) || 60,
     queueLimit: 0
 };
 
@@ -126,6 +129,47 @@ function sanitizeUser(u) {
     return rest;
 }
 
+// --- AUDIT LOG TỰ ĐỘNG Ở SERVER ---
+// Dùng cho các hành động nhạy cảm (đăng nhập/đăng xuất, xóa tài liệu...) —
+// ghi trực tiếp từ server, không phụ thuộc client có chủ động gửi log lên
+// hay không, đảm bảo không thể bỏ sót khi audit.
+let serverLogIdSeq = 0;
+async function writeAuditLog({ module, actionType, targetObject = '', description, status = 'SUCCESS', username, fullName, ip }) {
+    const id = Date.now() * 1000 + (serverLogIdSeq++ % 1000);
+    const timestamp = new Date().toLocaleString('vi-VN');
+    try {
+        await pool.query(
+            'INSERT INTO system_logs (id, timestamp, username, fullName, ipAddress, module, actionType, targetObject, description, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [id, timestamp, username || 'system', fullName || 'Hệ Thống', ip || '', module, actionType, targetObject, description, status]
+        );
+    } catch (e) {
+        console.error('❌ Lỗi ghi audit log:', e.message);
+    }
+}
+
+// --- KIỂM TRA QUYỀN XEM/TẢI TÀI LIỆU (áp dụng cho dòng dữ liệu thô từ DB) ---
+function canViewDocRow(user, doc, deptWorkflows) {
+    if (user.perms.admin) return true;
+    if (doc.status === 'APPROVED') {
+        if (user.perms.viewApprovedAll) return true;
+        if (user.perms.viewApprovedDepts && user.perms.viewApprovedDepts.includes(doc.dept)) return true;
+    } else {
+        if (user.perms.viewDraftAll) return true;
+        if (user.perms.viewDraftDepts && user.perms.viewDraftDepts.includes(doc.dept)) return true;
+        if (doc.creator_username === user.username) return true;
+    }
+    const cfg = deptWorkflows[doc.dept];
+    if (cfg && cfg.approvers && cfg.approvers[doc.current_step_order] === user.username) return true;
+    return false;
+}
+
+function canDownloadDocRow(user, doc) {
+    if (user.perms.admin) return true;
+    if (user.perms.downloadAll) return true;
+    if (user.perms.downloadDepts && user.perms.downloadDepts.includes(doc.dept)) return true;
+    return false;
+}
+
 // --- MIDDLEWARE XÁC THỰC / PHÂN QUYỀN ---
 async function requireAuth(req, res, next) {
     try {
@@ -153,17 +197,23 @@ function requireAdmin(req, res, next) {
     next();
 }
 
+// Lưu ý: mặc định express-rate-limit tính theo địa chỉ IP (req.ip). Nếu nhiều
+// người dùng cùng ra internet qua 1 địa chỉ IP chung (NAT văn phòng — rất phổ
+// biến), TẤT CẢ sẽ dùng chung 1 hạn mức bên dưới. Hạn mức được đặt đủ rộng để
+// chịu tải khoảng 200-300 người dùng đồng thời sau chung 1 IP mà vẫn chặn
+// được dò mật khẩu hàng loạt.
 const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 10,
+    max: 300,
     standardHeaders: true,
     legacyHeaders: false,
+    skipSuccessfulRequests: true, // chỉ đếm số lần đăng nhập THẤT BẠI, không tính lần thành công
     message: { error: 'Quá nhiều lần đăng nhập thất bại. Vui lòng thử lại sau ít phút.' }
 });
 
 const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 600,
+    max: 6000,
     standardHeaders: true,
     legacyHeaders: false
 });
@@ -179,15 +229,26 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
 
         const [rows] = await pool.query('SELECT * FROM users WHERE username = ?', [username]);
         const user = rows[0];
-        if (!user) return res.status(401).json({ error: 'Tài khoản hoặc mật khẩu không chính xác!' });
+        if (!user) {
+            await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_FAILED', status: 'FAILED', username, fullName: username, ip: req.ip, targetObject: username, description: `Đăng nhập thất bại: tài khoản [${username}] không tồn tại.` });
+            return res.status(401).json({ error: 'Tài khoản hoặc mật khẩu không chính xác!' });
+        }
 
         const ok = await bcrypt.compare(password, user.pass);
-        if (!ok) return res.status(401).json({ error: 'Tài khoản hoặc mật khẩu không chính xác!' });
+        if (!ok) {
+            await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_FAILED', status: 'FAILED', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: `Đăng nhập thất bại: sai mật khẩu.` });
+            return res.status(401).json({ error: 'Tài khoản hoặc mật khẩu không chính xác!' });
+        }
 
-        if (!user.active) return res.status(401).json({ error: 'Tài khoản đã bị khóa, vui lòng liên hệ quản trị viên.' });
+        if (!user.active) {
+            await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_FAILED', status: 'FAILED', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: `Đăng nhập thất bại: tài khoản đã bị khóa.` });
+            return res.status(401).json({ error: 'Tài khoản đã bị khóa, vui lòng liên hệ quản trị viên.' });
+        }
 
         const token = signToken(user);
         setAuthCookie(res, token);
+
+        await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_SUCCESS', status: 'SUCCESS', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: 'Đăng nhập hệ thống thành công.' });
 
         const perms = typeof user.perms === 'string' ? JSON.parse(user.perms || '{}') : user.perms;
         res.json({ user: sanitizeUser({ ...user, perms }) });
@@ -197,7 +258,18 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     }
 });
 
-app.post('/api/auth/logout', (req, res) => {
+app.post('/api/auth/logout', async (req, res) => {
+    try {
+        const token = req.cookies[TOKEN_COOKIE];
+        if (token) {
+            const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
+            const [rows] = await pool.query('SELECT username, name FROM users WHERE id = ?', [payload.id]);
+            if (rows[0]) {
+                await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGOUT', status: 'SUCCESS', username: rows[0].username, fullName: rows[0].name, ip: req.ip, targetObject: rows[0].username, description: 'Đăng xuất khỏi hệ thống.' });
+            }
+        }
+    } catch (e) { /* token không hợp lệ/hết hạn — vẫn cho đăng xuất bình thường, không chặn */ }
+
     res.clearCookie(TOKEN_COOKIE, { httpOnly: true, secure: isProd, sameSite: 'strict' });
     res.json({ success: true });
 });
@@ -243,7 +315,17 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
         const [depts] = await pool.query('SELECT id, name, abbr FROM depts');
         const [cats] = await pool.query('SELECT id, name, abbr FROM cats');
         const [users] = await pool.query('SELECT * FROM users');
-        const [docs] = await pool.query('SELECT * FROM docs ORDER BY id DESC');
+        // Không lấy cột file_data (nội dung PDF dạng base64) ở đây — với nhiều
+        // tài liệu/phiên bản và nhiều người dùng cùng đăng nhập, việc tải cả nội
+        // dung file mọi tài liệu về ngay từ đầu rất nặng (băng thông + bộ nhớ).
+        // Nội dung file chỉ tải riêng khi người dùng thực sự bấm Xem/Tải, qua
+        // GET /api/docs/:id/file.
+        const [docs] = await pool.query(
+            `SELECT id, code, title, ver, dept, cat, summary, file_name, file_type, created_by,
+                    creator_username, created_at, workflow_id, current_step_order, status, history,
+                    doc_group_id, version_no
+             FROM docs WHERE deleted_at IS NULL ORDER BY id DESC`
+        );
         const [workflows] = await pool.query('SELECT * FROM workflows');
         const [configs] = await pool.query('SELECT * FROM app_configs');
         const [logs] = await pool.query('SELECT * FROM system_logs ORDER BY id DESC LIMIT 300');
@@ -269,7 +351,6 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
                 summary: d.summary,
                 fileName: d.file_name,
                 fileType: d.file_type,
-                fileData: d.file_data,
                 createdBy: d.created_by,
                 creatorUsername: d.creator_username,
                 createdAt: d.created_at,
@@ -295,6 +376,155 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
 const ADMIN_ONLY_TABLES = new Set(['users', 'workflows', 'depts', 'cats', 'deptWorkflows', 'emailConfig']);
 const KNOWN_TABLES = new Set(['docs', 'users', 'depts', 'cats', 'workflows', 'deptWorkflows', 'emailConfig', 'system_logs']);
 const MAX_SYNC_ROWS = 5000;
+
+// --- API LẤY NỘI DUNG FILE THEO YÊU CẦU (không còn gửi kèm trong bootstrap) ---
+// Kiểm tra quyền xem/tải Zero Trust ngay tại đây — không tin việc client chỉ
+// hiển thị nút Xem/Tải là đã đủ, vì trước đây bootstrap gửi file_data của MỌI
+// tài liệu cho MỌI người dùng đã đăng nhập (chỉ ẩn ở giao diện), nay đã khắc
+// phục luôn cùng lúc với việc giảm tải bootstrap.
+app.get('/api/docs/:id/file', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const mode = req.query.mode === 'download' ? 'download' : 'view';
+
+        const [rows] = await pool.query('SELECT * FROM docs WHERE id = ? AND deleted_at IS NULL', [id]);
+        const doc = rows[0];
+        if (!doc) return res.status(404).json({ error: 'Không tìm thấy tài liệu.' });
+
+        const [cfgRows] = await pool.query("SELECT config_value FROM app_configs WHERE config_key = 'deptWorkflows'");
+        const deptWorkflows = cfgRows[0]
+            ? (typeof cfgRows[0].config_value === 'string' ? JSON.parse(cfgRows[0].config_value) : cfgRows[0].config_value)
+            : {};
+
+        const allowed = mode === 'download' ? canDownloadDocRow(req.user, doc) : canViewDocRow(req.user, doc, deptWorkflows);
+        if (!allowed) return res.status(403).json({ error: 'Bạn không có quyền truy cập tài liệu này.' });
+
+        res.json({ fileName: doc.file_name, fileType: doc.file_type, fileData: doc.file_data });
+    } catch (err) {
+        console.error('❌ Lỗi lấy nội dung file:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- API THÙNG RÁC / XÓA MỀM TÀI LIỆU (chỉ Admin) ---
+app.get('/api/docs/trash', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            `SELECT id, code, title, ver, dept, cat, created_by, creator_username, created_at,
+                    doc_group_id, version_no, deleted_at, deleted_by
+             FROM docs WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC`
+        );
+        res.json({
+            docs: rows.map(d => ({
+                id: d.id, code: d.code, title: d.title, ver: d.ver, dept: d.dept, cat: d.cat,
+                createdBy: d.created_by, creatorUsername: d.creator_username, createdAt: d.created_at,
+                docGroupId: d.doc_group_id, versionNo: d.version_no,
+                deletedAt: d.deleted_at, deletedBy: d.deleted_by
+            }))
+        });
+    } catch (err) {
+        console.error('❌ Lỗi tải thùng rác:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+function parseGroupIds(body) {
+    const groupIds = Array.isArray(body.groupIds) ? body.groupIds : [];
+    return groupIds.filter(v => v !== null && v !== undefined && String(v).trim() !== '').slice(0, MAX_SYNC_ROWS);
+}
+
+app.post('/api/docs/delete', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const groupIds = parseGroupIds(req.body);
+        if (groupIds.length === 0) return res.status(400).json({ error: 'Chưa chọn tài liệu nào để xóa.' });
+
+        const placeholders = groupIds.map(() => '?').join(',');
+        const [rows] = await pool.query(
+            `SELECT id, code, doc_group_id FROM docs WHERE doc_group_id IN (${placeholders}) AND deleted_at IS NULL`,
+            groupIds
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Không tìm thấy tài liệu để xóa (có thể đã bị xóa trước đó).' });
+
+        await pool.query(
+            `UPDATE docs SET deleted_at = NOW(), deleted_by = ? WHERE doc_group_id IN (${placeholders}) AND deleted_at IS NULL`,
+            [req.user.username, ...groupIds]
+        );
+
+        const codes = [...new Set(rows.map(r => r.code))];
+        await writeAuditLog({
+            module: 'INTERACTION', actionType: 'DELETE_DOC', status: 'SUCCESS',
+            username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: codes.join(', '),
+            description: `Xóa mềm ${rows.length} phiên bản tài liệu (${codes.length} nhóm): ${codes.join(', ')}`
+        });
+
+        res.json({ success: true, deletedCount: rows.length });
+    } catch (err) {
+        console.error('❌ Lỗi xóa tài liệu:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.post('/api/docs/restore', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const groupIds = parseGroupIds(req.body);
+        if (groupIds.length === 0) return res.status(400).json({ error: 'Chưa chọn tài liệu nào để khôi phục.' });
+
+        const placeholders = groupIds.map(() => '?').join(',');
+        const [rows] = await pool.query(
+            `SELECT id, code, doc_group_id FROM docs WHERE doc_group_id IN (${placeholders}) AND deleted_at IS NOT NULL`,
+            groupIds
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Không tìm thấy tài liệu trong thùng rác.' });
+
+        await pool.query(
+            `UPDATE docs SET deleted_at = NULL, deleted_by = NULL WHERE doc_group_id IN (${placeholders}) AND deleted_at IS NOT NULL`,
+            groupIds
+        );
+
+        const codes = [...new Set(rows.map(r => r.code))];
+        await writeAuditLog({
+            module: 'INTERACTION', actionType: 'RESTORE_DOC', status: 'SUCCESS',
+            username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: codes.join(', '),
+            description: `Khôi phục ${rows.length} phiên bản tài liệu (${codes.length} nhóm): ${codes.join(', ')}`
+        });
+
+        res.json({ success: true, restoredCount: rows.length });
+    } catch (err) {
+        console.error('❌ Lỗi khôi phục tài liệu:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.post('/api/docs/purge', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const groupIds = parseGroupIds(req.body);
+        if (groupIds.length === 0) return res.status(400).json({ error: 'Chưa chọn tài liệu nào để xóa vĩnh viễn.' });
+
+        const placeholders = groupIds.map(() => '?').join(',');
+        const [rows] = await pool.query(
+            `SELECT id, code, doc_group_id FROM docs WHERE doc_group_id IN (${placeholders}) AND deleted_at IS NOT NULL`,
+            groupIds
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Không tìm thấy tài liệu trong thùng rác để xóa vĩnh viễn.' });
+
+        await pool.query(
+            `DELETE FROM docs WHERE doc_group_id IN (${placeholders}) AND deleted_at IS NOT NULL`,
+            groupIds
+        );
+
+        const codes = [...new Set(rows.map(r => r.code))];
+        await writeAuditLog({
+            module: 'INTERACTION', actionType: 'PURGE_DOC', status: 'SUCCESS',
+            username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: codes.join(', '),
+            description: `Xóa VĨNH VIỄN ${rows.length} phiên bản tài liệu (${codes.length} nhóm): ${codes.join(', ')}`
+        });
+
+        res.json({ success: true, purgedCount: rows.length });
+    } catch (err) {
+        console.error('❌ Lỗi xóa vĩnh viễn tài liệu:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
 
 // --- BẢO MẬT: Zero Trust cho file upload — không tin định dạng client khai báo.
 // Chỉ chấp nhận PDF, xác thực bằng magic bytes thật của file (%PDF- ở đầu file),
@@ -458,6 +688,9 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
             const toUpsert = [];
             for (const d of data) {
                 const existing = existingMap.get(String(d.id));
+                if (existing && existing.deleted_at) {
+                    return res.status(400).json({ error: `Tài liệu [${existing.code}] đã bị xóa, không thể thao tác. Vui lòng khôi phục trước nếu cần.` });
+                }
 
                 if (!existing) {
                     let finalDept = d.dept, finalCat = d.cat, finalTitle = d.title;
@@ -468,7 +701,7 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                         // Phòng ban/Phân loại/Tên tài liệu kế thừa từ tài liệu gốc — không
                         // tin dept/cat/title client gửi (tránh 1 phiên bản "nhảy" sang
                         // phòng ban/phân loại khác so với các phiên bản trước).
-                        const groupRows = existingRows.filter(r => String(r.doc_group_id) === String(d.targetGroupId));
+                        const groupRows = existingRows.filter(r => String(r.doc_group_id) === String(d.targetGroupId) && !r.deleted_at);
                         if (groupRows.length === 0) {
                             return res.status(400).json({ error: `Không tìm thấy tài liệu gốc để cập nhật (nhóm: ${d.targetGroupId}).` });
                         }
