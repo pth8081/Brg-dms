@@ -240,8 +240,8 @@ app.post('/api/profile', requireAuth, async (req, res) => {
 // --- API BOOTSTRAP (Lấy toàn bộ dữ liệu khởi tạo cho 4 Module) ---
 app.get('/api/bootstrap', requireAuth, async (req, res) => {
     try {
-        const [depts] = await pool.query('SELECT name, abbr FROM depts');
-        const [cats] = await pool.query('SELECT name, abbr FROM cats');
+        const [depts] = await pool.query('SELECT id, name, abbr FROM depts');
+        const [cats] = await pool.query('SELECT id, name, abbr FROM cats');
         const [users] = await pool.query('SELECT * FROM users');
         const [docs] = await pool.query('SELECT * FROM docs ORDER BY id DESC');
         const [workflows] = await pool.query('SELECT * FROM workflows');
@@ -252,8 +252,8 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
         configs.forEach(c => configMap[c.config_key] = c.config_value);
 
         res.json({
-            depts: depts.map(d => ({ name: d.name, abbr: d.abbr })),
-            cats: cats.map(c => ({ name: c.name, abbr: c.abbr })),
+            depts: depts.map(d => ({ id: d.id, name: d.name, abbr: d.abbr })),
+            cats: cats.map(c => ({ id: c.id, name: c.name, abbr: c.abbr })),
             users: users.map(u => sanitizeUser({ ...u, perms: typeof u.perms === 'string' ? JSON.parse(u.perms || '{}') : u.perms })),
             // Bảng docs lưu cột dạng snake_case (file_name, current_step_order...) nhưng
             // toàn bộ frontend dùng camelCase (fileName, currentStepOrder...) — phải ánh
@@ -607,13 +607,24 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
             // Viết tắt (abbr) dùng để sinh mã tài liệu tự động (VD: HD-IT-2026-001)
             // nên bắt buộc, chỉ chữ/số không dấu, và không được trùng giữa các
             // phòng ban/phân loại khác nhau (tránh sinh mã gây nhầm lẫn).
+            //
+            // Đổi TÊN được coi là "rename" (không phải xóa+tạo mới) khi client gửi
+            // kèm đúng `id` của dòng đang sửa — lúc đó server cập nhật lại toàn bộ
+            // nơi đang tham chiếu tên cũ (tài liệu, phân quyền user theo phòng ban,
+            // cấu hình gán quy trình theo phòng ban) để dữ liệu luôn nhất quán,
+            // trong 1 transaction để tránh nửa vời nếu có lỗi giữa chừng.
             const label = table === 'depts' ? 'phòng ban' : 'phân loại';
+            const [existingRows] = await pool.query(`SELECT id, name, abbr FROM ${table}`);
+            const existingById = new Map(existingRows.map(r => [String(r.id), r]));
+
             const names = new Set();
             const abbrs = new Set();
-            const normalized = [];
+            const toUpdate = []; // { id, name, abbr, oldName }
+            const toInsert = []; // { name, abbr }
             for (const item of data) {
                 const name = String((item && item.name) || '').trim();
                 const abbr = String((item && item.abbr) || '').trim().toUpperCase();
+                const id = item && item.id != null ? String(item.id) : null;
                 if (!name) return res.status(400).json({ error: `Tên ${label} không được để trống.` });
                 if (!/^[A-Z0-9]{1,10}$/.test(abbr)) {
                     return res.status(400).json({ error: `Viết tắt của ${label} [${name}] không hợp lệ (chỉ chữ/số không dấu, tối đa 10 ký tự, không được để trống).` });
@@ -622,11 +633,74 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                 if (abbrs.has(abbr)) return res.status(400).json({ error: `Viết tắt [${abbr}] bị trùng giữa các ${label}.` });
                 names.add(name);
                 abbrs.add(abbr);
-                normalized.push([name, abbr]);
+
+                const existing = id ? existingById.get(id) : null;
+                if (existing) {
+                    toUpdate.push({ id: existing.id, name, abbr, oldName: existing.name });
+                } else {
+                    toInsert.push({ name, abbr });
+                }
             }
-            await pool.query(`DELETE FROM ${table}`);
-            for (const [name, abbr] of normalized) {
-                await pool.query(`INSERT INTO ${table} (name, abbr) VALUES (?, ?)`, [name, abbr]);
+
+            const keptIds = new Set(toUpdate.map(u => String(u.id)));
+            const toDeleteIds = existingRows.filter(r => !keptIds.has(String(r.id))).map(r => r.id);
+            const renames = toUpdate.filter(u => u.oldName !== u.name);
+
+            const conn = await pool.getConnection();
+            try {
+                await conn.beginTransaction();
+
+                for (const u of toUpdate) {
+                    await conn.query(`UPDATE ${table} SET name = ?, abbr = ? WHERE id = ?`, [u.name, u.abbr, u.id]);
+                }
+                for (const ins of toInsert) {
+                    await conn.query(`INSERT INTO ${table} (name, abbr) VALUES (?, ?)`, [ins.name, ins.abbr]);
+                }
+                if (toDeleteIds.length > 0) {
+                    await conn.query(`DELETE FROM ${table} WHERE id IN (${toDeleteIds.map(() => '?').join(',')})`, toDeleteIds);
+                }
+
+                for (const { oldName, name } of renames) {
+                    if (table === 'depts') {
+                        await conn.query('UPDATE docs SET dept = ? WHERE dept = ?', [name, oldName]);
+
+                        const [userRows] = await conn.query('SELECT id, perms FROM users');
+                        for (const u of userRows) {
+                            const perms = typeof u.perms === 'string' ? JSON.parse(u.perms || '{}') : (u.perms || {});
+                            let changed = false;
+                            for (const key of ['uploadDepts', 'viewDraftDepts', 'viewApprovedDepts', 'downloadDepts']) {
+                                if (Array.isArray(perms[key]) && perms[key].includes(oldName)) {
+                                    perms[key] = perms[key].map(d => d === oldName ? name : d);
+                                    changed = true;
+                                }
+                            }
+                            if (perms.dept === oldName) { perms.dept = name; changed = true; }
+                            if (changed) {
+                                await conn.query('UPDATE users SET perms = ? WHERE id = ?', [JSON.stringify(perms), u.id]);
+                            }
+                        }
+                        await conn.query('UPDATE users SET dept = ? WHERE dept = ?', [name, oldName]);
+
+                        const [cfgRows] = await conn.query("SELECT config_value FROM app_configs WHERE config_key = 'deptWorkflows'");
+                        if (cfgRows[0]) {
+                            const deptWorkflows = typeof cfgRows[0].config_value === 'string' ? JSON.parse(cfgRows[0].config_value) : cfgRows[0].config_value;
+                            if (deptWorkflows && Object.prototype.hasOwnProperty.call(deptWorkflows, oldName)) {
+                                deptWorkflows[name] = deptWorkflows[oldName];
+                                delete deptWorkflows[oldName];
+                                await conn.query('UPDATE app_configs SET config_value = ? WHERE config_key = ?', [JSON.stringify(deptWorkflows), 'deptWorkflows']);
+                            }
+                        }
+                    } else {
+                        await conn.query('UPDATE docs SET cat = ? WHERE cat = ?', [name, oldName]);
+                    }
+                }
+
+                await conn.commit();
+            } catch (e) {
+                await conn.rollback();
+                throw e;
+            } finally {
+                conn.release();
             }
         } else if (table === 'workflows') {
             await pool.query('DELETE FROM workflows');
