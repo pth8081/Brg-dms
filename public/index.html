@@ -233,9 +233,11 @@
           <h3 class="font-bold text-indigo-900 text-sm flex items-center gap-1">🏢 Quản Lý Phòng Ban</h3>
           <p class="text-[11px] text-indigo-700">Viết tắt dùng để tự sinh mã tài liệu (VD: IT, NS...), chỉ chữ/số không dấu, tối đa 10 ký tự.</p>
           <form onsubmit="saveDept(event)" class="flex gap-2">
+            <input id="editDeptId" type="hidden">
             <input id="txtDeptName" placeholder="Tên phòng ban mới..." class="border p-1.5 rounded text-xs flex-1" required>
             <input id="txtDeptAbbr" placeholder="Viết tắt (VD: IT)" maxlength="10" class="border p-1.5 rounded text-xs w-24" required>
-            <button type="submit" class="bg-indigo-600 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-indigo-700">Thêm</button>
+            <button id="btnCancelDept" type="button" onclick="resetDeptForm()" class="hidden bg-gray-400 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-gray-500">Hủy</button>
+            <button id="btnSaveDept" type="submit" class="bg-indigo-600 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-indigo-700">Thêm</button>
           </form>
           <div class="max-h-36 overflow-y-auto bg-white rounded border">
             <ul id="deptList" class="divide-y text-xs"></ul>
@@ -246,9 +248,11 @@
           <h3 class="font-bold text-emerald-900 text-sm flex items-center gap-1">🏷️ Quản Lý Phân Loại Tài Liệu</h3>
           <p class="text-[11px] text-emerald-700">Viết tắt dùng để tự sinh mã tài liệu (VD: HD, BC...), chỉ chữ/số không dấu, tối đa 10 ký tự.</p>
           <form onsubmit="saveCat(event)" class="flex gap-2">
+            <input id="editCatId" type="hidden">
             <input id="txtCatName" placeholder="Tên loại tài liệu mới..." class="border p-1.5 rounded text-xs flex-1" required>
             <input id="txtCatAbbr" placeholder="Viết tắt (VD: HD)" maxlength="10" class="border p-1.5 rounded text-xs w-24" required>
-            <button type="submit" class="bg-emerald-600 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-emerald-700">Thêm</button>
+            <button id="btnCancelCat" type="button" onclick="resetCatForm()" class="hidden bg-gray-400 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-gray-500">Hủy</button>
+            <button id="btnSaveCat" type="submit" class="bg-emerald-600 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-emerald-700">Thêm</button>
           </form>
           <div class="max-h-36 overflow-y-auto bg-white rounded border">
             <ul id="catList" class="divide-y text-xs"></ul>
@@ -342,9 +346,29 @@
 
           <div class="flex justify-end gap-2 pt-2">
             <button type="button" onclick="resetUserForm()" class="bg-gray-400 text-white px-4 py-1.5 rounded text-xs font-bold">Hủy</button>
-            <button type="submit" class="bg-purple-600 text-white px-6 py-1.5 rounded text-xs font-bold hover:bg-purple-700">Lưu Người Dùng & Phân Quyền</button>
+            <button id="btnSaveUser" type="submit" class="bg-purple-600 text-white px-6 py-1.5 rounded text-xs font-bold hover:bg-purple-700">+ Thêm Vào Danh Sách</button>
           </div>
         </form>
+
+        <div id="pendingUsersBox" class="hidden bg-purple-50 border border-purple-300 rounded p-3 space-y-2">
+          <div class="flex justify-between items-center">
+            <h4 class="font-bold text-sm text-purple-900">📝 User Đang Chờ Lưu (<span id="pendingUsersCount">0</span>)</h4>
+            <button onclick="saveAllPendingUsers()" class="bg-purple-700 text-white text-xs px-4 py-1.5 rounded font-bold hover:bg-purple-800">💾 Lưu Tất Cả</button>
+          </div>
+          <div class="overflow-x-auto bg-white rounded border">
+            <table class="w-full text-xs text-left">
+              <thead class="bg-gray-100 text-gray-700 font-bold">
+                <tr>
+                  <th class="p-2 border">Username</th>
+                  <th class="p-2 border">Họ Tên</th>
+                  <th class="p-2 border">Phòng Ban</th>
+                  <th class="p-2 border text-center">Thao Tác</th>
+                </tr>
+              </thead>
+              <tbody id="pendingUsersTableBody"></tbody>
+            </table>
+          </div>
+        </div>
 
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 my-3 border-t pt-3">
           <h4 class="font-bold text-sm text-gray-800">Danh Sách Tài Khoản & Quyền Hạn</h4>
@@ -380,10 +404,15 @@
       <!-- Sub-tab: Quy Trình & Luồng Duyệt -->
       <div id="adminSubWorkflow" class="hidden space-y-6">
         <div class="bg-emerald-50 p-4 rounded border border-emerald-200 space-y-3">
-          <h3 class="font-bold text-emerald-900 text-base flex items-center gap-2">
-            🏢 Cấu Hình Quy Trình & Chỉ Định Người Duyệt Cho Từng Phòng Ban
-          </h3>
-          <p class="text-xs text-emerald-800">Gán quy trình phê duyệt tài liệu riêng cho từng phòng ban và thiết lập tài khoản người phê duyệt chi tiết.</p>
+          <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
+            <div>
+              <h3 class="font-bold text-emerald-900 text-base flex items-center gap-2">
+                🏢 Cấu Hình Quy Trình & Chỉ Định Người Duyệt Cho Từng Phòng Ban
+              </h3>
+              <p class="text-xs text-emerald-800">Gán quy trình phê duyệt tài liệu riêng cho từng phòng ban và thiết lập tài khoản người phê duyệt chi tiết. Có thể chỉnh nhiều phòng ban rồi lưu 1 lần, hoặc lưu riêng từng phòng.</p>
+            </div>
+            <button onclick="saveAllDeptWorkflows()" class="shrink-0 bg-emerald-700 text-white text-xs px-4 py-2 rounded font-bold hover:bg-emerald-800">💾 Lưu Tất Cả Cấu Hình</button>
+          </div>
           <div id="deptWorkflowConfigContainer" class="space-y-4"></div>
         </div>
 
@@ -501,7 +530,7 @@
   </div>
 
   <!-- MODAL XEM TÀI LIỆU (PROTECTED VIEWER) -->
-  <div id="viewDocModal" class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center hidden z-50 p-4">
+  <div id="viewDocModal" class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center hidden z-[60] p-4">
     <div class="bg-white rounded-lg shadow-2xl max-w-4xl w-full flex flex-col max-h-[90vh] overflow-hidden">
       <div class="flex justify-between items-center bg-gray-800 text-white p-4">
         <div>
@@ -785,7 +814,7 @@
         btn.classList.toggle('text-gray-700', key !== subName);
       });
 
-      if (subName === 'users') { renderDeptList(); renderCatList(); renderDeptCheckboxes(); renderUsers(); loadEmailConfigToForm(); }
+      if (subName === 'users') { renderDeptList(); renderCatList(); renderDeptCheckboxes(); renderUsers(); renderPendingUsers(); loadEmailConfigToForm(); }
       if (subName === 'workflow') { renderWorkflowTab(); }
       if (subName === 'log') { renderSystemLogs(); }
     }
@@ -1344,47 +1373,56 @@
 
         const wfOptions = DB.workflows.map(w => `<option value="${w.id}" ${w.id === config.workflowId ? 'selected' : ''}>${escapeHtml(w.name)}</option>`).join('');
 
-        let stepApproverInputs = '';
-        if (selectedWf && selectedWf.steps) {
-          stepApproverInputs = selectedWf.steps.map(step => {
-            const currentApprover = config.approvers ? config.approvers[step.order] || '' : '';
-            const userOptions = DB.users.map(u => `<option value="${u.username}" ${u.username === currentApprover ? 'selected' : ''}>${escapeHtml(u.name)} (${u.username})</option>`).join('');
-
-            return `
-              <div class="flex items-center gap-2 text-xs">
-                <span class="font-bold text-gray-600 min-w-[120px]">Bước ${step.order}: ${escapeHtml(step.name)}</span>
-                <select id="approver_${escapeHtml(dept)}_${step.order}" class="border p-1 rounded bg-white font-semibold">
-                  <option value="">-- Chọn Người Duyệt --</option>
-                  ${userOptions}
-                </select>
-              </div>
-            `;
-          }).join('');
-        }
-
         return `
           <div class="bg-white p-3 rounded border space-y-2">
             <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-2 border-b pb-2">
               <h4 class="font-bold text-emerald-900 text-sm">🏬 Phòng Ban: ${escapeHtml(dept)}</h4>
               <div class="flex items-center gap-2">
                 <label class="text-xs font-semibold text-gray-600">Mẫu Quy Trình:</label>
-                <select id="wfSelect_${escapeHtml(dept)}" onchange="saveDeptWorkflow('${escapeJsAttr(dept)}')" class="border p-1 rounded text-xs bg-white font-bold">
+                <select id="wfSelect_${escapeHtml(dept)}" onchange="onDeptWfSelectChange('${escapeJsAttr(dept)}')" class="border p-1 rounded text-xs bg-white font-bold">
                   ${wfOptions}
                 </select>
                 <button onclick="saveDeptWorkflow('${escapeJsAttr(dept)}')" class="bg-emerald-600 text-white text-xs px-3 py-1 rounded font-bold hover:bg-emerald-700">Lưu Gán Quy Trình</button>
               </div>
             </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
-              ${stepApproverInputs}
+            <div id="approverSteps_${escapeHtml(dept)}" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
+              ${renderApproverStepInputs(dept, selectedWf, config.approvers)}
             </div>
           </div>
         `;
       }).join('');
     }
 
-    function saveDeptWorkflow(dept) {
+    function renderApproverStepInputs(dept, selectedWf, approvers) {
+      if (!selectedWf || !selectedWf.steps) return '';
+      return selectedWf.steps.map(step => {
+        const currentApprover = approvers ? approvers[step.order] || '' : '';
+        const userOptions = DB.users.map(u => `<option value="${u.username}" ${u.username === currentApprover ? 'selected' : ''}>${escapeHtml(u.name)} (${u.username})</option>`).join('');
+        return `
+          <div class="flex items-center gap-2 text-xs">
+            <span class="font-bold text-gray-600 min-w-[120px]">Bước ${step.order}: ${escapeHtml(step.name)}</span>
+            <select id="approver_${escapeHtml(dept)}_${step.order}" class="border p-1 rounded bg-white font-semibold">
+              <option value="">-- Chọn Người Duyệt --</option>
+              ${userOptions}
+            </select>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // Chỉ đổi hiển thị các bước duyệt theo mẫu quy trình vừa chọn (chưa lưu lên
+    // server) — cho phép chỉnh nhiều phòng ban cùng lúc rồi mới bấm lưu.
+    function onDeptWfSelectChange(dept) {
       const wfSelect = document.getElementById(`wfSelect_${dept}`);
-      if (!wfSelect) return;
+      const stepsContainer = document.getElementById(`approverSteps_${dept}`);
+      if (!wfSelect || !stepsContainer) return;
+      const selectedWf = DB.workflows.find(w => w.id === wfSelect.value);
+      stepsContainer.innerHTML = renderApproverStepInputs(dept, selectedWf, {});
+    }
+
+    function readDeptWorkflowFromForm(dept) {
+      const wfSelect = document.getElementById(`wfSelect_${dept}`);
+      if (!wfSelect) return null;
 
       const selectedWfId = wfSelect.value;
       const selectedWf = DB.workflows.find(w => w.id === selectedWfId);
@@ -1396,16 +1434,36 @@
           if (appEl) approvers[step.order] = appEl.value;
         });
       }
+      return { workflowId: selectedWfId, approvers };
+    }
 
-      DB.deptWorkflows[dept] = {
-        workflowId: selectedWfId,
-        approvers: approvers
-      };
+    async function saveDeptWorkflow(dept) {
+      const config = readDeptWorkflowFromForm(dept);
+      if (!config) return;
 
-      syncStorage('deptWorkflows');
-      logSystemAction('CONFIG', 'UPDATE_DEPT_WORKFLOW', `Cập nhật gán quy trình cho phòng ban [${dept}] sang [${selectedWfId}]`, 'SUCCESS', dept);
+      const prev = DB.deptWorkflows[dept];
+      DB.deptWorkflows[dept] = config;
+      const ok = await syncStorage('deptWorkflows');
+      if (!ok) { DB.deptWorkflows[dept] = prev; return; }
+
+      logSystemAction('CONFIG', 'UPDATE_DEPT_WORKFLOW', `Cập nhật gán quy trình cho phòng ban [${dept}] sang [${config.workflowId}]`, 'SUCCESS', dept);
       alert(`✅ Đã lưu cấu hình quy trình cho ${dept}!`);
-      renderDeptWorkflowConfig();
+    }
+
+    async function saveAllDeptWorkflows() {
+      const prev = DB.deptWorkflows;
+      const next = {};
+      DB.depts.forEach(d => {
+        const config = readDeptWorkflowFromForm(d.name);
+        if (config) next[d.name] = config;
+      });
+
+      DB.deptWorkflows = next;
+      const ok = await syncStorage('deptWorkflows');
+      if (!ok) { DB.deptWorkflows = prev; return; }
+
+      logSystemAction('CONFIG', 'UPDATE_DEPT_WORKFLOW', `Cập nhật gán quy trình cho tất cả phòng ban (${DB.depts.length} phòng ban)`, 'SUCCESS', 'ALL');
+      alert(`✅ Đã lưu cấu hình quy trình cho tất cả ${DB.depts.length} phòng ban!`);
     }
 
     function renderWorkflowTemplates() {
@@ -1520,27 +1578,54 @@
       ul.innerHTML = DB.depts.map(d => `
         <li class="p-2 flex justify-between items-center hover:bg-gray-50">
           <span>${escapeHtml(d.name)} <span class="text-gray-400 font-mono">(${escapeHtml(d.abbr)})</span></span>
-          <button onclick="deleteDept('${escapeJsAttr(d.name)}')" class="text-xs text-red-600 font-bold hover:underline">Xóa</button>
+          <span class="space-x-2">
+            <button onclick="editDept(${d.id})" class="text-xs text-blue-600 font-bold hover:underline">Sửa</button>
+            <button onclick="deleteDept('${escapeJsAttr(d.name)}')" class="text-xs text-red-600 font-bold hover:underline">Xóa</button>
+          </span>
         </li>
       `).join('');
     }
 
+    function editDept(id) {
+      const d = DB.depts.find(item => item.id === id);
+      if (!d) return;
+      document.getElementById('editDeptId').value = d.id;
+      document.getElementById('txtDeptName').value = d.name;
+      document.getElementById('txtDeptAbbr').value = d.abbr;
+      document.getElementById('btnSaveDept').innerText = 'Cập Nhật';
+      document.getElementById('btnCancelDept').classList.remove('hidden');
+    }
+
+    function resetDeptForm() {
+      document.getElementById('editDeptId').value = '';
+      document.getElementById('txtDeptName').value = '';
+      document.getElementById('txtDeptAbbr').value = '';
+      document.getElementById('btnSaveDept').innerText = 'Thêm';
+      document.getElementById('btnCancelDept').classList.add('hidden');
+    }
+
     async function saveDept(e) {
       e.preventDefault();
+      const editId = document.getElementById('editDeptId').value;
       const val = document.getElementById('txtDeptName').value.trim();
       const abbr = document.getElementById('txtDeptAbbr').value.trim().toUpperCase();
       if (!val || !abbr) return;
       if (!/^[A-Z0-9]{1,10}$/.test(abbr)) return alert('Viết tắt chỉ gồm chữ/số không dấu, tối đa 10 ký tự!');
-      if (DB.depts.some(d => d.name === val)) return alert('Phòng ban đã tồn tại!');
-      if (DB.depts.some(d => d.abbr === abbr)) return alert(`Viết tắt [${abbr}] đã được dùng bởi phòng ban khác!`);
+      if (DB.depts.some(d => d.name === val && String(d.id) !== String(editId))) return alert('Phòng ban đã tồn tại!');
+      if (DB.depts.some(d => d.abbr === abbr && String(d.id) !== String(editId))) return alert(`Viết tắt [${abbr}] đã được dùng bởi phòng ban khác!`);
 
       const prevDepts = DB.depts;
-      DB.depts = [...DB.depts, { name: val, abbr }];
+      const isRename = editId && DB.depts.some(d => String(d.id) === String(editId) && d.name !== val);
+      if (editId) {
+        DB.depts = DB.depts.map(d => String(d.id) === String(editId) ? { id: d.id, name: val, abbr } : d);
+      } else {
+        DB.depts = [...DB.depts, { name: val, abbr }];
+      }
       const ok = await syncStorage('depts');
       if (!ok) { DB.depts = prevDepts; return; }
 
-      document.getElementById('txtDeptName').value = '';
-      document.getElementById('txtDeptAbbr').value = '';
+      resetDeptForm();
+      if (isRename) { await loadBootstrapData(); renderUsers(); } // đồng bộ lại tài liệu/phân quyền/quy trình đã được server cập nhật theo tên mới
       populateDropdowns();
       renderDeptList();
       renderDeptCheckboxes();
@@ -1563,27 +1648,54 @@
       ul.innerHTML = DB.cats.map(c => `
         <li class="p-2 flex justify-between items-center hover:bg-gray-50">
           <span>${escapeHtml(c.name)} <span class="text-gray-400 font-mono">(${escapeHtml(c.abbr)})</span></span>
-          <button onclick="deleteCat('${escapeJsAttr(c.name)}')" class="text-xs text-red-600 font-bold hover:underline">Xóa</button>
+          <span class="space-x-2">
+            <button onclick="editCat(${c.id})" class="text-xs text-blue-600 font-bold hover:underline">Sửa</button>
+            <button onclick="deleteCat('${escapeJsAttr(c.name)}')" class="text-xs text-red-600 font-bold hover:underline">Xóa</button>
+          </span>
         </li>
       `).join('');
     }
 
+    function editCat(id) {
+      const c = DB.cats.find(item => item.id === id);
+      if (!c) return;
+      document.getElementById('editCatId').value = c.id;
+      document.getElementById('txtCatName').value = c.name;
+      document.getElementById('txtCatAbbr').value = c.abbr;
+      document.getElementById('btnSaveCat').innerText = 'Cập Nhật';
+      document.getElementById('btnCancelCat').classList.remove('hidden');
+    }
+
+    function resetCatForm() {
+      document.getElementById('editCatId').value = '';
+      document.getElementById('txtCatName').value = '';
+      document.getElementById('txtCatAbbr').value = '';
+      document.getElementById('btnSaveCat').innerText = 'Thêm';
+      document.getElementById('btnCancelCat').classList.add('hidden');
+    }
+
     async function saveCat(e) {
       e.preventDefault();
+      const editId = document.getElementById('editCatId').value;
       const val = document.getElementById('txtCatName').value.trim();
       const abbr = document.getElementById('txtCatAbbr').value.trim().toUpperCase();
       if (!val || !abbr) return;
       if (!/^[A-Z0-9]{1,10}$/.test(abbr)) return alert('Viết tắt chỉ gồm chữ/số không dấu, tối đa 10 ký tự!');
-      if (DB.cats.some(c => c.name === val)) return alert('Loại tài liệu đã tồn tại!');
-      if (DB.cats.some(c => c.abbr === abbr)) return alert(`Viết tắt [${abbr}] đã được dùng bởi phân loại khác!`);
+      if (DB.cats.some(c => c.name === val && String(c.id) !== String(editId))) return alert('Loại tài liệu đã tồn tại!');
+      if (DB.cats.some(c => c.abbr === abbr && String(c.id) !== String(editId))) return alert(`Viết tắt [${abbr}] đã được dùng bởi phân loại khác!`);
 
       const prevCats = DB.cats;
-      DB.cats = [...DB.cats, { name: val, abbr }];
+      const isRename = editId && DB.cats.some(c => String(c.id) === String(editId) && c.name !== val);
+      if (editId) {
+        DB.cats = DB.cats.map(c => String(c.id) === String(editId) ? { id: c.id, name: val, abbr } : c);
+      } else {
+        DB.cats = [...DB.cats, { name: val, abbr }];
+      }
       const ok = await syncStorage('cats');
       if (!ok) { DB.cats = prevCats; return; }
 
-      document.getElementById('txtCatName').value = '';
-      document.getElementById('txtCatAbbr').value = '';
+      resetCatForm();
+      if (isRename) { await loadBootstrapData(); } // đồng bộ lại tài liệu đã được server cập nhật theo tên mới
       populateDropdowns();
       renderCatList();
     }
@@ -1620,7 +1732,9 @@
       });
     }
 
-    function saveUser(e) {
+    let pendingNewUsers = [];
+
+    async function saveUser(e) {
       e.preventDefault();
       const editId = document.getElementById('editUserId').value;
       const username = document.getElementById('uUsername').value.trim();
@@ -1646,22 +1760,67 @@
       };
 
       if (editId) {
+        // Sửa user đã tồn tại: lưu ngay lập tức như trước, không qua danh sách chờ.
         const idx = DB.users.findIndex(u => u.id == editId);
-        if (idx !== -1) {
-          const active = DB.users[idx].active !== false;
-          DB.users[idx] = { id: Number(editId), username, pass, name, email, phone, dept, perms, active };
-          logSystemAction('USER_MGM', 'UPDATE_USER', `Cập nhật tài khoản và quyền hạn cho user: ${username}`, 'SUCCESS', username);
-        }
-      } else {
-        if (DB.users.some(u => u.username === username)) return alert('Username đã tồn tại!');
-        const newUser = { id: Date.now(), username, pass, name, email, phone, dept, perms, active: true };
-        DB.users.push(newUser);
-        logSystemAction('USER_MGM', 'CREATE_USER', `Tạo mới tài khoản user: ${username}`, 'SUCCESS', username);
-      }
+        if (idx === -1) return;
+        const prevUsers = DB.users;
+        const active = DB.users[idx].active !== false;
+        DB.users = DB.users.map((u, i) => i === idx ? { id: Number(editId), username, pass, name, email, phone, dept, perms, active } : u);
+        const ok = await syncStorage('users');
+        if (!ok) { DB.users = prevUsers; return; }
 
-      syncStorage('users');
-      alert('✅ Đã lưu thông tin người dùng & phân quyền!');
-      resetUserForm();
+        logSystemAction('USER_MGM', 'UPDATE_USER', `Cập nhật tài khoản và quyền hạn cho user: ${username}`, 'SUCCESS', username);
+        alert('✅ Đã lưu thông tin người dùng & phân quyền!');
+        resetUserForm();
+        renderUsers();
+      } else {
+        // Tạo mới: chỉ thêm vào danh sách chờ, chưa gửi lên server — cho phép
+        // thêm nhiều user liên tiếp rồi bấm "Lưu Tất Cả" một lần.
+        if (DB.users.some(u => u.username === username) || pendingNewUsers.some(u => u.username === username)) {
+          return alert('Username đã tồn tại!');
+        }
+        pendingNewUsers.push({ id: Date.now() + pendingNewUsers.length, username, pass, name, email, phone, dept, perms, active: true });
+        resetUserForm();
+        renderPendingUsers();
+      }
+    }
+
+    function renderPendingUsers() {
+      const box = document.getElementById('pendingUsersBox');
+      const tbody = document.getElementById('pendingUsersTableBody');
+      if (!box || !tbody) return;
+
+      box.classList.toggle('hidden', pendingNewUsers.length === 0);
+      document.getElementById('pendingUsersCount').innerText = pendingNewUsers.length;
+      tbody.innerHTML = pendingNewUsers.map((u, idx) => `
+        <tr class="hover:bg-gray-50">
+          <td class="border p-2 font-bold font-mono text-blue-900">${escapeHtml(u.username)}</td>
+          <td class="border p-2 font-semibold">${escapeHtml(u.name)}</td>
+          <td class="border p-2">${escapeHtml(u.dept)}</td>
+          <td class="border p-2 text-center">
+            <button onclick="removePendingUser(${idx})" class="bg-red-600 text-white px-2 py-0.5 rounded font-bold">Xóa</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function removePendingUser(idx) {
+      pendingNewUsers.splice(idx, 1);
+      renderPendingUsers();
+    }
+
+    async function saveAllPendingUsers() {
+      if (pendingNewUsers.length === 0) return;
+      const prevUsers = DB.users;
+      DB.users = [...DB.users, ...pendingNewUsers];
+      const ok = await syncStorage('users');
+      if (!ok) { DB.users = prevUsers; return; }
+
+      const count = pendingNewUsers.length;
+      pendingNewUsers.forEach(u => logSystemAction('USER_MGM', 'CREATE_USER', `Tạo mới tài khoản user: ${u.username}`, 'SUCCESS', u.username));
+      pendingNewUsers = [];
+      alert(`✅ Đã lưu ${count} tài khoản người dùng mới!`);
+      renderPendingUsers();
       renderUsers();
     }
 
@@ -1677,6 +1836,7 @@
       document.getElementById('uEmail').value = u.email || '';
       document.getElementById('uPhone').value = u.phone || '';
       document.getElementById('uDept').value = u.dept;
+      document.getElementById('btnSaveUser').innerText = 'Cập Nhật User';
 
       const p = u.perms || {};
       document.getElementById('pAdmin').checked = !!p.admin;
@@ -1742,6 +1902,7 @@
       document.getElementById('uEmail').value = '';
       document.getElementById('uPhone').value = '';
       document.getElementById('pAdmin').checked = false;
+      document.getElementById('btnSaveUser').innerText = '+ Thêm Vào Danh Sách';
 
       ['pUploadAll', 'pViewDraftAll', 'pViewApprovedAll', 'pDownloadAll'].forEach(id => {
         const el = document.getElementById(id);
