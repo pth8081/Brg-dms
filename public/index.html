@@ -153,13 +153,15 @@
       </div>
 
       <div>
-        <div class="flex justify-between items-center mb-3">
+        <div class="flex justify-between items-center mb-3 flex-wrap gap-2">
           <h3 class="font-bold text-gray-800">Danh Sách Tài Liệu Trong Hệ Thống</h3>
+          <button id="btnBulkDeleteDocs" onclick="bulkDeleteSelectedDocs()" class="hidden text-xs bg-red-600 text-white px-3 py-1.5 rounded font-bold hover:bg-red-700">🗑️ Xóa Đã Chọn (<span id="bulkDeleteCount">0</span>)</button>
         </div>
         <div class="overflow-x-auto">
           <table class="w-full border-collapse border text-sm bg-white">
             <thead>
               <tr class="bg-gray-200 text-left text-gray-700">
+                <th id="thDocSelectAll" class="hidden border p-2 text-center"><input type="checkbox" onchange="toggleSelectAllDocs(this.checked)"></th>
                 <th class="border p-2">Mã Doc</th>
                 <th class="border p-2">Tên & Trích Yếu Nội Dung</th>
                 <th class="border p-2">Phòng Ban</th>
@@ -194,6 +196,7 @@
         <button id="btnAdminSubUsers" onclick="switchAdminSubTab('users')" class="text-xs px-3 py-1.5 rounded font-semibold">👤 Người Dùng & Phân Quyền</button>
         <button id="btnAdminSubWorkflow" onclick="switchAdminSubTab('workflow')" class="text-xs px-3 py-1.5 rounded font-semibold">🔄 Quy Trình & Luồng Duyệt</button>
         <button id="btnAdminSubLog" onclick="switchAdminSubTab('log')" class="text-xs px-3 py-1.5 rounded font-semibold">📊 Log Hệ Thống</button>
+        <button id="btnAdminSubTrash" onclick="switchAdminSubTab('trash')" class="text-xs px-3 py-1.5 rounded font-semibold">🗑️ Thùng Rác</button>
       </div>
 
       <!-- Sub-tab: Người Dùng & Phân Quyền -->
@@ -525,6 +528,40 @@
         </div>
       </div>
       <!-- /Sub-tab: Log Hệ Thống -->
+
+      <!-- Sub-tab: Thùng Rác -->
+      <div id="adminSubTrash" class="hidden space-y-4">
+        <div class="bg-red-50 p-4 rounded border border-red-300 space-y-3">
+          <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+            <div>
+              <h3 class="font-bold text-red-900 text-base flex items-center gap-1">🗑️ Thùng Rác Tài Liệu</h3>
+              <p class="text-xs text-red-800">Tài liệu đã xóa được giữ ở đây, có thể khôi phục lại hoặc xóa vĩnh viễn (không thể hoàn tác).</p>
+            </div>
+            <div class="flex gap-2">
+              <button id="btnTrashRestore" onclick="bulkRestoreTrash()" class="hidden text-xs bg-emerald-600 text-white px-3 py-1.5 rounded font-bold hover:bg-emerald-700">♻️ Khôi Phục Đã Chọn (<span id="trashRestoreCount">0</span>)</button>
+              <button id="btnTrashPurge" onclick="bulkPurgeTrash()" class="hidden text-xs bg-red-700 text-white px-3 py-1.5 rounded font-bold hover:bg-red-800">🔥 Xóa Vĩnh Viễn Đã Chọn (<span id="trashPurgeCount">0</span>)</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto bg-white rounded border">
+          <table class="w-full border-collapse text-xs">
+            <thead>
+              <tr class="bg-gray-100 text-left text-gray-700">
+                <th class="border p-2 text-center"><input type="checkbox" onchange="toggleSelectAllTrash(this.checked)"></th>
+                <th class="border p-2">Mã Doc</th>
+                <th class="border p-2">Tiêu Đề</th>
+                <th class="border p-2">Phòng Ban</th>
+                <th class="border p-2">Xóa Bởi</th>
+                <th class="border p-2">Thời Gian Xóa</th>
+                <th class="border p-2 text-center">Thao Tác</th>
+              </tr>
+            </thead>
+            <tbody id="trashTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <!-- /Sub-tab: Thùng Rác -->
     </div>
 
   </div>
@@ -627,6 +664,7 @@
     let pageSize = 5;
     let currentFilterCard = '';
     let expandedGroups = new Set(); // các nhóm tài liệu đang mở rộng xem phiên bản cũ
+    let selectedDocGroups = new Set(); // các nhóm tài liệu đang được chọn để xóa hàng loạt (chỉ admin)
 
     // --- LỚP GỌI API (xử lý lỗi 401 dùng chung: tự đưa về màn hình đăng nhập) ---
     async function apiFetch(url, options = {}) {
@@ -679,7 +717,7 @@
     async function restoreSession() {
       try {
         const data = await apiFetch('/api/auth/me');
-        await enterApp(data.user, { logLogin: false });
+        await enterApp(data.user);
       } catch (e) {
         // Chưa đăng nhập / phiên hết hạn -> giữ nguyên màn hình đăng nhập mặc định.
       }
@@ -751,16 +789,18 @@
           method: 'POST',
           body: JSON.stringify({ username: u, password: p })
         });
-        await enterApp(data.user, { logLogin: true });
+        await enterApp(data.user);
       } catch (e) {
         alert(e.message || 'Tài khoản hoặc mật khẩu không chính xác!');
       }
     }
 
-    async function enterApp(user, { logLogin }) {
+    async function enterApp(user) {
       currentUser = user;
       await loadBootstrapData();
-      if (logLogin) logSystemAction('USER_MGM', 'LOGIN_SUCCESS', `Đăng nhập hệ thống thành công.`, 'SUCCESS', user.username);
+      // Đăng nhập thành công/thất bại giờ do server tự ghi log (writeAuditLog),
+      // không cần client gửi log riêng nữa — tránh trùng lặp và đảm bảo luôn
+      // ghi được kể cả khi có ai gọi thẳng API mà không qua giao diện.
 
       document.getElementById('loginSection').classList.add('hidden');
       document.getElementById('userHeader').classList.remove('hidden');
@@ -802,8 +842,8 @@
     function switchAdminSubTab(subName) {
       if (!currentUser || !currentUser.perms.admin) return;
 
-      const subs = { users: 'adminSubUsers', workflow: 'adminSubWorkflow', log: 'adminSubLog' };
-      const btns = { users: 'btnAdminSubUsers', workflow: 'btnAdminSubWorkflow', log: 'btnAdminSubLog' };
+      const subs = { users: 'adminSubUsers', workflow: 'adminSubWorkflow', log: 'adminSubLog', trash: 'adminSubTrash' };
+      const btns = { users: 'btnAdminSubUsers', workflow: 'btnAdminSubWorkflow', log: 'btnAdminSubLog', trash: 'btnAdminSubTrash' };
 
       Object.keys(subs).forEach(key => {
         document.getElementById(subs[key]).classList.toggle('hidden', key !== subName);
@@ -817,6 +857,7 @@
       if (subName === 'users') { renderDeptList(); renderCatList(); renderDeptCheckboxes(); renderUsers(); renderPendingUsers(); loadEmailConfigToForm(); }
       if (subName === 'workflow') { renderWorkflowTab(); }
       if (subName === 'log') { renderSystemLogs(); }
+      if (subName === 'trash') { loadAndRenderTrash(); }
     }
 
     function populateDropdowns() {
@@ -1137,8 +1178,14 @@
         ? `<span class="ml-1 bg-slate-200 text-slate-700 text-[10px] font-bold px-1.5 py-0.5 rounded align-middle" title="${groupSize} phiên bản">🕒 v${d.versionNo || 1}</span>`
         : '';
 
+      const isAdmin = !!(currentUser && currentUser.perms && currentUser.perms.admin);
+      const selectCell = isAdmin
+        ? `<td class="border p-2 text-center">${!isChild ? `<input type="checkbox" class="docSelectCheckbox" value="${escapeJsAttr(String(groupId || d.docGroupId || d.id))}" onchange="onDocSelectChange()">` : ''}</td>`
+        : '';
+
       return `
         <tr class="hover:bg-gray-50 ${isChild ? 'bg-gray-50' : ''}">
+          ${selectCell}
           <td class="border p-2 font-mono font-bold text-xs ${isChild ? 'pl-6 text-gray-500 font-normal' : ''}">
             ${isChild ? '↳ ' : expandToggle}${escapeHtml(d.code)}${versionBadge}
           </td>
@@ -1153,9 +1200,10 @@
           <td class="border p-2 text-center space-x-1">
             <button onclick="openViewDocModal(${d.id})" class="text-xs bg-blue-600 text-white px-2 py-1 rounded font-semibold hover:bg-blue-700">Xem</button>
             ${!isChild ? `<button onclick="openDocDetailModal('${escapeJsAttr(String(groupId))}')" class="text-xs bg-slate-600 text-white px-2 py-1 rounded font-semibold hover:bg-slate-700">Chi tiết</button>` : ''}
-            ${canDownload ? `<a href="${d.fileData}" download="${escapeHtml(d.fileName)}" class="text-xs bg-emerald-600 text-white px-2 py-1 rounded font-semibold hover:bg-emerald-700 inline-block">Tải</a>` : ''}
+            ${canDownload ? `<button onclick="downloadDoc(${d.id})" class="text-xs bg-emerald-600 text-white px-2 py-1 rounded font-semibold hover:bg-emerald-700">Tải</button>` : ''}
             ${canApprove ? `<button onclick="approveDoc(${d.id})" class="text-xs bg-amber-500 text-white px-2 py-1 rounded font-semibold hover:bg-amber-600">Duyệt</button>
                             <button onclick="rejectDoc(${d.id})" class="text-xs bg-red-600 text-white px-2 py-1 rounded font-semibold hover:bg-red-700">Trả về</button>` : ''}
+            ${isAdmin && !isChild ? `<button onclick="deleteDocGroup('${escapeJsAttr(String(groupId || d.docGroupId || d.id))}', '${escapeJsAttr(d.code)}')" class="text-xs bg-red-700 text-white px-2 py-1 rounded font-semibold hover:bg-red-800">Xóa</button>` : ''}
           </td>
         </tr>
       `;
@@ -1169,6 +1217,10 @@
     function renderDocs() {
       const tbody = document.getElementById('docTableBody');
       if (!tbody) return;
+
+      const isAdmin = !!(currentUser && currentUser.perms && currentUser.perms.admin);
+      document.getElementById('thDocSelectAll').classList.toggle('hidden', !isAdmin);
+      document.getElementById('thDocSelectAll').querySelector('input').checked = false;
 
       // Gộp các phiên bản cùng 1 tài liệu (cùng docGroupId) lại thành 1 nhóm,
       // sắp theo versionNo giảm dần — phần tử đầu là phiên bản mới nhất.
@@ -1214,7 +1266,7 @@
       const pageGroups = filteredGroups.slice(startIdx, startIdx + pageSize);
 
       if (pageGroups.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" class="text-center p-4 text-gray-500">Không tìm thấy tài liệu phù hợp.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="${isAdmin ? 8 : 7}" class="text-center p-4 text-gray-500">Không tìm thấy tài liệu phù hợp.</td></tr>`;
       } else {
         tbody.innerHTML = pageGroups.map(g => {
           let rowsHtml = renderDocRow(g.latest, { isChild: false, groupSize: g.versions.length, groupId: g.gid });
@@ -1225,7 +1277,31 @@
         }).join('');
       }
 
+      // Chỉ giữ lại lựa chọn của các nhóm vẫn còn hiển thị (đổi trang/lọc thì bỏ chọn nhóm không còn thấy)
+      const visibleGids = new Set(pageGroups.map(g => g.gid));
+      selectedDocGroups.forEach(gid => { if (!visibleGids.has(gid)) selectedDocGroups.delete(gid); });
+      document.querySelectorAll('.docSelectCheckbox').forEach(cb => { cb.checked = selectedDocGroups.has(cb.value); });
+      updateBulkDeleteButton();
+
       renderPagination(totalItems, totalPages);
+    }
+
+    function onDocSelectChange() {
+      selectedDocGroups.clear();
+      document.querySelectorAll('.docSelectCheckbox:checked').forEach(cb => selectedDocGroups.add(cb.value));
+      updateBulkDeleteButton();
+    }
+
+    function toggleSelectAllDocs(checked) {
+      document.querySelectorAll('.docSelectCheckbox').forEach(cb => { cb.checked = checked; });
+      onDocSelectChange();
+    }
+
+    function updateBulkDeleteButton() {
+      const btn = document.getElementById('btnBulkDeleteDocs');
+      if (!btn) return;
+      btn.classList.toggle('hidden', selectedDocGroups.size === 0);
+      document.getElementById('bulkDeleteCount').innerText = selectedDocGroups.size;
     }
 
     function filterByCard(status) {
@@ -1263,7 +1339,14 @@
       renderDocs();
     }
 
-    function openViewDocModal(docId) {
+    // Nội dung file (fileData) không còn gửi kèm trong bootstrap (giảm tải cho
+    // nhiều người dùng đồng thời) — chỉ tải riêng khi thực sự bấm Xem/Tải, qua
+    // GET /api/docs/:id/file (server tự kiểm tra lại quyền xem/tải).
+    async function fetchDocFile(docId, mode) {
+      return apiFetch(`/api/docs/${docId}/file?mode=${mode}`);
+    }
+
+    async function openViewDocModal(docId) {
       const doc = DB.docs.find(d => d.id === docId);
       if (!doc) return alert('Không tìm thấy tài liệu!');
       if (!canUserViewDoc(currentUser, doc)) return alert('⛔ Bạn không có quyền xem tài liệu này!');
@@ -1273,10 +1356,19 @@
       document.getElementById('viewModalFooterInfo').innerText = `Người tạo: ${doc.createdBy} - Trích lược: ${doc.summary}`;
 
       const container = document.getElementById('viewModalContent');
-      container.innerHTML = '';
+      container.innerHTML = `<div class="p-8 text-center text-gray-500 text-sm">⏳ Đang tải nội dung tài liệu...</div>`;
+      document.getElementById('viewDocModal').classList.remove('hidden');
 
-      if (doc.fileData) {
-        if (doc.fileType && (doc.fileType.includes('pdf') || doc.fileData.startsWith('data:application/pdf'))) {
+      let file;
+      try {
+        file = await fetchDocFile(docId, 'view');
+      } catch (e) {
+        container.innerHTML = `<div class="p-8 text-center text-red-600 text-sm">${escapeHtml(e.message || 'Không thể tải nội dung tài liệu.')}</div>`;
+        return;
+      }
+
+      if (file.fileData) {
+        if (file.fileType && (file.fileType.includes('pdf') || file.fileData.startsWith('data:application/pdf'))) {
           // Lưu ý: KHÔNG dùng thuộc tính sandbox ở đây. Đã kiểm chứng bằng Chromium
           // thật: bất kỳ giá trị sandbox nào (kể cả "allow-scripts") đều khiến
           // Chrome/Edge chặn hẳn việc render PDF từ data: URI (ERR_BLOCKED_BY_CLIENT).
@@ -1284,18 +1376,197 @@
           // nó origin "null" (cô lập hoàn toàn khỏi trang cha) bất kể có sandbox
           // hay không — đã kiểm chứng script trong iframe không đọc được DOM/tiêu
           // đề của trang cha trong cả 2 trường hợp.
-          container.innerHTML = `<iframe src="${doc.fileData}#toolbar=0&navpanes=0&scrollbar=0" class="w-full h-[500px] border-0 rounded bg-white shadow"></iframe>`;
-        } else if (doc.fileType && (doc.fileType.includes('image') || doc.fileData.startsWith('data:image/'))) {
-          container.innerHTML = `<img src="${doc.fileData}" class="max-h-[500px] max-w-full object-contain rounded shadow">`;
+          container.innerHTML = `<iframe src="${file.fileData}#toolbar=0&navpanes=0&scrollbar=0" class="w-full h-[500px] border-0 rounded bg-white shadow"></iframe>`;
+        } else if (file.fileType && (file.fileType.includes('image') || file.fileData.startsWith('data:image/'))) {
+          container.innerHTML = `<img src="${file.fileData}" class="max-h-[500px] max-w-full object-contain rounded shadow">`;
         } else {
           container.innerHTML = `<div class="p-8 text-center text-gray-600 space-y-2">
-            <p class="font-bold text-base">📄 Định dạng tệp: ${escapeHtml(doc.fileName)}</p>
+            <p class="font-bold text-base">📄 Định dạng tệp: ${escapeHtml(file.fileName)}</p>
             <p class="text-xs">Xem trực tiếp áp dụng cho PDF/Hình ảnh. Dùng nút Tải file nếu được cấp quyền.</p>
           </div>`;
         }
+      } else {
+        container.innerHTML = `<div class="p-8 text-center text-gray-500 text-sm">Tài liệu không có nội dung file.</div>`;
       }
 
-      document.getElementById('viewDocModal').classList.remove('hidden');
+      logSystemAction('INTERACTION', 'VIEW_DOC', `Xem tài liệu: ${doc.code} (${doc.ver})`, 'SUCCESS', doc.code);
+    }
+
+    async function downloadDoc(docId) {
+      const doc = DB.docs.find(d => d.id === docId);
+      if (!doc) return alert('Không tìm thấy tài liệu!');
+      if (!canUserDownloadDoc(currentUser, doc)) return alert('⛔ Bạn không có quyền tải tài liệu này!');
+
+      let file;
+      try {
+        file = await fetchDocFile(docId, 'download');
+      } catch (e) {
+        return alert(e.message || 'Không thể tải tài liệu.');
+      }
+      if (!file.fileData) return alert('Tài liệu không có nội dung file.');
+
+      const link = document.createElement('a');
+      link.href = file.fileData;
+      link.download = file.fileName || doc.fileName || 'document.pdf';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      logSystemAction('INTERACTION', 'DOWNLOAD_DOC', `Tải tài liệu: ${doc.code} (${doc.ver})`, 'SUCCESS', doc.code);
+    }
+
+    // --- XÓA TÀI LIỆU (XÓA MỀM) — chỉ Admin. Server tự ghi audit log, không
+    // phụ thuộc client (đảm bảo không thể xóa mà không để lại dấu vết). ---
+    async function deleteDocGroup(groupId, code) {
+      if (!confirm(`Xóa toàn bộ phiên bản của tài liệu [${code}]? Tài liệu sẽ được chuyển vào Thùng Rác, có thể khôi phục lại sau (mục Quản trị & Phân quyền > Thùng Rác).`)) return;
+      await performDeleteDocs([groupId]);
+    }
+
+    async function bulkDeleteSelectedDocs() {
+      const groupIds = Array.from(selectedDocGroups);
+      if (groupIds.length === 0) return;
+
+      if (groupIds.length > 10) {
+        const typed = prompt(`Bạn sắp xóa ${groupIds.length} tài liệu cùng lúc. Gõ chính xác chữ "XÓA" (không dấu cách) để xác nhận:`);
+        if (typed !== 'XÓA') return alert('Đã hủy thao tác — xác nhận không khớp.');
+      } else {
+        if (!confirm(`Xóa ${groupIds.length} tài liệu đã chọn? Sẽ được chuyển vào Thùng Rác, có thể khôi phục lại sau.`)) return;
+      }
+      await performDeleteDocs(groupIds);
+    }
+
+    async function performDeleteDocs(groupIds) {
+      try {
+        const result = await apiFetch('/api/docs/delete', { method: 'POST', body: JSON.stringify({ groupIds }) });
+        alert(`✅ Đã chuyển ${result.deletedCount} phiên bản tài liệu vào Thùng Rác.`);
+        selectedDocGroups.clear();
+        await loadBootstrapData();
+        renderDocs();
+      } catch (e) {
+        alert(e.message || 'Không thể xóa tài liệu.');
+      }
+    }
+
+    // --- THÙNG RÁC: xem, khôi phục, xóa vĩnh viễn (chỉ Admin) ---
+    let selectedTrashGroups = new Set();
+
+    async function loadAndRenderTrash() {
+      const tbody = document.getElementById('trashTableBody');
+      if (!tbody) return;
+      tbody.innerHTML = `<tr><td colspan="7" class="text-center p-4 text-gray-500">⏳ Đang tải...</td></tr>`;
+      selectedTrashGroups.clear();
+      updateTrashActionButtons();
+
+      try {
+        const data = await apiFetch('/api/docs/trash');
+        renderTrash(data.docs || []);
+      } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center p-4 text-red-600">${escapeHtml(e.message || 'Không thể tải Thùng Rác.')}</td></tr>`;
+      }
+    }
+
+    function renderTrash(trashDocs) {
+      const tbody = document.getElementById('trashTableBody');
+      if (!tbody) return;
+
+      // Gộp theo doc_group_id giống danh sách chính — 1 dòng đại diện, xóa/khôi
+      // phục áp dụng cho cả nhóm (mọi phiên bản đã xóa cùng lúc).
+      const groupMap = new Map();
+      trashDocs.forEach(d => {
+        const gid = String(d.docGroupId || d.id);
+        if (!groupMap.has(gid)) groupMap.set(gid, []);
+        groupMap.get(gid).push(d);
+      });
+
+      if (groupMap.size === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center p-4 text-gray-500">Thùng rác trống.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = Array.from(groupMap.entries()).map(([gid, versions]) => {
+        versions.sort((a, b) => (b.versionNo || 1) - (a.versionNo || 1));
+        const latest = versions[0];
+        return `
+          <tr class="hover:bg-gray-50">
+            <td class="border p-2 text-center"><input type="checkbox" class="trashSelectCheckbox" value="${escapeJsAttr(gid)}" onchange="onTrashSelectChange()"></td>
+            <td class="border p-2 font-mono font-bold text-xs">${escapeHtml(latest.code)}${versions.length > 1 ? ` <span class="text-gray-400">(${versions.length} phiên bản)</span>` : ''}</td>
+            <td class="border p-2">${escapeHtml(latest.title)}</td>
+            <td class="border p-2">${escapeHtml(latest.dept)}</td>
+            <td class="border p-2">${escapeHtml(latest.deletedBy || '')}</td>
+            <td class="border p-2">${latest.deletedAt ? new Date(latest.deletedAt).toLocaleString('vi-VN') : ''}</td>
+            <td class="border p-2 text-center space-x-1">
+              <button onclick="restoreTrashGroup('${escapeJsAttr(gid)}', '${escapeJsAttr(latest.code)}')" class="text-xs bg-emerald-600 text-white px-2 py-0.5 rounded font-bold">Khôi Phục</button>
+              <button onclick="purgeTrashGroup('${escapeJsAttr(gid)}', '${escapeJsAttr(latest.code)}')" class="text-xs bg-red-700 text-white px-2 py-0.5 rounded font-bold">Xóa Vĩnh Viễn</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function toggleSelectAllTrash(checked) {
+      document.querySelectorAll('.trashSelectCheckbox').forEach(cb => { cb.checked = checked; });
+      onTrashSelectChange();
+    }
+
+    function onTrashSelectChange() {
+      selectedTrashGroups.clear();
+      document.querySelectorAll('.trashSelectCheckbox:checked').forEach(cb => selectedTrashGroups.add(cb.value));
+      updateTrashActionButtons();
+    }
+
+    function updateTrashActionButtons() {
+      const restoreBtn = document.getElementById('btnTrashRestore');
+      const purgeBtn = document.getElementById('btnTrashPurge');
+      restoreBtn.classList.toggle('hidden', selectedTrashGroups.size === 0);
+      purgeBtn.classList.toggle('hidden', selectedTrashGroups.size === 0);
+      document.getElementById('trashRestoreCount').innerText = selectedTrashGroups.size;
+      document.getElementById('trashPurgeCount').innerText = selectedTrashGroups.size;
+    }
+
+    async function restoreTrashGroup(groupId, code) {
+      if (!confirm(`Khôi phục tài liệu [${code}]?`)) return;
+      await performRestoreDocs([groupId]);
+    }
+
+    async function bulkRestoreTrash() {
+      const groupIds = Array.from(selectedTrashGroups);
+      if (groupIds.length === 0) return;
+      if (!confirm(`Khôi phục ${groupIds.length} tài liệu đã chọn?`)) return;
+      await performRestoreDocs(groupIds);
+    }
+
+    async function performRestoreDocs(groupIds) {
+      try {
+        const result = await apiFetch('/api/docs/restore', { method: 'POST', body: JSON.stringify({ groupIds }) });
+        alert(`✅ Đã khôi phục ${result.restoredCount} phiên bản tài liệu.`);
+        await loadBootstrapData();
+        loadAndRenderTrash();
+      } catch (e) {
+        alert(e.message || 'Không thể khôi phục tài liệu.');
+      }
+    }
+
+    async function purgeTrashGroup(groupId, code) {
+      if (!confirm(`⚠️ XÓA VĨNH VIỄN tài liệu [${code}]? Thao tác này KHÔNG THỂ hoàn tác.`)) return;
+      await performPurgeDocs([groupId]);
+    }
+
+    async function bulkPurgeTrash() {
+      const groupIds = Array.from(selectedTrashGroups);
+      if (groupIds.length === 0) return;
+      const typed = prompt(`⚠️ Bạn sắp XÓA VĨNH VIỄN ${groupIds.length} tài liệu — KHÔNG THỂ hoàn tác. Gõ chính xác chữ "XÓA" để xác nhận:`);
+      if (typed !== 'XÓA') return alert('Đã hủy thao tác — xác nhận không khớp.');
+      await performPurgeDocs(groupIds);
+    }
+
+    async function performPurgeDocs(groupIds) {
+      try {
+        const result = await apiFetch('/api/docs/purge', { method: 'POST', body: JSON.stringify({ groupIds }) });
+        alert(`✅ Đã xóa vĩnh viễn ${result.purgedCount} phiên bản tài liệu.`);
+        loadAndRenderTrash();
+      } catch (e) {
+        alert(e.message || 'Không thể xóa vĩnh viễn tài liệu.');
+      }
     }
 
     function closeViewDocModal() {
@@ -1343,7 +1614,7 @@
             <div class="border-t pt-1.5 space-y-1">${historyHtml}</div>
             <div class="flex gap-1.5 pt-1">
               <button onclick="openViewDocModal(${v.id})" class="text-xs bg-blue-600 text-white px-2 py-1 rounded font-semibold hover:bg-blue-700">Xem</button>
-              ${canDownload ? `<a href="${v.fileData}" download="${escapeHtml(v.fileName)}" class="text-xs bg-emerald-600 text-white px-2 py-1 rounded font-semibold hover:bg-emerald-700 inline-block">Tải</a>` : ''}
+              ${canDownload ? `<button onclick="downloadDoc(${v.id})" class="text-xs bg-emerald-600 text-white px-2 py-1 rounded font-semibold hover:bg-emerald-700">Tải</button>` : ''}
             </div>
           </div>
         `;
@@ -1624,6 +1895,7 @@
       const ok = await syncStorage('depts');
       if (!ok) { DB.depts = prevDepts; return; }
 
+      logSystemAction('CONFIG', editId ? 'UPDATE_DEPT' : 'CREATE_DEPT', `${editId ? 'Cập nhật' : 'Tạo mới'} phòng ban: ${val} (${abbr})`, 'SUCCESS', val);
       resetDeptForm();
       if (isRename) { await loadBootstrapData(); renderUsers(); } // đồng bộ lại tài liệu/phân quyền/quy trình đã được server cập nhật theo tên mới
       populateDropdowns();
@@ -1637,6 +1909,7 @@
       DB.depts = DB.depts.filter(d => d.name !== name);
       const ok = await syncStorage('depts');
       if (!ok) { DB.depts = prevDepts; return; }
+      logSystemAction('CONFIG', 'DELETE_DEPT', `Xóa phòng ban: ${name}`, 'SUCCESS', name);
       populateDropdowns();
       renderDeptList();
       renderDeptCheckboxes();
@@ -1694,6 +1967,7 @@
       const ok = await syncStorage('cats');
       if (!ok) { DB.cats = prevCats; return; }
 
+      logSystemAction('CONFIG', editId ? 'UPDATE_CAT' : 'CREATE_CAT', `${editId ? 'Cập nhật' : 'Tạo mới'} phân loại: ${val} (${abbr})`, 'SUCCESS', val);
       resetCatForm();
       if (isRename) { await loadBootstrapData(); } // đồng bộ lại tài liệu đã được server cập nhật theo tên mới
       populateDropdowns();
@@ -1706,6 +1980,7 @@
       DB.cats = DB.cats.filter(c => c.name !== name);
       const ok = await syncStorage('cats');
       if (!ok) { DB.cats = prevCats; return; }
+      logSystemAction('CONFIG', 'DELETE_CAT', `Xóa phân loại: ${name}`, 'SUCCESS', name);
       populateDropdowns();
       renderCatList();
     }
