@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Hệ Thống Quản Lý Tài Liệu - DMS v6.0</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/style.css">
   <style>
     .dash-card.active-card {
       ring-width: 2px;
@@ -14,6 +14,28 @@
   </style>
 </head>
 <body class="bg-gray-100 min-h-screen p-4 md:p-6 font-sans">
+  <div id="toastStack" class="toast-stack" aria-live="polite"></div>
+
+  <!-- MODAL XÁC NHẬN DÙNG CHUNG (thay cho confirm()/prompt() mặc định trình duyệt) -->
+  <div id="confirmModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[70] p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-sm w-full p-5 space-y-4">
+      <div class="flex items-start gap-3">
+        <span id="confirmModalIcon" class="text-2xl leading-none">⚠️</span>
+        <div class="flex-1">
+          <h3 id="confirmModalTitle" class="font-bold text-gray-900 text-base"></h3>
+          <p id="confirmModalMessage" class="text-sm text-gray-600 mt-1"></p>
+        </div>
+      </div>
+      <div id="confirmModalInputBox" class="hidden">
+        <input id="confirmModalInput" type="text" class="w-full border p-2 rounded text-sm" autocomplete="off">
+      </div>
+      <div class="flex justify-end gap-2 pt-1">
+        <button id="confirmModalCancelBtn" type="button" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button id="confirmModalOkBtn" type="button" class="bg-brand-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-brand-700">Xác Nhận</button>
+      </div>
+    </div>
+  </div>
+
   <div class="max-w-7xl mx-auto bg-white p-4 md:p-6 rounded-lg shadow-md space-y-6">
     
     <!-- Header -->
@@ -567,7 +589,7 @@
   </div>
 
   <!-- MODAL XEM TÀI LIỆU (PROTECTED VIEWER) -->
-  <div id="viewDocModal" class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center hidden z-[60] p-4">
+  <div id="viewDocModal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-[60] p-4">
     <div class="bg-white rounded-lg shadow-2xl max-w-4xl w-full flex flex-col max-h-[90vh] overflow-hidden">
       <div class="flex justify-between items-center bg-gray-800 text-white p-4">
         <div>
@@ -589,7 +611,7 @@
   </div>
 
   <!-- MODAL CHI TIẾT TÀI LIỆU & LỊCH SỬ PHIÊN BẢN -->
-  <div id="docDetailModal" class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center hidden z-50 p-4">
+  <div id="docDetailModal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50 p-4">
     <div class="bg-white rounded-lg shadow-2xl max-w-3xl w-full flex flex-col max-h-[90vh] overflow-hidden">
       <div class="flex justify-between items-center bg-slate-700 text-white p-4">
         <div>
@@ -606,7 +628,7 @@
   </div>
 
   <!-- MODAL CÁ NHÂN HÓA -->
-  <div id="profileModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50 p-4">
+  <div id="profileModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-50 p-4">
     <div class="bg-white p-6 rounded-lg shadow-xl max-w-md w-full space-y-4">
       <div class="flex justify-between items-center border-b pb-3">
         <h3 class="font-bold text-gray-800 text-base">⚙️ Cập Nhật Thông Tin Cá Nhân</h3>
@@ -708,7 +730,7 @@
         });
         return true;
       } catch (e) {
-        alert('Lỗi đồng bộ dữ liệu: ' + e.message);
+        showToast('Lỗi đồng bộ dữ liệu: ' + e.message, 'danger');
         return false;
       }
     }
@@ -741,6 +763,111 @@
         .replace(/\n/g, '\\n')
         .replace(/\r/g, '\\r');
       return escapeHtml(jsEscaped);
+    }
+
+    // --- THÔNG BÁO (Toast) — thay cho alert() mặc định trình duyệt: không chặn
+    // thao tác, tự ẩn sau vài giây, phân biệt rõ mức độ (thành công/lỗi/cảnh báo). ---
+    function showToast(message, type = 'success') {
+      const stack = document.getElementById('toastStack');
+      if (!stack) return;
+      const icons = { success: '✅', danger: '⛔', warning: '⚠️', info: 'ℹ️' };
+      const el = document.createElement('div');
+      el.className = `toast-item toast-${type}`;
+      el.innerHTML = `<span>${icons[type] || 'ℹ️'}</span><span>${escapeHtml(message)}</span>`;
+      stack.appendChild(el);
+      setTimeout(() => {
+        el.classList.add('toast-leaving');
+        setTimeout(() => el.remove(), 200);
+      }, 4000);
+    }
+
+    // --- MODAL XÁC NHẬN dùng chung (thay cho confirm()/prompt() mặc định) ---
+    // showConfirm({title, message, danger}) -> Promise<boolean>
+    // showTypedConfirm({title, message, requiredText}) -> Promise<boolean> (chỉ true khi gõ đúng requiredText)
+    function showConfirm({ title = 'Xác nhận', message = '', danger = false, confirmText = 'Xác Nhận', requiredText = null }) {
+      return new Promise(resolve => {
+        const modal = document.getElementById('confirmModal');
+        document.getElementById('confirmModalIcon').innerText = danger ? '⚠️' : 'ℹ️';
+        document.getElementById('confirmModalTitle').innerText = title;
+        document.getElementById('confirmModalMessage').innerText = message;
+        const okBtn = document.getElementById('confirmModalOkBtn');
+        const cancelBtn = document.getElementById('confirmModalCancelBtn');
+        const inputBox = document.getElementById('confirmModalInputBox');
+        const input = document.getElementById('confirmModalInput');
+
+        okBtn.innerText = confirmText;
+        okBtn.className = `text-white px-4 py-2 rounded text-sm font-bold ${danger ? 'bg-danger-600 hover:bg-danger-700' : 'bg-brand-600 hover:bg-brand-700'}`;
+
+        inputBox.classList.toggle('hidden', !requiredText);
+        input.value = '';
+        if (requiredText) input.placeholder = `Gõ chính xác "${requiredText}" để xác nhận`;
+
+        function cleanup(result) {
+          modal.classList.add('hidden');
+          okBtn.onclick = null;
+          cancelBtn.onclick = null;
+          input.onkeydown = null;
+          resolve(result);
+        }
+
+        okBtn.onclick = () => {
+          if (requiredText && input.value.trim() !== requiredText) {
+            showToast(`Chưa khớp — cần gõ chính xác "${requiredText}".`, 'warning');
+            return;
+          }
+          cleanup(true);
+        };
+        cancelBtn.onclick = () => cleanup(false);
+        input.onkeydown = (e) => { if (e.key === 'Enter') okBtn.click(); };
+
+        modal.classList.remove('hidden');
+        if (requiredText) input.focus();
+      });
+    }
+
+    // showPrompt({title, message, placeholder, required}) -> Promise<string|null>
+    // Modal nhập văn bản tự do (thay cho prompt() mặc định) — trả về chuỗi đã
+    // gõ khi bấm Xác Nhận, hoặc null nếu bấm Hủy.
+    function showPrompt({ title = 'Nhập thông tin', message = '', placeholder = '', required = false, confirmText = 'Xác Nhận' }) {
+      return new Promise(resolve => {
+        const modal = document.getElementById('confirmModal');
+        document.getElementById('confirmModalIcon').innerText = 'ℹ️';
+        document.getElementById('confirmModalTitle').innerText = title;
+        document.getElementById('confirmModalMessage').innerText = message;
+        const okBtn = document.getElementById('confirmModalOkBtn');
+        const cancelBtn = document.getElementById('confirmModalCancelBtn');
+        const inputBox = document.getElementById('confirmModalInputBox');
+        const input = document.getElementById('confirmModalInput');
+
+        okBtn.innerText = confirmText;
+        okBtn.className = 'text-white px-4 py-2 rounded text-sm font-bold bg-brand-600 hover:bg-brand-700';
+
+        inputBox.classList.remove('hidden');
+        input.value = '';
+        input.placeholder = placeholder;
+
+        function cleanup(result) {
+          modal.classList.add('hidden');
+          okBtn.onclick = null;
+          cancelBtn.onclick = null;
+          input.onkeydown = null;
+          resolve(result);
+        }
+
+        okBtn.onclick = () => {
+          const val = input.value.trim();
+          if (required && !val) {
+            showToast('Vui lòng nhập nội dung.', 'warning');
+            return;
+          }
+          cleanup(val);
+        };
+        cancelBtn.onclick = () => cleanup(null);
+        input.onkeydown = (e) => { if (e.key === 'Enter') okBtn.click(); };
+
+        modal.classList.remove('hidden');
+        input.focus();
+      });
     }
 
     // Bộ đếm tăng dần để đảm bảo ID log luôn duy nhất kể cả khi gọi nhiều lần
@@ -782,7 +909,7 @@
       const u = document.getElementById('txtUser').value.trim();
       const p = document.getElementById('txtPass').value.trim();
 
-      if (!u || !p) return alert('Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu!');
+      if (!u || !p) return showToast('Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu!', 'warning');
 
       try {
         const data = await apiFetch('/api/auth/login', {
@@ -791,7 +918,7 @@
         });
         await enterApp(data.user);
       } catch (e) {
-        alert(e.message || 'Tài khoản hoặc mật khẩu không chính xác!');
+        showToast(e.message || 'Tài khoản hoặc mật khẩu không chính xác!', 'danger');
       }
     }
 
@@ -1020,19 +1147,19 @@
       const mode = document.getElementById('docMode').value;
       const fileInput = document.getElementById('docFile');
       const files = Array.from(fileInput.files);
-      if (files.length === 0) return alert('Vui lòng chọn file tài liệu!');
+      if (files.length === 0) return showToast('Vui lòng chọn file tài liệu!', 'warning');
 
       // Kiểm tra nhanh phía client để UX tốt hơn. Đây KHÔNG phải lớp bảo mật thật —
       // server luôn tự kiểm tra lại (kể cả magic bytes, mã/version tự sinh) và
       // không tin dữ liệu client gửi.
       const invalidFile = files.find(f => f.type !== 'application/pdf' && !f.name.toLowerCase().endsWith('.pdf'));
-      if (invalidFile) return alert(`File "${invalidFile.name}" không phải PDF. Chỉ được phép tải lên file PDF!`);
-      if (mode === 'update' && files.length > 1) return alert('Chế độ Cập nhật chỉ được chọn 1 file!');
+      if (invalidFile) return showToast(`File "${invalidFile.name}" không phải PDF. Chỉ được phép tải lên file PDF!`, 'danger');
+      if (mode === 'update' && files.length > 1) return showToast('Chế độ Cập nhật chỉ được chọn 1 file!', 'warning');
 
       let targetGroupId = null;
       if (mode === 'update') {
         targetGroupId = document.getElementById('selUpdateTarget').value;
-        if (!targetGroupId) return alert('Vui lòng chọn tài liệu cần cập nhật!');
+        if (!targetGroupId) return showToast('Vui lòng chọn tài liệu cần cập nhật!', 'warning');
       }
 
       const isMulti = mode === 'new' && files.length > 1;
@@ -1090,13 +1217,13 @@
           });
         }
 
-        alert(`✅ Đã tải lên và trình ký ${createdDocs.length} tài liệu thành công!\n` + createdDocs.map(d => `- ${d.code} (${d.ver})`).join('\n'));
+        showToast(`Đã tải lên và trình ký ${createdDocs.length} tài liệu thành công: ${createdDocs.map(d => d.code).join(', ')}`, 'success');
         document.getElementById('docForm').reset();
         document.getElementById('docMode').value = 'new';
         onDocModeChange();
         renderDocs();
       } catch (err) {
-        alert('❌ Lỗi khi tải lên: ' + err.message);
+        showToast('Lỗi khi tải lên: ' + err.message, 'danger');
       } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = 'Tải Lên & Trình Ký Phê Duyệt';
@@ -1132,15 +1259,20 @@
       }
 
       syncStorage('docs');
-      alert('✅ Đã phê duyệt tài liệu thành công!');
+      showToast('Đã phê duyệt tài liệu thành công!', 'success');
       renderDocs();
     }
 
-    function rejectDoc(docId) {
+    async function rejectDoc(docId) {
       const doc = DB.docs.find(d => d.id === docId);
       if (!doc) return;
 
-      const reason = prompt('Nhập lý do từ chối / trả về tài liệu:');
+      const reason = await showPrompt({
+        title: 'Từ chối / trả về tài liệu',
+        message: `Nhập lý do từ chối / trả về tài liệu [${doc.code}]:`,
+        placeholder: 'Lý do...',
+        required: true
+      });
       if (reason === null) return;
 
       doc.history.push({
@@ -1155,7 +1287,7 @@
       doc.status = 'REJECTED';
       syncStorage('docs');
       logSystemAction('INTERACTION', 'REJECT_DOC', `Từ chối tài liệu ${doc.code}. Lý do: ${reason}`, 'SUCCESS', doc.code);
-      alert('❌ Đã trả về tài liệu!');
+      showToast('Đã trả về tài liệu!', 'warning');
       renderDocs();
     }
 
@@ -1197,13 +1329,25 @@
           <td class="border p-2">${escapeHtml(d.cat)}</td>
           <td class="border p-2 text-center font-bold">${escapeHtml(d.ver)}</td>
           <td class="border p-2">${statusBadge}</td>
-          <td class="border p-2 text-center space-x-1">
-            <button onclick="openViewDocModal(${d.id})" class="text-xs bg-blue-600 text-white px-2 py-1 rounded font-semibold hover:bg-blue-700">Xem</button>
-            ${!isChild ? `<button onclick="openDocDetailModal('${escapeJsAttr(String(groupId))}')" class="text-xs bg-slate-600 text-white px-2 py-1 rounded font-semibold hover:bg-slate-700">Chi tiết</button>` : ''}
-            ${canDownload ? `<button onclick="downloadDoc(${d.id})" class="text-xs bg-emerald-600 text-white px-2 py-1 rounded font-semibold hover:bg-emerald-700">Tải</button>` : ''}
-            ${canApprove ? `<button onclick="approveDoc(${d.id})" class="text-xs bg-amber-500 text-white px-2 py-1 rounded font-semibold hover:bg-amber-600">Duyệt</button>
-                            <button onclick="rejectDoc(${d.id})" class="text-xs bg-red-600 text-white px-2 py-1 rounded font-semibold hover:bg-red-700">Trả về</button>` : ''}
-            ${isAdmin && !isChild ? `<button onclick="deleteDocGroup('${escapeJsAttr(String(groupId || d.docGroupId || d.id))}', '${escapeJsAttr(d.code)}')" class="text-xs bg-red-700 text-white px-2 py-1 rounded font-semibold hover:bg-red-800">Xóa</button>` : ''}
+          <td class="border p-2 text-center">
+            <div class="inline-flex items-center gap-1">
+              <button onclick="openViewDocModal(${d.id})" class="text-xs bg-brand-600 text-white px-2 py-1 rounded font-semibold hover:bg-brand-700">Xem</button>
+              ${canApprove ? `<button onclick="approveDoc(${d.id})" class="text-xs bg-warning-600 text-white px-2 py-1 rounded font-semibold hover:bg-warning-700">Duyệt</button>
+                              <button onclick="rejectDoc(${d.id})" class="text-xs bg-danger-600 text-white px-2 py-1 rounded font-semibold hover:bg-danger-700">Trả về</button>` : ''}
+              ${(() => {
+                const menuItems = [
+                  !isChild ? `<button onclick="closeAllRowMenus(); openDocDetailModal('${escapeJsAttr(String(groupId))}')" class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">📋 Chi tiết</button>` : '',
+                  canDownload ? `<button onclick="closeAllRowMenus(); downloadDoc(${d.id})" class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">⬇️ Tải</button>` : '',
+                  isAdmin && !isChild ? `<button onclick="closeAllRowMenus(); deleteDocGroup('${escapeJsAttr(String(groupId || d.docGroupId || d.id))}', '${escapeJsAttr(d.code)}')" class="block w-full text-left px-3 py-2 text-xs text-danger-700 hover:bg-danger-50">🗑️ Xóa</button>` : ''
+                ].filter(Boolean).join('');
+                if (!menuItems) return '';
+                const menuId = `rowMenu_${d.id}`;
+                return `
+                  <button onclick="toggleRowMenu(event, '${menuId}')" class="text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded font-semibold hover:bg-gray-300" title="Thêm thao tác">⋮</button>
+                  <div id="${menuId}" class="row-action-menu hidden fixed w-36 bg-white border rounded shadow-lg z-[80] text-left overflow-hidden">${menuItems}</div>
+                `;
+              })()}
+            </div>
           </td>
         </tr>
       `;
@@ -1213,6 +1357,33 @@
       if (expandedGroups.has(gid)) expandedGroups.delete(gid); else expandedGroups.add(gid);
       renderDocs();
     }
+
+    // Menu "⋮" thao tác phụ trên mỗi dòng tài liệu — dùng position:fixed định vị
+    // bằng JS (thay vì absolute) để không bị cắt bởi vùng cuộn ngang của bảng.
+    function closeAllRowMenus() {
+      document.querySelectorAll('.row-action-menu').forEach(m => m.classList.add('hidden'));
+    }
+
+    function toggleRowMenu(e, menuId) {
+      e.stopPropagation();
+      const menu = document.getElementById(menuId);
+      if (!menu) return;
+      const wasOpen = !menu.classList.contains('hidden');
+      closeAllRowMenus();
+      if (wasOpen) return;
+
+      const btnRect = e.currentTarget.getBoundingClientRect();
+      menu.classList.remove('hidden');
+      const menuRect = menu.getBoundingClientRect();
+      let left = btnRect.right - menuRect.width;
+      let top = btnRect.bottom + 4;
+      if (top + menuRect.height > window.innerHeight) top = btnRect.top - menuRect.height - 4;
+      if (left < 4) left = 4;
+      menu.style.left = `${left}px`;
+      menu.style.top = `${top}px`;
+    }
+
+    document.addEventListener('click', closeAllRowMenus);
 
     function renderDocs() {
       const tbody = document.getElementById('docTableBody');
@@ -1348,8 +1519,8 @@
 
     async function openViewDocModal(docId) {
       const doc = DB.docs.find(d => d.id === docId);
-      if (!doc) return alert('Không tìm thấy tài liệu!');
-      if (!canUserViewDoc(currentUser, doc)) return alert('⛔ Bạn không có quyền xem tài liệu này!');
+      if (!doc) return showToast('Không tìm thấy tài liệu!', 'danger');
+      if (!canUserViewDoc(currentUser, doc)) return showToast('Bạn không có quyền xem tài liệu này!', 'danger');
 
       document.getElementById('viewModalTitle').innerText = `📄 Xem Tài Liệu: ${doc.title}`;
       document.getElementById('viewModalSub').innerText = `Mã: ${doc.code} | Phiên bản: ${doc.ver} | Phòng ban: ${doc.dept} | Loại: ${doc.cat}`;
@@ -1394,16 +1565,16 @@
 
     async function downloadDoc(docId) {
       const doc = DB.docs.find(d => d.id === docId);
-      if (!doc) return alert('Không tìm thấy tài liệu!');
-      if (!canUserDownloadDoc(currentUser, doc)) return alert('⛔ Bạn không có quyền tải tài liệu này!');
+      if (!doc) return showToast('Không tìm thấy tài liệu!', 'danger');
+      if (!canUserDownloadDoc(currentUser, doc)) return showToast('Bạn không có quyền tải tài liệu này!', 'danger');
 
       let file;
       try {
         file = await fetchDocFile(docId, 'download');
       } catch (e) {
-        return alert(e.message || 'Không thể tải tài liệu.');
+        return showToast(e.message || 'Không thể tải tài liệu.', 'danger');
       }
-      if (!file.fileData) return alert('Tài liệu không có nội dung file.');
+      if (!file.fileData) return showToast('Tài liệu không có nội dung file.', 'warning');
 
       const link = document.createElement('a');
       link.href = file.fileData;
@@ -1418,7 +1589,12 @@
     // --- XÓA TÀI LIỆU (XÓA MỀM) — chỉ Admin. Server tự ghi audit log, không
     // phụ thuộc client (đảm bảo không thể xóa mà không để lại dấu vết). ---
     async function deleteDocGroup(groupId, code) {
-      if (!confirm(`Xóa toàn bộ phiên bản của tài liệu [${code}]? Tài liệu sẽ được chuyển vào Thùng Rác, có thể khôi phục lại sau (mục Quản trị & Phân quyền > Thùng Rác).`)) return;
+      const ok = await showConfirm({
+        title: 'Xóa tài liệu',
+        message: `Xóa toàn bộ phiên bản của tài liệu [${code}]? Sẽ được chuyển vào Thùng Rác, có thể khôi phục lại sau.`,
+        danger: true, confirmText: 'Xóa'
+      });
+      if (!ok) return;
       await performDeleteDocs([groupId]);
     }
 
@@ -1426,24 +1602,27 @@
       const groupIds = Array.from(selectedDocGroups);
       if (groupIds.length === 0) return;
 
-      if (groupIds.length > 10) {
-        const typed = prompt(`Bạn sắp xóa ${groupIds.length} tài liệu cùng lúc. Gõ chính xác chữ "XÓA" (không dấu cách) để xác nhận:`);
-        if (typed !== 'XÓA') return alert('Đã hủy thao tác — xác nhận không khớp.');
-      } else {
-        if (!confirm(`Xóa ${groupIds.length} tài liệu đã chọn? Sẽ được chuyển vào Thùng Rác, có thể khôi phục lại sau.`)) return;
-      }
+      const ok = await showConfirm({
+        title: 'Xóa nhiều tài liệu',
+        message: groupIds.length > 10
+          ? `Bạn sắp xóa ${groupIds.length} tài liệu cùng lúc. Sẽ được chuyển vào Thùng Rác, có thể khôi phục lại sau.`
+          : `Xóa ${groupIds.length} tài liệu đã chọn? Sẽ được chuyển vào Thùng Rác, có thể khôi phục lại sau.`,
+        danger: true, confirmText: 'Xóa',
+        requiredText: groupIds.length > 10 ? 'XÓA' : null
+      });
+      if (!ok) return;
       await performDeleteDocs(groupIds);
     }
 
     async function performDeleteDocs(groupIds) {
       try {
         const result = await apiFetch('/api/docs/delete', { method: 'POST', body: JSON.stringify({ groupIds }) });
-        alert(`✅ Đã chuyển ${result.deletedCount} phiên bản tài liệu vào Thùng Rác.`);
+        showToast(`Đã chuyển ${result.deletedCount} phiên bản tài liệu vào Thùng Rác.`, 'success');
         selectedDocGroups.clear();
         await loadBootstrapData();
         renderDocs();
       } catch (e) {
-        alert(e.message || 'Không thể xóa tài liệu.');
+        showToast(e.message || 'Không thể xóa tài liệu.', 'danger');
       }
     }
 
@@ -1524,48 +1703,59 @@
     }
 
     async function restoreTrashGroup(groupId, code) {
-      if (!confirm(`Khôi phục tài liệu [${code}]?`)) return;
+      const ok = await showConfirm({ title: 'Khôi phục tài liệu', message: `Khôi phục tài liệu [${code}]?`, confirmText: 'Khôi Phục' });
+      if (!ok) return;
       await performRestoreDocs([groupId]);
     }
 
     async function bulkRestoreTrash() {
       const groupIds = Array.from(selectedTrashGroups);
       if (groupIds.length === 0) return;
-      if (!confirm(`Khôi phục ${groupIds.length} tài liệu đã chọn?`)) return;
+      const ok = await showConfirm({ title: 'Khôi phục nhiều tài liệu', message: `Khôi phục ${groupIds.length} tài liệu đã chọn?`, confirmText: 'Khôi Phục' });
+      if (!ok) return;
       await performRestoreDocs(groupIds);
     }
 
     async function performRestoreDocs(groupIds) {
       try {
         const result = await apiFetch('/api/docs/restore', { method: 'POST', body: JSON.stringify({ groupIds }) });
-        alert(`✅ Đã khôi phục ${result.restoredCount} phiên bản tài liệu.`);
+        showToast(`Đã khôi phục ${result.restoredCount} phiên bản tài liệu.`, 'success');
         await loadBootstrapData();
         loadAndRenderTrash();
       } catch (e) {
-        alert(e.message || 'Không thể khôi phục tài liệu.');
+        showToast(e.message || 'Không thể khôi phục tài liệu.', 'danger');
       }
     }
 
     async function purgeTrashGroup(groupId, code) {
-      if (!confirm(`⚠️ XÓA VĨNH VIỄN tài liệu [${code}]? Thao tác này KHÔNG THỂ hoàn tác.`)) return;
+      const ok = await showConfirm({
+        title: 'Xóa vĩnh viễn',
+        message: `XÓA VĨNH VIỄN tài liệu [${code}]? Thao tác này KHÔNG THỂ hoàn tác.`,
+        danger: true, confirmText: 'Xóa Vĩnh Viễn', requiredText: 'XÓA'
+      });
+      if (!ok) return;
       await performPurgeDocs([groupId]);
     }
 
     async function bulkPurgeTrash() {
       const groupIds = Array.from(selectedTrashGroups);
       if (groupIds.length === 0) return;
-      const typed = prompt(`⚠️ Bạn sắp XÓA VĨNH VIỄN ${groupIds.length} tài liệu — KHÔNG THỂ hoàn tác. Gõ chính xác chữ "XÓA" để xác nhận:`);
-      if (typed !== 'XÓA') return alert('Đã hủy thao tác — xác nhận không khớp.');
+      const ok = await showConfirm({
+        title: 'Xóa vĩnh viễn nhiều tài liệu',
+        message: `Bạn sắp XÓA VĨNH VIỄN ${groupIds.length} tài liệu — KHÔNG THỂ hoàn tác.`,
+        danger: true, confirmText: 'Xóa Vĩnh Viễn', requiredText: 'XÓA'
+      });
+      if (!ok) return;
       await performPurgeDocs(groupIds);
     }
 
     async function performPurgeDocs(groupIds) {
       try {
         const result = await apiFetch('/api/docs/purge', { method: 'POST', body: JSON.stringify({ groupIds }) });
-        alert(`✅ Đã xóa vĩnh viễn ${result.purgedCount} phiên bản tài liệu.`);
+        showToast(`Đã xóa vĩnh viễn ${result.purgedCount} phiên bản tài liệu.`, 'success');
         loadAndRenderTrash();
       } catch (e) {
-        alert(e.message || 'Không thể xóa vĩnh viễn tài liệu.');
+        showToast(e.message || 'Không thể xóa vĩnh viễn tài liệu.', 'danger');
       }
     }
 
@@ -1579,7 +1769,7 @@
       const versions = DB.docs
         .filter(d => String(d.docGroupId || d.id) === String(groupId) && canUserViewDoc(currentUser, d))
         .sort((a, b) => (b.versionNo || 1) - (a.versionNo || 1));
-      if (versions.length === 0) return alert('Không tìm thấy tài liệu hoặc bạn không có quyền xem!');
+      if (versions.length === 0) return showToast('Không tìm thấy tài liệu hoặc bạn không có quyền xem!', 'danger');
 
       const latest = versions[0];
       document.getElementById('docDetailTitle').innerText = `📋 Chi Tiết Tài Liệu: ${latest.title}`;
@@ -1718,7 +1908,7 @@
       if (!ok) { DB.deptWorkflows[dept] = prev; return; }
 
       logSystemAction('CONFIG', 'UPDATE_DEPT_WORKFLOW', `Cập nhật gán quy trình cho phòng ban [${dept}] sang [${config.workflowId}]`, 'SUCCESS', dept);
-      alert(`✅ Đã lưu cấu hình quy trình cho ${dept}!`);
+      showToast(`Đã lưu cấu hình quy trình cho ${dept}!`, 'success');
     }
 
     async function saveAllDeptWorkflows() {
@@ -1734,7 +1924,7 @@
       if (!ok) { DB.deptWorkflows = prev; return; }
 
       logSystemAction('CONFIG', 'UPDATE_DEPT_WORKFLOW', `Cập nhật gán quy trình cho tất cả phòng ban (${DB.depts.length} phòng ban)`, 'SUCCESS', 'ALL');
-      alert(`✅ Đã lưu cấu hình quy trình cho tất cả ${DB.depts.length} phòng ban!`);
+      showToast(`Đã lưu cấu hình quy trình cho tất cả ${DB.depts.length} phòng ban!`, 'success');
     }
 
     function renderWorkflowTemplates() {
@@ -1758,7 +1948,7 @@
     function addStepRow(name = '') {
       const container = document.getElementById('stepBuilderContainer');
       const stepCount = container.children.length + 1;
-      if (stepCount > 5) return alert('Tối đa 5 bước phê duyệt!');
+      if (stepCount > 5) return showToast('Tối đa 5 bước phê duyệt!', 'warning');
 
       const row = document.createElement('div');
       row.className = 'flex items-center gap-2 step-row';
@@ -1784,7 +1974,7 @@
       const name = document.getElementById('wfName').value.trim();
 
       const stepInputs = document.querySelectorAll('.step-name-input');
-      if (stepInputs.length === 0) return alert('Vui lòng thêm ít nhất 1 bước duyệt!');
+      if (stepInputs.length === 0) return showToast('Vui lòng thêm ít nhất 1 bước duyệt!', 'warning');
 
       const steps = Array.from(stepInputs).map((inp, idx) => ({
         order: idx + 1,
@@ -1795,13 +1985,13 @@
         const idx = DB.workflows.findIndex(w => w.id === editingCode);
         if (idx !== -1) DB.workflows[idx] = { id: editingCode, name, steps };
       } else {
-        if (DB.workflows.some(w => w.id === code)) return alert('Mã quy trình này đã tồn tại!');
+        if (DB.workflows.some(w => w.id === code)) return showToast('Mã quy trình này đã tồn tại!', 'danger');
         DB.workflows.push({ id: code, name, steps });
       }
 
       syncStorage('workflows');
       logSystemAction('CONFIG', 'SAVE_WORKFLOW_TEMPLATE', `Lưu mẫu quy trình [${code}] - ${name}`, 'SUCCESS', code);
-      alert('✅ Đã lưu mẫu quy trình!');
+      showToast('Đã lưu mẫu quy trình!', 'success');
       resetWorkflowForm();
       renderWorkflowTab();
     }
@@ -1824,11 +2014,13 @@
       document.getElementById('btnCancelWf').classList.remove('hidden');
     }
 
-    function deleteWorkflowTemplate(code) {
-      if (!confirm(`Bạn có chắc chắn muốn xóa mẫu quy trình [${code}]?`)) return;
+    async function deleteWorkflowTemplate(code) {
+      const ok = await showConfirm({ title: 'Xóa mẫu quy trình', message: `Bạn có chắc chắn muốn xóa mẫu quy trình [${code}]?`, danger: true, confirmText: 'Xóa' });
+      if (!ok) return;
       DB.workflows = DB.workflows.filter(w => w.id !== code);
       syncStorage('workflows');
       logSystemAction('CONFIG', 'DELETE_WORKFLOW_TEMPLATE', `Xóa mẫu quy trình [${code}]`, 'SUCCESS', code);
+      showToast(`Đã xóa mẫu quy trình [${code}].`, 'success');
       renderWorkflowTab();
     }
 
@@ -1881,9 +2073,9 @@
       const val = document.getElementById('txtDeptName').value.trim();
       const abbr = document.getElementById('txtDeptAbbr').value.trim().toUpperCase();
       if (!val || !abbr) return;
-      if (!/^[A-Z0-9]{1,10}$/.test(abbr)) return alert('Viết tắt chỉ gồm chữ/số không dấu, tối đa 10 ký tự!');
-      if (DB.depts.some(d => d.name === val && String(d.id) !== String(editId))) return alert('Phòng ban đã tồn tại!');
-      if (DB.depts.some(d => d.abbr === abbr && String(d.id) !== String(editId))) return alert(`Viết tắt [${abbr}] đã được dùng bởi phòng ban khác!`);
+      if (!/^[A-Z0-9]{1,10}$/.test(abbr)) return showToast('Viết tắt chỉ gồm chữ/số không dấu, tối đa 10 ký tự!', 'warning');
+      if (DB.depts.some(d => d.name === val && String(d.id) !== String(editId))) return showToast('Phòng ban đã tồn tại!', 'danger');
+      if (DB.depts.some(d => d.abbr === abbr && String(d.id) !== String(editId))) return showToast(`Viết tắt [${abbr}] đã được dùng bởi phòng ban khác!`, 'danger');
 
       const prevDepts = DB.depts;
       const isRename = editId && DB.depts.some(d => String(d.id) === String(editId) && d.name !== val);
@@ -1896,20 +2088,7 @@
       if (!ok) { DB.depts = prevDepts; return; }
 
       logSystemAction('CONFIG', editId ? 'UPDATE_DEPT' : 'CREATE_DEPT', `${editId ? 'Cập nhật' : 'Tạo mới'} phòng ban: ${val} (${abbr})`, 'SUCCESS', val);
-      resetDeptForm();
-      if (isRename) { await loadBootstrapData(); renderUsers(); } // đồng bộ lại tài liệu/phân quyền/quy trình đã được server cập nhật theo tên mới
-      populateDropdowns();
-      renderDeptList();
-      renderDeptCheckboxes();
-    }
-
-    async function deleteDept(name) {
-      if (!confirm(`Xóa phòng ban ${name}?`)) return;
-      const prevDepts = DB.depts;
-      DB.depts = DB.depts.filter(d => d.name !== name);
-      const ok = await syncStorage('depts');
-      if (!ok) { DB.depts = prevDepts; return; }
-      logSystemAction('CONFIG', 'DELETE_DEPT', `Xóa phòng ban: ${name}`, 'SUCCESS', name);
+      showToast(`Đã ${editId ? 'cập nhật' : 'thêm'} phòng ban ${val}.`, 'success');
       populateDropdowns();
       renderDeptList();
       renderDeptCheckboxes();
@@ -1953,9 +2132,9 @@
       const val = document.getElementById('txtCatName').value.trim();
       const abbr = document.getElementById('txtCatAbbr').value.trim().toUpperCase();
       if (!val || !abbr) return;
-      if (!/^[A-Z0-9]{1,10}$/.test(abbr)) return alert('Viết tắt chỉ gồm chữ/số không dấu, tối đa 10 ký tự!');
-      if (DB.cats.some(c => c.name === val && String(c.id) !== String(editId))) return alert('Loại tài liệu đã tồn tại!');
-      if (DB.cats.some(c => c.abbr === abbr && String(c.id) !== String(editId))) return alert(`Viết tắt [${abbr}] đã được dùng bởi phân loại khác!`);
+      if (!/^[A-Z0-9]{1,10}$/.test(abbr)) return showToast('Viết tắt chỉ gồm chữ/số không dấu, tối đa 10 ký tự!', 'warning');
+      if (DB.cats.some(c => c.name === val && String(c.id) !== String(editId))) return showToast('Loại tài liệu đã tồn tại!', 'danger');
+      if (DB.cats.some(c => c.abbr === abbr && String(c.id) !== String(editId))) return showToast(`Viết tắt [${abbr}] đã được dùng bởi phân loại khác!`, 'danger');
 
       const prevCats = DB.cats;
       const isRename = editId && DB.cats.some(c => String(c.id) === String(editId) && c.name !== val);
@@ -1968,19 +2147,7 @@
       if (!ok) { DB.cats = prevCats; return; }
 
       logSystemAction('CONFIG', editId ? 'UPDATE_CAT' : 'CREATE_CAT', `${editId ? 'Cập nhật' : 'Tạo mới'} phân loại: ${val} (${abbr})`, 'SUCCESS', val);
-      resetCatForm();
-      if (isRename) { await loadBootstrapData(); } // đồng bộ lại tài liệu đã được server cập nhật theo tên mới
-      populateDropdowns();
-      renderCatList();
-    }
-
-    async function deleteCat(name) {
-      if (!confirm(`Xóa phân loại ${name}?`)) return;
-      const prevCats = DB.cats;
-      DB.cats = DB.cats.filter(c => c.name !== name);
-      const ok = await syncStorage('cats');
-      if (!ok) { DB.cats = prevCats; return; }
-      logSystemAction('CONFIG', 'DELETE_CAT', `Xóa phân loại: ${name}`, 'SUCCESS', name);
+      showToast(`Đã ${editId ? 'cập nhật' : 'thêm'} phân loại ${val}.`, 'success');
       populateDropdowns();
       renderCatList();
     }
@@ -2019,8 +2186,8 @@
       const phone = document.getElementById('uPhone').value.trim();
       const dept = document.getElementById('uDept').value;
 
-      if (!editId && !pass) return alert('Vui lòng nhập mật khẩu cho tài khoản mới!');
-      if (pass && pass.length < 6) return alert('Mật khẩu phải có ít nhất 6 ký tự!');
+      if (!editId && !pass) return showToast('Vui lòng nhập mật khẩu cho tài khoản mới!', 'warning');
+      if (pass && pass.length < 6) return showToast('Mật khẩu phải có ít nhất 6 ký tự!', 'warning');
 
       const perms = {
         admin: document.getElementById('pAdmin').checked,
@@ -2045,14 +2212,14 @@
         if (!ok) { DB.users = prevUsers; return; }
 
         logSystemAction('USER_MGM', 'UPDATE_USER', `Cập nhật tài khoản và quyền hạn cho user: ${username}`, 'SUCCESS', username);
-        alert('✅ Đã lưu thông tin người dùng & phân quyền!');
+        showToast('Đã lưu thông tin người dùng & phân quyền!', 'success');
         resetUserForm();
         renderUsers();
       } else {
         // Tạo mới: chỉ thêm vào danh sách chờ, chưa gửi lên server — cho phép
         // thêm nhiều user liên tiếp rồi bấm "Lưu Tất Cả" một lần.
         if (DB.users.some(u => u.username === username) || pendingNewUsers.some(u => u.username === username)) {
-          return alert('Username đã tồn tại!');
+          return showToast('Username đã tồn tại!', 'danger');
         }
         pendingNewUsers.push({ id: Date.now() + pendingNewUsers.length, username, pass, name, email, phone, dept, perms, active: true });
         resetUserForm();
@@ -2094,7 +2261,7 @@
       const count = pendingNewUsers.length;
       pendingNewUsers.forEach(u => logSystemAction('USER_MGM', 'CREATE_USER', `Tạo mới tài khoản user: ${u.username}`, 'SUCCESS', u.username));
       pendingNewUsers = [];
-      alert(`✅ Đã lưu ${count} tài khoản người dùng mới!`);
+      showToast(`Đã lưu ${count} tài khoản người dùng mới!`, 'success');
       renderPendingUsers();
       renderUsers();
     }
@@ -2133,15 +2300,17 @@
       toggleScopeGroup('pDownloadAll', 'pDownloadDept');
     }
 
-    function deleteUser(id) {
+    async function deleteUser(id) {
       const u = DB.users.find(item => item.id == id);
       if (!u) return;
-      if (u.username === 'admin') return alert('Không thể xóa tài khoản Admin gốc!');
-      if (!confirm(`Bạn có chắc chắn muốn xóa user ${u.username}?`)) return;
+      if (u.username === 'admin') return showToast('Không thể xóa tài khoản Admin gốc!', 'danger');
+      const ok = await showConfirm({ title: 'Xóa người dùng', message: `Bạn có chắc chắn muốn xóa user ${u.username}?`, danger: true, confirmText: 'Xóa' });
+      if (!ok) return;
 
       DB.users = DB.users.filter(item => item.id != id);
       syncStorage('users');
       logSystemAction('USER_MGM', 'DELETE_USER', `Xóa tài khoản user: ${u.username}`, 'SUCCESS', u.username);
+      showToast(`Đã xóa tài khoản ${u.username}.`, 'success');
       renderUsers();
     }
 
@@ -2150,13 +2319,18 @@
       if (idx === -1) return;
       const u = DB.users[idx];
 
-      if (u.username === 'admin') return alert('Không thể khóa tài khoản Admin gốc!');
-      if (currentUser && String(u.id) === String(currentUser.id)) return alert('Không thể tự khóa chính tài khoản đang đăng nhập!');
+      if (u.username === 'admin') return showToast('Không thể khóa tài khoản Admin gốc!', 'danger');
+      if (currentUser && String(u.id) === String(currentUser.id)) return showToast('Không thể tự khóa chính tài khoản đang đăng nhập!', 'danger');
 
       const nextActive = !(u.active !== false);
-      if (!confirm(nextActive
-        ? `Kích hoạt lại tài khoản ${u.username}?`
-        : `Khóa tài khoản ${u.username}? Người này sẽ không thể đăng nhập cho đến khi được kích hoạt lại.`)) return;
+      const ok1 = await showConfirm({
+        title: nextActive ? 'Kích hoạt tài khoản' : 'Khóa tài khoản',
+        message: nextActive
+          ? `Kích hoạt lại tài khoản ${u.username}?`
+          : `Khóa tài khoản ${u.username}? Người này sẽ không thể đăng nhập cho đến khi được kích hoạt lại.`,
+        danger: !nextActive, confirmText: nextActive ? 'Kích Hoạt' : 'Khóa'
+      });
+      if (!ok1) return;
 
       DB.users[idx] = { ...u, active: nextActive };
       const ok = await syncStorage('users');
@@ -2165,6 +2339,7 @@
         return;
       }
       logSystemAction('USER_MGM', nextActive ? 'ACTIVATE_USER' : 'LOCK_USER', `${nextActive ? 'Kích hoạt' : 'Khóa'} tài khoản user: ${u.username}`, 'SUCCESS', u.username);
+      showToast(`Đã ${nextActive ? 'kích hoạt' : 'khóa'} tài khoản ${u.username}.`, 'success');
       renderUsers();
     }
 
@@ -2234,7 +2409,7 @@
       };
       syncStorage('emailConfig');
       logSystemAction('CONFIG', 'UPDATE_SMTP_CONFIG', `Cập nhật cấu hình SMTP Server thành công.`, 'SUCCESS', 'SMTP');
-      alert('✅ Đã lưu cấu hình Email thành công!');
+      showToast('Đã lưu cấu hình Email thành công!', 'success');
     }
 
     function loadEmailConfigToForm() {
@@ -2291,7 +2466,7 @@
           }
         }
         syncStorage('users');
-        alert(`✅ Đã import thành công ${count} tài khoản người dùng!`);
+        showToast(`Đã import thành công ${count} tài khoản người dùng!`, 'success');
         renderUsers();
       };
       reader.readAsText(file);
@@ -2332,10 +2507,16 @@
       }
     }
 
-    function clearSystemLogs() {
-      if (!confirm('Bạn có chắc chắn muốn xóa toàn bộ log nhật ký hệ thống?')) return;
+    async function clearSystemLogs() {
+      const ok = await showConfirm({
+        title: 'Xóa toàn bộ log',
+        message: 'Bạn có chắc chắn muốn xóa toàn bộ log nhật ký hệ thống? Thao tác này không thể hoàn tác.',
+        danger: true, confirmText: 'Xóa Tất Cả', requiredText: 'XÓA'
+      });
+      if (!ok) return;
       DB.systemLogs = [];
       syncStorage('system_logs');
+      showToast('Đã xóa toàn bộ log nhật ký hệ thống.', 'success');
       renderSystemLogs();
     }
 
@@ -2383,8 +2564,8 @@
       const confirmPass = document.getElementById('pfConfirmPass').value.trim();
 
       if (newPass || confirmPass) {
-        if (newPass !== confirmPass) return alert('❌ Mật khẩu xác nhận không khớp!');
-        if (newPass.length < 6) return alert('❌ Mật khẩu mới phải có ít nhất 6 ký tự!');
+        if (newPass !== confirmPass) return showToast('Mật khẩu xác nhận không khớp!', 'danger');
+        if (newPass.length < 6) return showToast('Mật khẩu mới phải có ít nhất 6 ký tự!', 'danger');
       }
 
       try {
@@ -2400,9 +2581,9 @@
         document.getElementById('userPhoneInfo').innerText = `📞 ${currentUser.phone || 'Chưa có SĐT'} | ✉️ ${currentUser.email || 'Chưa có Email'}`;
 
         closeProfileModal();
-        alert('✅ Cập nhật thông tin cá nhân thành công!');
+        showToast('Cập nhật thông tin cá nhân thành công!', 'success');
       } catch (err) {
-        alert('❌ ' + err.message);
+        showToast(err.message, 'danger');
       }
     }
   </script>
