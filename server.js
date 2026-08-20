@@ -767,9 +767,14 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                 }
 
                 const existingHistory = typeof existing.history === 'string' ? JSON.parse(existing.history || '[]') : (existing.history || []);
+                // Không so sánh file_data ở đây — từ khi bootstrap không còn gửi kèm
+                // nội dung file cho client (giảm tải), d.fileData luôn undefined phía
+                // client dù tài liệu không hề bị sửa. Việc ghi dữ liệu bên dưới vẫn
+                // luôn dùng existing.file_data (giá trị thật trên server), không bao
+                // giờ tin d.fileData, nên bỏ so sánh này không làm giảm an toàn.
                 const metadataChanged = existing.code !== d.code || existing.title !== d.title || existing.ver !== d.ver ||
                     existing.dept !== d.dept || existing.cat !== d.cat || existing.summary !== d.summary ||
-                    existing.file_name !== d.fileName || existing.file_type !== d.fileType || existing.file_data !== d.fileData;
+                    existing.file_name !== d.fileName || existing.file_type !== d.fileType;
                 const workflowChanged = existing.status !== d.status || existing.current_step_order !== d.currentStepOrder ||
                     JSON.stringify(existingHistory) !== JSON.stringify(d.history || []);
 
