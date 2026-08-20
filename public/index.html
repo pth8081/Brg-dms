@@ -677,8 +677,9 @@
     // --- KHỞI TẠO STATE & CLIENT DATABASE ---
     const DB = { 
       depts: [], cats: [], users: [], docs: [], 
-      workflows: [], deptWorkflows: {}, 
-      emailConfig: {}, systemLogs: [] 
+      workflows: [], deptWorkflows: {},
+      emailConfig: {}, systemLogs: [],
+      maxPdfSizeMB: 20
     };
 
     let currentUser = null;
@@ -690,9 +691,12 @@
 
     // --- LỚP GỌI API (xử lý lỗi 401 dùng chung: tự đưa về màn hình đăng nhập) ---
     async function apiFetch(url, options = {}) {
+      // FormData (upload file thật): KHÔNG tự set Content-Type — trình duyệt
+      // phải tự sinh header kèm boundary multipart, tự set cứng sẽ hỏng request.
+      const isFormData = options.body instanceof FormData;
       const res = await fetch(url, {
         ...options,
-        headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }
+        headers: isFormData ? { ...(options.headers || {}) } : { 'Content-Type': 'application/json', ...(options.headers || {}) }
       });
       let body = null;
       try { body = await res.json(); } catch (e) { /* no body */ }
@@ -716,6 +720,7 @@
       DB.deptWorkflows = data.deptWorkflows || {};
       DB.emailConfig = data.emailConfig || {};
       DB.systemLogs = data.systemLogs || [];
+      DB.maxPdfSizeMB = data.maxPdfSizeMB || 20;
     }
 
     async function syncStorage(key) {
@@ -1133,15 +1138,6 @@
       titleInput.value = target.title;
     }
 
-    function readFileAsDataURL(file) {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = evt => resolve(evt.target.result);
-        reader.onerror = () => reject(new Error(`Không thể đọc file: ${file.name}`));
-        reader.readAsDataURL(file);
-      });
-    }
-
     async function uploadDoc(e) {
       e.preventDefault();
       const mode = document.getElementById('docMode').value;
@@ -1150,10 +1146,13 @@
       if (files.length === 0) return showToast('Vui lòng chọn file tài liệu!', 'warning');
 
       // Kiểm tra nhanh phía client để UX tốt hơn. Đây KHÔNG phải lớp bảo mật thật —
-      // server luôn tự kiểm tra lại (kể cả magic bytes, mã/version tự sinh) và
-      // không tin dữ liệu client gửi.
+      // server luôn tự kiểm tra lại (kể cả magic bytes, dung lượng, mã/version tự
+      // sinh) và không tin dữ liệu client gửi.
       const invalidFile = files.find(f => f.type !== 'application/pdf' && !f.name.toLowerCase().endsWith('.pdf'));
       if (invalidFile) return showToast(`File "${invalidFile.name}" không phải PDF. Chỉ được phép tải lên file PDF!`, 'danger');
+      const maxBytes = (DB.maxPdfSizeMB || 20) * 1024 * 1024;
+      const oversizeFile = files.find(f => f.size > maxBytes);
+      if (oversizeFile) return showToast(`File "${oversizeFile.name}" vượt quá giới hạn cho phép (${DB.maxPdfSizeMB}MB).`, 'danger');
       if (mode === 'update' && files.length > 1) return showToast('Chế độ Cập nhật chỉ được chọn 1 file!', 'warning');
 
       let targetGroupId = null;
@@ -1162,7 +1161,6 @@
         if (!targetGroupId) return showToast('Vui lòng chọn tài liệu cần cập nhật!', 'warning');
       }
 
-      const isMulti = mode === 'new' && files.length > 1;
       const baseTitle = document.getElementById('docTitle').value.trim();
       const selDept = document.getElementById('selDept').value;
       const cat = document.getElementById('selCat').value;
@@ -1173,34 +1171,23 @@
       submitBtn.textContent = `Đang tải lên ${files.length} file...`;
 
       try {
-        const newDocsPayload = [];
-        for (let i = 0; i < files.length; i++) {
-          const file = files[i];
-          const fileDataUrl = await readFileAsDataURL(file);
-          const entry = {
-            id: Date.now() + i,
-            title: isMulti ? file.name.replace(/\.pdf$/i, '') : baseTitle,
-            dept: selDept, cat, summary,
-            fileName: file.name,
-            fileType: file.type,
-            fileData: fileDataUrl,
-            createdAt: new Date().toISOString(),
-            workflowId: DB.deptWorkflows[selDept]?.workflowId || 'WF_1STEP'
-          };
-          if (targetGroupId) entry.targetGroupId = targetGroupId;
-          newDocsPayload.push(entry);
-        }
+        const formData = new FormData();
+        files.forEach(f => formData.append('files', f));
+        formData.append('mode', mode);
+        formData.append('dept', selDept);
+        formData.append('cat', cat);
+        formData.append('summary', summary);
+        formData.append('title', baseTitle);
+        if (targetGroupId) formData.append('targetGroupId', targetGroupId);
+
+        const result = await apiFetch('/api/docs/upload', { method: 'POST', body: formData });
+        if (!result) return;
 
         // Mã, phiên bản, (và với chế độ Cập nhật: cả phòng ban/phân loại/tên) do
-        // server tự quyết định — sau khi sync thành công phải tải lại toàn bộ dữ
-        // liệu (bootstrap) để lấy đúng giá trị thật, không tự đoán ở client.
-        const prevDocs = DB.docs;
-        DB.docs = [...DB.docs, ...newDocsPayload];
-        const ok = await syncStorage('docs');
-        if (!ok) { DB.docs = prevDocs; return; }
-
+        // server tự quyết định — sau khi upload xong tải lại toàn bộ dữ liệu
+        // (bootstrap) để lấy đúng giá trị thật, không tự đoán ở client.
         await loadBootstrapData();
-        const createdDocs = newDocsPayload.map(p => DB.docs.find(d => d.id === p.id)).filter(Boolean);
+        const createdDocs = result.docs.map(p => DB.docs.find(d => d.id === p.id)).filter(Boolean);
 
         const actionLabel = mode === 'update' ? 'CẬP NHẬT PHIÊN BẢN' : 'TẢI LÊN';
         createdDocs.forEach(d => {
@@ -1510,11 +1497,33 @@
       renderDocs();
     }
 
-    // Nội dung file (fileData) không còn gửi kèm trong bootstrap (giảm tải cho
-    // nhiều người dùng đồng thời) — chỉ tải riêng khi thực sự bấm Xem/Tải, qua
+    // Nội dung file không còn gửi kèm trong bootstrap (giảm tải cho nhiều người
+    // dùng đồng thời) — chỉ tải riêng khi thực sự bấm Xem/Tải, qua
     // GET /api/docs/:id/file (server tự kiểm tra lại quyền xem/tải).
+    // Tài liệu mới: server stream thẳng file nhị phân từ đĩa (Content-Type PDF
+    // thật) — trả về dạng blob. Tài liệu cũ (chưa chạy migration, còn base64
+    // trong CSDL): server vẫn trả JSON như trước — giữ đường phục vụ cũ song
+    // song để tương thích ngược.
+    let currentViewObjectUrl = null;
     async function fetchDocFile(docId, mode) {
-      return apiFetch(`/api/docs/${docId}/file?mode=${mode}`);
+      const res = await fetch(`/api/docs/${docId}/file?mode=${mode}`, { credentials: 'same-origin' });
+      const contentType = res.headers.get('content-type') || '';
+      if (!res.ok) {
+        if (res.status === 401) showLoginScreen();
+        let msg = `Lỗi HTTP ${res.status}`;
+        try { const body = await res.json(); if (body && body.error) msg = body.error; } catch (e) { /* no body */ }
+        const err = new Error(msg);
+        err.status = res.status;
+        throw err;
+      }
+      if (contentType.includes('application/json')) {
+        const body = await res.json();
+        return { kind: 'legacy', fileName: body.fileName, fileType: body.fileType, fileData: body.fileData };
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get('content-disposition') || '';
+      const match = /filename="([^"]*)"/.exec(disposition);
+      return { kind: 'blob', blob, fileName: match ? match[1] : 'document.pdf', fileType: contentType };
     }
 
     async function openViewDocModal(docId) {
@@ -1538,18 +1547,22 @@
         return;
       }
 
-      if (file.fileData) {
-        if (file.fileType && (file.fileType.includes('pdf') || file.fileData.startsWith('data:application/pdf'))) {
+      // Dọn object URL của lần xem trước (nếu có) trước khi tạo cái mới, tránh
+      // rò rỉ bộ nhớ khi mở xem nhiều tài liệu liên tiếp trong cùng phiên.
+      if (currentViewObjectUrl) { URL.revokeObjectURL(currentViewObjectUrl); currentViewObjectUrl = null; }
+
+      const fileUrl = file.kind === 'blob' ? (currentViewObjectUrl = URL.createObjectURL(file.blob)) : file.fileData;
+      if (fileUrl) {
+        if (file.fileType && (file.fileType.includes('pdf') || (file.kind === 'legacy' && file.fileData.startsWith('data:application/pdf')))) {
           // Lưu ý: KHÔNG dùng thuộc tính sandbox ở đây. Đã kiểm chứng bằng Chromium
           // thật: bất kỳ giá trị sandbox nào (kể cả "allow-scripts") đều khiến
-          // Chrome/Edge chặn hẳn việc render PDF từ data: URI (ERR_BLOCKED_BY_CLIENT).
-          // Việc bỏ sandbox vẫn an toàn cho data: URI vì trình duyệt luôn gán cho
-          // nó origin "null" (cô lập hoàn toàn khỏi trang cha) bất kể có sandbox
-          // hay không — đã kiểm chứng script trong iframe không đọc được DOM/tiêu
-          // đề của trang cha trong cả 2 trường hợp.
-          container.innerHTML = `<iframe src="${file.fileData}#toolbar=0&navpanes=0&scrollbar=0" class="w-full h-[500px] border-0 rounded bg-white shadow"></iframe>`;
-        } else if (file.fileType && (file.fileType.includes('image') || file.fileData.startsWith('data:image/'))) {
-          container.innerHTML = `<img src="${file.fileData}" class="max-h-[500px] max-w-full object-contain rounded shadow">`;
+          // Chrome/Edge chặn hẳn việc render PDF từ data:/blob: URI (ERR_BLOCKED_BY_CLIENT).
+          // Việc bỏ sandbox vẫn an toàn vì trình duyệt luôn gán cho nó origin "null"
+          // (cô lập hoàn toàn khỏi trang cha) bất kể có sandbox hay không — đã
+          // kiểm chứng script trong iframe không đọc được DOM/tiêu đề của trang cha.
+          container.innerHTML = `<iframe src="${fileUrl}#toolbar=0&navpanes=0&scrollbar=0" class="w-full h-[500px] border-0 rounded bg-white shadow"></iframe>`;
+        } else if (file.fileType && (file.fileType.includes('image') || (file.kind === 'legacy' && file.fileData.startsWith('data:image/')))) {
+          container.innerHTML = `<img src="${fileUrl}" class="max-h-[500px] max-w-full object-contain rounded shadow">`;
         } else {
           container.innerHTML = `<div class="p-8 text-center text-gray-600 space-y-2">
             <p class="font-bold text-base">📄 Định dạng tệp: ${escapeHtml(file.fileName)}</p>
@@ -1574,14 +1587,19 @@
       } catch (e) {
         return showToast(e.message || 'Không thể tải tài liệu.', 'danger');
       }
-      if (!file.fileData) return showToast('Tài liệu không có nội dung file.', 'warning');
+
+      const fileUrl = file.kind === 'blob' ? URL.createObjectURL(file.blob) : file.fileData;
+      if (!fileUrl) return showToast('Tài liệu không có nội dung file.', 'warning');
 
       const link = document.createElement('a');
-      link.href = file.fileData;
+      link.href = fileUrl;
       link.download = file.fileName || doc.fileName || 'document.pdf';
       document.body.appendChild(link);
       link.click();
       link.remove();
+      // Trì hoãn thu hồi blob URL một chút — thu hồi ngay lập tức có thể làm
+      // hỏng việc tải xuống trên một số trình duyệt nếu file còn đang đọc dở.
+      if (file.kind === 'blob') setTimeout(() => URL.revokeObjectURL(fileUrl), 5000);
 
       logSystemAction('INTERACTION', 'DOWNLOAD_DOC', `Tải tài liệu: ${doc.code} (${doc.ver})`, 'SUCCESS', doc.code);
     }
@@ -1761,6 +1779,7 @@
 
     function closeViewDocModal() {
       document.getElementById('viewDocModal').classList.add('hidden');
+      if (currentViewObjectUrl) { URL.revokeObjectURL(currentViewObjectUrl); currentViewObjectUrl = null; }
     }
 
     // Modal "Xem chi tiết": liệt kê toàn bộ phiên bản của 1 tài liệu — người

@@ -13,9 +13,20 @@ const path = require('path');
 const fs = require('fs');
 const { PDFDocument, rgb, degrees } = require('pdf-lib');
 const fontkit = require('@pdf-lib/fontkit');
+const multer = require('multer');
 
 const app = express();
 const isProd = process.env.NODE_ENV === 'production';
+
+// --- LƯU FILE TÀI LIỆU: ổ đĩa server, KHÔNG lưu trong CSDL nữa ---
+// Đặt ngoài thư mục public/ để không bị express.static phục vụ trực tiếp
+// không qua xác thực — chỉ truy cập được qua API có kiểm tra quyền.
+const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR || path.join(__dirname, 'uploads'));
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+// Dung lượng file PDF tối đa cho phép upload, cấu hình qua .env (MB).
+const MAX_PDF_SIZE_MB = parseInt(process.env.MAX_PDF_SIZE_MB, 10) || 20;
+const MAX_PDF_SIZE_BYTES = MAX_PDF_SIZE_MB * 1024 * 1024;
 
 if (process.env.TRUST_PROXY === 'true') {
     app.set('trust proxy', 1);
@@ -37,8 +48,8 @@ app.use(helmet({
             scriptSrc: ["'self'", "https://cdn.tailwindcss.com", "'unsafe-inline'"],
             scriptSrcAttr: ["'unsafe-inline'"],
             styleSrc: ["'self'", "'unsafe-inline'"],
-            imgSrc: ["'self'", "data:"],
-            frameSrc: ["'self'", "data:"],
+            imgSrc: ["'self'", "data:", "blob:"],
+            frameSrc: ["'self'", "data:", "blob:"],
             objectSrc: ["'none'"],
             baseUri: ["'self'"],
             formAction: ["'self'"]
@@ -364,7 +375,8 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
             workflows: workflows.map(w => ({ ...w, steps: typeof w.steps === 'string' ? JSON.parse(w.steps || '[]') : w.steps })),
             deptWorkflows: configMap.deptWorkflows || {},
             emailConfig: configMap.emailConfig || { enabled: true, smtpHost: 'smtp.gmail.com', smtpPort: 587, senderEmail: 'dms-noreply@company.com' },
-            systemLogs: logs
+            systemLogs: logs,
+            maxPdfSizeMB: MAX_PDF_SIZE_MB
         });
     } catch (err) {
         console.error('❌ Lỗi tải dữ liệu bootstrap:', err.message);
@@ -399,7 +411,28 @@ app.get('/api/docs/:id/file', requireAuth, async (req, res) => {
         const allowed = mode === 'download' ? canDownloadDocRow(req.user, doc) : canViewDocRow(req.user, doc, deptWorkflows);
         if (!allowed) return res.status(403).json({ error: 'Bạn không có quyền truy cập tài liệu này.' });
 
-        res.json({ fileName: doc.file_name, fileType: doc.file_type, fileData: doc.file_data });
+        // Tài liệu mới: file nằm trên đĩa (file_path), stream thẳng ra — không
+        // còn phải nạp cả file vào bộ nhớ / mã hoá base64 qua JSON như trước.
+        // Tài liệu cũ (upload trước khi chuyển sang lưu đĩa) vẫn còn base64 ở
+        // cột file_data — giữ lại đường phục vụ cũ cho tới khi chạy migration.
+        if (doc.file_path) {
+            const absPath = path.join(UPLOAD_DIR, doc.file_path);
+            if (!absPath.startsWith(UPLOAD_DIR)) return res.status(400).json({ error: 'Đường dẫn file không hợp lệ.' });
+            if (!fs.existsSync(absPath)) return res.status(404).json({ error: 'Không tìm thấy file trên máy chủ.' });
+            const safeName = String(doc.file_name || 'document.pdf').replace(/["\r\n]/g, '');
+            const disposition = mode === 'download' ? 'attachment' : 'inline';
+            res.setHeader('Content-Type', doc.file_type || 'application/pdf');
+            res.setHeader('Content-Disposition', `${disposition}; filename="${safeName}"`);
+            return res.sendFile(absPath, (err) => {
+                if (err && !res.headersSent) res.status(404).json({ error: 'Không tìm thấy file trên máy chủ.' });
+            });
+        }
+
+        if (doc.file_data) {
+            return res.json({ fileName: doc.file_name, fileType: doc.file_type, fileData: doc.file_data });
+        }
+
+        return res.status(404).json({ error: 'Tài liệu không có file đính kèm.' });
     } catch (err) {
         console.error('❌ Lỗi lấy nội dung file:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
@@ -502,7 +535,7 @@ app.post('/api/docs/purge', requireAuth, requireAdmin, async (req, res) => {
 
         const placeholders = groupIds.map(() => '?').join(',');
         const [rows] = await pool.query(
-            `SELECT id, code, doc_group_id FROM docs WHERE doc_group_id IN (${placeholders}) AND deleted_at IS NOT NULL`,
+            `SELECT id, code, doc_group_id, file_path FROM docs WHERE doc_group_id IN (${placeholders}) AND deleted_at IS NOT NULL`,
             groupIds
         );
         if (rows.length === 0) return res.status(404).json({ error: 'Không tìm thấy tài liệu trong thùng rác để xóa vĩnh viễn.' });
@@ -511,6 +544,12 @@ app.post('/api/docs/purge', requireAuth, requireAdmin, async (req, res) => {
             `DELETE FROM docs WHERE doc_group_id IN (${placeholders}) AND deleted_at IS NOT NULL`,
             groupIds
         );
+
+        // Dọn file vật lý trên đĩa — cố gắng hết sức (best-effort), không chặn
+        // việc xóa bản ghi CSDL nếu file đã không còn tồn tại.
+        for (const r of rows) {
+            if (r.file_path) fs.unlink(path.join(UPLOAD_DIR, r.file_path), () => {});
+        }
 
         const codes = [...new Set(rows.map(r => r.code))];
         await writeAuditLog({
@@ -529,34 +568,20 @@ app.post('/api/docs/purge', requireAuth, requireAdmin, async (req, res) => {
 // --- BẢO MẬT: Zero Trust cho file upload — không tin định dạng client khai báo.
 // Chỉ chấp nhận PDF, xác thực bằng magic bytes thật của file (%PDF- ở đầu file),
 // không chỉ dựa vào đuôi file hay MIME type (dễ giả mạo).
-const MAX_PDF_SIZE_BYTES = 20 * 1024 * 1024; // 20MB — điều chỉnh nếu cần
 const PDF_MAGIC_BYTES = Buffer.from('%PDF-', 'ascii');
 
-function validatePdfUpload(fileName, fileType, fileDataUri) {
+function validatePdfUpload(fileName, fileType, buffer) {
     if (fileType !== 'application/pdf') {
         return 'Chỉ chấp nhận file PDF (định dạng application/pdf).';
     }
     if (!fileName || !/\.pdf$/i.test(String(fileName))) {
         return 'Tên file phải có đuôi .pdf.';
     }
-    if (typeof fileDataUri !== 'string') {
-        return 'Dữ liệu file không hợp lệ.';
-    }
-    const match = fileDataUri.match(/^data:application\/pdf;base64,([A-Za-z0-9+/=]+)$/);
-    if (!match) {
-        return 'Dữ liệu file không đúng định dạng data URI của PDF.';
-    }
-    let buffer;
-    try {
-        buffer = Buffer.from(match[1], 'base64');
-    } catch (e) {
-        return 'Không thể giải mã dữ liệu file.';
-    }
-    if (buffer.length === 0) {
-        return 'File rỗng.';
+    if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+        return 'File rỗng hoặc không hợp lệ.';
     }
     if (buffer.length > MAX_PDF_SIZE_BYTES) {
-        return `Kích thước file vượt quá giới hạn cho phép (${MAX_PDF_SIZE_BYTES / (1024 * 1024)}MB).`;
+        return `Kích thước file vượt quá giới hạn cho phép (${MAX_PDF_SIZE_MB}MB).`;
     }
     if (!buffer.subarray(0, PDF_MAGIC_BYTES.length).equals(PDF_MAGIC_BYTES)) {
         return 'Nội dung file không phải PDF hợp lệ (sai magic bytes ở đầu file).';
@@ -566,7 +591,7 @@ function validatePdfUpload(fileName, fileType, fileDataUri) {
 
 // --- Đóng dấu bản quyền lên mọi tài liệu PDF ngay khi upload ---
 // Watermark chéo (kiểu "CONFIDENTIAL" quen thuộc) được nhúng vĩnh viễn vào file
-// trước khi lưu vào CSDL, nên luôn xuất hiện dù xem trực tiếp hay tải file về.
+// trước khi lưu ra đĩa, nên luôn xuất hiện dù xem trực tiếp hay tải file về.
 const COPYRIGHT_WATERMARK_TEXT = 'Tài liệu thuộc bản quyền của Trung tâm CNTT';
 const WATERMARK_FONT_PATH = path.join(__dirname, 'assets', 'fonts', 'DejaVuSans-Bold.ttf');
 let watermarkFontBytesCache = null;
@@ -577,10 +602,7 @@ function loadWatermarkFontBytes() {
     return watermarkFontBytesCache;
 }
 
-async function stampCopyrightWatermark(fileDataUri) {
-    const match = fileDataUri.match(/^data:application\/pdf;base64,([A-Za-z0-9+/=]+)$/);
-    const originalBuffer = Buffer.from(match[1], 'base64');
-
+async function stampCopyrightWatermark(originalBuffer) {
     const pdfDoc = await PDFDocument.load(originalBuffer);
     pdfDoc.registerFontkit(fontkit);
     const font = await pdfDoc.embedFont(loadWatermarkFontBytes(), { subset: true });
@@ -605,7 +627,7 @@ async function stampCopyrightWatermark(fileDataUri) {
     }
 
     const stampedBytes = await pdfDoc.save();
-    return `data:application/pdf;base64,${Buffer.from(stampedBytes).toString('base64')}`;
+    return Buffer.from(stampedBytes);
 }
 
 const DOC_FIELD_LIMITS = { code: 100, title: 500, ver: 50, summary: 5000, fileName: 255 };
@@ -620,6 +642,194 @@ function validateDocFieldLengths(d) {
     if (!d.title || !String(d.title).trim()) return 'Thiếu tiêu đề tài liệu.';
     return null;
 }
+
+// --- API TẢI LÊN TÀI LIỆU (multipart/form-data thật — file stream thẳng vào
+// RAM tạm rồi ghi ra đĩa, không còn nhồi base64 vào JSON như trước) ---
+let docIdSeq = 0;
+function nextDocId() {
+    return Date.now() * 1000 + (docIdSeq++ % 1000);
+}
+
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: MAX_PDF_SIZE_BYTES }
+});
+
+app.post('/api/docs/upload', requireAuth, (req, res, next) => {
+    upload.array('files', 50)(req, res, (err) => {
+        if (err) {
+            if (err.code === 'LIMIT_FILE_SIZE') {
+                return res.status(400).json({ error: `Kích thước file vượt quá giới hạn cho phép (${MAX_PDF_SIZE_MB}MB).` });
+            }
+            return res.status(400).json({ error: 'Lỗi khi tải file lên: ' + err.message });
+        }
+        next();
+    });
+}, async (req, res) => {
+    try {
+        const files = req.files || [];
+        if (files.length === 0) {
+            return res.status(400).json({ error: 'Chưa chọn file nào để tải lên.' });
+        }
+
+        const mode = req.body.mode === 'update' ? 'update' : 'new';
+        const dept = req.body.dept;
+        const cat = req.body.cat;
+        const summary = req.body.summary || '';
+        const targetGroupId = req.body.targetGroupId;
+        const customTitle = (req.body.title || '').trim();
+
+        if (mode === 'update' && files.length > 1) {
+            return res.status(400).json({ error: 'Chế độ Cập nhật chỉ được chọn 1 file.' });
+        }
+        if (mode === 'new' && files.length === 1 && !customTitle) {
+            return res.status(400).json({ error: 'Thiếu tiêu đề tài liệu.' });
+        }
+
+        const [existingRows] = await pool.query('SELECT * FROM docs');
+        const [deptAbbrRows] = await pool.query('SELECT name, abbr FROM depts');
+        const [catAbbrRows] = await pool.query('SELECT name, abbr FROM cats');
+        const deptAbbrMap = new Map(deptAbbrRows.map(r => [r.name, r.abbr]));
+        const catAbbrMap = new Map(catAbbrRows.map(r => [r.name, r.abbr]));
+        const [cfgRows] = await pool.query("SELECT config_value FROM app_configs WHERE config_key = 'deptWorkflows'");
+        const deptWorkflows = cfgRows[0]
+            ? (typeof cfgRows[0].config_value === 'string' ? JSON.parse(cfgRows[0].config_value) : cfgRows[0].config_value)
+            : {};
+
+        const codeSeqCache = new Map();
+        async function nextCodeForPrefix(prefix) {
+            if (!codeSeqCache.has(prefix)) {
+                const [rows] = await pool.query('SELECT COUNT(DISTINCT doc_group_id) AS cnt FROM docs WHERE code LIKE ?', [`${prefix}%`]);
+                codeSeqCache.set(prefix, (rows[0].cnt || 0) + 1);
+            }
+            const seq = codeSeqCache.get(prefix);
+            codeSeqCache.set(prefix, seq + 1);
+            return seq;
+        }
+
+        // Lỗi nghiệp vụ (validate/permission/xử lý PDF) mang theo status HTTP —
+        // luôn throw thay vì res.status(...) trực tiếp trong vòng lặp, để catch
+        // bên dưới CHẮC CHẮN chạy dọn dẹp (file đã ghi ra đĩa + dòng CSDL đã
+        // insert của các file TRƯỚC ĐÓ trong cùng lượt) trước khi trả lỗi —
+        // tránh để lại "tài liệu mồ côi" khi 1 file giữa chừng trong lượt
+        // upload nhiều file bị lỗi.
+        class UploadError extends Error {
+            constructor(status, message) { super(message); this.status = status; }
+        }
+
+        const savedFilePaths = [];
+        const createdDocs = [];
+        const createdIds = [];
+
+        try {
+            for (const file of files) {
+                let finalDept = dept, finalCat = cat, finalTitle = customTitle;
+                let docGroupId, versionNo, code, ver, workflowId;
+
+                if (mode === 'update') {
+                    const groupRows = existingRows.filter(r => String(r.doc_group_id) === String(targetGroupId) && !r.deleted_at);
+                    if (groupRows.length === 0) {
+                        throw new UploadError(400, `Không tìm thấy tài liệu gốc để cập nhật (nhóm: ${targetGroupId}).`);
+                    }
+                    const latest = groupRows.reduce((a, b) => (a.version_no > b.version_no ? a : b));
+                    if (groupRows.some(r => r.status === 'PENDING')) {
+                        throw new UploadError(400, `Tài liệu [${latest.code}] còn phiên bản đang chờ duyệt, chưa thể nộp phiên bản mới.`);
+                    }
+                    finalDept = latest.dept;
+                    finalCat = latest.cat;
+                    finalTitle = latest.title;
+                    const canUploadTarget = req.user.perms.admin || req.user.perms.uploadAll ||
+                        (req.user.perms.uploadDepts || []).includes(finalDept);
+                    if (!canUploadTarget) {
+                        throw new UploadError(403, `Bạn không có quyền cập nhật tài liệu cho phòng ban [${finalDept}].`);
+                    }
+                    docGroupId = latest.doc_group_id;
+                    versionNo = latest.version_no + 1;
+                    ver = `v${versionNo}.0`;
+                    code = latest.code;
+                } else {
+                    const canUpload = req.user.perms.admin || req.user.perms.uploadAll ||
+                        (req.user.perms.uploadDepts || []).includes(finalDept);
+                    if (!canUpload) {
+                        throw new UploadError(403, `Bạn không có quyền tải lên tài liệu cho phòng ban [${finalDept}].`);
+                    }
+                    const deptAbbr = deptAbbrMap.get(finalDept);
+                    const catAbbr = catAbbrMap.get(finalCat);
+                    if (!deptAbbr || !catAbbr) {
+                        throw new UploadError(400, `Phòng ban [${finalDept}] hoặc Phân loại [${finalCat}] chưa được cấu hình viết tắt — không thể tự sinh mã tài liệu.`);
+                    }
+                    if (files.length > 1) {
+                        finalTitle = file.originalname.replace(/\.pdf$/i, '');
+                    }
+                    const year = new Date().getFullYear();
+                    const prefix = `${catAbbr}-${deptAbbr}-${year}-`;
+                    const seq = await nextCodeForPrefix(prefix);
+                    code = `${prefix}${String(seq).padStart(3, '0')}`;
+                    docGroupId = nextDocId();
+                    versionNo = 1;
+                    ver = 'v1.0';
+                }
+
+                workflowId = (deptWorkflows[finalDept] && deptWorkflows[finalDept].workflowId) || 'WF_1STEP';
+                const id = mode === 'update' ? nextDocId() : docGroupId;
+
+                const fieldError = validateDocFieldLengths({ code, title: finalTitle, ver, summary, fileName: file.originalname });
+                if (fieldError) {
+                    throw new UploadError(400, fieldError);
+                }
+                const pdfError = validatePdfUpload(file.originalname, file.mimetype, file.buffer);
+                if (pdfError) {
+                    throw new UploadError(400, `Tài liệu [${code}]: ${pdfError}`);
+                }
+
+                let stampedBuffer;
+                try {
+                    stampedBuffer = await stampCopyrightWatermark(file.buffer);
+                } catch (e) {
+                    throw new UploadError(400, `Tài liệu [${code}]: không thể xử lý file PDF để đóng dấu bản quyền.`);
+                }
+
+                const filePath = `${id}.pdf`;
+                fs.writeFileSync(path.join(UPLOAD_DIR, filePath), stampedBuffer);
+                savedFilePaths.push(filePath);
+
+                await pool.query(
+                    `INSERT INTO docs (id, code, title, ver, dept, cat, summary, file_name, file_type, file_path, created_by, creator_username, created_at, workflow_id, current_step_order, status, history, doc_group_id, version_no)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [id, code, finalTitle, ver, finalDept, finalCat, summary, file.originalname, 'application/pdf', filePath,
+                        req.user.name, req.user.username, new Date().toISOString(), workflowId, 1, 'PENDING', JSON.stringify([]),
+                        docGroupId, versionNo]
+                );
+
+                createdDocs.push({ id, code, ver, title: finalTitle });
+                createdIds.push(id);
+                // Nếu upload nhiều file 1 lượt, các file sau tính "đã tồn tại" để mã tự sinh không trùng nhau.
+                existingRows.push({ doc_group_id: docGroupId, version_no: versionNo, status: 'PENDING', dept: finalDept, cat: finalCat, code });
+            }
+        } catch (e) {
+            // Dọn các file đã ghi ra đĩa VÀ các dòng CSDL đã insert trong lượt
+            // upload này nếu có lỗi giữa chừng — tránh để lại tài liệu/file mồ
+            // côi khi 1 trong nhiều file bị lỗi (toàn bộ lượt upload là 1 đơn vị,
+            // không được để lại kết quả nửa vời).
+            for (const fp of savedFilePaths) {
+                fs.unlink(path.join(UPLOAD_DIR, fp), () => {});
+            }
+            if (createdIds.length > 0) {
+                const placeholders = createdIds.map(() => '?').join(',');
+                await pool.query(`DELETE FROM docs WHERE id IN (${placeholders})`, createdIds).catch(() => {});
+            }
+            if (e instanceof UploadError) {
+                return res.status(e.status).json({ error: e.message });
+            }
+            throw e;
+        }
+
+        res.json({ success: true, docs: createdDocs });
+    } catch (err) {
+        console.error('❌ Lỗi tải lên tài liệu:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
 
 // --- API SYNC / LƯU DỮ LIỆU ĐỒNG BỘ ---
 app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
@@ -663,28 +873,6 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                 return cfg.approvers[existingDoc.current_step_order] === req.user.username;
             }
 
-            // Mã tài liệu do SERVER tự sinh (Zero Trust — không tin mã do client
-            // gửi lên), theo quy tắc {Viết tắt Phân loại}-{Viết tắt Phòng ban}-{Năm}-{STT}.
-            // Bộ đếm theo prefix được cache trong 1 lần gọi API để nhiều tài liệu
-            // mới trong cùng 1 lượt upload (nhiều file) không bị trùng số thứ tự.
-            const [deptAbbrRows] = await pool.query('SELECT name, abbr FROM depts');
-            const [catAbbrRows] = await pool.query('SELECT name, abbr FROM cats');
-            const deptAbbrMap = new Map(deptAbbrRows.map(r => [r.name, r.abbr]));
-            const catAbbrMap = new Map(catAbbrRows.map(r => [r.name, r.abbr]));
-            const codeSeqCache = new Map();
-            async function nextCodeForPrefix(prefix) {
-                if (!codeSeqCache.has(prefix)) {
-                    const [rows] = await pool.query(
-                        'SELECT COUNT(DISTINCT doc_group_id) AS cnt FROM docs WHERE code LIKE ?',
-                        [`${prefix}%`]
-                    );
-                    codeSeqCache.set(prefix, (rows[0].cnt || 0) + 1);
-                }
-                const seq = codeSeqCache.get(prefix);
-                codeSeqCache.set(prefix, seq + 1);
-                return seq;
-            }
-
             const toUpsert = [];
             for (const d of data) {
                 const existing = existingMap.get(String(d.id));
@@ -692,78 +880,12 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                     return res.status(400).json({ error: `Tài liệu [${existing.code}] đã bị xóa, không thể thao tác. Vui lòng khôi phục trước nếu cần.` });
                 }
 
+                // Tài liệu mới không còn được tạo qua kênh sync này nữa — phải qua
+                // POST /api/docs/upload (multipart thật, file ghi ra đĩa thay vì
+                // nhồi base64 vào JSON). Nếu id không khớp tài liệu nào đã có, coi
+                // là lỗi thay vì âm thầm tạo mới.
                 if (!existing) {
-                    let finalDept = d.dept, finalCat = d.cat, finalTitle = d.title;
-                    let docGroupId, versionNo, code, ver;
-
-                    if (d.targetGroupId) {
-                        // Chế độ "Cập nhật": nộp phiên bản mới cho tài liệu đã tồn tại.
-                        // Phòng ban/Phân loại/Tên tài liệu kế thừa từ tài liệu gốc — không
-                        // tin dept/cat/title client gửi (tránh 1 phiên bản "nhảy" sang
-                        // phòng ban/phân loại khác so với các phiên bản trước).
-                        const groupRows = existingRows.filter(r => String(r.doc_group_id) === String(d.targetGroupId) && !r.deleted_at);
-                        if (groupRows.length === 0) {
-                            return res.status(400).json({ error: `Không tìm thấy tài liệu gốc để cập nhật (nhóm: ${d.targetGroupId}).` });
-                        }
-                        const latest = groupRows.reduce((a, b) => (a.version_no > b.version_no ? a : b));
-                        if (groupRows.some(r => r.status === 'PENDING')) {
-                            return res.status(400).json({ error: `Tài liệu [${latest.code}] còn phiên bản đang chờ duyệt, chưa thể nộp phiên bản mới.` });
-                        }
-                        finalDept = latest.dept;
-                        finalCat = latest.cat;
-                        finalTitle = latest.title;
-                        const canUploadTarget = req.user.perms.admin || req.user.perms.uploadAll ||
-                            (req.user.perms.uploadDepts || []).includes(finalDept);
-                        if (!canUploadTarget) {
-                            return res.status(403).json({ error: `Bạn không có quyền cập nhật tài liệu cho phòng ban [${finalDept}].` });
-                        }
-                        docGroupId = latest.doc_group_id;
-                        versionNo = latest.version_no + 1;
-                        ver = `v${versionNo}.0`;
-                        code = latest.code;
-                    } else {
-                        // Chế độ "Nhập mới"
-                        const canUpload = req.user.perms.admin || req.user.perms.uploadAll ||
-                            (req.user.perms.uploadDepts || []).includes(finalDept);
-                        if (!canUpload) {
-                            return res.status(403).json({ error: `Bạn không có quyền tải lên tài liệu cho phòng ban [${finalDept}].` });
-                        }
-                        const deptAbbr = deptAbbrMap.get(finalDept);
-                        const catAbbr = catAbbrMap.get(finalCat);
-                        if (!deptAbbr || !catAbbr) {
-                            return res.status(400).json({ error: `Phòng ban [${finalDept}] hoặc Phân loại [${finalCat}] chưa được cấu hình viết tắt — không thể tự sinh mã tài liệu.` });
-                        }
-                        const year = new Date().getFullYear();
-                        const prefix = `${catAbbr}-${deptAbbr}-${year}-`;
-                        const seq = await nextCodeForPrefix(prefix);
-                        code = `${prefix}${String(seq).padStart(3, '0')}`;
-                        docGroupId = d.id;
-                        versionNo = 1;
-                        ver = 'v1.0';
-                    }
-
-                    const fieldError = validateDocFieldLengths({ code, title: finalTitle, ver, summary: d.summary, fileName: d.fileName });
-                    if (fieldError) {
-                        return res.status(400).json({ error: fieldError });
-                    }
-                    const pdfError = validatePdfUpload(d.fileName, d.fileType, d.fileData);
-                    if (pdfError) {
-                        return res.status(400).json({ error: `Tài liệu [${code}]: ${pdfError}` });
-                    }
-
-                    let stampedFileData;
-                    try {
-                        stampedFileData = await stampCopyrightWatermark(d.fileData);
-                    } catch (e) {
-                        return res.status(400).json({ error: `Tài liệu [${code}]: không thể xử lý file PDF để đóng dấu bản quyền.` });
-                    }
-
-                    toUpsert.push([
-                        d.id, code, finalTitle, ver, finalDept, finalCat, d.summary, d.fileName, d.fileType, stampedFileData,
-                        req.user.name, req.user.username, d.createdAt, d.workflowId, 1, 'PENDING', JSON.stringify([]),
-                        docGroupId, versionNo
-                    ]);
-                    continue;
+                    return res.status(400).json({ error: 'Tài liệu mới phải được tạo qua chức năng tải lên file, không qua đồng bộ dữ liệu.' });
                 }
 
                 const existingHistory = typeof existing.history === 'string' ? JSON.parse(existing.history || '[]') : (existing.history || []);
