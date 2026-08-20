@@ -137,7 +137,7 @@
 
           <textarea id="docSummary" placeholder="Tóm tắt / Trích yếu nội dung tài liệu... (dùng chung cho tất cả file đã chọn)" class="md:col-span-3 border p-2 rounded text-sm h-16" required></textarea>
 
-          <button type="submit" class="md:col-span-3 bg-green-600 text-white p-2 rounded font-bold hover:bg-green-700 transition">Tải Lên & Trình Ký Phê Duyệt</button>
+          <button type="submit" class="md:col-span-3 bg-success-600 text-white py-2.5 rounded-lg font-bold shadow-sm hover:bg-success-700 hover:shadow transition-all">📤 Tải Lên &amp; Trình Ký Phê Duyệt</button>
         </form>
       </div>
 
@@ -1209,7 +1209,7 @@
 
       const submitBtn = document.querySelector('#docForm button[type="submit"]');
       submitBtn.disabled = true;
-      submitBtn.textContent = `Đang tải lên ${files.length} file...`;
+      submitBtn.textContent = `⏳ Đang tải lên ${files.length} file...`;
 
       try {
         const formData = new FormData();
@@ -1254,7 +1254,7 @@
         showToast('Lỗi khi tải lên: ' + err.message, 'danger');
       } finally {
         submitBtn.disabled = false;
-        submitBtn.textContent = 'Tải Lên & Trình Ký Phê Duyệt';
+        submitBtn.textContent = '📤 Tải Lên & Trình Ký Phê Duyệt';
       }
     }
 
@@ -1359,9 +1359,9 @@
           <td class="border p-2">${statusBadge}</td>
           <td class="border p-2 text-center">
             <div class="inline-flex items-center gap-1">
-              <button onclick="openViewDocModal(${d.id})" class="text-xs bg-brand-600 text-white px-2 py-1 rounded font-semibold hover:bg-brand-700">Xem</button>
-              ${canApprove ? `<button onclick="approveDoc(${d.id})" class="text-xs bg-warning-600 text-white px-2 py-1 rounded font-semibold hover:bg-warning-700">Duyệt</button>
-                              <button onclick="rejectDoc(${d.id})" class="text-xs bg-danger-600 text-white px-2 py-1 rounded font-semibold hover:bg-danger-700">Trả về</button>` : ''}
+              <button onclick="openViewDocModal(${d.id})" class="text-xs bg-brand-600 text-white px-2.5 py-1 rounded font-semibold shadow-sm hover:bg-brand-700 transition-colors">👁️ Xem</button>
+              ${canApprove ? `<button onclick="approveDoc(${d.id})" class="text-xs bg-success-600 text-white px-2.5 py-1 rounded font-semibold shadow-sm hover:bg-success-700 transition-colors">✅ Duyệt</button>
+                              <button onclick="rejectDoc(${d.id})" class="text-xs bg-danger-600 text-white px-2.5 py-1 rounded font-semibold shadow-sm hover:bg-danger-700 transition-colors">↩️ Trả về</button>` : ''}
               ${(() => {
                 const menuItems = [
                   !isChild ? `<button onclick="closeAllRowMenus(); openDocDetailModal('${escapeJsAttr(String(groupId))}')" class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">📋 Chi tiết</button>` : '',

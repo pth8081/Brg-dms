@@ -826,8 +826,9 @@ app.post('/api/docs/upload', requireAuth, (req, res, next) => {
                     if (files.length > 1) {
                         finalTitle = file.originalname.replace(/\.pdf$/i, '');
                     }
-                    const year = new Date().getFullYear();
-                    const prefix = `${catAbbr}-${deptAbbr}-${year}-`;
+                    // Mã tài liệu: BRG-{Viết tắt Phòng ban}-{Viết tắt Phân loại}-{STT tăng dần
+                    // theo các mã có cùng tiền tố}. VD: BRG-IT-QT-001, BRG-IT-QT-002...
+                    const prefix = `BRG-${deptAbbr}-${catAbbr}-`;
                     const seq = await nextCodeForPrefix(prefix);
                     code = `${prefix}${String(seq).padStart(3, '0')}`;
                     docGroupId = nextDocId();
