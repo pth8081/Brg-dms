@@ -4,6 +4,8 @@
   "description": "Hệ thống Quản lý Tài liệu DMS Production (Express & MySQL)",
   "main": "server.js",
   "scripts": {
+    "build:css": "tailwindcss -i ./src/input.css -o ./public/style.css --minify",
+    "prestart": "npm run build:css",
     "start": "node server.js"
   },
   "dependencies": {
@@ -18,5 +20,9 @@
     "jsonwebtoken": "^9.0.3",
     "mysql2": "^3.9.2",
     "pdf-lib": "^1.17.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
+    "tailwindcss": "^4.3.3"
   }
 }

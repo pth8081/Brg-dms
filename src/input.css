@@ -1,0 +1,79 @@
+@import "tailwindcss";
+@source "../public/**/*.html";
+
+/* --- Hệ thống thiết kế DMS: bảng màu & cỡ chữ nhất quán, thay cho việc mỗi
+   module tự chọn màu rời rạc trước đây (indigo/emerald/amber/purple/slate/
+   stone/rose không theo quy tắc). --- */
+@theme {
+  /* Màu thương hiệu chính (thao tác chính, điều hướng) */
+  --color-brand-50: #eff6ff;
+  --color-brand-100: #dbeafe;
+  --color-brand-200: #bfdbfe;
+  --color-brand-600: #2563eb;
+  --color-brand-700: #1d4ed8;
+  --color-brand-800: #1e40af;
+  --color-brand-900: #1e3a8a;
+
+  /* Màu ngữ nghĩa: thành công / nguy hiểm / cảnh báo / trung tính */
+  --color-success-50: #ecfdf5;
+  --color-success-100: #d1fae5;
+  --color-success-600: #059669;
+  --color-success-700: #047857;
+
+  --color-danger-50: #fef2f2;
+  --color-danger-100: #fee2e2;
+  --color-danger-600: #dc2626;
+  --color-danger-700: #b91c1c;
+
+  --color-warning-50: #fffbeb;
+  --color-warning-100: #fef3c7;
+  --color-warning-600: #d97706;
+  --color-warning-700: #b45309;
+
+  /* Cỡ chữ cơ bản nhích lên một chút toàn hệ thống — dễ đọc hơn với tiếng
+     Việt có dấu, không phá vỡ layout hiện có (chỉ tăng nhẹ theo tỉ lệ). */
+  --text-xs: 0.8125rem;    /* 13px, mặc định Tailwind 12px */
+  --text-xs--line-height: 1.4;
+  --text-sm: 0.9375rem;    /* 15px, mặc định Tailwind 14px */
+  --text-sm--line-height: 1.5;
+}
+
+@layer components {
+  /* --- Toast (thông báo nổi, tự ẩn) — thay cho alert() mặc định trình duyệt --- */
+  .toast-stack {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-width: 22rem;
+  }
+  .toast-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    box-shadow: 0 10px 25px -5px rgb(0 0 0 / 0.15), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: white;
+    animation: toast-in 0.2s ease-out;
+  }
+  .toast-item.toast-leaving { animation: toast-out 0.18s ease-in forwards; }
+  .toast-success { background-color: var(--color-success-600); }
+  .toast-danger { background-color: var(--color-danger-600); }
+  .toast-warning { background-color: var(--color-warning-600); color: #451a03; }
+  .toast-info { background-color: var(--color-brand-600); }
+
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateX(1rem); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes toast-out {
+    from { opacity: 1; transform: translateX(0); }
+    to { opacity: 0; transform: translateX(1rem); }
+  }
+}

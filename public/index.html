@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Hệ Thống Quản Lý Tài Liệu - DMS v6.0</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/style.css">
   <style>
     .dash-card.active-card {
       ring-width: 2px;
@@ -14,6 +14,28 @@
   </style>
 </head>
 <body class="bg-gray-100 min-h-screen p-4 md:p-6 font-sans">
+  <div id="toastStack" class="toast-stack" aria-live="polite"></div>
+
+  <!-- MODAL XÁC NHẬN DÙNG CHUNG (thay cho confirm()/prompt() mặc định trình duyệt) -->
+  <div id="confirmModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[70] p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-sm w-full p-5 space-y-4">
+      <div class="flex items-start gap-3">
+        <span id="confirmModalIcon" class="text-2xl leading-none">⚠️</span>
+        <div class="flex-1">
+          <h3 id="confirmModalTitle" class="font-bold text-gray-900 text-base"></h3>
+          <p id="confirmModalMessage" class="text-sm text-gray-600 mt-1"></p>
+        </div>
+      </div>
+      <div id="confirmModalInputBox" class="hidden">
+        <input id="confirmModalInput" type="text" class="w-full border p-2 rounded text-sm" autocomplete="off">
+      </div>
+      <div class="flex justify-end gap-2 pt-1">
+        <button id="confirmModalCancelBtn" type="button" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button id="confirmModalOkBtn" type="button" class="bg-brand-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-brand-700">Xác Nhận</button>
+      </div>
+    </div>
+  </div>
+
   <div class="max-w-7xl mx-auto bg-white p-4 md:p-6 rounded-lg shadow-md space-y-6">
     
     <!-- Header -->
@@ -567,7 +589,7 @@
   </div>
 
   <!-- MODAL XEM TÀI LIỆU (PROTECTED VIEWER) -->
-  <div id="viewDocModal" class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center hidden z-[60] p-4">
+  <div id="viewDocModal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-[60] p-4">
     <div class="bg-white rounded-lg shadow-2xl max-w-4xl w-full flex flex-col max-h-[90vh] overflow-hidden">
       <div class="flex justify-between items-center bg-gray-800 text-white p-4">
         <div>
@@ -589,7 +611,7 @@
   </div>
 
   <!-- MODAL CHI TIẾT TÀI LIỆU & LỊCH SỬ PHIÊN BẢN -->
-  <div id="docDetailModal" class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center hidden z-50 p-4">
+  <div id="docDetailModal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50 p-4">
     <div class="bg-white rounded-lg shadow-2xl max-w-3xl w-full flex flex-col max-h-[90vh] overflow-hidden">
       <div class="flex justify-between items-center bg-slate-700 text-white p-4">
         <div>
@@ -606,7 +628,7 @@
   </div>
 
   <!-- MODAL CÁ NHÂN HÓA -->
-  <div id="profileModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50 p-4">
+  <div id="profileModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-50 p-4">
     <div class="bg-white p-6 rounded-lg shadow-xl max-w-md w-full space-y-4">
       <div class="flex justify-between items-center border-b pb-3">
         <h3 class="font-bold text-gray-800 text-base">⚙️ Cập Nhật Thông Tin Cá Nhân</h3>
@@ -743,6 +765,66 @@
       return escapeHtml(jsEscaped);
     }
 
+    // --- THÔNG BÁO (Toast) — thay cho alert() mặc định trình duyệt: không chặn
+    // thao tác, tự ẩn sau vài giây, phân biệt rõ mức độ (thành công/lỗi/cảnh báo). ---
+    function showToast(message, type = 'success') {
+      const stack = document.getElementById('toastStack');
+      if (!stack) return;
+      const icons = { success: '✅', danger: '⛔', warning: '⚠️', info: 'ℹ️' };
+      const el = document.createElement('div');
+      el.className = `toast-item toast-${type}`;
+      el.innerHTML = `<span>${icons[type] || 'ℹ️'}</span><span>${escapeHtml(message)}</span>`;
+      stack.appendChild(el);
+      setTimeout(() => {
+        el.classList.add('toast-leaving');
+        setTimeout(() => el.remove(), 200);
+      }, 4000);
+    }
+
+    // --- MODAL XÁC NHẬN dùng chung (thay cho confirm()/prompt() mặc định) ---
+    // showConfirm({title, message, danger}) -> Promise<boolean>
+    // showTypedConfirm({title, message, requiredText}) -> Promise<boolean> (chỉ true khi gõ đúng requiredText)
+    function showConfirm({ title = 'Xác nhận', message = '', danger = false, confirmText = 'Xác Nhận', requiredText = null }) {
+      return new Promise(resolve => {
+        const modal = document.getElementById('confirmModal');
+        document.getElementById('confirmModalIcon').innerText = danger ? '⚠️' : 'ℹ️';
+        document.getElementById('confirmModalTitle').innerText = title;
+        document.getElementById('confirmModalMessage').innerText = message;
+        const okBtn = document.getElementById('confirmModalOkBtn');
+        const cancelBtn = document.getElementById('confirmModalCancelBtn');
+        const inputBox = document.getElementById('confirmModalInputBox');
+        const input = document.getElementById('confirmModalInput');
+
+        okBtn.innerText = confirmText;
+        okBtn.className = `text-white px-4 py-2 rounded text-sm font-bold ${danger ? 'bg-danger-600 hover:bg-danger-700' : 'bg-brand-600 hover:bg-brand-700'}`;
+
+        inputBox.classList.toggle('hidden', !requiredText);
+        input.value = '';
+        if (requiredText) input.placeholder = `Gõ chính xác "${requiredText}" để xác nhận`;
+
+        function cleanup(result) {
+          modal.classList.add('hidden');
+          okBtn.onclick = null;
+          cancelBtn.onclick = null;
+          input.onkeydown = null;
+          resolve(result);
+        }
+
+        okBtn.onclick = () => {
+          if (requiredText && input.value.trim() !== requiredText) {
+            showToast(`Chưa khớp — cần gõ chính xác "${requiredText}".`, 'warning');
+            return;
+          }
+          cleanup(true);
+        };
+        cancelBtn.onclick = () => cleanup(false);
+        input.onkeydown = (e) => { if (e.key === 'Enter') okBtn.click(); };
+
+        modal.classList.remove('hidden');
+        if (requiredText) input.focus();
+      });
+    }
+
     // Bộ đếm tăng dần để đảm bảo ID log luôn duy nhất kể cả khi gọi nhiều lần
     // trong cùng 1 mili-giây (VD: upload nhiều file cùng lúc). Không dùng
     // Date.now() + Math.random() vì cột id là BIGINT — giá trị thập phân bị
@@ -782,7 +864,7 @@
       const u = document.getElementById('txtUser').value.trim();
       const p = document.getElementById('txtPass').value.trim();
 
-      if (!u || !p) return alert('Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu!');
+      if (!u || !p) return showToast('Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu!', 'warning');
 
       try {
         const data = await apiFetch('/api/auth/login', {
@@ -791,7 +873,7 @@
         });
         await enterApp(data.user);
       } catch (e) {
-        alert(e.message || 'Tài khoản hoặc mật khẩu không chính xác!');
+        showToast(e.message || 'Tài khoản hoặc mật khẩu không chính xác!', 'danger');
       }
     }
 
@@ -1090,13 +1172,13 @@
           });
         }
 
-        alert(`✅ Đã tải lên và trình ký ${createdDocs.length} tài liệu thành công!\n` + createdDocs.map(d => `- ${d.code} (${d.ver})`).join('\n'));
+        showToast(`Đã tải lên và trình ký ${createdDocs.length} tài liệu thành công: ${createdDocs.map(d => d.code).join(', ')}`, 'success');
         document.getElementById('docForm').reset();
         document.getElementById('docMode').value = 'new';
         onDocModeChange();
         renderDocs();
       } catch (err) {
-        alert('❌ Lỗi khi tải lên: ' + err.message);
+        showToast('Lỗi khi tải lên: ' + err.message, 'danger');
       } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = 'Tải Lên & Trình Ký Phê Duyệt';
@@ -1197,13 +1279,25 @@
           <td class="border p-2">${escapeHtml(d.cat)}</td>
           <td class="border p-2 text-center font-bold">${escapeHtml(d.ver)}</td>
           <td class="border p-2">${statusBadge}</td>
-          <td class="border p-2 text-center space-x-1">
-            <button onclick="openViewDocModal(${d.id})" class="text-xs bg-blue-600 text-white px-2 py-1 rounded font-semibold hover:bg-blue-700">Xem</button>
-            ${!isChild ? `<button onclick="openDocDetailModal('${escapeJsAttr(String(groupId))}')" class="text-xs bg-slate-600 text-white px-2 py-1 rounded font-semibold hover:bg-slate-700">Chi tiết</button>` : ''}
-            ${canDownload ? `<button onclick="downloadDoc(${d.id})" class="text-xs bg-emerald-600 text-white px-2 py-1 rounded font-semibold hover:bg-emerald-700">Tải</button>` : ''}
-            ${canApprove ? `<button onclick="approveDoc(${d.id})" class="text-xs bg-amber-500 text-white px-2 py-1 rounded font-semibold hover:bg-amber-600">Duyệt</button>
-                            <button onclick="rejectDoc(${d.id})" class="text-xs bg-red-600 text-white px-2 py-1 rounded font-semibold hover:bg-red-700">Trả về</button>` : ''}
-            ${isAdmin && !isChild ? `<button onclick="deleteDocGroup('${escapeJsAttr(String(groupId || d.docGroupId || d.id))}', '${escapeJsAttr(d.code)}')" class="text-xs bg-red-700 text-white px-2 py-1 rounded font-semibold hover:bg-red-800">Xóa</button>` : ''}
+          <td class="border p-2 text-center">
+            <div class="inline-flex items-center gap-1">
+              <button onclick="openViewDocModal(${d.id})" class="text-xs bg-brand-600 text-white px-2 py-1 rounded font-semibold hover:bg-brand-700">Xem</button>
+              ${canApprove ? `<button onclick="approveDoc(${d.id})" class="text-xs bg-warning-600 text-white px-2 py-1 rounded font-semibold hover:bg-warning-700">Duyệt</button>
+                              <button onclick="rejectDoc(${d.id})" class="text-xs bg-danger-600 text-white px-2 py-1 rounded font-semibold hover:bg-danger-700">Trả về</button>` : ''}
+              ${(() => {
+                const menuItems = [
+                  !isChild ? `<button onclick="closeAllRowMenus(); openDocDetailModal('${escapeJsAttr(String(groupId))}')" class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">📋 Chi tiết</button>` : '',
+                  canDownload ? `<button onclick="closeAllRowMenus(); downloadDoc(${d.id})" class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">⬇️ Tải</button>` : '',
+                  isAdmin && !isChild ? `<button onclick="closeAllRowMenus(); deleteDocGroup('${escapeJsAttr(String(groupId || d.docGroupId || d.id))}', '${escapeJsAttr(d.code)}')" class="block w-full text-left px-3 py-2 text-xs text-danger-700 hover:bg-danger-50">🗑️ Xóa</button>` : ''
+                ].filter(Boolean).join('');
+                if (!menuItems) return '';
+                const menuId = `rowMenu_${d.id}`;
+                return `
+                  <button onclick="toggleRowMenu(event, '${menuId}')" class="text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded font-semibold hover:bg-gray-300" title="Thêm thao tác">⋮</button>
+                  <div id="${menuId}" class="row-action-menu hidden fixed w-36 bg-white border rounded shadow-lg z-[80] text-left overflow-hidden">${menuItems}</div>
+                `;
+              })()}
+            </div>
           </td>
         </tr>
       `;
@@ -1213,6 +1307,33 @@
       if (expandedGroups.has(gid)) expandedGroups.delete(gid); else expandedGroups.add(gid);
       renderDocs();
     }
+
+    // Menu "⋮" thao tác phụ trên mỗi dòng tài liệu — dùng position:fixed định vị
+    // bằng JS (thay vì absolute) để không bị cắt bởi vùng cuộn ngang của bảng.
+    function closeAllRowMenus() {
+      document.querySelectorAll('.row-action-menu').forEach(m => m.classList.add('hidden'));
+    }
+
+    function toggleRowMenu(e, menuId) {
+      e.stopPropagation();
+      const menu = document.getElementById(menuId);
+      if (!menu) return;
+      const wasOpen = !menu.classList.contains('hidden');
+      closeAllRowMenus();
+      if (wasOpen) return;
+
+      const btnRect = e.currentTarget.getBoundingClientRect();
+      menu.classList.remove('hidden');
+      const menuRect = menu.getBoundingClientRect();
+      let left = btnRect.right - menuRect.width;
+      let top = btnRect.bottom + 4;
+      if (top + menuRect.height > window.innerHeight) top = btnRect.top - menuRect.height - 4;
+      if (left < 4) left = 4;
+      menu.style.left = `${left}px`;
+      menu.style.top = `${top}px`;
+    }
+
+    document.addEventListener('click', closeAllRowMenus);
 
     function renderDocs() {
       const tbody = document.getElementById('docTableBody');
@@ -1418,7 +1539,12 @@
     // --- XÓA TÀI LIỆU (XÓA MỀM) — chỉ Admin. Server tự ghi audit log, không
     // phụ thuộc client (đảm bảo không thể xóa mà không để lại dấu vết). ---
     async function deleteDocGroup(groupId, code) {
-      if (!confirm(`Xóa toàn bộ phiên bản của tài liệu [${code}]? Tài liệu sẽ được chuyển vào Thùng Rác, có thể khôi phục lại sau (mục Quản trị & Phân quyền > Thùng Rác).`)) return;
+      const ok = await showConfirm({
+        title: 'Xóa tài liệu',
+        message: `Xóa toàn bộ phiên bản của tài liệu [${code}]? Sẽ được chuyển vào Thùng Rác, có thể khôi phục lại sau.`,
+        danger: true, confirmText: 'Xóa'
+      });
+      if (!ok) return;
       await performDeleteDocs([groupId]);
     }
 
@@ -1426,24 +1552,27 @@
       const groupIds = Array.from(selectedDocGroups);
       if (groupIds.length === 0) return;
 
-      if (groupIds.length > 10) {
-        const typed = prompt(`Bạn sắp xóa ${groupIds.length} tài liệu cùng lúc. Gõ chính xác chữ "XÓA" (không dấu cách) để xác nhận:`);
-        if (typed !== 'XÓA') return alert('Đã hủy thao tác — xác nhận không khớp.');
-      } else {
-        if (!confirm(`Xóa ${groupIds.length} tài liệu đã chọn? Sẽ được chuyển vào Thùng Rác, có thể khôi phục lại sau.`)) return;
-      }
+      const ok = await showConfirm({
+        title: 'Xóa nhiều tài liệu',
+        message: groupIds.length > 10
+          ? `Bạn sắp xóa ${groupIds.length} tài liệu cùng lúc. Sẽ được chuyển vào Thùng Rác, có thể khôi phục lại sau.`
+          : `Xóa ${groupIds.length} tài liệu đã chọn? Sẽ được chuyển vào Thùng Rác, có thể khôi phục lại sau.`,
+        danger: true, confirmText: 'Xóa',
+        requiredText: groupIds.length > 10 ? 'XÓA' : null
+      });
+      if (!ok) return;
       await performDeleteDocs(groupIds);
     }
 
     async function performDeleteDocs(groupIds) {
       try {
         const result = await apiFetch('/api/docs/delete', { method: 'POST', body: JSON.stringify({ groupIds }) });
-        alert(`✅ Đã chuyển ${result.deletedCount} phiên bản tài liệu vào Thùng Rác.`);
+        showToast(`Đã chuyển ${result.deletedCount} phiên bản tài liệu vào Thùng Rác.`, 'success');
         selectedDocGroups.clear();
         await loadBootstrapData();
         renderDocs();
       } catch (e) {
-        alert(e.message || 'Không thể xóa tài liệu.');
+        showToast(e.message || 'Không thể xóa tài liệu.', 'danger');
       }
     }
 
@@ -1524,48 +1653,59 @@
     }
 
     async function restoreTrashGroup(groupId, code) {
-      if (!confirm(`Khôi phục tài liệu [${code}]?`)) return;
+      const ok = await showConfirm({ title: 'Khôi phục tài liệu', message: `Khôi phục tài liệu [${code}]?`, confirmText: 'Khôi Phục' });
+      if (!ok) return;
       await performRestoreDocs([groupId]);
     }
 
     async function bulkRestoreTrash() {
       const groupIds = Array.from(selectedTrashGroups);
       if (groupIds.length === 0) return;
-      if (!confirm(`Khôi phục ${groupIds.length} tài liệu đã chọn?`)) return;
+      const ok = await showConfirm({ title: 'Khôi phục nhiều tài liệu', message: `Khôi phục ${groupIds.length} tài liệu đã chọn?`, confirmText: 'Khôi Phục' });
+      if (!ok) return;
       await performRestoreDocs(groupIds);
     }
 
     async function performRestoreDocs(groupIds) {
       try {
         const result = await apiFetch('/api/docs/restore', { method: 'POST', body: JSON.stringify({ groupIds }) });
-        alert(`✅ Đã khôi phục ${result.restoredCount} phiên bản tài liệu.`);
+        showToast(`Đã khôi phục ${result.restoredCount} phiên bản tài liệu.`, 'success');
         await loadBootstrapData();
         loadAndRenderTrash();
       } catch (e) {
-        alert(e.message || 'Không thể khôi phục tài liệu.');
+        showToast(e.message || 'Không thể khôi phục tài liệu.', 'danger');
       }
     }
 
     async function purgeTrashGroup(groupId, code) {
-      if (!confirm(`⚠️ XÓA VĨNH VIỄN tài liệu [${code}]? Thao tác này KHÔNG THỂ hoàn tác.`)) return;
+      const ok = await showConfirm({
+        title: 'Xóa vĩnh viễn',
+        message: `XÓA VĨNH VIỄN tài liệu [${code}]? Thao tác này KHÔNG THỂ hoàn tác.`,
+        danger: true, confirmText: 'Xóa Vĩnh Viễn', requiredText: 'XÓA'
+      });
+      if (!ok) return;
       await performPurgeDocs([groupId]);
     }
 
     async function bulkPurgeTrash() {
       const groupIds = Array.from(selectedTrashGroups);
       if (groupIds.length === 0) return;
-      const typed = prompt(`⚠️ Bạn sắp XÓA VĨNH VIỄN ${groupIds.length} tài liệu — KHÔNG THỂ hoàn tác. Gõ chính xác chữ "XÓA" để xác nhận:`);
-      if (typed !== 'XÓA') return alert('Đã hủy thao tác — xác nhận không khớp.');
+      const ok = await showConfirm({
+        title: 'Xóa vĩnh viễn nhiều tài liệu',
+        message: `Bạn sắp XÓA VĨNH VIỄN ${groupIds.length} tài liệu — KHÔNG THỂ hoàn tác.`,
+        danger: true, confirmText: 'Xóa Vĩnh Viễn', requiredText: 'XÓA'
+      });
+      if (!ok) return;
       await performPurgeDocs(groupIds);
     }
 
     async function performPurgeDocs(groupIds) {
       try {
         const result = await apiFetch('/api/docs/purge', { method: 'POST', body: JSON.stringify({ groupIds }) });
-        alert(`✅ Đã xóa vĩnh viễn ${result.purgedCount} phiên bản tài liệu.`);
+        showToast(`Đã xóa vĩnh viễn ${result.purgedCount} phiên bản tài liệu.`, 'success');
         loadAndRenderTrash();
       } catch (e) {
-        alert(e.message || 'Không thể xóa vĩnh viễn tài liệu.');
+        showToast(e.message || 'Không thể xóa vĩnh viễn tài liệu.', 'danger');
       }
     }
 
@@ -2045,14 +2185,14 @@
         if (!ok) { DB.users = prevUsers; return; }
 
         logSystemAction('USER_MGM', 'UPDATE_USER', `Cập nhật tài khoản và quyền hạn cho user: ${username}`, 'SUCCESS', username);
-        alert('✅ Đã lưu thông tin người dùng & phân quyền!');
+        showToast('Đã lưu thông tin người dùng & phân quyền!', 'success');
         resetUserForm();
         renderUsers();
       } else {
         // Tạo mới: chỉ thêm vào danh sách chờ, chưa gửi lên server — cho phép
         // thêm nhiều user liên tiếp rồi bấm "Lưu Tất Cả" một lần.
         if (DB.users.some(u => u.username === username) || pendingNewUsers.some(u => u.username === username)) {
-          return alert('Username đã tồn tại!');
+          return showToast('Username đã tồn tại!', 'danger');
         }
         pendingNewUsers.push({ id: Date.now() + pendingNewUsers.length, username, pass, name, email, phone, dept, perms, active: true });
         resetUserForm();
@@ -2094,7 +2234,7 @@
       const count = pendingNewUsers.length;
       pendingNewUsers.forEach(u => logSystemAction('USER_MGM', 'CREATE_USER', `Tạo mới tài khoản user: ${u.username}`, 'SUCCESS', u.username));
       pendingNewUsers = [];
-      alert(`✅ Đã lưu ${count} tài khoản người dùng mới!`);
+      showToast(`Đã lưu ${count} tài khoản người dùng mới!`, 'success');
       renderPendingUsers();
       renderUsers();
     }
@@ -2150,13 +2290,18 @@
       if (idx === -1) return;
       const u = DB.users[idx];
 
-      if (u.username === 'admin') return alert('Không thể khóa tài khoản Admin gốc!');
-      if (currentUser && String(u.id) === String(currentUser.id)) return alert('Không thể tự khóa chính tài khoản đang đăng nhập!');
+      if (u.username === 'admin') return showToast('Không thể khóa tài khoản Admin gốc!', 'danger');
+      if (currentUser && String(u.id) === String(currentUser.id)) return showToast('Không thể tự khóa chính tài khoản đang đăng nhập!', 'danger');
 
       const nextActive = !(u.active !== false);
-      if (!confirm(nextActive
-        ? `Kích hoạt lại tài khoản ${u.username}?`
-        : `Khóa tài khoản ${u.username}? Người này sẽ không thể đăng nhập cho đến khi được kích hoạt lại.`)) return;
+      const ok1 = await showConfirm({
+        title: nextActive ? 'Kích hoạt tài khoản' : 'Khóa tài khoản',
+        message: nextActive
+          ? `Kích hoạt lại tài khoản ${u.username}?`
+          : `Khóa tài khoản ${u.username}? Người này sẽ không thể đăng nhập cho đến khi được kích hoạt lại.`,
+        danger: !nextActive, confirmText: nextActive ? 'Kích Hoạt' : 'Khóa'
+      });
+      if (!ok1) return;
 
       DB.users[idx] = { ...u, active: nextActive };
       const ok = await syncStorage('users');
@@ -2165,6 +2310,7 @@
         return;
       }
       logSystemAction('USER_MGM', nextActive ? 'ACTIVATE_USER' : 'LOCK_USER', `${nextActive ? 'Kích hoạt' : 'Khóa'} tài khoản user: ${u.username}`, 'SUCCESS', u.username);
+      showToast(`Đã ${nextActive ? 'kích hoạt' : 'khóa'} tài khoản ${u.username}.`, 'success');
       renderUsers();
     }
 
