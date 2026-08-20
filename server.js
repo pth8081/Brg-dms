@@ -14,6 +14,7 @@ const fs = require('fs');
 const { PDFDocument, rgb, degrees } = require('pdf-lib');
 const fontkit = require('@pdf-lib/fontkit');
 const multer = require('multer');
+const { Client: LdapClient } = require('ldapts');
 
 const app = express();
 const isProd = process.env.NODE_ENV === 'production';
@@ -230,6 +231,54 @@ const apiLimiter = rateLimit({
 });
 app.use('/api', apiLimiter);
 
+// --- ĐĂNG NHẬP QUA LDAP / ACTIVE DIRECTORY (tùy chọn, cấu hình trong Quản trị) ---
+// Chỉ dùng kiểu "Direct Bind": ghép username với domain (UPN dạng
+// user@domain hoặc NetBIOS dạng DOMAIN\user) rồi bind thẳng bằng chính mật
+// khẩu người dùng nhập — không cần tài khoản dịch vụ (service account) để
+// tra cứu AD trước. Dùng làm phương án dự phòng: chỉ thử LDAP khi mật khẩu
+// local không khớp (xem route /api/auth/login bên dưới).
+const LDAP_USERNAME_RE = /^[A-Za-z0-9._-]{1,100}$/;
+
+function buildLdapBindDn(username, ldapConfig) {
+    if (ldapConfig.bindFormat === 'netbios') {
+        return `${ldapConfig.domain}\\${username}`;
+    }
+    return `${username}@${ldapConfig.domain}`;
+}
+
+async function getLdapConfig() {
+    const [cfgRows] = await pool.query("SELECT config_value FROM app_configs WHERE config_key = 'ldapConfig'");
+    if (!cfgRows[0]) return null;
+    return typeof cfgRows[0].config_value === 'string' ? JSON.parse(cfgRows[0].config_value) : cfgRows[0].config_value;
+}
+
+async function ldapAuthenticate(username, password, ldapConfig) {
+    // Chặn ký tự lạ trước khi ghép vào chuỗi bind DN — không phải vì đây là bộ
+    // lọc LDAP search (không có nguy cơ LDAP injection kiểu filter ở đây do
+    // dùng bind trực tiếp), mà để tránh username dị dạng gây lỗi khó hiểu hoặc
+    // hành vi không mong muốn phía server AD.
+    if (!LDAP_USERNAME_RE.test(username)) return false;
+    // Lưu ý: thư viện ldapts coi kết nối là TLS bất cứ khi nào có truyền
+    // tlsOptions, BẤT KỂ giao thức trong URL — nếu luôn truyền tlsOptions,
+    // kết nối ldap:// (không mã hoá) sẽ bị ép thành ldaps:// và không bao giờ
+    // kết nối được. Chỉ truyền tlsOptions khi URL thật sự là ldaps://.
+    const isSecure = /^ldaps:\/\//i.test(String(ldapConfig.url || ''));
+    const client = new LdapClient({
+        url: ldapConfig.url,
+        timeout: 5000,
+        connectTimeout: 5000,
+        ...(isSecure ? { tlsOptions: { rejectUnauthorized: ldapConfig.tlsRejectUnauthorized !== false } } : {})
+    });
+    try {
+        await client.bind(buildLdapBindDn(username, ldapConfig), password);
+        return true;
+    } catch (e) {
+        return false;
+    } finally {
+        try { await client.unbind(); } catch (e) { /* bỏ qua lỗi khi đóng kết nối */ }
+    }
+}
+
 // --- API AUTH ---
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
     try {
@@ -245,8 +294,23 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
             return res.status(401).json({ error: 'Tài khoản hoặc mật khẩu không chính xác!' });
         }
 
-        const ok = await bcrypt.compare(password, user.pass);
-        if (!ok) {
+        // Xác thực: thử mật khẩu local trước; nếu sai VÀ LDAP/AD đang được bật,
+        // thử xác thực qua LDAP với đúng username/password vừa nhập (không tạo
+        // tài khoản mới — username phải đã tồn tại sẵn trong DMS). Tài khoản
+        // local luôn được thử trước nên không phụ thuộc hoàn toàn vào AD (nếu
+        // AD lỗi, ai còn nhớ mật khẩu local vẫn đăng nhập được bình thường).
+        let authOk = await bcrypt.compare(password, user.pass);
+        let authSource = 'LOCAL';
+
+        if (!authOk) {
+            const ldapConfig = await getLdapConfig();
+            if (ldapConfig && ldapConfig.enabled && ldapConfig.url && ldapConfig.domain) {
+                authOk = await ldapAuthenticate(username, password, ldapConfig);
+                if (authOk) authSource = 'LDAP';
+            }
+        }
+
+        if (!authOk) {
             await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_FAILED', status: 'FAILED', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: `Đăng nhập thất bại: sai mật khẩu.` });
             return res.status(401).json({ error: 'Tài khoản hoặc mật khẩu không chính xác!' });
         }
@@ -259,7 +323,7 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
         const token = signToken(user);
         setAuthCookie(res, token);
 
-        await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_SUCCESS', status: 'SUCCESS', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: 'Đăng nhập hệ thống thành công.' });
+        await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_SUCCESS', status: 'SUCCESS', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: authSource === 'LDAP' ? 'Đăng nhập hệ thống thành công qua LDAP/Active Directory.' : 'Đăng nhập hệ thống thành công.' });
 
         const perms = typeof user.perms === 'string' ? JSON.parse(user.perms || '{}') : user.perms;
         res.json({ user: sanitizeUser({ ...user, perms }) });
@@ -375,6 +439,7 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
             workflows: workflows.map(w => ({ ...w, steps: typeof w.steps === 'string' ? JSON.parse(w.steps || '[]') : w.steps })),
             deptWorkflows: configMap.deptWorkflows || {},
             emailConfig: configMap.emailConfig || { enabled: true, smtpHost: 'smtp.gmail.com', smtpPort: 587, senderEmail: 'dms-noreply@company.com' },
+            ldapConfig: configMap.ldapConfig || { enabled: false, url: '', bindFormat: 'upn', domain: '', tlsRejectUnauthorized: true },
             systemLogs: logs,
             maxPdfSizeMB: MAX_PDF_SIZE_MB
         });
@@ -385,8 +450,8 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
 });
 
 // Các bảng cấu hình hệ thống chỉ Admin mới được ghi
-const ADMIN_ONLY_TABLES = new Set(['users', 'workflows', 'depts', 'cats', 'deptWorkflows', 'emailConfig']);
-const KNOWN_TABLES = new Set(['docs', 'users', 'depts', 'cats', 'workflows', 'deptWorkflows', 'emailConfig', 'system_logs']);
+const ADMIN_ONLY_TABLES = new Set(['users', 'workflows', 'depts', 'cats', 'deptWorkflows', 'emailConfig', 'ldapConfig']);
+const KNOWN_TABLES = new Set(['docs', 'users', 'depts', 'cats', 'workflows', 'deptWorkflows', 'emailConfig', 'ldapConfig', 'system_logs']);
 const MAX_SYNC_ROWS = 5000;
 
 // --- API LẤY NỘI DUNG FILE THEO YÊU CẦU (không còn gửi kèm trong bootstrap) ---
@@ -761,8 +826,9 @@ app.post('/api/docs/upload', requireAuth, (req, res, next) => {
                     if (files.length > 1) {
                         finalTitle = file.originalname.replace(/\.pdf$/i, '');
                     }
-                    const year = new Date().getFullYear();
-                    const prefix = `${catAbbr}-${deptAbbr}-${year}-`;
+                    // Mã tài liệu: BRG-{Viết tắt Phòng ban}-{Viết tắt Phân loại}-{STT tăng dần
+                    // theo các mã có cùng tiền tố}. VD: BRG-IT-QT-001, BRG-IT-QT-002...
+                    const prefix = `BRG-${deptAbbr}-${catAbbr}-`;
                     const seq = await nextCodeForPrefix(prefix);
                     code = `${prefix}${String(seq).padStart(3, '0')}`;
                     docGroupId = nextDocId();
@@ -1067,7 +1133,18 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
             for (let w of data) {
                 await pool.query('INSERT INTO workflows (id, name, steps) VALUES (?, ?, ?)', [w.id, w.name, JSON.stringify(w.steps || [])]);
             }
-        } else if (['deptWorkflows', 'emailConfig'].includes(table)) {
+        } else if (['deptWorkflows', 'emailConfig', 'ldapConfig'].includes(table)) {
+            if (table === 'ldapConfig' && data && data.enabled) {
+                if (!data.url || !/^ldaps?:\/\//i.test(String(data.url))) {
+                    return res.status(400).json({ error: 'URL máy chủ LDAP không hợp lệ (phải bắt đầu bằng ldap:// hoặc ldaps://).' });
+                }
+                if (!data.domain || !String(data.domain).trim()) {
+                    return res.status(400).json({ error: 'Thiếu Domain (hoặc tên NetBIOS) cho cấu hình LDAP.' });
+                }
+                if (!['upn', 'netbios'].includes(data.bindFormat)) {
+                    return res.status(400).json({ error: 'Định dạng đăng nhập LDAP không hợp lệ.' });
+                }
+            }
             await pool.query(
                 'INSERT INTO app_configs (config_key, config_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE config_value = ?',
                 [table, JSON.stringify(data), JSON.stringify(data)]
