@@ -253,6 +253,46 @@
         </form>
       </div>
 
+      <div class="bg-sky-50 p-4 rounded border border-sky-300 space-y-3">
+        <h3 class="font-bold text-sky-900 text-sm flex items-center gap-1">🔑 Cấu Hình Đăng Nhập LDAP / Active Directory</h3>
+
+        <form onsubmit="saveLdapConfig(event)" class="grid grid-cols-1 md:grid-cols-4 gap-3 bg-white p-3 rounded border text-xs">
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Trạng Thái LDAP</label>
+            <select id="cfgLdapEnabled" class="w-full border p-1.5 rounded bg-white font-bold text-green-700">
+              <option value="true">Bật (Active)</option>
+              <option value="false">Tắt (Disabled)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">LDAP Server URL</label>
+            <input id="cfgLdapUrl" placeholder="ldap://ad.congty.local:389" class="w-full border p-1.5 rounded">
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Định Dạng Đăng Nhập</label>
+            <select id="cfgLdapBindFormat" class="w-full border p-1.5 rounded bg-white">
+              <option value="upn">UPN (user@domain)</option>
+              <option value="netbios">NetBIOS (DOMAIN\user)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Domain / Tên NetBIOS</label>
+            <input id="cfgLdapDomain" placeholder="congty.local hoặc CONGTY" class="w-full border p-1.5 rounded">
+          </div>
+          <div class="md:col-span-2">
+            <label class="block font-semibold text-gray-600 mb-1">Xác Thực Chứng Chỉ TLS (chỉ áp dụng cho ldaps://)</label>
+            <select id="cfgLdapTlsReject" class="w-full border p-1.5 rounded bg-white">
+              <option value="true">Có (khuyên dùng)</option>
+              <option value="false">Không (chỉ dùng khi AD có chứng chỉ tự ký)</option>
+            </select>
+          </div>
+          <div class="md:col-span-4 flex justify-between items-center pt-1">
+            <span class="text-gray-500 italic text-[11px]">Đăng nhập sẽ thử mật khẩu local trước; nếu sai và LDAP đang bật, hệ thống thử xác thực qua AD với cùng tài khoản/mật khẩu. Username phải đã tồn tại sẵn trong DMS (mục Quản Lý Người Dùng) — LDAP không tự tạo tài khoản mới.</span>
+            <button type="submit" class="bg-sky-600 text-white px-4 py-1.5 rounded font-bold hover:bg-sky-700">Lưu Cấu Hình LDAP</button>
+          </div>
+        </form>
+      </div>
+
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div class="bg-indigo-50 p-4 rounded border border-indigo-200 space-y-3">
           <h3 class="font-bold text-indigo-900 text-sm flex items-center gap-1">🏢 Quản Lý Phòng Ban</h3>
@@ -679,7 +719,7 @@
       depts: [], cats: [], users: [], docs: [], 
       workflows: [], deptWorkflows: {},
       emailConfig: {}, systemLogs: [],
-      maxPdfSizeMB: 20
+      maxPdfSizeMB: 20, ldapConfig: {}
     };
 
     let currentUser = null;
@@ -721,6 +761,7 @@
       DB.emailConfig = data.emailConfig || {};
       DB.systemLogs = data.systemLogs || [];
       DB.maxPdfSizeMB = data.maxPdfSizeMB || 20;
+      DB.ldapConfig = data.ldapConfig || {};
     }
 
     async function syncStorage(key) {
@@ -986,7 +1027,7 @@
         btn.classList.toggle('text-gray-700', key !== subName);
       });
 
-      if (subName === 'users') { renderDeptList(); renderCatList(); renderDeptCheckboxes(); renderUsers(); renderPendingUsers(); loadEmailConfigToForm(); }
+      if (subName === 'users') { renderDeptList(); renderCatList(); renderDeptCheckboxes(); renderUsers(); renderPendingUsers(); loadEmailConfigToForm(); loadLdapConfigToForm(); }
       if (subName === 'workflow') { renderWorkflowTab(); }
       if (subName === 'log') { renderSystemLogs(); }
       if (subName === 'trash') { loadAndRenderTrash(); }
@@ -2437,6 +2478,38 @@
       document.getElementById('cfgSmtpHost').value = DB.emailConfig.smtpHost || 'smtp.gmail.com';
       document.getElementById('cfgSmtpPort').value = DB.emailConfig.smtpPort || 587;
       document.getElementById('cfgSenderEmail').value = DB.emailConfig.senderEmail || 'dms-noreply@company.com';
+    }
+
+    function saveLdapConfig(e) {
+      e.preventDefault();
+      const enabled = document.getElementById('cfgLdapEnabled').value === 'true';
+      const url = document.getElementById('cfgLdapUrl').value.trim();
+      const domain = document.getElementById('cfgLdapDomain').value.trim();
+      if (enabled && !/^ldaps?:\/\//i.test(url)) {
+        return showToast('URL máy chủ LDAP không hợp lệ (phải bắt đầu bằng ldap:// hoặc ldaps://).', 'danger');
+      }
+      if (enabled && !domain) {
+        return showToast('Vui lòng nhập Domain / Tên NetBIOS.', 'danger');
+      }
+      DB.ldapConfig = {
+        enabled,
+        url,
+        bindFormat: document.getElementById('cfgLdapBindFormat').value,
+        domain,
+        tlsRejectUnauthorized: document.getElementById('cfgLdapTlsReject').value === 'true'
+      };
+      syncStorage('ldapConfig');
+      logSystemAction('CONFIG', 'UPDATE_LDAP_CONFIG', `Cập nhật cấu hình đăng nhập LDAP/Active Directory (${enabled ? 'Bật' : 'Tắt'}).`, 'SUCCESS', 'LDAP');
+      showToast('Đã lưu cấu hình LDAP thành công!', 'success');
+    }
+
+    function loadLdapConfigToForm() {
+      if (!DB.ldapConfig) return;
+      document.getElementById('cfgLdapEnabled').value = DB.ldapConfig.enabled ? 'true' : 'false';
+      document.getElementById('cfgLdapUrl').value = DB.ldapConfig.url || '';
+      document.getElementById('cfgLdapBindFormat').value = DB.ldapConfig.bindFormat || 'upn';
+      document.getElementById('cfgLdapDomain').value = DB.ldapConfig.domain || '';
+      document.getElementById('cfgLdapTlsReject').value = DB.ldapConfig.tlsRejectUnauthorized !== false ? 'true' : 'false';
     }
 
     function downloadUserTemplate() {
