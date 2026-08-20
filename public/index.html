@@ -2089,22 +2089,6 @@
 
       logSystemAction('CONFIG', editId ? 'UPDATE_DEPT' : 'CREATE_DEPT', `${editId ? 'Cập nhật' : 'Tạo mới'} phòng ban: ${val} (${abbr})`, 'SUCCESS', val);
       showToast(`Đã ${editId ? 'cập nhật' : 'thêm'} phòng ban ${val}.`, 'success');
-      resetDeptForm();
-      if (isRename) { await loadBootstrapData(); renderUsers(); } // đồng bộ lại tài liệu/phân quyền/quy trình đã được server cập nhật theo tên mới
-      populateDropdowns();
-      renderDeptList();
-      renderDeptCheckboxes();
-    }
-
-    async function deleteDept(name) {
-      const confirmed = await showConfirm({ title: 'Xóa phòng ban', message: `Xóa phòng ban ${name}?`, danger: true, confirmText: 'Xóa' });
-      if (!confirmed) return;
-      const prevDepts = DB.depts;
-      DB.depts = DB.depts.filter(d => d.name !== name);
-      const ok = await syncStorage('depts');
-      if (!ok) { DB.depts = prevDepts; return; }
-      logSystemAction('CONFIG', 'DELETE_DEPT', `Xóa phòng ban: ${name}`, 'SUCCESS', name);
-      showToast(`Đã xóa phòng ban ${name}.`, 'success');
       populateDropdowns();
       renderDeptList();
       renderDeptCheckboxes();
@@ -2164,21 +2148,6 @@
 
       logSystemAction('CONFIG', editId ? 'UPDATE_CAT' : 'CREATE_CAT', `${editId ? 'Cập nhật' : 'Tạo mới'} phân loại: ${val} (${abbr})`, 'SUCCESS', val);
       showToast(`Đã ${editId ? 'cập nhật' : 'thêm'} phân loại ${val}.`, 'success');
-      resetCatForm();
-      if (isRename) { await loadBootstrapData(); } // đồng bộ lại tài liệu đã được server cập nhật theo tên mới
-      populateDropdowns();
-      renderCatList();
-    }
-
-    async function deleteCat(name) {
-      const confirmed = await showConfirm({ title: 'Xóa phân loại', message: `Xóa phân loại ${name}?`, danger: true, confirmText: 'Xóa' });
-      if (!confirmed) return;
-      const prevCats = DB.cats;
-      DB.cats = DB.cats.filter(c => c.name !== name);
-      const ok = await syncStorage('cats');
-      if (!ok) { DB.cats = prevCats; return; }
-      logSystemAction('CONFIG', 'DELETE_CAT', `Xóa phân loại: ${name}`, 'SUCCESS', name);
-      showToast(`Đã xóa phân loại ${name}.`, 'success');
       populateDropdowns();
       renderCatList();
     }
