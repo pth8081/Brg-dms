@@ -137,6 +137,34 @@ CREATE TABLE IF NOT EXISTS lic_software_catalog (
     code VARCHAR(50) NOT NULL
 );
 
+-- Lô phát hành license: mỗi lần "phát hành" tạo ra 1 lô gồm N mã cụ thể cho
+-- 1 công ty + 1 phần mềm, dùng chung ngày cấp/ngày hết hạn của lô. Mã lẻ nằm
+-- ở lic_license_codes, được Phân bổ gán cho từng nhân viên (assigned_employee_id
+-- NULL = chưa cấp cho ai). Ngày hết hạn của Phân bổ LUÔN lấy từ batch, không
+-- lưu lặp ở từng mã để tránh lệch dữ liệu.
+CREATE TABLE IF NOT EXISTS lic_license_batches (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    company_id BIGINT NOT NULL,
+    software_id BIGINT NOT NULL,
+    quantity INT NOT NULL,
+    issued_date DATE NOT NULL,
+    expiry_date DATE NOT NULL,
+    note VARCHAR(500) NULL DEFAULT NULL,
+    created_at VARCHAR(100)
+);
+CREATE INDEX IF NOT EXISTS idx_lic_license_batches_company ON lic_license_batches (company_id);
+CREATE INDEX IF NOT EXISTS idx_lic_license_batches_software ON lic_license_batches (software_id);
+
+CREATE TABLE IF NOT EXISTS lic_license_codes (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    batch_id BIGINT NOT NULL,
+    code VARCHAR(100) UNIQUE NOT NULL,
+    assigned_employee_id BIGINT NULL DEFAULT NULL,
+    assigned_at DATE NULL DEFAULT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_lic_license_codes_batch ON lic_license_codes (batch_id);
+CREATE INDEX IF NOT EXISTS idx_lic_license_codes_employee ON lic_license_codes (assigned_employee_id);
+
 -- Khởi tạo Dữ liệu Mẫu Ban Đầu Cho Môi Trường Mới (Chỉ tạo Admin gốc nếu chưa tồn tại)
 INSERT INTO depts (name, abbr) VALUES ('Phòng IT', 'IT'), ('Phòng Nhân Sự', 'NS'), ('Phòng Kế Toán', 'KT'), ('Ban Giám Đốc', 'BGD')
 ON DUPLICATE KEY UPDATE name=name;
