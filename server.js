@@ -48,7 +48,10 @@ app.use(helmet({
             defaultSrc: ["'self'"],
             scriptSrc: ["'self'", "https://cdn.tailwindcss.com", "'unsafe-inline'"],
             scriptSrcAttr: ["'unsafe-inline'"],
-            styleSrc: ["'self'", "'unsafe-inline'"],
+            // Font trang đăng nhập (Spectral, Be Vietnam Pro) tải từ Google Fonts —
+            // styleSrc cho stylesheet @font-face, fontSrc riêng cho file font nhị phân.
+            styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+            fontSrc: ["'self'", "https://fonts.gstatic.com"],
             imgSrc: ["'self'", "data:", "blob:"],
             frameSrc: ["'self'", "data:", "blob:"],
             objectSrc: ["'none'"],
