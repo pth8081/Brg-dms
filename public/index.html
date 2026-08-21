@@ -3904,7 +3904,7 @@ function isPerpetualSoftware(softwareId) {
       }
     }
     async function deleteBatch(id) {
-      const ok = await showConfirm({ title: 'Xóa lượt phát hành', message: 'Xóa lượt phát hành này? Chỉ xóa được khi các mã nó sinh ra chưa được phân bổ cho nhân viên.', danger: true, confirmText: 'Xóa' });
+      const ok = await showConfirm({ title: 'Xóa lượt phát hành', message: 'Xóa lượt phát hành này? Chỉ xóa được khi các mã nó sinh ra chưa được phân bổ cho nhân viên. Lưu ý: xóa chỉ gỡ bản ghi lịch sử này — nếu lượt phát hành đã gia hạn ngày hết hạn cho các mã cũ, ngày đó KHÔNG tự động quay lại giá trị trước đó.', danger: true, confirmText: 'Xóa' });
       if (!ok) return;
       try {
         await apiFetch(`/api/license/batches/${id}`, { method: 'DELETE' });

@@ -792,7 +792,7 @@ app.post('/api/docs/upload', requireAuth, (req, res, next) => {
         try {
             for (const file of files) {
                 let finalDept = dept, finalCat = cat, finalTitle = customTitle;
-                let docGroupId, versionNo, code, ver, workflowId;
+                let docGroupId, versionNo, code, ver, workflowId, prefix;
 
                 if (mode === 'update') {
                     const groupRows = existingRows.filter(r => String(r.doc_group_id) === String(targetGroupId) && !r.deleted_at);
@@ -831,7 +831,7 @@ app.post('/api/docs/upload', requireAuth, (req, res, next) => {
                     }
                     // Mã tài liệu: BRG-{Viết tắt Phòng ban}-{Viết tắt Phân loại}-{STT tăng dần
                     // theo các mã có cùng tiền tố}. VD: BRG-IT-QT-001, BRG-IT-QT-002...
-                    const prefix = `BRG-${deptAbbr}-${catAbbr}-`;
+                    prefix = `BRG-${deptAbbr}-${catAbbr}-`;
                     const seq = await nextCodeForPrefix(prefix);
                     code = `${prefix}${String(seq).padStart(3, '0')}`;
                     docGroupId = nextDocId();
@@ -862,13 +862,31 @@ app.post('/api/docs/upload', requireAuth, (req, res, next) => {
                 fs.writeFileSync(path.join(UPLOAD_DIR, filePath), stampedBuffer);
                 savedFilePaths.push(filePath);
 
-                await pool.query(
-                    `INSERT INTO docs (id, code, title, ver, dept, cat, summary, file_name, file_type, file_path, created_by, creator_username, created_at, workflow_id, current_step_order, status, history, doc_group_id, version_no)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                    [id, code, finalTitle, ver, finalDept, finalCat, summary, file.originalname, 'application/pdf', filePath,
-                        req.user.name, req.user.username, new Date().toISOString(), workflowId, 1, 'PENDING', JSON.stringify([]),
-                        docGroupId, versionNo]
-                );
+                // Mã tài liệu mới sinh ra từ bộ đếm trong bộ nhớ (không atomic) có thể
+                // trùng với 1 request khác vừa insert xong gần như cùng lúc — ràng buộc
+                // UNIQUE (code, version_no) ở CSDL sẽ chặn insert đó lại; khi gặp đúng
+                // lỗi này (chỉ với tài liệu MỚI, chưa từng insert code cũ nào), làm mới
+                // bộ đếm từ CSDL thực tế rồi sinh mã khác và thử lại (tối đa vài lần).
+                let insertAttempts = 0;
+                while (true) {
+                    try {
+                        await pool.query(
+                            `INSERT INTO docs (id, code, title, ver, dept, cat, summary, file_name, file_type, file_path, created_by, creator_username, created_at, workflow_id, current_step_order, status, history, doc_group_id, version_no)
+                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                            [id, code, finalTitle, ver, finalDept, finalCat, summary, file.originalname, 'application/pdf', filePath,
+                                req.user.name, req.user.username, new Date().toISOString(), workflowId, 1, 'PENDING', JSON.stringify([]),
+                                docGroupId, versionNo]
+                        );
+                        break;
+                    } catch (insertErr) {
+                        const isCodeConflict = mode !== 'update' && insertErr.code === 'ER_DUP_ENTRY' &&
+                            /uq_docs_code_version/.test(insertErr.sqlMessage || '');
+                        insertAttempts++;
+                        if (!isCodeConflict || insertAttempts >= 5) throw insertErr;
+                        codeSeqCache.delete(prefix);
+                        code = `${prefix}${String(await nextCodeForPrefix(prefix)).padStart(3, '0')}`;
+                    }
+                }
 
                 createdDocs.push({ id, code, ver, title: finalTitle });
                 createdIds.push(id);
@@ -934,12 +952,61 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
             const deptWorkflows = cfgRows[0]
                 ? (typeof cfgRows[0].config_value === 'string' ? JSON.parse(cfgRows[0].config_value) : cfgRows[0].config_value)
                 : {};
+            const [workflowRows] = await pool.query('SELECT id, steps FROM workflows');
+            const totalStepsById = new Map(workflowRows.map(w => {
+                const steps = typeof w.steps === 'string' ? JSON.parse(w.steps || '[]') : (w.steps || []);
+                return [w.id, steps.length || 1];
+            }));
 
             function canApproveStep(existingDoc) {
                 if (req.user.perms.admin) return true;
                 const cfg = deptWorkflows[existingDoc.dept];
                 if (!cfg || !cfg.approvers) return false;
                 return cfg.approvers[existingDoc.current_step_order] === req.user.username;
+            }
+            // Server tự tính transition hợp lệ duy nhất cho 1 lượt duyệt/từ chối —
+            // KHÔNG tin currentStepOrder/status/history client gửi lên nguyên vẹn
+            // (trước đây chỉ kiểm tra người dùng có phải người duyệt bước hiện tại
+            // hay không, rồi ghi thẳng toàn bộ 3 giá trị này từ client — cho phép
+            // người duyệt bước 1 tự ý gửi thẳng status=APPROVED/currentStepOrder ở
+            // bước cuối kèm history bịa để "nhảy cóc" qua các bước duyệt sau).
+            // Trả về { ok: true } nếu hợp lệ, hoặc { ok: false, error } nếu không.
+            function validateWorkflowTransition(existingDoc, newStatus, newStepOrder, newHistory, existingHistory) {
+                if (existingDoc.status !== 'PENDING') {
+                    return { ok: false, error: `Tài liệu [${existingDoc.code}] đã được xử lý xong (${existingDoc.status}), không thể sửa lại.` };
+                }
+                if (!Array.isArray(newHistory) || newHistory.length !== existingHistory.length + 1) {
+                    return { ok: false, error: `Dữ liệu duyệt tài liệu [${existingDoc.code}] không hợp lệ.` };
+                }
+                for (let i = 0; i < existingHistory.length; i++) {
+                    if (JSON.stringify(newHistory[i]) !== JSON.stringify(existingHistory[i])) {
+                        return { ok: false, error: `Không được sửa lịch sử duyệt đã có của tài liệu [${existingDoc.code}].` };
+                    }
+                }
+                const entry = newHistory[newHistory.length - 1] || {};
+                if (entry.username !== req.user.username) {
+                    return { ok: false, error: `Dữ liệu duyệt tài liệu [${existingDoc.code}] không hợp lệ (sai người thực hiện).` };
+                }
+                if (entry.stepOrder !== existingDoc.current_step_order) {
+                    return { ok: false, error: `Dữ liệu duyệt tài liệu [${existingDoc.code}] không hợp lệ (sai bước duyệt).` };
+                }
+                const totalSteps = totalStepsById.get(existingDoc.workflow_id) || 1;
+                if (entry.action === 'REJECTED') {
+                    if (newStatus !== 'REJECTED' || newStepOrder !== existingDoc.current_step_order) {
+                        return { ok: false, error: `Dữ liệu từ chối tài liệu [${existingDoc.code}] không hợp lệ.` };
+                    }
+                    return { ok: true };
+                }
+                if (entry.action === 'APPROVED') {
+                    const isFinalStep = existingDoc.current_step_order >= totalSteps;
+                    const expectedStatus = isFinalStep ? 'APPROVED' : 'PENDING';
+                    const expectedStepOrder = isFinalStep ? existingDoc.current_step_order : existingDoc.current_step_order + 1;
+                    if (newStatus !== expectedStatus || newStepOrder !== expectedStepOrder) {
+                        return { ok: false, error: `Dữ liệu phê duyệt tài liệu [${existingDoc.code}] không hợp lệ.` };
+                    }
+                    return { ok: true };
+                }
+                return { ok: false, error: `Hành động duyệt tài liệu [${existingDoc.code}] không hợp lệ.` };
             }
 
             const toUpsert = [];
@@ -976,6 +1043,13 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                 }
                 if (!canApproveStep(existing)) {
                     return res.status(403).json({ error: `Bạn không có quyền duyệt/từ chối tài liệu [${d.code}] ở bước hiện tại.` });
+                }
+                // Admin được bỏ qua kiểm tra transition chặt chẽ (có thể cần sửa tay
+                // 1 tài liệu bị kẹt) — người duyệt thường thì bắt buộc đúng transition
+                // hợp lệ duy nhất, không tự ý nhảy bước/bịa lịch sử.
+                if (!req.user.perms.admin) {
+                    const transitionCheck = validateWorkflowTransition(existing, d.status, d.currentStepOrder, d.history || [], existingHistory);
+                    if (!transitionCheck.ok) return res.status(400).json({ error: transitionCheck.error });
                 }
                 toUpsert.push([
                     d.id, existing.code, existing.title, existing.ver, existing.dept, existing.cat, existing.summary,
@@ -1316,6 +1390,13 @@ app.delete('/api/license/companies/:id', requireAuth, requireAdmin, async (req, 
         if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy công ty.' });
         const [units] = await pool.query('SELECT COUNT(*) AS cnt FROM lic_org_units WHERE company_id = ?', [id]);
         if (units[0].cnt > 0) return res.status(400).json({ error: 'Không thể xóa — công ty vẫn còn đơn vị trực thuộc. Hãy xóa hết đơn vị con trước.' });
+        // Công ty có thể đã được phát hành license / đăng ký mua trước khi có
+        // đơn vị tổ chức nào — kiểm tra thêm để không để lại dữ liệu mồ côi
+        // tham chiếu company_id không còn tồn tại (giống logic xóa phần mềm).
+        const [batches] = await pool.query('SELECT COUNT(*) AS cnt FROM lic_license_batches WHERE company_id = ?', [id]);
+        if (batches[0].cnt > 0) return res.status(400).json({ error: 'Không thể xóa — công ty này đã có lô license được phát hành.' });
+        const [regs] = await pool.query('SELECT COUNT(*) AS cnt FROM lic_purchase_registrations WHERE company_id = ?', [id]);
+        if (regs[0].cnt > 0) return res.status(400).json({ error: 'Không thể xóa — công ty này đã có đăng ký mua bản quyền.' });
         await pool.query('DELETE FROM lic_companies WHERE id = ?', [id]);
         await writeAuditLog({ module: 'LICENSE', actionType: 'DELETE_COMPANY', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: rows[0].name, description: `Xóa công ty [${rows[0].name}] khỏi module Bản quyền.` });
         res.json({ success: true });
@@ -1640,33 +1721,57 @@ app.post('/api/license/codes/:id/assign', requireAuth, requireAdmin, async (req,
         if (!employeeId) return res.status(400).json({ error: 'Vui lòng chọn Nhân viên.' });
         if (!validDateStr(issuedDate)) return res.status(400).json({ error: 'Ngày cấp không hợp lệ.' });
 
-        const [codeRows] = await pool.query(
-            `SELECT c.id, c.code, c.company_id, s.max_assignees, s.allow_cross_company_share
-             FROM lic_license_codes c JOIN lic_software_catalog s ON s.id = c.software_id WHERE c.id = ?`,
-            [id]
-        );
-        if (!codeRows[0]) return res.status(404).json({ error: 'Không tìm thấy mã license.' });
-        const code = codeRows[0];
+        // Dùng transaction + khóa dòng mã license (FOR UPDATE) để 2 request gán
+        // gần như đồng thời cho CÙNG 1 mã phải xếp hàng tuần tự — tránh cả 2 cùng
+        // đọc "chưa đầy slot" rồi cùng insert, vượt quá max_assignees đã cấu hình.
+        // Khóa trên chính dòng lic_license_codes (luôn tồn tại) thay vì dòng
+        // lic_license_code_assignments (có thể chưa có dòng nào nếu là lượt gán
+        // đầu tiên — khóa trên tập rỗng không chặn được request thứ 2).
+        const conn = await pool.getConnection();
+        let empFullName = null, assignedCount = 0, codeLabel = null;
+        try {
+            await conn.beginTransaction();
+            const [codeRows] = await conn.query(
+                `SELECT c.id, c.code, c.company_id, s.max_assignees, s.allow_cross_company_share
+                 FROM lic_license_codes c JOIN lic_software_catalog s ON s.id = c.software_id WHERE c.id = ? FOR UPDATE`,
+                [id]
+            );
+            if (!codeRows[0]) { await conn.rollback(); return res.status(404).json({ error: 'Không tìm thấy mã license.' }); }
+            const code = codeRows[0];
+            codeLabel = code.code;
 
-        const [empRows] = await pool.query(
-            'SELECT e.id, e.full_name, u.company_id FROM lic_employees e JOIN lic_org_units u ON u.id = e.org_unit_id WHERE e.id = ?',
-            [employeeId]
-        );
-        if (!empRows[0]) return res.status(400).json({ error: 'Nhân viên không tồn tại.' });
-        if (!code.allow_cross_company_share && empRows[0].company_id !== code.company_id) {
-            return res.status(400).json({ error: 'Nhân viên không thuộc công ty của mã license này (phần mềm chưa cho phép dùng chung khác công ty).' });
+            const [empRows] = await conn.query(
+                'SELECT e.id, e.full_name, u.company_id FROM lic_employees e JOIN lic_org_units u ON u.id = e.org_unit_id WHERE e.id = ?',
+                [employeeId]
+            );
+            if (!empRows[0]) { await conn.rollback(); return res.status(400).json({ error: 'Nhân viên không tồn tại.' }); }
+            if (!code.allow_cross_company_share && empRows[0].company_id !== code.company_id) {
+                await conn.rollback();
+                return res.status(400).json({ error: 'Nhân viên không thuộc công ty của mã license này (phần mềm chưa cho phép dùng chung khác công ty).' });
+            }
+            empFullName = empRows[0].full_name;
+
+            const [existingAssignments] = await conn.query('SELECT employee_id FROM lic_license_code_assignments WHERE code_id = ?', [id]);
+            if (existingAssignments.some(a => a.employee_id === employeeId)) {
+                await conn.rollback();
+                return res.status(400).json({ error: 'Nhân viên này đã được cấp mã license này rồi.' });
+            }
+            if (existingAssignments.length >= code.max_assignees) {
+                await conn.rollback();
+                return res.status(400).json({ error: `Mã license này đã đủ số người tối đa (${code.max_assignees}) — không thể cấp thêm.` });
+            }
+
+            await conn.query('INSERT INTO lic_license_code_assignments (code_id, employee_id, assigned_at) VALUES (?, ?, ?)', [id, employeeId, issuedDate]);
+            assignedCount = existingAssignments.length + 1;
+            await conn.commit();
+        } catch (e) {
+            await conn.rollback();
+            throw e;
+        } finally {
+            conn.release();
         }
 
-        const [existingAssignments] = await pool.query('SELECT employee_id FROM lic_license_code_assignments WHERE code_id = ?', [id]);
-        if (existingAssignments.some(a => a.employee_id === employeeId)) {
-            return res.status(400).json({ error: 'Nhân viên này đã được cấp mã license này rồi.' });
-        }
-        if (existingAssignments.length >= code.max_assignees) {
-            return res.status(400).json({ error: `Mã license này đã đủ số người tối đa (${code.max_assignees}) — không thể cấp thêm.` });
-        }
-
-        await pool.query('INSERT INTO lic_license_code_assignments (code_id, employee_id, assigned_at) VALUES (?, ?, ?)', [id, employeeId, issuedDate]);
-        await writeAuditLog({ module: 'LICENSE', actionType: 'ASSIGN_CODE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: code.code, description: `Cấp mã license [${code.code}] cho nhân viên [${empRows[0].full_name}], ngày cấp ${issuedDate} (${existingAssignments.length + 1}/${code.max_assignees}).` });
+        await writeAuditLog({ module: 'LICENSE', actionType: 'ASSIGN_CODE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: codeLabel, description: `Cấp mã license [${codeLabel}] cho nhân viên [${empFullName}], ngày cấp ${issuedDate} (${assignedCount}).` });
         res.json({ success: true });
     } catch (err) {
         console.error('❌ Lỗi cấp phát license:', err.message);
@@ -1948,7 +2053,12 @@ app.post('/api/license/org-units/import', requireAuth, requireAdmin, async (req,
         const [existingCompanies] = await pool.query('SELECT * FROM lic_companies');
         const companyByCode = new Map(existingCompanies.map(c => [c.code, c]));
         const [existingUnits] = await pool.query('SELECT * FROM lic_org_units');
-        const unitByKey = new Map(existingUnits.map(u => [`${u.company_id}::${u.name}`, u]));
+        // Key theo CẢ company + parent + tên — không chỉ company + tên — vì cây
+        // tổ chức là N cấp, 2 đơn vị cùng tên nhưng khác nhánh cha (VD "Phòng Kế
+        // Toán" ở Chi nhánh A và Chi nhánh B) là 2 đơn vị KHÁC NHAU, không phải
+        // trùng lặp cần bỏ qua.
+        const orgUnitKey = (companyId, parentId, name) => `${companyId}::${parentId ?? 'root'}::${name}`;
+        const unitByKey = new Map(existingUnits.map(u => [orgUnitKey(u.company_id, u.parent_id, u.name), u]));
 
         const errors = [];
         let companiesCreated = 0, unitsCreated = 0;
@@ -1993,18 +2103,24 @@ app.post('/api/license/org-units/import', requireAuth, requireAdmin, async (req,
 
                 let parentId = null;
                 if (parentName) {
-                    const parent = unitByKey.get(`${company.id}::${parentName}`);
-                    if (!parent) continue; // chưa tạo được cha, thử lượt sau
-                    parentId = parent.id;
+                    // Cha được tìm theo tên trong TOÀN công ty (không biết trước cha của
+                    // cha), nên nếu công ty có 2 đơn vị trùng tên ở 2 nhánh khác nhau thì
+                    // đây vẫn là 1 giới hạn đã biết của việc tra theo tên — chỉ áp dụng
+                    // cho việc tìm CHA, không ảnh hưởng tới việc dedup đơn vị hiện tại
+                    // (đã sửa bên dưới để phân biệt đúng theo từng nhánh cha).
+                    const parentCandidates = [...unitByKey.values()].filter(u => u.company_id === company.id && u.name === parentName);
+                    if (parentCandidates.length === 0) continue; // chưa tạo được cha, thử lượt sau
+                    if (parentCandidates.length > 1) { errors.push(`Dòng ${rowNo}: có nhiều hơn 1 đơn vị tên [${parentName}] trong công ty — không thể xác định đúng đơn vị cha, hãy đổi tên cho không trùng.`); pending.splice(idx, 1); continue; }
+                    parentId = parentCandidates[0].id;
                 }
 
-                const key = `${company.id}::${unitName}`;
-                if (unitByKey.has(key)) { pending.splice(idx, 1); continue; } // đã có sẵn, bỏ qua
+                const key = orgUnitKey(company.id, parentId, unitName);
+                if (unitByKey.has(key)) { pending.splice(idx, 1); continue; } // đã có sẵn (đúng công ty + đúng cha + đúng tên), bỏ qua
                 const [result] = await pool.query(
                     'INSERT INTO lic_org_units (company_id, parent_id, name, level_label, sort_order) VALUES (?, ?, ?, ?, 0)',
                     [company.id, parentId, unitName, level]
                 );
-                unitByKey.set(key, { id: result.insertId, company_id: company.id, name: unitName });
+                unitByKey.set(key, { id: result.insertId, company_id: company.id, parent_id: parentId, name: unitName });
                 unitsCreated++;
                 pending.splice(idx, 1);
                 progress = true;
@@ -2030,9 +2146,19 @@ app.post('/api/license/employees/import', requireAuth, requireAdmin, async (req,
         const [companies] = await pool.query('SELECT * FROM lic_companies');
         const companyByCode = new Map(companies.map(c => [c.code, c]));
         const [units] = await pool.query('SELECT * FROM lic_org_units');
-        const unitByKey = new Map(units.map(u => [`${u.company_id}::${u.name}`, u]));
         const [existingEmployees] = await pool.query('SELECT * FROM lic_employees');
-        const employeeByCode = new Map(existingEmployees.filter(e => e.employee_code).map(e => [e.employee_code, e]));
+        const unitById = new Map(units.map(u => [u.id, u]));
+        // Key theo CẢ company + mã NV — không chỉ mã NV — vì mỗi công ty tự đánh
+        // số mã nhân viên độc lập, trùng mã giữa 2 công ty khác nhau là bình
+        // thường (không phải cùng 1 người) — trước đây match toàn hệ thống nên
+        // nhập CSV công ty B có thể ghi đè nhầm nhân viên trùng mã của công ty A.
+        const employeeByCompanyAndCode = new Map();
+        existingEmployees.forEach(e => {
+            if (!e.employee_code) return;
+            const unit = unitById.get(e.org_unit_id);
+            if (!unit) return;
+            employeeByCompanyAndCode.set(`${unit.company_id}::${e.employee_code}`, e);
+        });
 
         const errors = [];
         let created = 0, updated = 0;
@@ -2050,11 +2176,14 @@ app.post('/api/license/employees/import', requireAuth, requireAdmin, async (req,
             if (!fullName) { errors.push(`Dòng ${rowNo}: thiếu Họ và tên.`); continue; }
             const company = companyByCode.get(companyCode);
             if (!company) { errors.push(`Dòng ${rowNo}: không tìm thấy công ty mã [${companyCode}].`); continue; }
-            const unit = unitByKey.get(`${company.id}::${unitName}`);
-            if (!unit) { errors.push(`Dòng ${rowNo}: không tìm thấy đơn vị [${unitName}] trong công ty [${companyCode}] — nhập Tổ chức công ty trước.`); continue; }
+            const candidateUnits = units.filter(u => u.company_id === company.id && u.name === unitName);
+            if (candidateUnits.length === 0) { errors.push(`Dòng ${rowNo}: không tìm thấy đơn vị [${unitName}] trong công ty [${companyCode}] — nhập Tổ chức công ty trước.`); continue; }
+            if (candidateUnits.length > 1) { errors.push(`Dòng ${rowNo}: có nhiều hơn 1 đơn vị tên [${unitName}] trong công ty [${companyCode}] — không thể xác định đúng đơn vị, hãy đổi tên đơn vị cho không trùng.`); continue; }
+            const unit = candidateUnits[0];
 
-            if (employeeCode && employeeByCode.has(employeeCode)) {
-                const existing = employeeByCode.get(employeeCode);
+            const employeeKey = `${company.id}::${employeeCode}`;
+            if (employeeCode && employeeByCompanyAndCode.has(employeeKey)) {
+                const existing = employeeByCompanyAndCode.get(employeeKey);
                 await pool.query(
                     'UPDATE lic_employees SET org_unit_id = ?, full_name = ?, title = ?, email = ? WHERE id = ?',
                     [unit.id, fullName, title || null, email || null, existing.id]
@@ -2065,7 +2194,7 @@ app.post('/api/license/employees/import', requireAuth, requireAdmin, async (req,
                     'INSERT INTO lic_employees (org_unit_id, full_name, title, employee_code, email, active) VALUES (?, ?, ?, ?, ?, TRUE)',
                     [unit.id, fullName, title || null, employeeCode || null, email || null]
                 );
-                if (employeeCode) employeeByCode.set(employeeCode, { id: result.insertId, employee_code: employeeCode });
+                if (employeeCode) employeeByCompanyAndCode.set(employeeKey, { id: result.insertId, employee_code: employeeCode });
                 created++;
             }
         }

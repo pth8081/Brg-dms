@@ -26,6 +26,29 @@ BEGIN
 END$$
 DELIMITER ;
 
+-- Tương tự create_index_if_not_exists nhưng tạo UNIQUE INDEX — dùng để chặn
+-- trùng lặp ở tầng CSDL (VD mã tài liệu trùng do 2 request ghi đồng thời),
+-- không chỉ dựa vào kiểm tra ở tầng ứng dụng (vốn không atomic).
+DELIMITER $$
+DROP PROCEDURE IF EXISTS create_unique_index_if_not_exists$$
+CREATE PROCEDURE create_unique_index_if_not_exists(
+    IN p_table_name VARCHAR(64),
+    IN p_index_name VARCHAR(64),
+    IN p_columns VARCHAR(255)
+)
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = p_table_name AND INDEX_NAME = p_index_name
+    ) THEN
+        SET @create_uidx_sql = CONCAT('CREATE UNIQUE INDEX ', p_index_name, ' ON ', p_table_name, ' (', p_columns, ')');
+        PREPARE stmt_create_uidx FROM @create_uidx_sql;
+        EXECUTE stmt_create_uidx;
+        DEALLOCATE PREPARE stmt_create_uidx;
+    END IF;
+END$$
+DELIMITER ;
+
 -- "ADD COLUMN IF NOT EXISTS" cũng là cú pháp RIÊNG của MariaDB — MySQL chuẩn
 -- (đã kiểm chứng thật trên MySQL 8.0.46) KHÔNG hỗ trợ, báo lỗi cú pháp giống
 -- hệt CREATE INDEX ở trên. Thủ tục này thay thế, chạy được trên cả 2 hệ.
@@ -123,6 +146,15 @@ CREATE TABLE IF NOT EXISTS docs (
     deleted_at DATETIME NULL DEFAULT NULL,
     deleted_by VARCHAR(100) NULL DEFAULT NULL
 );
+-- Chặn trùng mã tài liệu ở tầng CSDL: mã tự sinh (đếm-rồi-tăng, không atomic)
+-- có thể trùng nếu 2 người upload gần như đồng thời cho cùng phòng ban+phân
+-- loại — UNIQUE (code, version_no) vẫn cho phép NHIỀU phiên bản của CÙNG 1
+-- tài liệu dùng chung 1 mã (version_no khác nhau), chỉ chặn 2 tài liệu KHÁC
+-- NHAU (2 doc_group_id khác nhau) cùng nhận trùng mã ở version_no=1.
+-- Lưu ý khi nâng cấp CSDL cũ: nếu ALTER này báo lỗi trùng lặp, nghĩa là CSDL
+-- đã có sẵn dữ liệu trùng mã từ trước (đúng lỗi mà ràng buộc này ngăn chặn) —
+-- cần dò và xử lý thủ công các dòng trùng trước khi chạy lại.
+CALL create_unique_index_if_not_exists('docs', 'uq_docs_code_version', 'code, version_no');
 
 -- Migrate cho CSDL đã tồn tại từ trước (không có sẵn các cột trên): thêm cột
 -- nếu thiếu, rồi gán mỗi tài liệu cũ thành nhóm 1 phiên bản của chính nó.
@@ -374,6 +406,7 @@ ALTER TABLE lic_purchase_registrations MODIFY COLUMN expiry_date DATE NULL DEFAU
 
 -- Dọn dẹp: xóa các thủ tục tạm sau khi dùng xong, không để lại trong CSDL thật.
 DROP PROCEDURE IF EXISTS create_index_if_not_exists;
+DROP PROCEDURE IF EXISTS create_unique_index_if_not_exists;
 DROP PROCEDURE IF EXISTS add_column_if_not_exists;
 DROP PROCEDURE IF EXISTS drop_column_if_exists;
 
