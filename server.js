@@ -1195,7 +1195,15 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
 function mapCompany(c) { return { id: c.id, name: c.name, code: c.code, active: !!c.active }; }
 function mapOrgUnit(u) { return { id: u.id, companyId: u.company_id, parentId: u.parent_id, name: u.name, level: u.level_label, sortOrder: u.sort_order }; }
 function mapEmployee(e) { return { id: e.id, orgUnitId: e.org_unit_id, fullName: e.full_name, title: e.title, employeeCode: e.employee_code, email: e.email, active: !!e.active }; }
-function mapSoftware(s) { return { id: s.id, name: s.name, code: s.code }; }
+function mapSoftware(s) { return { id: s.id, name: s.name, code: s.code, defaultDurationMonths: s.default_duration_months }; }
+// Trả về số tháng hợp lệ (1-120), hoặc null nếu không cấu hình. Ném lỗi rõ
+// ràng nếu client gửi giá trị không hợp lệ (không phải số nguyên dương).
+function parseDurationMonths(raw) {
+    if (raw === undefined || raw === null || raw === '') return { value: null };
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n < 1 || n > 120) return { error: 'Thời hạn mặc định phải là số nguyên từ 1 đến 120 tháng, hoặc để trống nếu không cấu hình.' };
+    return { value: n };
+}
 function validCode(code, maxLen) {
     return typeof code === 'string' && new RegExp(`^[A-Z0-9]{1,${maxLen}}$`).test(code);
 }
@@ -1426,8 +1434,10 @@ app.post('/api/license/software', requireAuth, requireAdmin, async (req, res) =>
         const code = String((req.body && req.body.code) || '').trim().toUpperCase();
         if (!name) return res.status(400).json({ error: 'Tên phần mềm không được để trống.' });
         if (!validCode(code, 50)) return res.status(400).json({ error: 'Mã phần mềm không hợp lệ (chỉ chữ/số không dấu, tối đa 50 ký tự).' });
-        const [result] = await pool.query('INSERT INTO lic_software_catalog (name, code) VALUES (?, ?)', [name, code]);
-        await writeAuditLog({ module: 'LICENSE', actionType: 'CREATE_SOFTWARE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: name, description: `Thêm phần mềm [${name}] (mã ${code}) vào danh mục.` });
+        const duration = parseDurationMonths(req.body && req.body.defaultDurationMonths);
+        if (duration.error) return res.status(400).json({ error: duration.error });
+        const [result] = await pool.query('INSERT INTO lic_software_catalog (name, code, default_duration_months) VALUES (?, ?, ?)', [name, code, duration.value]);
+        await writeAuditLog({ module: 'LICENSE', actionType: 'CREATE_SOFTWARE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: name, description: `Thêm phần mềm [${name}] (mã ${code}) vào danh mục${duration.value ? `, thời hạn mặc định ${duration.value} tháng` : ''}.` });
         res.json({ success: true, id: result.insertId });
     } catch (err) {
         if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Tên phần mềm đã tồn tại.' });
@@ -1443,7 +1453,9 @@ app.put('/api/license/software/:id', requireAuth, requireAdmin, async (req, res)
         const code = String((req.body && req.body.code) || '').trim().toUpperCase();
         if (!name) return res.status(400).json({ error: 'Tên phần mềm không được để trống.' });
         if (!validCode(code, 50)) return res.status(400).json({ error: 'Mã phần mềm không hợp lệ (chỉ chữ/số không dấu, tối đa 50 ký tự).' });
-        const [result] = await pool.query('UPDATE lic_software_catalog SET name = ?, code = ? WHERE id = ?', [name, code, id]);
+        const duration = parseDurationMonths(req.body && req.body.defaultDurationMonths);
+        if (duration.error) return res.status(400).json({ error: duration.error });
+        const [result] = await pool.query('UPDATE lic_software_catalog SET name = ?, code = ?, default_duration_months = ? WHERE id = ?', [name, code, duration.value, id]);
         if (result.affectedRows === 0) return res.status(404).json({ error: 'Không tìm thấy phần mềm.' });
         await writeAuditLog({ module: 'LICENSE', actionType: 'UPDATE_SOFTWARE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: name, description: `Cập nhật phần mềm [${name}] (mã ${code}).` });
         res.json({ success: true });
