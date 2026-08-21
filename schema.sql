@@ -182,8 +182,13 @@ CALL create_index_if_not_exists('lic_employees', 'idx_lic_employees_org_unit', '
 CREATE TABLE IF NOT EXISTS lic_software_catalog (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) UNIQUE NOT NULL,
-    code VARCHAR(50) NOT NULL
+    code VARCHAR(50) NOT NULL,
+    default_duration_months INT NULL DEFAULT NULL
 );
+-- Nâng cấp CSDL cũ: thêm cột thời hạn mặc định (tháng) cho từng phần mềm —
+-- NULL nghĩa là chưa cấu hình, khi tạo hạng mục kỳ mua vẫn phải nhập tay
+-- Ngày hết hạn như trước; có cấu hình thì tự tính = hôm nay + số tháng này.
+CALL add_column_if_not_exists('lic_software_catalog', 'default_duration_months', 'INT NULL DEFAULT NULL');
 
 -- Phát hành license: MỖI LẦN phát hành cho 1 công ty + 1 phần mềm là 1 lần
 -- "gia hạn" — số lượng nhập vào là TỔNG SỐ LƯỢNG MONG MUỐN hiện tại (không

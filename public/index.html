@@ -805,11 +805,12 @@
     <div id="licenseSubSoftware" class="hidden space-y-3">
       <button onclick="openSoftwareModal()" class="bg-teal-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-teal-700 transition text-xs">+ Thêm phần mềm</button>
       <div class="overflow-x-auto">
-        <table class="w-full border-collapse border bg-white text-xs max-w-xl">
+        <table class="w-full border-collapse border bg-white text-xs max-w-2xl">
           <thead>
             <tr class="bg-gray-100 text-left">
               <th class="border p-2">Tên phần mềm</th>
               <th class="border p-2">Mã</th>
+              <th class="border p-2 text-center">Thời hạn mặc định</th>
               <th class="border p-2 text-center">Thao tác</th>
             </tr>
           </thead>
@@ -1058,6 +1059,11 @@
         <label class="block text-xs font-semibold text-gray-600 mb-1">Mã phần mềm</label>
         <input id="softwareCode" type="text" maxlength="50" class="w-full border p-2 rounded text-sm" placeholder="VD: O365">
       </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Thời hạn mặc định (tháng, tùy chọn)</label>
+        <input id="softwareDuration" type="number" min="1" max="120" class="w-full border p-2 rounded text-sm" placeholder="VD: 12">
+        <p class="text-[11px] text-gray-500 mt-1">Nếu có, khi thêm phần mềm này vào kỳ mua, Ngày hết hạn sẽ tự tính = hôm nay + số tháng này.</p>
+      </div>
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" onclick="closeLicenseModal('softwareModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
         <button type="button" onclick="saveSoftware()" class="bg-teal-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-teal-700">Lưu</button>
@@ -1144,15 +1150,37 @@
 
   <!-- MODAL: Tạo Kỳ mua bản quyền -->
   <div id="roundModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">
-    <div class="bg-white rounded-lg shadow-2xl max-w-sm w-full p-5 space-y-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-2xl w-full p-5 space-y-4 max-h-[90vh] overflow-y-auto">
       <h3 class="font-bold text-gray-900 text-base">Tạo kỳ mua bản quyền</h3>
-      <div>
-        <label class="block text-xs font-semibold text-gray-600 mb-1">Tên kỳ mua</label>
-        <input id="roundName" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Ngân sách Quý 1/2027">
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Tên kỳ mua</label>
+          <input id="roundName" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Ngân sách Quý 1/2027">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Ghi chú (tùy chọn)</label>
+          <input id="roundNote" type="text" class="w-full border p-2 rounded text-sm">
+        </div>
       </div>
       <div>
-        <label class="block text-xs font-semibold text-gray-600 mb-1">Ghi chú (tùy chọn)</label>
-        <input id="roundNote" type="text" class="w-full border p-2 rounded text-sm">
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Danh sách phần mềm trong kỳ</label>
+        <div class="overflow-x-auto border rounded">
+          <table class="w-full text-xs border-collapse">
+            <thead>
+              <tr class="bg-gray-100 text-left">
+                <th class="border p-2">Phần mềm</th>
+                <th class="border p-2">Đơn giá (VNĐ)</th>
+                <th class="border p-2">Ngày hết hạn</th>
+                <th class="border p-2 w-8"></th>
+              </tr>
+            </thead>
+            <tbody id="roundCreateItemsBody"></tbody>
+          </table>
+        </div>
+        <div class="flex justify-between items-center mt-2">
+          <button type="button" onclick="addRoundCreateRow()" class="text-xs font-semibold text-teal-700 bg-teal-50 border border-dashed border-teal-600 rounded px-2.5 py-1.5 hover:bg-teal-100">+ Thêm dòng</button>
+          <span id="roundCreateItemsHint" class="text-[11px] text-gray-500"></span>
+        </div>
       </div>
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" onclick="closeLicenseModal('roundModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
@@ -1168,7 +1196,7 @@
       <input type="hidden" id="roundItemRoundId">
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Phần mềm</label>
-        <select id="roundItemSoftware" class="w-full border p-2 rounded text-sm bg-white"></select>
+        <select id="roundItemSoftware" onchange="onRoundItemSoftwareChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
       </div>
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn giá (VNĐ)</label>
@@ -1177,6 +1205,7 @@
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày hết hạn dự kiến</label>
         <input id="roundItemExpiryDate" type="date" class="w-full border p-2 rounded text-sm">
+        <p id="roundItemDurationHint" class="text-[11px] text-gray-500 mt-1"></p>
       </div>
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" onclick="closeLicenseModal('roundItemModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
@@ -1187,37 +1216,43 @@
 
   <!-- MODAL: Đăng ký mua bản quyền -->
   <div id="registrationModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">
-    <div class="bg-white rounded-lg shadow-2xl max-w-sm w-full p-5 space-y-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-3xl w-full p-5 space-y-4 max-h-[90vh] overflow-y-auto">
       <h3 class="font-bold text-gray-900 text-base">Đăng ký mua bản quyền</h3>
-      <div>
-        <label class="block text-xs font-semibold text-gray-600 mb-1">Kỳ mua</label>
-        <select id="regRound" onchange="onRegRoundChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
-      </div>
-      <div>
-        <label class="block text-xs font-semibold text-gray-600 mb-1">Công ty</label>
-        <select id="regCompany" onchange="onRegInputChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
-      </div>
-      <div>
-        <label class="block text-xs font-semibold text-gray-600 mb-1">Phần mềm (trong kỳ này)</label>
-        <select id="regSoftware" onchange="onRegInputChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
-      </div>
-      <div class="grid grid-cols-2 gap-2 text-xs">
-        <div class="bg-gray-50 border rounded p-2">
-          <div class="text-gray-500">Đang dùng</div>
-          <div id="regCurrentQuantity" class="font-bold text-gray-800">—</div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Kỳ mua</label>
+          <select id="regRound" onchange="onRegRoundOrCompanyChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
         </div>
-        <div class="bg-gray-50 border rounded p-2">
-          <div class="text-gray-500">Đơn giá</div>
-          <div id="regUnitPrice" class="font-bold text-gray-800">—</div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Công ty</label>
+          <select id="regCompany" onchange="onRegRoundOrCompanyChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
         </div>
       </div>
-      <div>
-        <label class="block text-xs font-semibold text-gray-600 mb-1">Số lượng đăng ký mới (tổng số mong muốn)</label>
-        <input id="regQuantity" type="number" min="1" max="5000" oninput="onRegInputChange()" class="w-full border p-2 rounded text-sm" placeholder="VD: 15">
+      <div class="bg-teal-50 border border-teal-200 rounded p-2 text-[11px] text-teal-800">
+        Phần mềm công ty đang dùng mà sắp/đã hết hạn được tự động thêm sẵn bên dưới. Phần mềm mua mới thì bấm "+ Thêm dòng".
       </div>
-      <div class="bg-teal-50 border border-teal-200 rounded p-2 text-xs flex justify-between items-center">
-        <span class="text-teal-800 font-semibold">Thành tiền</span>
-        <span id="regTotalAmount" class="font-bold text-teal-900">0 ₫</span>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Danh sách phần mềm đăng ký</label>
+        <div class="overflow-x-auto border rounded">
+          <table class="w-full text-xs border-collapse">
+            <thead>
+              <tr class="bg-gray-100 text-left">
+                <th class="border p-2">Phần mềm</th>
+                <th class="border p-2">Hạn hiện tại</th>
+                <th class="border p-2 text-center">Đang dùng</th>
+                <th class="border p-2">SL đăng ký mới</th>
+                <th class="border p-2">Hạn mới (nếu mua)</th>
+                <th class="border p-2 text-right">Thành tiền</th>
+                <th class="border p-2 w-8"></th>
+              </tr>
+            </thead>
+            <tbody id="regItemsBody"></tbody>
+          </table>
+        </div>
+        <div class="flex justify-between items-center mt-2">
+          <button type="button" onclick="addRegRow()" class="text-xs font-semibold text-teal-700 bg-teal-50 border border-dashed border-teal-600 rounded px-2.5 py-1.5 hover:bg-teal-100">+ Thêm dòng</button>
+          <span class="text-xs text-gray-600">Tổng cộng <strong id="regTotal" class="text-teal-700">0 ₫</strong></span>
+        </div>
       </div>
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Ghi chú (tùy chọn)</label>
@@ -3673,13 +3708,14 @@
     function renderSoftwareTable() {
       const tbody = document.getElementById('softwareTableBody');
       if (licenseDB.softwareCatalog.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="3" class="text-center p-4 text-gray-500">Chưa có phần mềm nào trong danh mục.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="4" class="text-center p-4 text-gray-500">Chưa có phần mềm nào trong danh mục.</td></tr>`;
         return;
       }
       tbody.innerHTML = licenseDB.softwareCatalog.map(s => `
         <tr class="hover:bg-gray-50">
           <td class="border p-2 font-semibold">${escapeHtml(s.name)}</td>
           <td class="border p-2 font-mono">${escapeHtml(s.code)}</td>
+          <td class="border p-2 text-center text-gray-600">${s.defaultDurationMonths ? s.defaultDurationMonths + ' tháng' : '—'}</td>
           <td class="border p-2 text-center">
             <button onclick="openSoftwareModal(${s.id})" class="px-1.5 py-0.5 rounded hover:bg-gray-200">✏️</button>
             <button onclick="deleteSoftware(${s.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600">🗑️</button>
@@ -3693,19 +3729,25 @@
       document.getElementById('softwareEditId').value = id || '';
       document.getElementById('softwareName').value = s ? s.name : '';
       document.getElementById('softwareCode').value = s ? s.code : '';
+      document.getElementById('softwareDuration').value = (s && s.defaultDurationMonths) ? s.defaultDurationMonths : '';
       openLicenseModal('softwareModal');
     }
     async function saveSoftware() {
       const id = document.getElementById('softwareEditId').value;
       const name = document.getElementById('softwareName').value.trim();
       const code = document.getElementById('softwareCode').value.trim();
+      const durationRaw = document.getElementById('softwareDuration').value.trim();
+      const defaultDurationMonths = durationRaw ? Number(durationRaw) : null;
       if (!name || !code) return showToast('Vui lòng nhập đủ Tên và Mã phần mềm.', 'warning');
+      if (defaultDurationMonths !== null && (!Number.isInteger(defaultDurationMonths) || defaultDurationMonths < 1 || defaultDurationMonths > 120)) {
+        return showToast('Thời hạn mặc định phải là số nguyên từ 1 đến 120 tháng, hoặc để trống.', 'warning');
+      }
       try {
         if (id) {
-          await apiFetch(`/api/license/software/${id}`, { method: 'PUT', body: JSON.stringify({ name, code }) });
+          await apiFetch(`/api/license/software/${id}`, { method: 'PUT', body: JSON.stringify({ name, code, defaultDurationMonths }) });
           showToast(`Đã cập nhật phần mềm "${name}".`, 'success');
         } else {
-          await apiFetch('/api/license/software', { method: 'POST', body: JSON.stringify({ name, code }) });
+          await apiFetch('/api/license/software', { method: 'POST', body: JSON.stringify({ name, code, defaultDurationMonths }) });
           showToast(`Đã thêm phần mềm "${name}".`, 'success');
         }
         closeLicenseModal('softwareModal');
@@ -4079,18 +4121,80 @@
         `;
       }).join('');
     }
+    // --- Bảng nhiều dòng phần mềm khi Tạo kỳ mua mới ---
+    let roundCreateRows = [];
+    let roundCreateRowSeq = 1;
+    function renderRoundCreateRows() {
+      const tbody = document.getElementById('roundCreateItemsBody');
+      const hint = document.getElementById('roundCreateItemsHint');
+      if (roundCreateRows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="4" class="text-center text-gray-400 p-3">Chưa có phần mềm nào — bấm "+ Thêm dòng" để bắt đầu.</td></tr>`;
+        hint.textContent = '';
+        return;
+      }
+      hint.textContent = `${roundCreateRows.length} phần mềm`;
+      tbody.innerHTML = roundCreateRows.map(row => {
+        const usedElsewhere = new Set(roundCreateRows.filter(r => r.id !== row.id).map(r => r.softwareId));
+        const options = licenseDB.softwareCatalog.filter(s => s.id === row.softwareId || !usedElsewhere.has(s.id));
+        return `
+          <tr>
+            <td class="border p-1.5">
+              <select onchange="updateRoundCreateRow(${row.id}, 'softwareId', Number(this.value))" class="w-full border p-1 rounded text-xs bg-white">
+                ${options.map(s => `<option value="${s.id}" ${s.id === row.softwareId ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('')}
+              </select>
+            </td>
+            <td class="border p-1.5">
+              <input type="number" min="0" step="1000" value="${row.unitPrice}" oninput="updateRoundCreateRow(${row.id}, 'unitPrice', Number(this.value))" class="w-full border p-1 rounded text-xs">
+            </td>
+            <td class="border p-1.5">
+              <input type="date" value="${row.expiryDate}" onchange="updateRoundCreateRow(${row.id}, 'expiryDate', this.value)" class="w-full border p-1 rounded text-xs">
+            </td>
+            <td class="border p-1.5 text-center">
+              <button type="button" onclick="removeRoundCreateRow(${row.id})" class="text-red-500 hover:text-red-700">🗑️</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+    function updateRoundCreateRow(id, field, value) {
+      const row = roundCreateRows.find(r => r.id === id);
+      if (!row) return;
+      row[field] = value;
+      if (field === 'softwareId') {
+        const sw = licenseDB.softwareCatalog.find(s => s.id === value);
+        row.expiryDate = (sw && sw.defaultDurationMonths) ? addMonthsISO(sw.defaultDurationMonths) : row.expiryDate;
+        renderRoundCreateRows();
+      }
+    }
+    function removeRoundCreateRow(id) {
+      roundCreateRows = roundCreateRows.filter(r => r.id !== id);
+      renderRoundCreateRows();
+    }
+    function addRoundCreateRow() {
+      const usedIds = new Set(roundCreateRows.map(r => r.softwareId));
+      const next = licenseDB.softwareCatalog.find(s => !usedIds.has(s.id));
+      if (!next) { showToast('Đã thêm hết danh mục phần mềm hiện có.', 'warning'); return; }
+      const expiryDate = next.defaultDurationMonths ? addMonthsISO(next.defaultDurationMonths) : '';
+      roundCreateRows.push({ id: roundCreateRowSeq++, softwareId: next.id, unitPrice: 0, expiryDate });
+      renderRoundCreateRows();
+    }
     function openRoundModal() {
       document.getElementById('roundName').value = '';
       document.getElementById('roundNote').value = '';
+      roundCreateRows = [];
+      renderRoundCreateRows();
       openLicenseModal('roundModal');
     }
     async function saveRound() {
       const name = document.getElementById('roundName').value.trim();
       const note = document.getElementById('roundNote').value.trim();
       if (!name) return showToast('Vui lòng nhập Tên kỳ mua.', 'warning');
+      const invalidRow = roundCreateRows.find(r => !r.expiryDate || r.unitPrice < 0);
+      if (invalidRow) return showToast('Vui lòng nhập đủ Đơn giá và Ngày hết hạn cho mọi dòng phần mềm.', 'warning');
+      const items = roundCreateRows.map(r => ({ softwareId: r.softwareId, unitPrice: r.unitPrice, expiryDate: r.expiryDate }));
       try {
-        await apiFetch('/api/license/rounds', { method: 'POST', body: JSON.stringify({ name, note }) });
-        showToast(`Đã tạo kỳ mua "${name}".`, 'success');
+        await apiFetch('/api/license/rounds', { method: 'POST', body: JSON.stringify({ name, note, items }) });
+        showToast(`Đã tạo kỳ mua "${name}"${items.length ? ` với ${items.length} phần mềm` : ''}.`, 'success');
         closeLicenseModal('roundModal');
         licenseDB.loaded = false;
         await loadLicenseBootstrapData();
@@ -4110,6 +4214,26 @@
         showToast(err.message, 'danger');
       }
     }
+    // Cộng số tháng vào ngày hôm nay, trả về chuỗi YYYY-MM-DD.
+    function addMonthsISO(months) {
+      const d = new Date();
+      d.setMonth(d.getMonth() + months);
+      return d.toISOString().slice(0, 10);
+    }
+    // Chọn phần mềm đã cấu hình Thời hạn mặc định -> tự tính Ngày hết hạn =
+    // hôm nay + số tháng đó. Phần mềm chưa cấu hình thì giữ nguyên, để Admin
+    // tự nhập tay như trước.
+    function onRoundItemSoftwareChange() {
+      const softwareId = Number(document.getElementById('roundItemSoftware').value) || null;
+      const sw = softwareId ? licenseDB.softwareCatalog.find(s => s.id === softwareId) : null;
+      const hint = document.getElementById('roundItemDurationHint');
+      if (sw && sw.defaultDurationMonths) {
+        document.getElementById('roundItemExpiryDate').value = addMonthsISO(sw.defaultDurationMonths);
+        hint.textContent = `Tự tính theo thời hạn mặc định của phần mềm này (${sw.defaultDurationMonths} tháng) — vẫn có thể sửa lại.`;
+      } else {
+        hint.textContent = '';
+      }
+    }
     function openRoundItemModal(roundId) {
       document.getElementById('roundItemRoundId').value = roundId;
       const usedSoftwareIds = new Set(licenseDB.purchaseRoundItems.filter(i => i.roundId === roundId).map(i => i.softwareId));
@@ -4120,6 +4244,7 @@
       document.getElementById('roundItemUnitPrice').value = '';
       document.getElementById('roundItemExpiryDate').value = '';
       openLicenseModal('roundItemModal');
+      onRoundItemSoftwareChange();
     }
     async function saveRoundItem() {
       const roundId = Number(document.getElementById('roundItemRoundId').value);
@@ -4255,52 +4380,133 @@
         `;
       }).join('');
     }
+    // --- Bảng nhiều dòng phần mềm khi Đăng ký mua bản quyền ---
+    // Tự động liệt kê sẵn phần mềm công ty đang dùng mà sắp/đã hết hạn (nằm
+    // trong phạm vi phần mềm có ở kỳ mua này) — dựa trên licenseDB.licenseCodes
+    // đã có sẵn từ bootstrap, không cần gọi thêm API.
+    const REG_RENEWAL_WINDOW_DAYS = 30;
+    let regRows = [];
+    let regRowSeq = 1;
+    function nearestExpiryFor(companyId, softwareId) {
+      const codes = licenseDB.licenseCodes.filter(c => c.companyId === companyId && c.softwareId === softwareId);
+      return codes.reduce((min, c) => (!min || c.expiryDate < min) ? c.expiryDate : min, null);
+    }
+    function isRenewalCandidate(companyId, softwareId) {
+      const expiry = nearestExpiryFor(companyId, softwareId);
+      if (!expiry) return false;
+      const diffDays = Math.floor((new Date(expiry) - new Date(new Date().toDateString())) / 86400000);
+      return diffDays <= REG_RENEWAL_WINDOW_DAYS;
+    }
+    function regExpiryBadge(companyId, softwareId) {
+      const expiry = nearestExpiryFor(companyId, softwareId);
+      if (!expiry) return '<span class="text-gray-400">— chưa từng mua</span>';
+      const diffDays = Math.floor((new Date(expiry) - new Date(new Date().toDateString())) / 86400000);
+      let tag;
+      if (diffDays < 0) tag = `<span class="text-[10px] font-bold text-red-700 bg-red-100 px-1.5 py-0.5 rounded-full">Đã hết hạn</span>`;
+      else if (diffDays <= REG_RENEWAL_WINDOW_DAYS) tag = `<span class="text-[10px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full">Còn ${diffDays} ngày</span>`;
+      else tag = `<span class="text-[10px] font-bold text-green-700 bg-green-100 px-1.5 py-0.5 rounded-full">Còn hạn</span>`;
+      return `<div class="flex flex-col gap-0.5">${tag}<span class="text-[10px] text-gray-400">${expiry}</span></div>`;
+    }
+    function autoPopulateRegRows() {
+      const companyId = Number(document.getElementById('regCompany').value) || null;
+      const roundId = Number(document.getElementById('regRound').value) || null;
+      regRows = [];
+      if (companyId && roundId) {
+        licenseDB.purchaseRoundItems.filter(i => i.roundId === roundId).forEach(it => {
+          if (isRenewalCandidate(companyId, it.softwareId)) {
+            regRows.push({ id: regRowSeq++, roundItemId: it.id, quantity: currentCodeCount(companyId, it.softwareId), auto: true });
+          }
+        });
+      }
+      renderRegRows();
+    }
+    function onRegRoundOrCompanyChange() {
+      autoPopulateRegRows();
+    }
+    function renderRegRows() {
+      const tbody = document.getElementById('regItemsBody');
+      const companyId = Number(document.getElementById('regCompany').value) || null;
+      const roundId = Number(document.getElementById('regRound').value) || null;
+      const roundItems = roundId ? licenseDB.purchaseRoundItems.filter(i => i.roundId === roundId) : [];
+      if (regRows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center text-gray-400 p-3">Không có phần mềm nào sắp hết hạn cho công ty này — bấm "+ Thêm dòng" để đăng ký mua mới.</td></tr>`;
+      } else {
+        tbody.innerHTML = regRows.map(row => {
+          const usedElsewhere = new Set(regRows.filter(r => r.id !== row.id).map(r => r.roundItemId));
+          const options = roundItems.filter(it => it.id === row.roundItemId || !usedElsewhere.has(it.id));
+          const item = roundItems.find(it => it.id === row.roundItemId);
+          const used = (companyId && item) ? currentCodeCount(companyId, item.softwareId) : 0;
+          const total = item ? item.unitPrice * (row.quantity || 0) : 0;
+          return `
+            <tr>
+              <td class="border p-1.5">
+                <select onchange="updateRegRow(${row.id}, 'roundItemId', Number(this.value))" class="w-full border p-1 rounded text-xs bg-white">
+                  ${options.map(it => {
+                    const s = licenseDB.softwareCatalog.find(x => x.id === it.softwareId);
+                    return `<option value="${it.id}" ${it.id === row.roundItemId ? 'selected' : ''}>${escapeHtml(s ? s.name : '—')}</option>`;
+                  }).join('')}
+                </select>
+                ${row.auto ? '<span class="inline-block text-[9px] font-bold text-teal-700 bg-teal-50 border border-teal-600 rounded-full px-1.5 mt-1">Gợi ý gia hạn</span>' : ''}
+              </td>
+              <td class="border p-1.5">${(item && companyId) ? regExpiryBadge(companyId, item.softwareId) : '<span class="text-gray-400">—</span>'}</td>
+              <td class="border p-1.5 text-center text-gray-500">${used}</td>
+              <td class="border p-1.5"><input type="number" min="1" value="${row.quantity}" oninput="updateRegRow(${row.id}, 'quantity', Number(this.value))" class="w-full border p-1 rounded text-xs"></td>
+              <td class="border p-1.5 text-gray-500">${item ? item.expiryDate : '—'}</td>
+              <td class="border p-1.5 text-right font-semibold">${formatMoney(total)}</td>
+              <td class="border p-1.5 text-center"><button type="button" onclick="removeRegRow(${row.id})" class="text-red-500 hover:text-red-700">🗑️</button></td>
+            </tr>
+          `;
+        }).join('');
+      }
+      const grandTotal = regRows.reduce((sum, row) => {
+        const item = roundItems.find(it => it.id === row.roundItemId);
+        return sum + (item ? item.unitPrice * (row.quantity || 0) : 0);
+      }, 0);
+      document.getElementById('regTotal').textContent = formatMoney(grandTotal);
+    }
+    function updateRegRow(id, field, value) {
+      const row = regRows.find(r => r.id === id);
+      if (!row) return;
+      if (field === 'roundItemId') row.auto = false;
+      row[field] = value;
+      renderRegRows();
+    }
+    function removeRegRow(id) {
+      regRows = regRows.filter(r => r.id !== id);
+      renderRegRows();
+    }
+    function addRegRow() {
+      const roundId = Number(document.getElementById('regRound').value) || null;
+      const roundItems = roundId ? licenseDB.purchaseRoundItems.filter(i => i.roundId === roundId) : [];
+      const usedIds = new Set(regRows.map(r => r.roundItemId));
+      const next = roundItems.find(it => !usedIds.has(it.id));
+      if (!next) { showToast(roundItems.length === 0 ? 'Kỳ mua này chưa có phần mềm nào.' : 'Đã thêm hết phần mềm có trong kỳ mua này.', 'warning'); return; }
+      regRows.push({ id: regRowSeq++, roundItemId: next.id, quantity: 1, auto: false });
+      renderRegRows();
+    }
     function openRegistrationModal() {
       const openRounds = licenseDB.purchaseRounds.filter(r => r.status === 'OPEN');
       document.getElementById('regRound').innerHTML = openRounds.length
         ? openRounds.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('')
         : '<option value="">-- Không có kỳ mua nào đang mở --</option>';
       document.getElementById('regCompany').innerHTML = licenseDB.companies.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
-      document.getElementById('regQuantity').value = '';
       document.getElementById('regNote').value = '';
-      onRegRoundChange();
+      autoPopulateRegRows();
       openLicenseModal('registrationModal');
-    }
-    function onRegRoundChange() {
-      const roundId = Number(document.getElementById('regRound').value) || null;
-      const items = roundId ? licenseDB.purchaseRoundItems.filter(i => i.roundId === roundId) : [];
-      document.getElementById('regSoftware').innerHTML = items.length
-        ? items.map(i => {
-            const sw = licenseDB.softwareCatalog.find(s => s.id === i.softwareId);
-            return `<option value="${i.id}">${escapeHtml(sw ? sw.name : '—')}</option>`;
-          }).join('')
-        : '<option value="">-- Kỳ này chưa có phần mềm nào --</option>';
-      onRegInputChange();
-    }
-    function onRegInputChange() {
-      const companyId = Number(document.getElementById('regCompany').value) || null;
-      const roundItemId = Number(document.getElementById('regSoftware').value) || null;
-      const quantity = Number(document.getElementById('regQuantity').value) || 0;
-      const item = roundItemId ? licenseDB.purchaseRoundItems.find(i => i.id === roundItemId) : null;
-      const currentQty = (companyId && item) ? currentCodeCount(companyId, item.softwareId) : 0;
-      document.getElementById('regCurrentQuantity').textContent = item ? String(currentQty) : '—';
-      document.getElementById('regUnitPrice').textContent = item ? formatMoney(item.unitPrice) : '—';
-      const total = item ? quantity * item.unitPrice : 0;
-      document.getElementById('regTotalAmount').textContent = formatMoney(total);
     }
     async function saveRegistration() {
       const roundId = Number(document.getElementById('regRound').value);
-      const roundItemId = Number(document.getElementById('regSoftware').value);
       const companyId = Number(document.getElementById('regCompany').value);
-      const requestedQuantity = Number(document.getElementById('regQuantity').value);
       const note = document.getElementById('regNote').value.trim();
       if (!roundId) return showToast('Vui lòng chọn Kỳ mua.', 'warning');
-      if (!roundItemId) return showToast('Vui lòng chọn Phần mềm.', 'warning');
       if (!companyId) return showToast('Vui lòng chọn Công ty.', 'warning');
-      if (!Number.isInteger(requestedQuantity) || requestedQuantity < 1) return showToast('Số lượng đăng ký không hợp lệ.', 'warning');
+      if (regRows.length === 0) return showToast('Vui lòng thêm ít nhất 1 phần mềm để đăng ký.', 'warning');
+      const invalidRow = regRows.find(r => !r.quantity || r.quantity < 1);
+      if (invalidRow) return showToast('Vui lòng nhập Số lượng hợp lệ cho mọi dòng.', 'warning');
+      const items = regRows.map(r => ({ roundItemId: r.roundItemId, requestedQuantity: r.quantity }));
       try {
-        await apiFetch('/api/license/registrations', { method: 'POST', body: JSON.stringify({ roundId, roundItemId, companyId, requestedQuantity, note }) });
-        showToast('Đã gửi đăng ký, chờ duyệt.', 'success');
+        await apiFetch('/api/license/registrations', { method: 'POST', body: JSON.stringify({ roundId, companyId, items, note }) });
+        showToast(`Đã gửi ${items.length} đăng ký, chờ duyệt.`, 'success');
         closeLicenseModal('registrationModal');
         licenseDB.loaded = false;
         await loadLicenseBootstrapData();
