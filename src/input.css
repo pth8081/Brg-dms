@@ -36,9 +36,33 @@
   --text-xs--line-height: 1.4;
   --text-sm: 0.9375rem;    /* 15px, mặc định Tailwind 14px */
   --text-sm--line-height: 1.5;
+
+  /* Bảng màu riêng cho trang Đăng Nhập — tông "văn thư/con dấu" (navy + vàng
+     đồng) khác hẳn giao diện nghiệp vụ bên trong (vốn dùng brand-600), chỉ
+     dùng ở #loginSection để tạo cảm giác trang trọng cho cổng vào hệ thống. */
+  --color-ink-700: #2f4364;
+  --color-ink-800: #1c3151;
+  --color-ink-900: #12213a;
+  --color-paper-50: #faf8f3;
+  --color-paper-100: #f1ece0;
+  --color-paper-200: #e4ddd0;
+  --color-gold-500: #b6893f;
+  --color-gold-600: #96702f;
+
+  /* Font riêng cho trang Đăng Nhập (Spectral cho tiêu đề/logo, Be Vietnam Pro
+     cho phần nội dung) — phần còn lại của ứng dụng vẫn dùng font hệ thống. */
+  --font-brand: "Spectral", Georgia, serif;
+  --font-vietnam: "Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif;
 }
 
 @layer components {
+  /* --- Vân giấy nhẹ trên panel thương hiệu trang Đăng Nhập --- */
+  .login-grain {
+    background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.35) 1px, transparent 0);
+    background-size: 22px 22px;
+    opacity: 0.04;
+  }
+
   /* --- Toast (thông báo nổi, tự ẩn) — thay cho alert() mặc định trình duyệt --- */
   .toast-stack {
     position: fixed;
