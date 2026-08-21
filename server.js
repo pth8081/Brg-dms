@@ -1195,7 +1195,16 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
 function mapCompany(c) { return { id: c.id, name: c.name, code: c.code, active: !!c.active }; }
 function mapOrgUnit(u) { return { id: u.id, companyId: u.company_id, parentId: u.parent_id, name: u.name, level: u.level_label, sortOrder: u.sort_order }; }
 function mapEmployee(e) { return { id: e.id, orgUnitId: e.org_unit_id, fullName: e.full_name, title: e.title, employeeCode: e.employee_code, email: e.email, active: !!e.active }; }
-function mapSoftware(s) { return { id: s.id, name: s.name, code: s.code, defaultDurationMonths: s.default_duration_months }; }
+const LICENSE_TYPES = ['PERPETUAL', 'TERM', 'MAINTENANCE'];
+function mapSoftware(s) {
+    return {
+        id: s.id, name: s.name, code: s.code,
+        defaultDurationMonths: s.default_duration_months,
+        maxAssignees: s.max_assignees,
+        allowCrossCompanyShare: !!s.allow_cross_company_share,
+        licenseType: s.license_type
+    };
+}
 // Trả về số tháng hợp lệ (1-120), hoặc null nếu không cấu hình. Ném lỗi rõ
 // ràng nếu client gửi giá trị không hợp lệ (không phải số nguyên dương).
 function parseDurationMonths(raw) {
@@ -1203,6 +1212,18 @@ function parseDurationMonths(raw) {
     const n = Number(raw);
     if (!Number.isInteger(n) || n < 1 || n > 120) return { error: 'Thời hạn mặc định phải là số nguyên từ 1 đến 120 tháng, hoặc để trống nếu không cấu hình.' };
     return { value: n };
+}
+// Số người tối đa được phép dùng chung 1 mã license (mặc định 1 = hành vi cũ).
+function parseMaxAssignees(raw) {
+    if (raw === undefined || raw === null || raw === '') return { value: 1 };
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n < 1 || n > 100) return { error: 'Số người tối đa/mã phải là số nguyên từ 1 đến 100.' };
+    return { value: n };
+}
+function parseLicenseType(raw) {
+    const v = String(raw || 'TERM').trim().toUpperCase();
+    if (!LICENSE_TYPES.includes(v)) return { error: 'Loại license không hợp lệ.' };
+    return { value: v };
 }
 function validCode(code, maxLen) {
     return typeof code === 'string' && new RegExp(`^[A-Z0-9]{1,${maxLen}}$`).test(code);
@@ -1217,7 +1238,8 @@ function fmtDate(d) {
 }
 function validDateStr(s) { return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s); }
 function mapBatch(b) { return { id: b.id, companyId: b.company_id, softwareId: b.software_id, totalQuantity: b.total_quantity, codesGenerated: b.codes_generated, issuedDate: fmtDate(b.issued_date), expiryDate: fmtDate(b.expiry_date), note: b.note }; }
-function mapCode(c) { return { id: c.id, batchId: c.batch_id, companyId: c.company_id, softwareId: c.software_id, code: c.code, expiryDate: fmtDate(c.expiry_date), assignedEmployeeId: c.assigned_employee_id, assignedAt: fmtDate(c.assigned_at) }; }
+function mapCode(c) { return { id: c.id, batchId: c.batch_id, companyId: c.company_id, softwareId: c.software_id, code: c.code, expiryDate: fmtDate(c.expiry_date) }; }
+function mapCodeAssignment(a) { return { id: a.id, codeId: a.code_id, employeeId: a.employee_id, assignedAt: fmtDate(a.assigned_at) }; }
 function mapRound(r) { return { id: r.id, name: r.name, note: r.note, status: r.status, createdAt: r.created_at }; }
 function mapRoundItem(i) { return { id: i.id, roundId: i.round_id, softwareId: i.software_id, unitPrice: Number(i.unit_price), expiryDate: fmtDate(i.expiry_date) }; }
 function mapRegistration(r) { return { id: r.id, roundId: r.round_id, roundItemId: r.round_item_id, companyId: r.company_id, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity, unitPrice: Number(r.unit_price), totalAmount: Number(r.total_amount), expiryDate: fmtDate(r.expiry_date), status: r.status, note: r.note, createdAt: r.created_at, decidedBy: r.decided_by, decidedAt: r.decided_at }; }
@@ -1230,6 +1252,7 @@ app.get('/api/license/bootstrap', requireAuth, requireAdmin, async (req, res) =>
         const [software] = await pool.query('SELECT * FROM lic_software_catalog ORDER BY name');
         const [batches] = await pool.query('SELECT * FROM lic_license_batches ORDER BY id DESC');
         const [codes] = await pool.query('SELECT * FROM lic_license_codes ORDER BY code');
+        const [codeAssignments] = await pool.query('SELECT * FROM lic_license_code_assignments ORDER BY id');
         const [rounds] = await pool.query('SELECT * FROM lic_purchase_rounds ORDER BY id DESC');
         const [roundItems] = await pool.query('SELECT * FROM lic_purchase_round_items ORDER BY id');
         const [registrations] = await pool.query('SELECT * FROM lic_purchase_registrations ORDER BY id DESC');
@@ -1240,6 +1263,7 @@ app.get('/api/license/bootstrap', requireAuth, requireAdmin, async (req, res) =>
             softwareCatalog: software.map(mapSoftware),
             licenseBatches: batches.map(mapBatch),
             licenseCodes: codes.map(mapCode),
+            licenseCodeAssignments: codeAssignments.map(mapCodeAssignment),
             purchaseRounds: rounds.map(mapRound),
             purchaseRoundItems: roundItems.map(mapRoundItem),
             purchaseRegistrations: registrations.map(mapRegistration)
@@ -1436,8 +1460,16 @@ app.post('/api/license/software', requireAuth, requireAdmin, async (req, res) =>
         if (!validCode(code, 50)) return res.status(400).json({ error: 'Mã phần mềm không hợp lệ (chỉ chữ/số không dấu, tối đa 50 ký tự).' });
         const duration = parseDurationMonths(req.body && req.body.defaultDurationMonths);
         if (duration.error) return res.status(400).json({ error: duration.error });
-        const [result] = await pool.query('INSERT INTO lic_software_catalog (name, code, default_duration_months) VALUES (?, ?, ?)', [name, code, duration.value]);
-        await writeAuditLog({ module: 'LICENSE', actionType: 'CREATE_SOFTWARE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: name, description: `Thêm phần mềm [${name}] (mã ${code}) vào danh mục${duration.value ? `, thời hạn mặc định ${duration.value} tháng` : ''}.` });
+        const maxAssignees = parseMaxAssignees(req.body && req.body.maxAssignees);
+        if (maxAssignees.error) return res.status(400).json({ error: maxAssignees.error });
+        const licenseType = parseLicenseType(req.body && req.body.licenseType);
+        if (licenseType.error) return res.status(400).json({ error: licenseType.error });
+        const allowCrossCompanyShare = !!(req.body && req.body.allowCrossCompanyShare);
+        const [result] = await pool.query(
+            'INSERT INTO lic_software_catalog (name, code, default_duration_months, max_assignees, allow_cross_company_share, license_type) VALUES (?, ?, ?, ?, ?, ?)',
+            [name, code, duration.value, maxAssignees.value, allowCrossCompanyShare, licenseType.value]
+        );
+        await writeAuditLog({ module: 'LICENSE', actionType: 'CREATE_SOFTWARE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: name, description: `Thêm phần mềm [${name}] (mã ${code}) vào danh mục${duration.value ? `, thời hạn mặc định ${duration.value} tháng` : ''}, tối đa ${maxAssignees.value} người/mã.` });
         res.json({ success: true, id: result.insertId });
     } catch (err) {
         if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Tên phần mềm đã tồn tại.' });
@@ -1455,7 +1487,15 @@ app.put('/api/license/software/:id', requireAuth, requireAdmin, async (req, res)
         if (!validCode(code, 50)) return res.status(400).json({ error: 'Mã phần mềm không hợp lệ (chỉ chữ/số không dấu, tối đa 50 ký tự).' });
         const duration = parseDurationMonths(req.body && req.body.defaultDurationMonths);
         if (duration.error) return res.status(400).json({ error: duration.error });
-        const [result] = await pool.query('UPDATE lic_software_catalog SET name = ?, code = ?, default_duration_months = ? WHERE id = ?', [name, code, duration.value, id]);
+        const maxAssignees = parseMaxAssignees(req.body && req.body.maxAssignees);
+        if (maxAssignees.error) return res.status(400).json({ error: maxAssignees.error });
+        const licenseType = parseLicenseType(req.body && req.body.licenseType);
+        if (licenseType.error) return res.status(400).json({ error: licenseType.error });
+        const allowCrossCompanyShare = !!(req.body && req.body.allowCrossCompanyShare);
+        const [result] = await pool.query(
+            'UPDATE lic_software_catalog SET name = ?, code = ?, default_duration_months = ?, max_assignees = ?, allow_cross_company_share = ?, license_type = ? WHERE id = ?',
+            [name, code, duration.value, maxAssignees.value, allowCrossCompanyShare, licenseType.value, id]
+        );
         if (result.affectedRows === 0) return res.status(404).json({ error: 'Không tìm thấy phần mềm.' });
         await writeAuditLog({ module: 'LICENSE', actionType: 'UPDATE_SOFTWARE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: name, description: `Cập nhật phần mềm [${name}] (mã ${code}).` });
         res.json({ success: true });
@@ -1516,19 +1556,27 @@ app.post('/api/license/batches', requireAuth, requireAdmin, async (req, res) => 
         const softwareId = Number(req.body && req.body.softwareId);
         const totalQuantity = Number(req.body && req.body.totalQuantity);
         const issuedDate = String((req.body && req.body.issuedDate) || '').trim();
-        const expiryDate = String((req.body && req.body.expiryDate) || '').trim();
+        const rawExpiryDate = String((req.body && req.body.expiryDate) || '').trim();
         const note = String((req.body && req.body.note) || '').trim();
         if (!companyId) return res.status(400).json({ error: 'Vui lòng chọn Công ty.' });
         if (!softwareId) return res.status(400).json({ error: 'Vui lòng chọn Phần mềm.' });
         if (!Number.isInteger(totalQuantity) || totalQuantity < 0 || totalQuantity > 5000) return res.status(400).json({ error: 'Tổng số lượng phải là số nguyên từ 0 đến 5000.' });
         if (!validDateStr(issuedDate)) return res.status(400).json({ error: 'Ngày cấp không hợp lệ.' });
-        if (!validDateStr(expiryDate)) return res.status(400).json({ error: 'Ngày hết hạn không hợp lệ.' });
-        if (expiryDate <= issuedDate) return res.status(400).json({ error: 'Ngày hết hạn phải sau Ngày cấp.' });
 
         const [companyRows] = await pool.query('SELECT id, code FROM lic_companies WHERE id = ?', [companyId]);
         if (!companyRows[0]) return res.status(400).json({ error: 'Công ty không tồn tại.' });
-        const [softwareRows] = await pool.query('SELECT id, code FROM lic_software_catalog WHERE id = ?', [softwareId]);
+        const [softwareRows] = await pool.query('SELECT id, code, license_type FROM lic_software_catalog WHERE id = ?', [softwareId]);
         if (!softwareRows[0]) return res.status(400).json({ error: 'Phần mềm không tồn tại.' });
+
+        // Phần mềm Vĩnh viễn (PERPETUAL) không có ngày hết hạn — bỏ qua yêu cầu
+        // nhập Ngày hết hạn, luôn lưu NULL bất kể client gửi gì.
+        const isPerpetual = softwareRows[0].license_type === 'PERPETUAL';
+        let expiryDate = null;
+        if (!isPerpetual) {
+            if (!validDateStr(rawExpiryDate)) return res.status(400).json({ error: 'Ngày hết hạn không hợp lệ.' });
+            if (rawExpiryDate <= issuedDate) return res.status(400).json({ error: 'Ngày hết hạn phải sau Ngày cấp.' });
+            expiryDate = rawExpiryDate;
+        }
 
         const [existingCountRows] = await pool.query('SELECT COUNT(*) AS cnt FROM lic_license_codes WHERE company_id = ? AND software_id = ?', [companyId, softwareId]);
         const existingCount = existingCountRows[0].cnt;
@@ -1551,7 +1599,7 @@ app.post('/api/license/batches', requireAuth, requireAdmin, async (req, res) => 
         // ty+phần mềm này về cùng 1 mốc — đúng bản chất "phát hành cho gia hạn".
         await pool.query('UPDATE lic_license_codes SET expiry_date = ? WHERE company_id = ? AND software_id = ?', [expiryDate, companyId, softwareId]);
 
-        await writeAuditLog({ module: 'LICENSE', actionType: 'ISSUE_BATCH', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `${companyRows[0].code}/${softwareRows[0].code}`, description: `Phát hành license [${softwareRows[0].code}] cho công ty [${companyRows[0].code}]: tổng ${totalQuantity} (sinh mới ${toGenerate}), gia hạn toàn bộ đến ${expiryDate}.` });
+        await writeAuditLog({ module: 'LICENSE', actionType: 'ISSUE_BATCH', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `${companyRows[0].code}/${softwareRows[0].code}`, description: `Phát hành license [${softwareRows[0].code}] cho công ty [${companyRows[0].code}]: tổng ${totalQuantity} (sinh mới ${toGenerate})${expiryDate ? `, gia hạn toàn bộ đến ${expiryDate}` : ' (license vĩnh viễn, không có hạn)'}.` });
         res.json({ success: true, id: batchId, codesGenerated: toGenerate });
     } catch (err) {
         console.error('❌ Lỗi phát hành license:', err.message);
@@ -1564,7 +1612,10 @@ app.delete('/api/license/batches/:id', requireAuth, requireAdmin, async (req, re
         const { id } = req.params;
         const [rows] = await pool.query('SELECT * FROM lic_license_batches WHERE id = ?', [id]);
         if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy lượt phát hành.' });
-        const [assigned] = await pool.query('SELECT COUNT(*) AS cnt FROM lic_license_codes WHERE batch_id = ? AND assigned_employee_id IS NOT NULL', [id]);
+        const [assigned] = await pool.query(
+            'SELECT COUNT(*) AS cnt FROM lic_license_code_assignments a JOIN lic_license_codes c ON c.id = a.code_id WHERE c.batch_id = ?',
+            [id]
+        );
         if (assigned[0].cnt > 0) return res.status(400).json({ error: 'Không thể xóa — lượt phát hành này đã sinh ra mã đang được phân bổ cho nhân viên. Hãy thu hồi hết trước.' });
         await pool.query('DELETE FROM lic_license_codes WHERE batch_id = ?', [id]);
         await pool.query('DELETE FROM lic_license_batches WHERE id = ?', [id]);
@@ -1576,9 +1627,11 @@ app.delete('/api/license/batches/:id', requireAuth, requireAdmin, async (req, re
     }
 });
 
-// --- Phân bổ (gán / thu hồi 1 mã license cho 1 nhân viên) ---
+// --- Phân bổ (gán / thu hồi mã license cho nhân viên — nhiều-nhiều) ---
 // Zero-trust: server tự tra lại công ty của mã và công ty của nhân viên (qua
-// đơn vị) để đối chiếu — không tin companyId client gửi kèm.
+// đơn vị) để đối chiếu — không tin companyId client gửi kèm. Số người được
+// gán tối đa cho 1 mã và việc có cho phép khác công ty hay không đều tra lại
+// từ lic_software_catalog của chính mã đó (không tin cấu hình client gửi).
 app.post('/api/license/codes/:id/assign', requireAuth, requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
@@ -1587,19 +1640,33 @@ app.post('/api/license/codes/:id/assign', requireAuth, requireAdmin, async (req,
         if (!employeeId) return res.status(400).json({ error: 'Vui lòng chọn Nhân viên.' });
         if (!validDateStr(issuedDate)) return res.status(400).json({ error: 'Ngày cấp không hợp lệ.' });
 
-        const [codeRows] = await pool.query('SELECT id, code, company_id, assigned_employee_id FROM lic_license_codes WHERE id = ?', [id]);
+        const [codeRows] = await pool.query(
+            `SELECT c.id, c.code, c.company_id, s.max_assignees, s.allow_cross_company_share
+             FROM lic_license_codes c JOIN lic_software_catalog s ON s.id = c.software_id WHERE c.id = ?`,
+            [id]
+        );
         if (!codeRows[0]) return res.status(404).json({ error: 'Không tìm thấy mã license.' });
-        if (codeRows[0].assigned_employee_id) return res.status(400).json({ error: 'Mã license này đã được cấp cho người khác.' });
+        const code = codeRows[0];
 
         const [empRows] = await pool.query(
             'SELECT e.id, e.full_name, u.company_id FROM lic_employees e JOIN lic_org_units u ON u.id = e.org_unit_id WHERE e.id = ?',
             [employeeId]
         );
         if (!empRows[0]) return res.status(400).json({ error: 'Nhân viên không tồn tại.' });
-        if (empRows[0].company_id !== codeRows[0].company_id) return res.status(400).json({ error: 'Nhân viên không thuộc công ty của mã license này.' });
+        if (!code.allow_cross_company_share && empRows[0].company_id !== code.company_id) {
+            return res.status(400).json({ error: 'Nhân viên không thuộc công ty của mã license này (phần mềm chưa cho phép dùng chung khác công ty).' });
+        }
 
-        await pool.query('UPDATE lic_license_codes SET assigned_employee_id = ?, assigned_at = ? WHERE id = ?', [employeeId, issuedDate, id]);
-        await writeAuditLog({ module: 'LICENSE', actionType: 'ASSIGN_CODE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: codeRows[0].code, description: `Cấp mã license [${codeRows[0].code}] cho nhân viên [${empRows[0].full_name}], ngày cấp ${issuedDate}.` });
+        const [existingAssignments] = await pool.query('SELECT employee_id FROM lic_license_code_assignments WHERE code_id = ?', [id]);
+        if (existingAssignments.some(a => a.employee_id === employeeId)) {
+            return res.status(400).json({ error: 'Nhân viên này đã được cấp mã license này rồi.' });
+        }
+        if (existingAssignments.length >= code.max_assignees) {
+            return res.status(400).json({ error: `Mã license này đã đủ số người tối đa (${code.max_assignees}) — không thể cấp thêm.` });
+        }
+
+        await pool.query('INSERT INTO lic_license_code_assignments (code_id, employee_id, assigned_at) VALUES (?, ?, ?)', [id, employeeId, issuedDate]);
+        await writeAuditLog({ module: 'LICENSE', actionType: 'ASSIGN_CODE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: code.code, description: `Cấp mã license [${code.code}] cho nhân viên [${empRows[0].full_name}], ngày cấp ${issuedDate} (${existingAssignments.length + 1}/${code.max_assignees}).` });
         res.json({ success: true });
     } catch (err) {
         console.error('❌ Lỗi cấp phát license:', err.message);
@@ -1610,13 +1677,17 @@ app.post('/api/license/codes/:id/assign', requireAuth, requireAdmin, async (req,
 app.post('/api/license/codes/:id/unassign', requireAuth, requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
+        const employeeId = Number(req.body && req.body.employeeId);
+        if (!employeeId) return res.status(400).json({ error: 'Vui lòng chọn Nhân viên cần thu hồi.' });
         const [rows] = await pool.query(
-            'SELECT c.id, c.code, c.assigned_employee_id, e.full_name FROM lic_license_codes c LEFT JOIN lic_employees e ON e.id = c.assigned_employee_id WHERE c.id = ?',
-            [id]
+            `SELECT a.id, c.code, e.full_name FROM lic_license_code_assignments a
+             JOIN lic_license_codes c ON c.id = a.code_id
+             JOIN lic_employees e ON e.id = a.employee_id
+             WHERE a.code_id = ? AND a.employee_id = ?`,
+            [id, employeeId]
         );
-        if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy mã license.' });
-        if (!rows[0].assigned_employee_id) return res.status(400).json({ error: 'Mã license này chưa được cấp cho ai.' });
-        await pool.query('UPDATE lic_license_codes SET assigned_employee_id = NULL, assigned_at = NULL WHERE id = ?', [id]);
+        if (!rows[0]) return res.status(400).json({ error: 'Mã license này chưa được cấp cho nhân viên đó.' });
+        await pool.query('DELETE FROM lic_license_code_assignments WHERE code_id = ? AND employee_id = ?', [id, employeeId]);
         await writeAuditLog({ module: 'LICENSE', actionType: 'UNASSIGN_CODE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: rows[0].code, description: `Thu hồi mã license [${rows[0].code}] từ nhân viên [${rows[0].full_name}].` });
         res.json({ success: true });
     } catch (err) {
@@ -1638,26 +1709,38 @@ app.post('/api/license/rounds', requireAuth, requireAdmin, async (req, res) => {
         if (items.length > 200) return res.status(400).json({ error: 'Số lượng phần mềm trong 1 lần tạo không được vượt quá 200.' });
 
         const softwareIdSet = new Set();
-        const normalizedItems = [];
+        const rawItems = [];
         for (let i = 0; i < items.length; i++) {
             const it = items[i] || {};
             const softwareId = Number(it.softwareId);
             const unitPrice = Number(it.unitPrice);
-            const expiryDate = String(it.expiryDate || '').trim();
+            const rawExpiryDate = String(it.expiryDate || '').trim();
             if (!softwareId) return res.status(400).json({ error: `Dòng ${i + 1}: vui lòng chọn Phần mềm.` });
             if (softwareIdSet.has(softwareId)) return res.status(400).json({ error: `Dòng ${i + 1}: phần mềm này đã được thêm ở dòng khác.` });
             softwareIdSet.add(softwareId);
             if (!Number.isFinite(unitPrice) || unitPrice < 0) return res.status(400).json({ error: `Dòng ${i + 1}: Đơn giá không hợp lệ.` });
-            if (!validDateStr(expiryDate)) return res.status(400).json({ error: `Dòng ${i + 1}: Ngày hết hạn không hợp lệ.` });
-            normalizedItems.push({ softwareId, unitPrice, expiryDate });
+            rawItems.push({ line: i + 1, softwareId, unitPrice, rawExpiryDate });
         }
-        if (normalizedItems.length > 0) {
-            const ids = normalizedItems.map(it => it.softwareId);
-            const [softwareRows] = await pool.query(`SELECT id FROM lic_software_catalog WHERE id IN (${ids.map(() => '?').join(',')})`, ids);
-            const foundIds = new Set(softwareRows.map(s => s.id));
-            if (normalizedItems.some(it => !foundIds.has(it.softwareId))) {
+        const softwareTypeById = new Map();
+        if (rawItems.length > 0) {
+            const ids = rawItems.map(it => it.softwareId);
+            const [softwareRows] = await pool.query(`SELECT id, license_type FROM lic_software_catalog WHERE id IN (${ids.map(() => '?').join(',')})`, ids);
+            softwareRows.forEach(s => softwareTypeById.set(s.id, s.license_type));
+            if (rawItems.some(it => !softwareTypeById.has(it.softwareId))) {
                 return res.status(400).json({ error: 'Có phần mềm không tồn tại trong danh mục.' });
             }
+        }
+        // Phần mềm Vĩnh viễn (PERPETUAL) không cần Ngày hết hạn — các loại còn
+        // lại vẫn bắt buộc nhập như trước.
+        const normalizedItems = [];
+        for (const it of rawItems) {
+            const isPerpetual = softwareTypeById.get(it.softwareId) === 'PERPETUAL';
+            let expiryDate = null;
+            if (!isPerpetual) {
+                if (!validDateStr(it.rawExpiryDate)) return res.status(400).json({ error: `Dòng ${it.line}: Ngày hết hạn không hợp lệ.` });
+                expiryDate = it.rawExpiryDate;
+            }
+            normalizedItems.push({ softwareId: it.softwareId, unitPrice: it.unitPrice, expiryDate });
         }
 
         let roundId;
@@ -1706,24 +1789,30 @@ app.post('/api/license/rounds/:id/items', requireAuth, requireAdmin, async (req,
         const { id } = req.params;
         const softwareId = Number(req.body && req.body.softwareId);
         const unitPrice = Number(req.body && req.body.unitPrice);
-        const expiryDate = String((req.body && req.body.expiryDate) || '').trim();
+        const rawExpiryDate = String((req.body && req.body.expiryDate) || '').trim();
         if (!softwareId) return res.status(400).json({ error: 'Vui lòng chọn Phần mềm.' });
         if (!Number.isFinite(unitPrice) || unitPrice < 0) return res.status(400).json({ error: 'Đơn giá không hợp lệ.' });
-        if (!validDateStr(expiryDate)) return res.status(400).json({ error: 'Ngày hết hạn không hợp lệ.' });
 
         const [roundRows] = await pool.query('SELECT id, status FROM lic_purchase_rounds WHERE id = ?', [id]);
         if (!roundRows[0]) return res.status(404).json({ error: 'Không tìm thấy kỳ mua.' });
         if (roundRows[0].status !== 'OPEN') return res.status(400).json({ error: 'Kỳ mua đã đóng, không thể thêm phần mềm.' });
-        const [softwareRows] = await pool.query('SELECT id, name FROM lic_software_catalog WHERE id = ?', [softwareId]);
+        const [softwareRows] = await pool.query('SELECT id, name, license_type FROM lic_software_catalog WHERE id = ?', [softwareId]);
         if (!softwareRows[0]) return res.status(400).json({ error: 'Phần mềm không tồn tại.' });
         const [dupRows] = await pool.query('SELECT id FROM lic_purchase_round_items WHERE round_id = ? AND software_id = ?', [id, softwareId]);
         if (dupRows[0]) return res.status(400).json({ error: 'Phần mềm này đã có trong kỳ mua.' });
+
+        const isPerpetual = softwareRows[0].license_type === 'PERPETUAL';
+        let expiryDate = null;
+        if (!isPerpetual) {
+            if (!validDateStr(rawExpiryDate)) return res.status(400).json({ error: 'Ngày hết hạn không hợp lệ.' });
+            expiryDate = rawExpiryDate;
+        }
 
         const [result] = await pool.query(
             'INSERT INTO lic_purchase_round_items (round_id, software_id, unit_price, expiry_date) VALUES (?, ?, ?, ?)',
             [id, softwareId, unitPrice, expiryDate]
         );
-        await writeAuditLog({ module: 'LICENSE', actionType: 'ADD_ROUND_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: softwareRows[0].name, description: `Thêm phần mềm [${softwareRows[0].name}] vào kỳ mua #${id}, đơn giá ${unitPrice}, hạn ${expiryDate}.` });
+        await writeAuditLog({ module: 'LICENSE', actionType: 'ADD_ROUND_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: softwareRows[0].name, description: `Thêm phần mềm [${softwareRows[0].name}] vào kỳ mua #${id}, đơn giá ${unitPrice}${expiryDate ? `, hạn ${expiryDate}` : ' (license vĩnh viễn)'}.` });
         res.json({ success: true, id: result.insertId });
     } catch (err) {
         console.error('❌ Lỗi thêm phần mềm vào kỳ mua:', err.message);

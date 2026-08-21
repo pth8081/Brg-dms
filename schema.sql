@@ -49,6 +49,28 @@ BEGIN
 END$$
 DELIMITER ;
 
+-- "DROP COLUMN IF EXISTS" cũng không được MySQL chuẩn hỗ trợ (chỉ MariaDB có) —
+-- thủ tục này bổ trợ add_column_if_not_exists ở trên, dùng khi cần dọn cột cũ
+-- sau khi đã di chuyển dữ liệu sang cấu trúc mới.
+DELIMITER $$
+DROP PROCEDURE IF EXISTS drop_column_if_exists$$
+CREATE PROCEDURE drop_column_if_exists(
+    IN p_table_name VARCHAR(64),
+    IN p_column_name VARCHAR(64)
+)
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = p_table_name AND COLUMN_NAME = p_column_name
+    ) THEN
+        SET @drop_col_sql = CONCAT('ALTER TABLE ', p_table_name, ' DROP COLUMN ', p_column_name);
+        PREPARE stmt_drop_col FROM @drop_col_sql;
+        EXECUTE stmt_drop_col;
+        DEALLOCATE PREPARE stmt_drop_col;
+    END IF;
+END$$
+DELIMITER ;
+
 -- 1. Bảng Phòng Ban
 CREATE TABLE IF NOT EXISTS depts (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -183,12 +205,21 @@ CREATE TABLE IF NOT EXISTS lic_software_catalog (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) UNIQUE NOT NULL,
     code VARCHAR(50) NOT NULL,
-    default_duration_months INT NULL DEFAULT NULL
+    default_duration_months INT NULL DEFAULT NULL,
+    max_assignees INT NOT NULL DEFAULT 1,
+    allow_cross_company_share TINYINT(1) NOT NULL DEFAULT 0,
+    license_type VARCHAR(20) NOT NULL DEFAULT 'TERM'
 );
 -- Nâng cấp CSDL cũ: thêm cột thời hạn mặc định (tháng) cho từng phần mềm —
 -- NULL nghĩa là chưa cấu hình, khi tạo hạng mục kỳ mua vẫn phải nhập tay
 -- Ngày hết hạn như trước; có cấu hình thì tự tính = hôm nay + số tháng này.
 CALL add_column_if_not_exists('lic_software_catalog', 'default_duration_months', 'INT NULL DEFAULT NULL');
+-- Nâng cấp CSDL cũ: số người tối đa được phép gán chung 1 mã (mặc định 1 =
+-- hành vi cũ, 1 mã chỉ 1 người); cờ cho phép dùng chung mã khác công ty; loại
+-- license (PERPETUAL = vĩnh viễn, TERM = có thời hạn, MAINTENANCE = bảo trì).
+CALL add_column_if_not_exists('lic_software_catalog', 'max_assignees', 'INT NOT NULL DEFAULT 1');
+CALL add_column_if_not_exists('lic_software_catalog', 'allow_cross_company_share', 'TINYINT(1) NOT NULL DEFAULT 0');
+CALL add_column_if_not_exists('lic_software_catalog', 'license_type', "VARCHAR(20) NOT NULL DEFAULT 'TERM'");
 
 -- Phát hành license: MỖI LẦN phát hành cho 1 công ty + 1 phần mềm là 1 lần
 -- "gia hạn" — số lượng nhập vào là TỔNG SỐ LƯỢNG MONG MUỐN hiện tại (không
@@ -200,6 +231,8 @@ CALL add_column_if_not_exists('lic_software_catalog', 'default_duration_months',
 -- lic_license_batches giờ là LỊCH SỬ các lần phát hành (không còn là nơi lưu
 -- ngày hết hạn áp dụng cho mã — ngày hết hạn nằm trực tiếp ở lic_license_codes
 -- vì nó được cập nhật hàng loạt độc lập với lô đã sinh ra mã).
+-- expiry_date cho phép NULL: phần mềm loại "Vĩnh viễn" (PERPETUAL) không có
+-- ngày hết hạn.
 CREATE TABLE IF NOT EXISTS lic_license_batches (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     company_id BIGINT NOT NULL,
@@ -207,7 +240,7 @@ CREATE TABLE IF NOT EXISTS lic_license_batches (
     total_quantity INT NOT NULL DEFAULT 0,
     codes_generated INT NOT NULL DEFAULT 0,
     issued_date DATE NOT NULL,
-    expiry_date DATE NOT NULL,
+    expiry_date DATE NULL DEFAULT NULL,
     note VARCHAR(500) NULL DEFAULT NULL,
     created_at VARCHAR(100)
 );
@@ -216,6 +249,10 @@ CALL create_index_if_not_exists('lic_license_batches', 'idx_lic_license_batches_
 -- Nâng cấp CSDL cũ (bản trước dùng cột "quantity" là số mã sinh ra ngay từ đầu).
 CALL add_column_if_not_exists('lic_license_batches', 'total_quantity', 'INT NOT NULL DEFAULT 0');
 CALL add_column_if_not_exists('lic_license_batches', 'codes_generated', 'INT NOT NULL DEFAULT 0');
+-- Nâng cấp CSDL cũ: nới lỏng expiry_date thành cho phép NULL (license Vĩnh
+-- viễn không có ngày hết hạn) — MODIFY COLUMN là cú pháp chuẩn, chạy được
+-- trên cả MySQL lẫn MariaDB, không cần thủ tục IF NOT EXISTS.
+ALTER TABLE lic_license_batches MODIFY COLUMN expiry_date DATE NULL DEFAULT NULL;
 -- Nếu CSDL cũ còn cột "quantity" (bản trước khi có Kỳ mua), chuyển toàn bộ
 -- lịch sử phát hành cũ sang total_quantity/codes_generated (dùng SQL động vì
 -- cài đặt mới hoàn toàn không có cột "quantity" nên không thể tham chiếu
@@ -235,15 +272,16 @@ DEALLOCATE PREPARE stmt_migrate_quantity;
 -- qua batch) vì ngày hết hạn được cập nhật hàng loạt theo công ty+phần mềm ở
 -- mỗi lần gia hạn, độc lập với lô nào đã sinh ra mã. batch_id chỉ để tra cứu
 -- lịch sử mã này được sinh ra ở lần phát hành nào.
+-- Việc gán người dùng cho mã KHÔNG còn là 1-1 (xem lic_license_code_assignments
+-- bên dưới) — 1 mã có thể gán cho nhiều người (tối đa theo
+-- lic_software_catalog.max_assignees) để hỗ trợ license dùng chung.
 CREATE TABLE IF NOT EXISTS lic_license_codes (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     batch_id BIGINT NOT NULL,
     company_id BIGINT NOT NULL,
     software_id BIGINT NOT NULL,
     code VARCHAR(100) UNIQUE NOT NULL,
-    expiry_date DATE NOT NULL,
-    assigned_employee_id BIGINT NULL DEFAULT NULL,
-    assigned_at DATE NULL DEFAULT NULL
+    expiry_date DATE NULL DEFAULT NULL
 );
 -- Nâng cấp CSDL cũ: thêm cột company_id/software_id/expiry_date TRƯỚC khi tạo
 -- index dùng tới chúng (bản trước không có các cột này, lưu ngày hết hạn qua
@@ -252,12 +290,43 @@ CREATE TABLE IF NOT EXISTS lic_license_codes (
 CALL add_column_if_not_exists('lic_license_codes', 'company_id', 'BIGINT NULL DEFAULT NULL');
 CALL add_column_if_not_exists('lic_license_codes', 'software_id', 'BIGINT NULL DEFAULT NULL');
 CALL add_column_if_not_exists('lic_license_codes', 'expiry_date', 'DATE NULL DEFAULT NULL');
+ALTER TABLE lic_license_codes MODIFY COLUMN expiry_date DATE NULL DEFAULT NULL;
 UPDATE lic_license_codes c JOIN lic_license_batches b ON b.id = c.batch_id
     SET c.company_id = b.company_id, c.software_id = b.software_id, c.expiry_date = b.expiry_date
     WHERE c.company_id IS NULL;
 CALL create_index_if_not_exists('lic_license_codes', 'idx_lic_license_codes_batch', 'batch_id');
-CALL create_index_if_not_exists('lic_license_codes', 'idx_lic_license_codes_employee', 'assigned_employee_id');
 CALL create_index_if_not_exists('lic_license_codes', 'idx_lic_license_codes_company_software', 'company_id, software_id');
+
+-- Bảng gán mã license cho nhân viên — nhiều-nhiều (thay cho cột đơn
+-- assigned_employee_id của bản trước) để hỗ trợ 1 mã dùng chung cho nhiều
+-- người (VD license theo gói nhiều chỗ ngồi). Số lượng người được gán tối đa
+-- cho 1 mã do lic_software_catalog.max_assignees quyết định, kiểm tra ở server.
+CREATE TABLE IF NOT EXISTS lic_license_code_assignments (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    code_id BIGINT NOT NULL,
+    employee_id BIGINT NOT NULL,
+    assigned_at DATE NOT NULL,
+    UNIQUE KEY uq_lic_code_assignment (code_id, employee_id)
+);
+CALL create_index_if_not_exists('lic_license_code_assignments', 'idx_lic_code_assign_code', 'code_id');
+CALL create_index_if_not_exists('lic_license_code_assignments', 'idx_lic_code_assign_employee', 'employee_id');
+-- Nâng cấp CSDL cũ: di chuyển dữ liệu gán 1-1 cũ (cột assigned_employee_id)
+-- sang bảng nhiều-nhiều mới trước khi xóa cột cũ — dùng SQL động vì cài đặt
+-- mới hoàn toàn không có cột này nên không thể tham chiếu thẳng trong câu
+-- INSERT/SELECT tĩnh (sẽ báo lỗi "unknown column" nếu không có cột).
+SET @has_old_assigned_col = (
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'lic_license_codes' AND COLUMN_NAME = 'assigned_employee_id'
+);
+SET @migrate_old_assign_sql = IF(@has_old_assigned_col > 0,
+    'INSERT IGNORE INTO lic_license_code_assignments (code_id, employee_id, assigned_at) '
+    'SELECT id, assigned_employee_id, COALESCE(assigned_at, CURDATE()) FROM lic_license_codes WHERE assigned_employee_id IS NOT NULL',
+    'SELECT 1');
+PREPARE stmt_migrate_assign FROM @migrate_old_assign_sql;
+EXECUTE stmt_migrate_assign;
+DEALLOCATE PREPARE stmt_migrate_assign;
+CALL drop_column_if_exists('lic_license_codes', 'assigned_employee_id');
+CALL drop_column_if_exists('lic_license_codes', 'assigned_at');
 
 -- 9. Module Đăng ký / Phát hành đăng ký mua bản quyền — Admin tạo "Kỳ mua",
 -- định nghĩa phần mềm + đơn giá + ngày hết hạn dự kiến cho kỳ đó; các công ty
@@ -272,14 +341,16 @@ CREATE TABLE IF NOT EXISTS lic_purchase_rounds (
     created_at VARCHAR(100)
 );
 
+-- expiry_date cho phép NULL: hạng mục phần mềm loại "Vĩnh viễn" không có hạn.
 CREATE TABLE IF NOT EXISTS lic_purchase_round_items (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     round_id BIGINT NOT NULL,
     software_id BIGINT NOT NULL,
     unit_price DECIMAL(18,2) NOT NULL,
-    expiry_date DATE NOT NULL
+    expiry_date DATE NULL DEFAULT NULL
 );
 CALL create_index_if_not_exists('lic_purchase_round_items', 'idx_lic_round_items_round', 'round_id');
+ALTER TABLE lic_purchase_round_items MODIFY COLUMN expiry_date DATE NULL DEFAULT NULL;
 
 CREATE TABLE IF NOT EXISTS lic_purchase_registrations (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -290,7 +361,7 @@ CREATE TABLE IF NOT EXISTS lic_purchase_registrations (
     requested_quantity INT NOT NULL,
     unit_price DECIMAL(18,2) NOT NULL,
     total_amount DECIMAL(18,2) NOT NULL,
-    expiry_date DATE NOT NULL,
+    expiry_date DATE NULL DEFAULT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
     note VARCHAR(500) NULL DEFAULT NULL,
     created_at VARCHAR(100),
@@ -299,10 +370,12 @@ CREATE TABLE IF NOT EXISTS lic_purchase_registrations (
 );
 CALL create_index_if_not_exists('lic_purchase_registrations', 'idx_lic_reg_round', 'round_id');
 CALL create_index_if_not_exists('lic_purchase_registrations', 'idx_lic_reg_company', 'company_id');
+ALTER TABLE lic_purchase_registrations MODIFY COLUMN expiry_date DATE NULL DEFAULT NULL;
 
 -- Dọn dẹp: xóa các thủ tục tạm sau khi dùng xong, không để lại trong CSDL thật.
 DROP PROCEDURE IF EXISTS create_index_if_not_exists;
 DROP PROCEDURE IF EXISTS add_column_if_not_exists;
+DROP PROCEDURE IF EXISTS drop_column_if_exists;
 
 -- Khởi tạo Dữ liệu Mẫu Ban Đầu Cho Môi Trường Mới (Chỉ tạo Admin gốc nếu chưa tồn tại)
 INSERT INTO depts (name, abbr) VALUES ('Phòng IT', 'IT'), ('Phòng Nhân Sự', 'NS'), ('Phòng Kế Toán', 'KT'), ('Ban Giám Đốc', 'BGD')
