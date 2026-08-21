@@ -736,9 +736,9 @@
       <button id="btnLicenseSubOrg" onclick="switchLicenseSubTab('org')" class="text-xs px-3 py-1.5 rounded font-semibold">🏢 Tổ chức công ty</button>
       <button id="btnLicenseSubEmp" onclick="switchLicenseSubTab('emp')" class="text-xs px-3 py-1.5 rounded font-semibold">👤 Danh sách nhân viên</button>
       <button id="btnLicenseSubSoftware" onclick="switchLicenseSubTab('software')" class="text-xs px-3 py-1.5 rounded font-semibold">💽 Danh mục phần mềm</button>
-      <span class="text-xs px-3 py-1.5 rounded font-semibold text-gray-400 bg-gray-50 flex items-center gap-1">📦 Phân bổ <span class="text-[9px] bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full uppercase font-bold">Giai đoạn sau</span></span>
+      <button id="btnLicenseSubBatch" onclick="switchLicenseSubTab('batch')" class="text-xs px-3 py-1.5 rounded font-semibold">📜 Phát hành license</button>
+      <button id="btnLicenseSubAlloc" onclick="switchLicenseSubTab('alloc')" class="text-xs px-3 py-1.5 rounded font-semibold">📦 Phân bổ</button>
       <span class="text-xs px-3 py-1.5 rounded font-semibold text-gray-400 bg-gray-50 flex items-center gap-1">🛒 Đăng ký mua bản quyền <span class="text-[9px] bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full uppercase font-bold">Giai đoạn sau</span></span>
-      <span class="text-xs px-3 py-1.5 rounded font-semibold text-gray-400 bg-gray-50 flex items-center gap-1">📜 Phát hành license <span class="text-[9px] bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full uppercase font-bold">Giai đoạn sau</span></span>
       <span class="text-xs px-3 py-1.5 rounded font-semibold text-gray-400 bg-gray-50 flex items-center gap-1">📋 Phát hành đăng ký mua <span class="text-[9px] bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full uppercase font-bold">Giai đoạn sau</span></span>
     </div>
 
@@ -814,6 +814,71 @@
             </tr>
           </thead>
           <tbody id="softwareTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Sub-tab: Phát hành license -->
+    <div id="licenseSubBatch" class="hidden space-y-3">
+      <div class="flex justify-between items-center gap-2">
+        <button onclick="openBatchModal()" class="bg-teal-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-teal-700 transition text-xs">+ Phát hành license</button>
+        <span class="text-[11px] text-gray-500">Mỗi lần phát hành sẽ tự sinh đúng Số lượng mã license riêng biệt cho Công ty + Phần mềm đã chọn.</span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full border-collapse border bg-white text-xs">
+          <thead>
+            <tr class="bg-gray-100 text-left">
+              <th class="border p-2 w-10">STT</th>
+              <th class="border p-2">Công ty</th>
+              <th class="border p-2">Phần mềm</th>
+              <th class="border p-2 text-center">Số lượng</th>
+              <th class="border p-2 text-center">Đã cấp</th>
+              <th class="border p-2 text-center">Còn lại</th>
+              <th class="border p-2">Ngày cấp</th>
+              <th class="border p-2">Ngày hết hạn</th>
+              <th class="border p-2 text-center">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody id="batchTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Sub-tab: Phân bổ -->
+    <div id="licenseSubAlloc" class="hidden space-y-3">
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-gray-50 p-3 rounded border text-xs">
+        <div>
+          <label class="block font-semibold text-gray-600 mb-1">Công ty</label>
+          <select id="allocFilterCompany" onchange="renderAllocTable()" class="w-full border p-1.5 rounded bg-white"></select>
+        </div>
+        <div>
+          <label class="block font-semibold text-gray-600 mb-1">Phần mềm</label>
+          <select id="allocFilterSoftware" onchange="renderAllocTable()" class="w-full border p-1.5 rounded bg-white"></select>
+        </div>
+        <div>
+          <label class="block font-semibold text-gray-600 mb-1">Tìm kiếm</label>
+          <input id="allocFilterSearch" type="text" oninput="renderAllocTable()" placeholder="Tên nhân viên, mã license..." class="w-full border p-1.5 rounded">
+        </div>
+      </div>
+      <button onclick="openAllocModal()" class="bg-teal-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-teal-700 transition text-xs">+ Thêm phân bổ</button>
+      <div class="overflow-x-auto">
+        <table class="w-full border-collapse border bg-white text-xs">
+          <thead>
+            <tr class="bg-gray-100 text-left">
+              <th class="border p-2 w-10">STT</th>
+              <th class="border p-2">Công ty</th>
+              <th class="border p-2">Đơn vị</th>
+              <th class="border p-2">Họ và tên</th>
+              <th class="border p-2">Chức danh</th>
+              <th class="border p-2">Phần mềm</th>
+              <th class="border p-2">Mã license</th>
+              <th class="border p-2">Ngày cấp</th>
+              <th class="border p-2">Ngày hết hạn</th>
+              <th class="border p-2 text-center">Trạng thái</th>
+              <th class="border p-2 text-center">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody id="allocTableBody"></tbody>
         </table>
       </div>
     </div>
@@ -920,6 +985,82 @@
     </div>
   </div>
 
+  <!-- MODAL: Phát hành license (tạo lô + sinh mã tự động) -->
+  <div id="batchModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-sm w-full p-5 space-y-4">
+      <h3 class="font-bold text-gray-900 text-base">Phát hành license</h3>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Công ty</label>
+        <select id="batchCompany" class="w-full border p-2 rounded text-sm bg-white"></select>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Phần mềm</label>
+        <select id="batchSoftware" class="w-full border p-2 rounded text-sm bg-white"></select>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Số lượng mã cần phát hành</label>
+        <input id="batchQuantity" type="number" min="1" max="5000" class="w-full border p-2 rounded text-sm" placeholder="VD: 10">
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày cấp</label>
+          <input id="batchIssuedDate" type="date" class="w-full border p-2 rounded text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày hết hạn</label>
+          <input id="batchExpiryDate" type="date" class="w-full border p-2 rounded text-sm">
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Ghi chú (tùy chọn)</label>
+        <input id="batchNote" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Theo hợp đồng số...">
+      </div>
+      <div class="flex justify-end gap-2 pt-1">
+        <button type="button" onclick="closeLicenseModal('batchModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" onclick="saveBatch()" class="bg-teal-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-teal-700">Phát hành</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Thêm phân bổ (gán 1 mã license cho 1 nhân viên) -->
+  <div id="allocModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-sm w-full p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+      <h3 class="font-bold text-gray-900 text-base">Thêm phân bổ license</h3>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Công ty</label>
+        <select id="allocCompany" onchange="onAllocCompanyChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
+      </div>
+      <div id="allocOrgLevels" class="space-y-3"></div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Nhân viên</label>
+        <select id="allocEmployee" class="w-full border p-2 rounded text-sm bg-white"></select>
+        <p class="text-[11px] text-gray-500 mt-1">Chọn thêm các cấp đơn vị ở trên để thu hẹp danh sách khi công ty có nhiều nhân viên.</p>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Phần mềm</label>
+        <select id="allocSoftware" onchange="onAllocSoftwareChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Mã license (chỉ hiện mã chưa cấp cho ai)</label>
+        <select id="allocCode" onchange="onAllocCodeChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày cấp</label>
+          <input id="allocIssuedDate" type="date" class="w-full border p-2 rounded text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày hết hạn</label>
+          <input id="allocExpiryDate" type="text" disabled class="w-full border p-2 rounded text-sm bg-gray-100 text-gray-500" placeholder="Tự động theo mã">
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 pt-1">
+        <button type="button" onclick="closeLicenseModal('allocModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" onclick="saveAllocation()" class="bg-teal-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-teal-700">Cấp phát</button>
+      </div>
+    </div>
+  </div>
+
   <!-- MODAL XEM TÀI LIỆU (PROTECTED VIEWER) -->
   <div id="viewDocModal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-[60] p-4">
     <div class="bg-white rounded-lg shadow-2xl max-w-4xl w-full flex flex-col max-h-[90vh] overflow-hidden">
@@ -1016,7 +1157,7 @@
 
     // Dữ liệu module Quản Lý Bản Quyền — độc lập với DB ở trên, tải riêng khi
     // admin mở module (không tải kèm bootstrap chính vì chỉ admin dùng tới).
-    const licenseDB = { companies: [], orgUnits: [], employees: [], softwareCatalog: [], loaded: false };
+    const licenseDB = { companies: [], orgUnits: [], employees: [], softwareCatalog: [], licenseBatches: [], licenseCodes: [], loaded: false };
     let licenseExpandedNodes = new Set();
 
     let currentUser = null;
@@ -3022,6 +3163,8 @@
       licenseDB.orgUnits = data.orgUnits || [];
       licenseDB.employees = data.employees || [];
       licenseDB.softwareCatalog = data.softwareCatalog || [];
+      licenseDB.licenseBatches = data.licenseBatches || [];
+      licenseDB.licenseCodes = data.licenseCodes || [];
       licenseDB.loaded = true;
       // Chỉ đặt mặc định (mở các đơn vị cấp cao nhất) ở lần tải đầu tiên — các
       // lần tải lại sau (sau khi thêm/sửa/xóa) phải GIỮ NGUYÊN trạng thái
@@ -3038,8 +3181,8 @@
     function switchLicenseSubTab(subName) {
       if (!currentUser || !currentUser.perms.admin) return;
 
-      const subs = { org: 'licenseSubOrg', emp: 'licenseSubEmp', software: 'licenseSubSoftware' };
-      const btns = { org: 'btnLicenseSubOrg', emp: 'btnLicenseSubEmp', software: 'btnLicenseSubSoftware' };
+      const subs = { org: 'licenseSubOrg', emp: 'licenseSubEmp', software: 'licenseSubSoftware', batch: 'licenseSubBatch', alloc: 'licenseSubAlloc' };
+      const btns = { org: 'btnLicenseSubOrg', emp: 'btnLicenseSubEmp', software: 'btnLicenseSubSoftware', batch: 'btnLicenseSubBatch', alloc: 'btnLicenseSubAlloc' };
       Object.keys(subs).forEach(key => {
         document.getElementById(subs[key]).classList.toggle('hidden', key !== subName);
         const btn = document.getElementById(btns[key]);
@@ -3053,6 +3196,8 @@
         if (subName === 'org') renderCompanyList();
         if (subName === 'emp') { populateCompanyFilterSelects(); renderLicenseEmployees(); }
         if (subName === 'software') renderSoftwareTable();
+        if (subName === 'batch') renderBatchTable();
+        if (subName === 'alloc') { populateAllocFilterSelects(); renderAllocTable(); }
       }).catch(err => showToast(err.message || 'Không thể tải dữ liệu module Bản quyền.', 'danger'));
     }
 
@@ -3407,6 +3552,294 @@
         licenseDB.loaded = false;
         await loadLicenseBootstrapData();
         renderSoftwareTable();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+
+    // --- Phát hành license (lô mã license) ---
+    function populateBatchSelects() {
+      document.getElementById('batchCompany').innerHTML = licenseDB.companies.length
+        ? licenseDB.companies.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')
+        : '<option value="">-- Chưa có công ty --</option>';
+      document.getElementById('batchSoftware').innerHTML = licenseDB.softwareCatalog.length
+        ? licenseDB.softwareCatalog.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')
+        : '<option value="">-- Chưa có phần mềm --</option>';
+    }
+    function openBatchModal() {
+      populateBatchSelects();
+      document.getElementById('batchQuantity').value = '';
+      document.getElementById('batchIssuedDate').value = new Date().toISOString().slice(0, 10);
+      document.getElementById('batchExpiryDate').value = '';
+      document.getElementById('batchNote').value = '';
+      openLicenseModal('batchModal');
+    }
+    async function saveBatch() {
+      const companyId = Number(document.getElementById('batchCompany').value);
+      const softwareId = Number(document.getElementById('batchSoftware').value);
+      const quantity = Number(document.getElementById('batchQuantity').value);
+      const issuedDate = document.getElementById('batchIssuedDate').value;
+      const expiryDate = document.getElementById('batchExpiryDate').value;
+      const note = document.getElementById('batchNote').value.trim();
+      if (!companyId || !softwareId) return showToast('Vui lòng chọn Công ty và Phần mềm.', 'warning');
+      if (!Number.isInteger(quantity) || quantity < 1) return showToast('Số lượng không hợp lệ.', 'warning');
+      if (!issuedDate || !expiryDate) return showToast('Vui lòng chọn đủ Ngày cấp và Ngày hết hạn.', 'warning');
+      try {
+        await apiFetch('/api/license/batches', { method: 'POST', body: JSON.stringify({ companyId, softwareId, quantity, issuedDate, expiryDate, note }) });
+        showToast(`Đã phát hành ${quantity} mã license.`, 'success');
+        closeLicenseModal('batchModal');
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        renderBatchTable();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+    async function deleteBatch(id) {
+      const ok = await showConfirm({ title: 'Xóa lô license', message: 'Xóa lô license này? Chỉ xóa được khi chưa có mã nào được phân bổ cho nhân viên.', danger: true, confirmText: 'Xóa' });
+      if (!ok) return;
+      try {
+        await apiFetch(`/api/license/batches/${id}`, { method: 'DELETE' });
+        showToast('Đã xóa lô license.', 'success');
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        renderBatchTable();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+    function renderBatchTable() {
+      const tbody = document.getElementById('batchTableBody');
+      if (licenseDB.licenseBatches.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-gray-500 p-4">Chưa có lô license nào — bấm "+ Phát hành license" để bắt đầu.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = licenseDB.licenseBatches.map((b, i) => {
+        const company = licenseDB.companies.find(c => c.id === b.companyId);
+        const software = licenseDB.softwareCatalog.find(s => s.id === b.softwareId);
+        const assignedCount = licenseDB.licenseCodes.filter(c => c.batchId === b.id && c.assignedEmployeeId).length;
+        const remaining = b.quantity - assignedCount;
+        return `
+          <tr class="hover:bg-gray-50">
+            <td class="border p-2">${i + 1}</td>
+            <td class="border p-2">${escapeHtml(company ? company.name : '—')}</td>
+            <td class="border p-2">${escapeHtml(software ? software.name : '—')}</td>
+            <td class="border p-2 text-center">${b.quantity}</td>
+            <td class="border p-2 text-center">${assignedCount}</td>
+            <td class="border p-2 text-center font-semibold ${remaining === 0 ? 'text-red-600' : 'text-green-700'}">${remaining}</td>
+            <td class="border p-2">${b.issuedDate}</td>
+            <td class="border p-2">${b.expiryDate}</td>
+            <td class="border p-2 text-center"><button onclick="deleteBatch(${b.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600">🗑️</button></td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    // --- Phân bổ (gán / thu hồi 1 mã license cho 1 nhân viên) ---
+    // Logic đã thống nhất: Công ty/Khối/Ban/Phòng KHÔNG phải trường dữ liệu
+    // riêng của phân bổ — chúng chỉ là bộ lọc để tìm đúng Nhân viên (đơn vị
+    // của nhân viên đã cố định sẵn ở danh mục Nhân viên). Các cấp đơn vị được
+    // vẽ động theo đúng cây thực tế của công ty đang chọn — công ty nào không
+    // có Khối/Ban thì cấp đó tự ẩn hoàn toàn, không giới hạn cứng 3-4 cấp.
+    function populateAllocFilterSelects() {
+      document.getElementById('allocFilterCompany').innerHTML = '<option value="">-- Tất cả công ty --</option>' +
+        licenseDB.companies.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+      document.getElementById('allocFilterSoftware').innerHTML = '<option value="">-- Tất cả phần mềm --</option>' +
+        licenseDB.softwareCatalog.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+    }
+    function renderAllocTable() {
+      const companyId = document.getElementById('allocFilterCompany').value;
+      const softwareId = document.getElementById('allocFilterSoftware').value;
+      const search = document.getElementById('allocFilterSearch').value.trim().toLowerCase();
+      const tbody = document.getElementById('allocTableBody');
+
+      let rows = licenseDB.licenseCodes
+        .filter(c => c.assignedEmployeeId)
+        .map(c => {
+          const batch = licenseDB.licenseBatches.find(b => b.id === c.batchId);
+          const emp = licenseDB.employees.find(e => e.id === c.assignedEmployeeId);
+          if (!batch || !emp) return null;
+          return {
+            code: c, batch, emp,
+            software: licenseDB.softwareCatalog.find(s => s.id === batch.softwareId),
+            company: licenseDB.companies.find(x => x.id === batch.companyId)
+          };
+        })
+        .filter(Boolean);
+
+      if (companyId) rows = rows.filter(r => r.company && r.company.id === Number(companyId));
+      if (softwareId) rows = rows.filter(r => r.software && r.software.id === Number(softwareId));
+      if (search) rows = rows.filter(r => `${r.emp.fullName} ${r.code.code}`.toLowerCase().includes(search));
+
+      if (rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="11" class="text-center text-gray-500 p-4">Chưa có phân bổ nào.</td></tr>`;
+        return;
+      }
+      const today = new Date().toISOString().slice(0, 10);
+      tbody.innerHTML = rows.map((r, i) => {
+        let statusHtml;
+        if (r.batch.expiryDate < today) {
+          statusHtml = `<span class="text-[10px] font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded-full">Đã hết hạn</span>`;
+        } else {
+          const daysLeft = Math.ceil((new Date(r.batch.expiryDate) - new Date(today)) / 86400000);
+          statusHtml = daysLeft <= 30
+            ? `<span class="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">Còn ${daysLeft} ngày</span>`
+            : `<span class="text-[10px] font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Còn hạn</span>`;
+        }
+        return `
+          <tr class="hover:bg-gray-50">
+            <td class="border p-2">${i + 1}</td>
+            <td class="border p-2">${escapeHtml(r.company ? r.company.name : '—')}</td>
+            <td class="border p-2">${escapeHtml(orgUnitPath(r.emp.orgUnitId))}</td>
+            <td class="border p-2 font-semibold">${escapeHtml(r.emp.fullName)}</td>
+            <td class="border p-2">${escapeHtml(r.emp.title || '—')}</td>
+            <td class="border p-2">${escapeHtml(r.software ? r.software.name : '—')}</td>
+            <td class="border p-2 font-mono text-[11px]">${escapeHtml(r.code.code)}</td>
+            <td class="border p-2">${r.code.assignedAt}</td>
+            <td class="border p-2">${r.batch.expiryDate}</td>
+            <td class="border p-2 text-center">${statusHtml}</td>
+            <td class="border p-2 text-center"><button onclick="revokeAllocation(${r.code.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600 text-[11px] font-semibold">Thu hồi</button></td>
+          </tr>
+        `;
+      }).join('');
+    }
+    async function revokeAllocation(codeId) {
+      const c = licenseDB.licenseCodes.find(x => x.id === codeId);
+      const emp = c ? licenseDB.employees.find(e => e.id === c.assignedEmployeeId) : null;
+      const ok = await showConfirm({ title: 'Thu hồi license', message: `Thu hồi mã [${c?.code}] khỏi nhân viên [${emp?.fullName}]? Mã sẽ trở lại trạng thái chưa cấp, có thể phân bổ lại cho người khác.`, danger: true, confirmText: 'Thu hồi' });
+      if (!ok) return;
+      try {
+        await apiFetch(`/api/license/codes/${codeId}/unassign`, { method: 'POST' });
+        showToast('Đã thu hồi license.', 'success');
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        renderAllocTable();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+
+    // Trả về [id, ...toàn bộ id hậu duệ] — dùng để lọc nhân viên khi người
+    // dùng chọn 1 đơn vị ở cấp bất kỳ (bao gồm cả nhân viên gắn ở cấp con).
+    function orgSubtreeIds(rootId) {
+      const ids = [rootId];
+      let frontier = [rootId];
+      while (frontier.length) {
+        const next = licenseDB.orgUnits.filter(u => frontier.includes(u.parentId)).map(u => u.id);
+        ids.push(...next);
+        frontier = next;
+      }
+      return ids;
+    }
+    function renderAllocEmployeeOptions(companyId, scopeOrgUnitId) {
+      const select = document.getElementById('allocEmployee');
+      if (!companyId) { select.innerHTML = '<option value="">-- Chọn công ty trước --</option>'; return; }
+      let emps = licenseDB.employees.filter(e => {
+        const u = licenseDB.orgUnits.find(x => x.id === e.orgUnitId);
+        return u && u.companyId === companyId;
+      });
+      if (scopeOrgUnitId) {
+        const allowedIds = new Set(orgSubtreeIds(scopeOrgUnitId));
+        emps = emps.filter(e => allowedIds.has(e.orgUnitId));
+      }
+      select.innerHTML = emps.length
+        ? emps.map(e => `<option value="${e.id}">${escapeHtml(e.fullName)}${e.employeeCode ? ' (' + escapeHtml(e.employeeCode) + ')' : ''}</option>`).join('')
+        : '<option value="">-- Không có nhân viên phù hợp --</option>';
+    }
+    function clearAllocOrgLevelsFrom(depth) {
+      document.getElementById('allocOrgLevels').querySelectorAll('[data-depth]').forEach(el => {
+        if (Number(el.dataset.depth) >= depth) el.remove();
+      });
+    }
+    // Vẽ đệ quy 1 select cho từng cấp đơn vị thực có trong công ty — cấp nào
+    // công ty không có (VD không có Khối) thì mảng options rỗng và HÀM DỪNG,
+    // tự động không hiện select cho cấp đó lẫn các cấp sâu hơn.
+    function renderAllocOrgLevel(companyId, parentId, depth) {
+      const stale = document.querySelector(`#allocOrgLevels [data-depth="${depth}"]`);
+      if (stale) stale.remove();
+      if (!companyId) return;
+      const options = licenseDB.orgUnits.filter(u => u.companyId === companyId && u.parentId === parentId);
+      if (options.length === 0) return;
+
+      const levelLabel = options[0].level;
+      const wrap = document.createElement('div');
+      wrap.dataset.depth = String(depth);
+      wrap.innerHTML = `
+        <label class="block text-xs font-semibold text-gray-600 mb-1">${escapeHtml(levelLabel)}</label>
+        <select class="w-full border p-2 rounded text-sm bg-white">
+          <option value="">-- Tất cả (không lọc theo ${escapeHtml(levelLabel)}) --</option>
+          ${options.map(u => `<option value="${u.id}">${escapeHtml(u.name)}</option>`).join('')}
+        </select>
+      `;
+      wrap.querySelector('select').addEventListener('change', (ev) => {
+        const chosenId = ev.target.value ? Number(ev.target.value) : null;
+        clearAllocOrgLevelsFrom(depth + 1);
+        renderAllocEmployeeOptions(companyId, chosenId || parentId);
+        if (chosenId) renderAllocOrgLevel(companyId, chosenId, depth + 1);
+      });
+      document.getElementById('allocOrgLevels').appendChild(wrap);
+    }
+    function onAllocCompanyChange() {
+      const companyId = Number(document.getElementById('allocCompany').value) || null;
+      clearAllocOrgLevelsFrom(0);
+      renderAllocEmployeeOptions(companyId, null);
+      if (companyId) renderAllocOrgLevel(companyId, null, 0);
+
+      // Phần mềm: chỉ hiện phần mềm mà công ty này đã được phát hành ít nhất 1 lô.
+      const softwareIds = new Set(licenseDB.licenseBatches.filter(b => b.companyId === companyId).map(b => b.softwareId));
+      const options = licenseDB.softwareCatalog.filter(s => softwareIds.has(s.id));
+      document.getElementById('allocSoftware').innerHTML = options.length
+        ? options.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')
+        : '<option value="">-- Công ty chưa có phần mềm nào --</option>';
+      onAllocSoftwareChange();
+    }
+    function onAllocSoftwareChange() {
+      const companyId = Number(document.getElementById('allocCompany').value) || null;
+      const softwareId = Number(document.getElementById('allocSoftware').value) || null;
+      const select = document.getElementById('allocCode');
+      if (!companyId || !softwareId) {
+        select.innerHTML = '<option value="">-- Chọn công ty và phần mềm trước --</option>';
+        document.getElementById('allocExpiryDate').value = '';
+        return;
+      }
+      const batchIds = new Set(licenseDB.licenseBatches.filter(b => b.companyId === companyId && b.softwareId === softwareId).map(b => b.id));
+      const codes = licenseDB.licenseCodes.filter(c => batchIds.has(c.batchId) && !c.assignedEmployeeId);
+      select.innerHTML = codes.length
+        ? codes.map(c => `<option value="${c.id}">${escapeHtml(c.code)}</option>`).join('')
+        : '<option value="">-- Không còn mã trống --</option>';
+      onAllocCodeChange();
+    }
+    function onAllocCodeChange() {
+      const codeId = Number(document.getElementById('allocCode').value) || null;
+      const code = codeId ? licenseDB.licenseCodes.find(c => c.id === codeId) : null;
+      const batch = code ? licenseDB.licenseBatches.find(b => b.id === code.batchId) : null;
+      document.getElementById('allocExpiryDate').value = batch ? batch.expiryDate : '';
+    }
+    function openAllocModal() {
+      document.getElementById('allocCompany').innerHTML = '<option value="">-- Chọn công ty --</option>' +
+        licenseDB.companies.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+      document.getElementById('allocOrgLevels').innerHTML = '';
+      document.getElementById('allocEmployee').innerHTML = '<option value="">-- Chọn công ty trước --</option>';
+      document.getElementById('allocSoftware').innerHTML = '<option value="">-- Chọn công ty trước --</option>';
+      document.getElementById('allocCode').innerHTML = '<option value="">-- Chọn phần mềm trước --</option>';
+      document.getElementById('allocIssuedDate').value = new Date().toISOString().slice(0, 10);
+      document.getElementById('allocExpiryDate').value = '';
+      openLicenseModal('allocModal');
+    }
+    async function saveAllocation() {
+      const employeeId = Number(document.getElementById('allocEmployee').value);
+      const codeId = Number(document.getElementById('allocCode').value);
+      const issuedDate = document.getElementById('allocIssuedDate').value;
+      if (!employeeId) return showToast('Vui lòng chọn Nhân viên.', 'warning');
+      if (!codeId) return showToast('Vui lòng chọn Mã license.', 'warning');
+      if (!issuedDate) return showToast('Vui lòng chọn Ngày cấp.', 'warning');
+      try {
+        await apiFetch(`/api/license/codes/${codeId}/assign`, { method: 'POST', body: JSON.stringify({ employeeId, issuedDate }) });
+        showToast('Đã cấp phát license.', 'success');
+        closeLicenseModal('allocModal');
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        renderAllocTable();
       } catch (err) {
         showToast(err.message, 'danger');
       }
