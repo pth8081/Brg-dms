@@ -1,6 +1,54 @@
 CREATE DATABASE IF NOT EXISTS dms_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE dms_db;
 
+-- Thủ tục dùng nội bộ cho việc nâng cấp CSDL: "CREATE INDEX IF NOT EXISTS"
+-- là cú pháp RIÊNG của MariaDB — MySQL chuẩn (kể cả bản mới nhất) KHÔNG hỗ
+-- trợ, sẽ báo lỗi cú pháp (ERROR 1064) nếu dùng trực tiếp. Thủ tục này tự
+-- kiểm tra qua information_schema trước khi tạo, chạy được trên CẢ MySQL
+-- lẫn MariaDB, mọi phiên bản. Được xóa lại ở cuối file sau khi dùng xong.
+DELIMITER $$
+DROP PROCEDURE IF EXISTS create_index_if_not_exists$$
+CREATE PROCEDURE create_index_if_not_exists(
+    IN p_table_name VARCHAR(64),
+    IN p_index_name VARCHAR(64),
+    IN p_columns VARCHAR(255)
+)
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = p_table_name AND INDEX_NAME = p_index_name
+    ) THEN
+        SET @create_idx_sql = CONCAT('CREATE INDEX ', p_index_name, ' ON ', p_table_name, ' (', p_columns, ')');
+        PREPARE stmt_create_idx FROM @create_idx_sql;
+        EXECUTE stmt_create_idx;
+        DEALLOCATE PREPARE stmt_create_idx;
+    END IF;
+END$$
+DELIMITER ;
+
+-- "ADD COLUMN IF NOT EXISTS" cũng là cú pháp RIÊNG của MariaDB — MySQL chuẩn
+-- (đã kiểm chứng thật trên MySQL 8.0.46) KHÔNG hỗ trợ, báo lỗi cú pháp giống
+-- hệt CREATE INDEX ở trên. Thủ tục này thay thế, chạy được trên cả 2 hệ.
+DELIMITER $$
+DROP PROCEDURE IF EXISTS add_column_if_not_exists$$
+CREATE PROCEDURE add_column_if_not_exists(
+    IN p_table_name VARCHAR(64),
+    IN p_column_name VARCHAR(64),
+    IN p_column_def VARCHAR(255)
+)
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = p_table_name AND COLUMN_NAME = p_column_name
+    ) THEN
+        SET @add_col_sql = CONCAT('ALTER TABLE ', p_table_name, ' ADD COLUMN ', p_column_name, ' ', p_column_def);
+        PREPARE stmt_add_col FROM @add_col_sql;
+        EXECUTE stmt_add_col;
+        DEALLOCATE PREPARE stmt_add_col;
+    END IF;
+END$$
+DELIMITER ;
+
 -- 1. Bảng Phòng Ban
 CREATE TABLE IF NOT EXISTS depts (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -57,18 +105,18 @@ CREATE TABLE IF NOT EXISTS docs (
 -- Migrate cho CSDL đã tồn tại từ trước (không có sẵn các cột trên): thêm cột
 -- nếu thiếu, rồi gán mỗi tài liệu cũ thành nhóm 1 phiên bản của chính nó.
 -- PHẢI chạy trước CREATE INDEX bên dưới vì CSDL cũ chưa có cột doc_group_id.
-ALTER TABLE depts ADD COLUMN IF NOT EXISTS abbr VARCHAR(20) NOT NULL DEFAULT '';
-ALTER TABLE cats ADD COLUMN IF NOT EXISTS abbr VARCHAR(20) NOT NULL DEFAULT '';
-ALTER TABLE docs ADD COLUMN IF NOT EXISTS doc_group_id BIGINT;
-ALTER TABLE docs ADD COLUMN IF NOT EXISTS version_no INT NOT NULL DEFAULT 1;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE;
-ALTER TABLE docs ADD COLUMN IF NOT EXISTS deleted_at DATETIME NULL DEFAULT NULL;
-ALTER TABLE docs ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(100) NULL DEFAULT NULL;
-ALTER TABLE docs ADD COLUMN IF NOT EXISTS file_path VARCHAR(500) NULL DEFAULT NULL;
+CALL add_column_if_not_exists('depts', 'abbr', 'VARCHAR(20) NOT NULL DEFAULT \'\'');
+CALL add_column_if_not_exists('cats', 'abbr', 'VARCHAR(20) NOT NULL DEFAULT \'\'');
+CALL add_column_if_not_exists('docs', 'doc_group_id', 'BIGINT');
+CALL add_column_if_not_exists('docs', 'version_no', 'INT NOT NULL DEFAULT 1');
+CALL add_column_if_not_exists('users', 'active', 'BOOLEAN NOT NULL DEFAULT TRUE');
+CALL add_column_if_not_exists('docs', 'deleted_at', 'DATETIME NULL DEFAULT NULL');
+CALL add_column_if_not_exists('docs', 'deleted_by', 'VARCHAR(100) NULL DEFAULT NULL');
+CALL add_column_if_not_exists('docs', 'file_path', 'VARCHAR(500) NULL DEFAULT NULL');
 UPDATE docs SET doc_group_id = id WHERE doc_group_id IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_docs_group ON docs (doc_group_id);
-CREATE INDEX IF NOT EXISTS idx_docs_deleted_at ON docs (deleted_at);
+CALL create_index_if_not_exists('docs', 'idx_docs_group', 'doc_group_id');
+CALL create_index_if_not_exists('docs', 'idx_docs_deleted_at', 'deleted_at');
 
 -- 5. Bảng Quy Trình
 CREATE TABLE IF NOT EXISTS workflows (
@@ -117,8 +165,8 @@ CREATE TABLE IF NOT EXISTS lic_org_units (
     level_label VARCHAR(50) NOT NULL,
     sort_order INT NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_lic_org_units_company ON lic_org_units (company_id);
-CREATE INDEX IF NOT EXISTS idx_lic_org_units_parent ON lic_org_units (parent_id);
+CALL create_index_if_not_exists('lic_org_units', 'idx_lic_org_units_company', 'company_id');
+CALL create_index_if_not_exists('lic_org_units', 'idx_lic_org_units_parent', 'parent_id');
 
 CREATE TABLE IF NOT EXISTS lic_employees (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -129,7 +177,7 @@ CREATE TABLE IF NOT EXISTS lic_employees (
     email VARCHAR(255) NULL DEFAULT NULL,
     active BOOLEAN NOT NULL DEFAULT TRUE
 );
-CREATE INDEX IF NOT EXISTS idx_lic_employees_org_unit ON lic_employees (org_unit_id);
+CALL create_index_if_not_exists('lic_employees', 'idx_lic_employees_org_unit', 'org_unit_id');
 
 CREATE TABLE IF NOT EXISTS lic_software_catalog (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -158,11 +206,11 @@ CREATE TABLE IF NOT EXISTS lic_license_batches (
     note VARCHAR(500) NULL DEFAULT NULL,
     created_at VARCHAR(100)
 );
-CREATE INDEX IF NOT EXISTS idx_lic_license_batches_company ON lic_license_batches (company_id);
-CREATE INDEX IF NOT EXISTS idx_lic_license_batches_software ON lic_license_batches (software_id);
+CALL create_index_if_not_exists('lic_license_batches', 'idx_lic_license_batches_company', 'company_id');
+CALL create_index_if_not_exists('lic_license_batches', 'idx_lic_license_batches_software', 'software_id');
 -- Nâng cấp CSDL cũ (bản trước dùng cột "quantity" là số mã sinh ra ngay từ đầu).
-ALTER TABLE lic_license_batches ADD COLUMN IF NOT EXISTS total_quantity INT NOT NULL DEFAULT 0;
-ALTER TABLE lic_license_batches ADD COLUMN IF NOT EXISTS codes_generated INT NOT NULL DEFAULT 0;
+CALL add_column_if_not_exists('lic_license_batches', 'total_quantity', 'INT NOT NULL DEFAULT 0');
+CALL add_column_if_not_exists('lic_license_batches', 'codes_generated', 'INT NOT NULL DEFAULT 0');
 -- Nếu CSDL cũ còn cột "quantity" (bản trước khi có Kỳ mua), chuyển toàn bộ
 -- lịch sử phát hành cũ sang total_quantity/codes_generated (dùng SQL động vì
 -- cài đặt mới hoàn toàn không có cột "quantity" nên không thể tham chiếu
@@ -196,15 +244,15 @@ CREATE TABLE IF NOT EXISTS lic_license_codes (
 -- index dùng tới chúng (bản trước không có các cột này, lưu ngày hết hạn qua
 -- batch) — PHẢI đứng trước CREATE INDEX idx_lic_license_codes_company_software
 -- bên dưới, nếu không CSDL cũ sẽ báo lỗi "column doesn't exist" khi tạo index.
-ALTER TABLE lic_license_codes ADD COLUMN IF NOT EXISTS company_id BIGINT NULL DEFAULT NULL;
-ALTER TABLE lic_license_codes ADD COLUMN IF NOT EXISTS software_id BIGINT NULL DEFAULT NULL;
-ALTER TABLE lic_license_codes ADD COLUMN IF NOT EXISTS expiry_date DATE NULL DEFAULT NULL;
+CALL add_column_if_not_exists('lic_license_codes', 'company_id', 'BIGINT NULL DEFAULT NULL');
+CALL add_column_if_not_exists('lic_license_codes', 'software_id', 'BIGINT NULL DEFAULT NULL');
+CALL add_column_if_not_exists('lic_license_codes', 'expiry_date', 'DATE NULL DEFAULT NULL');
 UPDATE lic_license_codes c JOIN lic_license_batches b ON b.id = c.batch_id
     SET c.company_id = b.company_id, c.software_id = b.software_id, c.expiry_date = b.expiry_date
     WHERE c.company_id IS NULL;
-CREATE INDEX IF NOT EXISTS idx_lic_license_codes_batch ON lic_license_codes (batch_id);
-CREATE INDEX IF NOT EXISTS idx_lic_license_codes_employee ON lic_license_codes (assigned_employee_id);
-CREATE INDEX IF NOT EXISTS idx_lic_license_codes_company_software ON lic_license_codes (company_id, software_id);
+CALL create_index_if_not_exists('lic_license_codes', 'idx_lic_license_codes_batch', 'batch_id');
+CALL create_index_if_not_exists('lic_license_codes', 'idx_lic_license_codes_employee', 'assigned_employee_id');
+CALL create_index_if_not_exists('lic_license_codes', 'idx_lic_license_codes_company_software', 'company_id, software_id');
 
 -- 9. Module Đăng ký / Phát hành đăng ký mua bản quyền — Admin tạo "Kỳ mua",
 -- định nghĩa phần mềm + đơn giá + ngày hết hạn dự kiến cho kỳ đó; các công ty
@@ -226,7 +274,7 @@ CREATE TABLE IF NOT EXISTS lic_purchase_round_items (
     unit_price DECIMAL(18,2) NOT NULL,
     expiry_date DATE NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_lic_round_items_round ON lic_purchase_round_items (round_id);
+CALL create_index_if_not_exists('lic_purchase_round_items', 'idx_lic_round_items_round', 'round_id');
 
 CREATE TABLE IF NOT EXISTS lic_purchase_registrations (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -244,8 +292,12 @@ CREATE TABLE IF NOT EXISTS lic_purchase_registrations (
     decided_by VARCHAR(100) NULL DEFAULT NULL,
     decided_at VARCHAR(100) NULL DEFAULT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_lic_reg_round ON lic_purchase_registrations (round_id);
-CREATE INDEX IF NOT EXISTS idx_lic_reg_company ON lic_purchase_registrations (company_id);
+CALL create_index_if_not_exists('lic_purchase_registrations', 'idx_lic_reg_round', 'round_id');
+CALL create_index_if_not_exists('lic_purchase_registrations', 'idx_lic_reg_company', 'company_id');
+
+-- Dọn dẹp: xóa các thủ tục tạm sau khi dùng xong, không để lại trong CSDL thật.
+DROP PROCEDURE IF EXISTS create_index_if_not_exists;
+DROP PROCEDURE IF EXISTS add_column_if_not_exists;
 
 -- Khởi tạo Dữ liệu Mẫu Ban Đầu Cho Môi Trường Mới (Chỉ tạo Admin gốc nếu chưa tồn tại)
 INSERT INTO depts (name, abbr) VALUES ('Phòng IT', 'IT'), ('Phòng Nhân Sự', 'NS'), ('Phòng Kế Toán', 'KT'), ('Ban Giám Đốc', 'BGD')
