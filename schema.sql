@@ -163,6 +163,20 @@ CREATE INDEX IF NOT EXISTS idx_lic_license_batches_software ON lic_license_batch
 -- Nâng cấp CSDL cũ (bản trước dùng cột "quantity" là số mã sinh ra ngay từ đầu).
 ALTER TABLE lic_license_batches ADD COLUMN IF NOT EXISTS total_quantity INT NOT NULL DEFAULT 0;
 ALTER TABLE lic_license_batches ADD COLUMN IF NOT EXISTS codes_generated INT NOT NULL DEFAULT 0;
+-- Nếu CSDL cũ còn cột "quantity" (bản trước khi có Kỳ mua), chuyển toàn bộ
+-- lịch sử phát hành cũ sang total_quantity/codes_generated (dùng SQL động vì
+-- cài đặt mới hoàn toàn không có cột "quantity" nên không thể tham chiếu
+-- thẳng trong câu UPDATE tĩnh — sẽ báo lỗi "unknown column" nếu không có cột).
+SET @has_old_quantity_col = (
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'lic_license_batches' AND COLUMN_NAME = 'quantity'
+);
+SET @migrate_old_quantity_sql = IF(@has_old_quantity_col > 0,
+    'UPDATE lic_license_batches SET total_quantity = quantity, codes_generated = quantity WHERE total_quantity = 0 AND quantity IS NOT NULL',
+    'SELECT 1');
+PREPARE stmt_migrate_quantity FROM @migrate_old_quantity_sql;
+EXECUTE stmt_migrate_quantity;
+DEALLOCATE PREPARE stmt_migrate_quantity;
 
 -- Mã license lẻ: company_id/software_id/expiry_date lưu trực tiếp (không tra
 -- qua batch) vì ngày hết hạn được cập nhật hàng loạt theo công ty+phần mềm ở
@@ -178,17 +192,19 @@ CREATE TABLE IF NOT EXISTS lic_license_codes (
     assigned_employee_id BIGINT NULL DEFAULT NULL,
     assigned_at DATE NULL DEFAULT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_lic_license_codes_batch ON lic_license_codes (batch_id);
-CREATE INDEX IF NOT EXISTS idx_lic_license_codes_employee ON lic_license_codes (assigned_employee_id);
-CREATE INDEX IF NOT EXISTS idx_lic_license_codes_company_software ON lic_license_codes (company_id, software_id);
--- Nâng cấp CSDL cũ: thêm cột rồi lấy company_id/software_id/expiry_date từ
--- batch gốc (bản trước lưu ngày hết hạn qua batch).
+-- Nâng cấp CSDL cũ: thêm cột company_id/software_id/expiry_date TRƯỚC khi tạo
+-- index dùng tới chúng (bản trước không có các cột này, lưu ngày hết hạn qua
+-- batch) — PHẢI đứng trước CREATE INDEX idx_lic_license_codes_company_software
+-- bên dưới, nếu không CSDL cũ sẽ báo lỗi "column doesn't exist" khi tạo index.
 ALTER TABLE lic_license_codes ADD COLUMN IF NOT EXISTS company_id BIGINT NULL DEFAULT NULL;
 ALTER TABLE lic_license_codes ADD COLUMN IF NOT EXISTS software_id BIGINT NULL DEFAULT NULL;
 ALTER TABLE lic_license_codes ADD COLUMN IF NOT EXISTS expiry_date DATE NULL DEFAULT NULL;
 UPDATE lic_license_codes c JOIN lic_license_batches b ON b.id = c.batch_id
     SET c.company_id = b.company_id, c.software_id = b.software_id, c.expiry_date = b.expiry_date
     WHERE c.company_id IS NULL;
+CREATE INDEX IF NOT EXISTS idx_lic_license_codes_batch ON lic_license_codes (batch_id);
+CREATE INDEX IF NOT EXISTS idx_lic_license_codes_employee ON lic_license_codes (assigned_employee_id);
+CREATE INDEX IF NOT EXISTS idx_lic_license_codes_company_software ON lic_license_codes (company_id, software_id);
 
 -- 9. Module Đăng ký / Phát hành đăng ký mua bản quyền — Admin tạo "Kỳ mua",
 -- định nghĩa phần mềm + đơn giá + ngày hết hạn dự kiến cho kỳ đó; các công ty
