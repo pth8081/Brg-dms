@@ -805,12 +805,15 @@
     <div id="licenseSubSoftware" class="hidden space-y-3">
       <button onclick="openSoftwareModal()" class="bg-teal-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-teal-700 transition text-xs">+ Thêm phần mềm</button>
       <div class="overflow-x-auto">
-        <table class="w-full border-collapse border bg-white text-xs max-w-2xl">
+        <table class="w-full border-collapse border bg-white text-xs max-w-3xl">
           <thead>
             <tr class="bg-gray-100 text-left">
               <th class="border p-2">Tên phần mềm</th>
               <th class="border p-2">Mã</th>
+              <th class="border p-2 text-center">Loại license</th>
               <th class="border p-2 text-center">Thời hạn mặc định</th>
+              <th class="border p-2 text-center">Số người/mã</th>
+              <th class="border p-2 text-center">Khác công ty</th>
               <th class="border p-2 text-center">Thao tác</th>
             </tr>
           </thead>
@@ -1060,9 +1063,26 @@
         <input id="softwareCode" type="text" maxlength="50" class="w-full border p-2 rounded text-sm" placeholder="VD: O365">
       </div>
       <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Loại license</label>
+        <select id="softwareLicenseType" class="w-full border p-2 rounded text-sm bg-white">
+          <option value="TERM">Có thời hạn</option>
+          <option value="PERPETUAL">Vĩnh viễn</option>
+          <option value="MAINTENANCE">Bảo trì</option>
+        </select>
+      </div>
+      <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Thời hạn mặc định (tháng, tùy chọn)</label>
         <input id="softwareDuration" type="number" min="1" max="120" class="w-full border p-2 rounded text-sm" placeholder="VD: 12">
         <p class="text-[11px] text-gray-500 mt-1">Nếu có, khi thêm phần mềm này vào kỳ mua, Ngày hết hạn sẽ tự tính = hôm nay + số tháng này.</p>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Số người tối đa được gán chung 1 mã</label>
+        <input id="softwareMaxAssignees" type="number" min="1" max="100" value="1" class="w-full border p-2 rounded text-sm">
+        <p class="text-[11px] text-gray-500 mt-1">Mặc định 1 (1 mã chỉ 1 người). Đặt lớn hơn nếu mã license này được dùng chung cho nhiều người.</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <input id="softwareAllowCrossCompany" type="checkbox" class="w-4 h-4">
+        <label for="softwareAllowCrossCompany" class="text-xs font-semibold text-gray-600">Cho phép dùng chung mã license này giữa các công ty khác nhau</label>
       </div>
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" onclick="closeLicenseModal('softwareModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
@@ -1080,7 +1100,7 @@
         <select id="batchCompany" class="w-full border p-2 rounded text-sm bg-white"></select>
       </div>
       <div>
-        <label class="block text-xs font-semibold text-gray-600 mb-1">Phần mềm</label>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Phần mềm <span id="batchLicenseTypeBadge"></span></label>
         <select id="batchSoftware" class="w-full border p-2 rounded text-sm bg-white"></select>
       </div>
       <div>
@@ -1093,7 +1113,7 @@
           <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày cấp</label>
           <input id="batchIssuedDate" type="date" class="w-full border p-2 rounded text-sm">
         </div>
-        <div>
+        <div id="batchExpiryWrap">
           <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày gia hạn đến</label>
           <input id="batchExpiryDate" type="date" class="w-full border p-2 rounded text-sm">
         </div>
@@ -1114,22 +1134,23 @@
     <div class="bg-white rounded-lg shadow-2xl max-w-sm w-full p-5 space-y-4 max-h-[90vh] overflow-y-auto">
       <h3 class="font-bold text-gray-900 text-base">Thêm phân bổ license</h3>
       <div>
-        <label class="block text-xs font-semibold text-gray-600 mb-1">Công ty</label>
-        <select id="allocCompany" onchange="onAllocCompanyChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Phần mềm</label>
+        <select id="allocSoftware" onchange="onAllocSoftwareChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Mã license (chỉ hiện mã còn slot trống)</label>
+        <select id="allocCode" onchange="onAllocCodeChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
+        <p id="allocCodeShareHint" class="text-[11px] text-teal-700 font-semibold mt-1 hidden">Phần mềm này cho phép dùng chung khác công ty — có thể chọn nhân viên bất kỳ công ty nào.</p>
+      </div>
+      <div id="allocEmpCompanyWrap" class="hidden">
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Công ty của nhân viên</label>
+        <select id="allocEmpCompany" onchange="onAllocCompanyChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
       </div>
       <div id="allocOrgLevels" class="space-y-3"></div>
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Nhân viên</label>
         <select id="allocEmployee" class="w-full border p-2 rounded text-sm bg-white"></select>
         <p class="text-[11px] text-gray-500 mt-1">Chọn thêm các cấp đơn vị ở trên để thu hẹp danh sách khi công ty có nhiều nhân viên.</p>
-      </div>
-      <div>
-        <label class="block text-xs font-semibold text-gray-600 mb-1">Phần mềm</label>
-        <select id="allocSoftware" onchange="onAllocSoftwareChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
-      </div>
-      <div>
-        <label class="block text-xs font-semibold text-gray-600 mb-1">Mã license (chỉ hiện mã chưa cấp cho ai)</label>
-        <select id="allocCode" onchange="onAllocCodeChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
       </div>
       <div class="grid grid-cols-2 gap-2">
         <div>
@@ -1195,14 +1216,14 @@
       <h3 class="font-bold text-gray-900 text-base">Thêm phần mềm vào kỳ mua</h3>
       <input type="hidden" id="roundItemRoundId">
       <div>
-        <label class="block text-xs font-semibold text-gray-600 mb-1">Phần mềm</label>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Phần mềm <span id="roundItemLicenseTypeBadge"></span></label>
         <select id="roundItemSoftware" onchange="onRoundItemSoftwareChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
       </div>
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn giá (VNĐ)</label>
         <input id="roundItemUnitPrice" type="number" min="0" step="1000" class="w-full border p-2 rounded text-sm" placeholder="VD: 1500000">
       </div>
-      <div>
+      <div id="roundItemExpiryWrap">
         <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày hết hạn dự kiến</label>
         <input id="roundItemExpiryDate" type="date" class="w-full border p-2 rounded text-sm">
         <p id="roundItemDurationHint" class="text-[11px] text-gray-500 mt-1"></p>
@@ -1361,7 +1382,7 @@
 
     // Dữ liệu module Quản Lý Bản Quyền — độc lập với DB ở trên, tải riêng khi
     // admin mở module (không tải kèm bootstrap chính vì chỉ admin dùng tới).
-    const licenseDB = { companies: [], orgUnits: [], employees: [], softwareCatalog: [], licenseBatches: [], licenseCodes: [], purchaseRounds: [], purchaseRoundItems: [], purchaseRegistrations: [], loaded: false };
+    const licenseDB = { companies: [], orgUnits: [], employees: [], softwareCatalog: [], licenseBatches: [], licenseCodes: [], licenseCodeAssignments: [], purchaseRounds: [], purchaseRoundItems: [], purchaseRegistrations: [], loaded: false };
     let licenseExpandedNodes = new Set();
 
     let currentUser = null;
@@ -3369,6 +3390,7 @@
       licenseDB.softwareCatalog = data.softwareCatalog || [];
       licenseDB.licenseBatches = data.licenseBatches || [];
       licenseDB.licenseCodes = data.licenseCodes || [];
+      licenseDB.licenseCodeAssignments = data.licenseCodeAssignments || [];
       licenseDB.purchaseRounds = data.purchaseRounds || [];
       licenseDB.purchaseRoundItems = data.purchaseRoundItems || [];
       licenseDB.purchaseRegistrations = data.purchaseRegistrations || [];
@@ -3705,17 +3727,26 @@
     }
 
     // --- Danh mục phần mềm ---
+    const LICENSE_TYPE_LABELS = { PERPETUAL: 'Vĩnh viễn', TERM: 'Có thời hạn', MAINTENANCE: 'Bảo trì' };
+    const LICENSE_TYPE_COLORS = { PERPETUAL: 'bg-green-100 text-green-800', TERM: 'bg-blue-100 text-blue-800', MAINTENANCE: 'bg-amber-100 text-amber-800' };
+    function licenseTypeBadge(type) {
+      const t = type || 'TERM';
+      return `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded-full ${LICENSE_TYPE_COLORS[t] || 'bg-gray-100 text-gray-700'}">${LICENSE_TYPE_LABELS[t] || t}</span>`;
+    }
     function renderSoftwareTable() {
       const tbody = document.getElementById('softwareTableBody');
       if (licenseDB.softwareCatalog.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="4" class="text-center p-4 text-gray-500">Chưa có phần mềm nào trong danh mục.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center p-4 text-gray-500">Chưa có phần mềm nào trong danh mục.</td></tr>`;
         return;
       }
       tbody.innerHTML = licenseDB.softwareCatalog.map(s => `
         <tr class="hover:bg-gray-50">
           <td class="border p-2 font-semibold">${escapeHtml(s.name)}</td>
           <td class="border p-2 font-mono">${escapeHtml(s.code)}</td>
-          <td class="border p-2 text-center text-gray-600">${s.defaultDurationMonths ? s.defaultDurationMonths + ' tháng' : '—'}</td>
+          <td class="border p-2 text-center">${licenseTypeBadge(s.licenseType)}</td>
+          <td class="border p-2 text-center text-gray-600">${s.licenseType === 'PERPETUAL' ? '—' : (s.defaultDurationMonths ? s.defaultDurationMonths + ' tháng' : '—')}</td>
+          <td class="border p-2 text-center text-gray-600">${s.maxAssignees}</td>
+          <td class="border p-2 text-center">${s.allowCrossCompanyShare ? '✅' : '—'}</td>
           <td class="border p-2 text-center">
             <button onclick="openSoftwareModal(${s.id})" class="px-1.5 py-0.5 rounded hover:bg-gray-200">✏️</button>
             <button onclick="deleteSoftware(${s.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600">🗑️</button>
@@ -3729,25 +3760,36 @@
       document.getElementById('softwareEditId').value = id || '';
       document.getElementById('softwareName').value = s ? s.name : '';
       document.getElementById('softwareCode').value = s ? s.code : '';
+      document.getElementById('softwareLicenseType').value = s ? s.licenseType : 'TERM';
       document.getElementById('softwareDuration').value = (s && s.defaultDurationMonths) ? s.defaultDurationMonths : '';
+      document.getElementById('softwareMaxAssignees').value = s ? s.maxAssignees : 1;
+      document.getElementById('softwareAllowCrossCompany').checked = s ? s.allowCrossCompanyShare : false;
       openLicenseModal('softwareModal');
     }
     async function saveSoftware() {
       const id = document.getElementById('softwareEditId').value;
       const name = document.getElementById('softwareName').value.trim();
       const code = document.getElementById('softwareCode').value.trim();
+      const licenseType = document.getElementById('softwareLicenseType').value;
       const durationRaw = document.getElementById('softwareDuration').value.trim();
       const defaultDurationMonths = durationRaw ? Number(durationRaw) : null;
+      const maxAssigneesRaw = document.getElementById('softwareMaxAssignees').value.trim();
+      const maxAssignees = maxAssigneesRaw ? Number(maxAssigneesRaw) : 1;
+      const allowCrossCompanyShare = document.getElementById('softwareAllowCrossCompany').checked;
       if (!name || !code) return showToast('Vui lòng nhập đủ Tên và Mã phần mềm.', 'warning');
       if (defaultDurationMonths !== null && (!Number.isInteger(defaultDurationMonths) || defaultDurationMonths < 1 || defaultDurationMonths > 120)) {
         return showToast('Thời hạn mặc định phải là số nguyên từ 1 đến 120 tháng, hoặc để trống.', 'warning');
       }
+      if (!Number.isInteger(maxAssignees) || maxAssignees < 1 || maxAssignees > 100) {
+        return showToast('Số người tối đa/mã phải là số nguyên từ 1 đến 100.', 'warning');
+      }
+      const payload = { name, code, licenseType, defaultDurationMonths, maxAssignees, allowCrossCompanyShare };
       try {
         if (id) {
-          await apiFetch(`/api/license/software/${id}`, { method: 'PUT', body: JSON.stringify({ name, code, defaultDurationMonths }) });
+          await apiFetch(`/api/license/software/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
           showToast(`Đã cập nhật phần mềm "${name}".`, 'success');
         } else {
-          await apiFetch('/api/license/software', { method: 'POST', body: JSON.stringify({ name, code, defaultDurationMonths }) });
+          await apiFetch('/api/license/software', { method: 'POST', body: JSON.stringify(payload) });
           showToast(`Đã thêm phần mềm "${name}".`, 'success');
         }
         closeLicenseModal('softwareModal');
@@ -3785,12 +3827,48 @@
     function currentCodeCount(companyId, softwareId) {
       return licenseDB.licenseCodes.filter(c => c.companyId === companyId && c.softwareId === softwareId).length;
     }
+    // Hiển thị Ngày hết hạn — license Vĩnh viễn không có ngày hết hạn (null).
+    function expiryLabel(expiryDate) {
+      return expiryDate || '<span class="text-green-700 font-semibold">Vĩnh viễn</span>';
+    }
+    // --- Gán mã license nhiều-nhiều (1 mã có thể gán cho nhiều nhân viên) ---
+    function codeAssignments(codeId) {
+      return licenseDB.licenseCodeAssignments.filter(a => a.codeId === codeId);
+    }
+    function codeMaxAssignees(softwareId) {
+      const s = licenseDB.softwareCatalog.find(x => x.id === softwareId);
+      return (s && s.maxAssignees) || 1;
+    }
+    // Trả về badge "Cùng công ty" / "Khác công ty" khi 1 mã được gán cho từ 2
+    // người trở lên — giúp nhận biết ngay mã nào đang dùng chung khác công ty.
+    function codeShareBadge(codeId) {
+      const assigns = codeAssignments(codeId);
+      if (assigns.length <= 1) return '';
+      const companyIds = new Set(assigns.map(a => {
+        const emp = licenseDB.employees.find(e => e.id === a.employeeId);
+        const unit = emp ? licenseDB.orgUnits.find(u => u.id === emp.orgUnitId) : null;
+        return unit ? unit.companyId : null;
+      }));
+      return companyIds.size <= 1
+        ? `<span class="text-[10px] font-bold text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded-full ml-1">Cùng công ty</span>`
+        : `<span class="text-[10px] font-bold text-purple-700 bg-purple-100 px-1.5 py-0.5 rounded-full ml-1">Khác công ty</span>`;
+    }
+function isPerpetualSoftware(softwareId) {
+      const s = licenseDB.softwareCatalog.find(x => x.id === softwareId);
+      return !!(s && s.licenseType === 'PERPETUAL');
+    }
     function updateBatchCurrentHint() {
       const companyId = Number(document.getElementById('batchCompany').value) || null;
       const softwareId = Number(document.getElementById('batchSoftware').value) || null;
       const hint = document.getElementById('batchCurrentHint');
       if (!companyId || !softwareId) { hint.textContent = ''; return; }
       hint.textContent = `(đang có ${currentCodeCount(companyId, softwareId)} mã)`;
+
+      const software = licenseDB.softwareCatalog.find(s => s.id === softwareId);
+      document.getElementById('batchLicenseTypeBadge').innerHTML = software ? licenseTypeBadge(software.licenseType) : '';
+      const perpetual = isPerpetualSoftware(softwareId);
+      document.getElementById('batchExpiryWrap').classList.toggle('hidden', perpetual);
+      if (perpetual) document.getElementById('batchExpiryDate').value = '';
     }
     function openBatchModal() {
       populateBatchSelects();
@@ -3808,14 +3886,15 @@
       const softwareId = Number(document.getElementById('batchSoftware').value);
       const totalQuantity = Number(document.getElementById('batchQuantity').value);
       const issuedDate = document.getElementById('batchIssuedDate').value;
-      const expiryDate = document.getElementById('batchExpiryDate').value;
+      const perpetual = isPerpetualSoftware(softwareId);
+      const expiryDate = perpetual ? null : document.getElementById('batchExpiryDate').value;
       const note = document.getElementById('batchNote').value.trim();
       if (!companyId || !softwareId) return showToast('Vui lòng chọn Công ty và Phần mềm.', 'warning');
       if (!Number.isInteger(totalQuantity) || totalQuantity < 0) return showToast('Tổng số lượng không hợp lệ.', 'warning');
-      if (!issuedDate || !expiryDate) return showToast('Vui lòng chọn đủ Ngày cấp và Ngày gia hạn đến.', 'warning');
+      if (!issuedDate || (!perpetual && !expiryDate)) return showToast('Vui lòng chọn đủ Ngày cấp và Ngày gia hạn đến.', 'warning');
       try {
         const result = await apiFetch('/api/license/batches', { method: 'POST', body: JSON.stringify({ companyId, softwareId, totalQuantity, issuedDate, expiryDate, note }) });
-        showToast(result.codesGenerated > 0 ? `Đã sinh thêm ${result.codesGenerated} mã mới, gia hạn toàn bộ đến ${expiryDate}.` : `Không sinh mã mới (đã đủ số lượng), gia hạn toàn bộ mã cũ đến ${expiryDate}.`, 'success');
+        showToast(result.codesGenerated > 0 ? `Đã sinh thêm ${result.codesGenerated} mã mới${expiryDate ? `, gia hạn toàn bộ đến ${expiryDate}` : ''}.` : `Không sinh mã mới (đã đủ số lượng)${expiryDate ? `, gia hạn toàn bộ mã cũ đến ${expiryDate}` : ''}.`, 'success');
         closeLicenseModal('batchModal');
         licenseDB.loaded = false;
         await loadLicenseBootstrapData();
@@ -3854,7 +3933,7 @@
             <td class="border p-2 text-center">${b.totalQuantity}</td>
             <td class="border p-2 text-center">${b.codesGenerated > 0 ? '+' + b.codesGenerated : '0'}</td>
             <td class="border p-2">${b.issuedDate}</td>
-            <td class="border p-2">${b.expiryDate}</td>
+            <td class="border p-2">${expiryLabel(b.expiryDate)}</td>
             <td class="border p-2 text-center"><button onclick="deleteBatch(${b.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600">🗑️</button></td>
           </tr>
         `;
@@ -3879,15 +3958,18 @@
       const search = document.getElementById('allocFilterSearch').value.trim().toLowerCase();
       const tbody = document.getElementById('allocTableBody');
 
-      let rows = licenseDB.licenseCodes
-        .filter(c => c.assignedEmployeeId)
-        .map(c => {
-          const emp = licenseDB.employees.find(e => e.id === c.assignedEmployeeId);
-          if (!emp) return null;
+      // Mỗi lượt gán (1 mã có thể có nhiều lượt) là 1 dòng — company hiển thị
+      // là công ty của MÃ (không phải công ty của nhân viên, vì 2 cái có thể
+      // khác nhau khi phần mềm cho phép dùng chung khác công ty).
+      let rows = licenseDB.licenseCodeAssignments
+        .map(a => {
+          const code = licenseDB.licenseCodes.find(c => c.id === a.codeId);
+          const emp = licenseDB.employees.find(e => e.id === a.employeeId);
+          if (!code || !emp) return null;
           return {
-            code: c, emp,
-            software: licenseDB.softwareCatalog.find(s => s.id === c.softwareId),
-            company: licenseDB.companies.find(x => x.id === c.companyId)
+            assignment: a, code, emp,
+            software: licenseDB.softwareCatalog.find(s => s.id === code.softwareId),
+            company: licenseDB.companies.find(x => x.id === code.companyId)
           };
         })
         .filter(Boolean);
@@ -3903,7 +3985,9 @@
       const today = new Date().toISOString().slice(0, 10);
       tbody.innerHTML = rows.map((r, i) => {
         let statusHtml;
-        if (r.code.expiryDate < today) {
+        if (!r.code.expiryDate) {
+          statusHtml = `<span class="text-[10px] font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Vĩnh viễn</span>`;
+        } else if (r.code.expiryDate < today) {
           statusHtml = `<span class="text-[10px] font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded-full">Đã hết hạn</span>`;
         } else {
           const daysLeft = Math.ceil((new Date(r.code.expiryDate) - new Date(today)) / 86400000);
@@ -3911,6 +3995,8 @@
             ? `<span class="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">Còn ${daysLeft} ngày</span>`
             : `<span class="text-[10px] font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Còn hạn</span>`;
         }
+        const maxAssignees = r.software ? codeMaxAssignees(r.software.id) : 1;
+        const usedCount = codeAssignments(r.code.id).length;
         return `
           <tr class="hover:bg-gray-50">
             <td class="border p-2">${i + 1}</td>
@@ -3919,22 +4005,22 @@
             <td class="border p-2 font-semibold">${escapeHtml(r.emp.fullName)}</td>
             <td class="border p-2">${escapeHtml(r.emp.title || '—')}</td>
             <td class="border p-2">${escapeHtml(r.software ? r.software.name : '—')}</td>
-            <td class="border p-2 font-mono text-[11px]">${escapeHtml(r.code.code)}</td>
-            <td class="border p-2">${r.code.assignedAt}</td>
-            <td class="border p-2">${r.code.expiryDate}</td>
+            <td class="border p-2 font-mono text-[11px]">${escapeHtml(r.code.code)} <span class="text-gray-400">(${usedCount}/${maxAssignees})</span>${codeShareBadge(r.code.id)}</td>
+            <td class="border p-2">${r.assignment.assignedAt}</td>
+            <td class="border p-2">${expiryLabel(r.code.expiryDate)}</td>
             <td class="border p-2 text-center">${statusHtml}</td>
-            <td class="border p-2 text-center"><button onclick="revokeAllocation(${r.code.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600 text-[11px] font-semibold">Thu hồi</button></td>
+            <td class="border p-2 text-center"><button onclick="revokeAllocation(${r.code.id}, ${r.emp.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600 text-[11px] font-semibold">Thu hồi</button></td>
           </tr>
         `;
       }).join('');
     }
-    async function revokeAllocation(codeId) {
+    async function revokeAllocation(codeId, employeeId) {
       const c = licenseDB.licenseCodes.find(x => x.id === codeId);
-      const emp = c ? licenseDB.employees.find(e => e.id === c.assignedEmployeeId) : null;
-      const ok = await showConfirm({ title: 'Thu hồi license', message: `Thu hồi mã [${c?.code}] khỏi nhân viên [${emp?.fullName}]? Mã sẽ trở lại trạng thái chưa cấp, có thể phân bổ lại cho người khác.`, danger: true, confirmText: 'Thu hồi' });
+      const emp = licenseDB.employees.find(e => e.id === employeeId);
+      const ok = await showConfirm({ title: 'Thu hồi license', message: `Thu hồi mã [${c?.code}] khỏi nhân viên [${emp?.fullName}]? Slot sẽ trống lại, có thể phân bổ cho người khác.`, danger: true, confirmText: 'Thu hồi' });
       if (!ok) return;
       try {
-        await apiFetch(`/api/license/codes/${codeId}/unassign`, { method: 'POST' });
+        await apiFetch(`/api/license/codes/${codeId}/unassign`, { method: 'POST', body: JSON.stringify({ employeeId }) });
         showToast('Đã thu hồi license.', 'success');
         licenseDB.loaded = false;
         await loadLicenseBootstrapData();
@@ -4004,49 +4090,70 @@
       });
       document.getElementById('allocOrgLevels').appendChild(wrap);
     }
+    // Công ty của nhân viên đang được chọn để gán: nếu phần mềm cho phép dùng
+    // chung khác công ty thì lấy từ select #allocEmpCompany (chọn tự do); nếu
+    // không thì LUÔN cố định theo đúng công ty của mã license đang chọn.
+    function currentAllocEmpCompanyId() {
+      const wrap = document.getElementById('allocEmpCompanyWrap');
+      if (!wrap.classList.contains('hidden')) {
+        return Number(document.getElementById('allocEmpCompany').value) || null;
+      }
+      const codeId = Number(document.getElementById('allocCode').value) || null;
+      const code = codeId ? licenseDB.licenseCodes.find(c => c.id === codeId) : null;
+      return code ? code.companyId : null;
+    }
     function onAllocCompanyChange() {
-      const companyId = Number(document.getElementById('allocCompany').value) || null;
+      const companyId = currentAllocEmpCompanyId();
       clearAllocOrgLevelsFrom(0);
       renderAllocEmployeeOptions(companyId, null);
       if (companyId) renderAllocOrgLevel(companyId, null, 0);
-
-      // Phần mềm: chỉ hiện phần mềm mà công ty này đang có ít nhất 1 mã license.
-      const softwareIds = new Set(licenseDB.licenseCodes.filter(c => c.companyId === companyId).map(c => c.softwareId));
-      const options = licenseDB.softwareCatalog.filter(s => softwareIds.has(s.id));
-      document.getElementById('allocSoftware').innerHTML = options.length
-        ? options.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')
-        : '<option value="">-- Công ty chưa có phần mềm nào --</option>';
-      onAllocSoftwareChange();
     }
     function onAllocSoftwareChange() {
-      const companyId = Number(document.getElementById('allocCompany').value) || null;
       const softwareId = Number(document.getElementById('allocSoftware').value) || null;
       const select = document.getElementById('allocCode');
-      if (!companyId || !softwareId) {
-        select.innerHTML = '<option value="">-- Chọn công ty và phần mềm trước --</option>';
+      if (!softwareId) {
+        select.innerHTML = '<option value="">-- Chọn phần mềm trước --</option>';
         document.getElementById('allocExpiryDate').value = '';
+        onAllocCodeChange();
         return;
       }
-      const codes = licenseDB.licenseCodes.filter(c => c.companyId === companyId && c.softwareId === softwareId && !c.assignedEmployeeId);
+      const maxAssignees = codeMaxAssignees(softwareId);
+      const codes = licenseDB.licenseCodes.filter(c => c.softwareId === softwareId && codeAssignments(c.id).length < maxAssignees);
       select.innerHTML = codes.length
-        ? codes.map(c => `<option value="${c.id}">${escapeHtml(c.code)}</option>`).join('')
+        ? codes.map(c => {
+            const company = licenseDB.companies.find(x => x.id === c.companyId);
+            return `<option value="${c.id}">${escapeHtml(c.code)} — ${escapeHtml(company ? company.name : '—')} (${codeAssignments(c.id).length}/${maxAssignees})</option>`;
+          }).join('')
         : '<option value="">-- Không còn mã trống --</option>';
       onAllocCodeChange();
     }
     function onAllocCodeChange() {
       const codeId = Number(document.getElementById('allocCode').value) || null;
       const code = codeId ? licenseDB.licenseCodes.find(c => c.id === codeId) : null;
-      document.getElementById('allocExpiryDate').value = code ? code.expiryDate : '';
+      document.getElementById('allocExpiryDate').value = code ? (code.expiryDate || 'Vĩnh viễn') : '';
+      const software = code ? licenseDB.softwareCatalog.find(s => s.id === code.softwareId) : null;
+      const crossAllowed = !!(software && software.allowCrossCompanyShare);
+      document.getElementById('allocCodeShareHint').classList.toggle('hidden', !crossAllowed);
+      const empCompanyWrap = document.getElementById('allocEmpCompanyWrap');
+      empCompanyWrap.classList.toggle('hidden', !crossAllowed);
+      if (crossAllowed) {
+        document.getElementById('allocEmpCompany').innerHTML = '<option value="">-- Chọn công ty --</option>' +
+          licenseDB.companies.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+      }
+      onAllocCompanyChange();
     }
     function openAllocModal() {
-      document.getElementById('allocCompany').innerHTML = '<option value="">-- Chọn công ty --</option>' +
-        licenseDB.companies.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
-      document.getElementById('allocOrgLevels').innerHTML = '';
-      document.getElementById('allocEmployee').innerHTML = '<option value="">-- Chọn công ty trước --</option>';
-      document.getElementById('allocSoftware').innerHTML = '<option value="">-- Chọn công ty trước --</option>';
+      document.getElementById('allocSoftware').innerHTML = licenseDB.softwareCatalog.length
+        ? licenseDB.softwareCatalog.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')
+        : '<option value="">-- Chưa có phần mềm nào --</option>';
       document.getElementById('allocCode').innerHTML = '<option value="">-- Chọn phần mềm trước --</option>';
+      document.getElementById('allocEmpCompanyWrap').classList.add('hidden');
+      document.getElementById('allocCodeShareHint').classList.add('hidden');
+      document.getElementById('allocOrgLevels').innerHTML = '';
+      document.getElementById('allocEmployee').innerHTML = '<option value="">-- Chọn mã license trước --</option>';
       document.getElementById('allocIssuedDate').value = new Date().toISOString().slice(0, 10);
       document.getElementById('allocExpiryDate').value = '';
+      onAllocSoftwareChange();
       openLicenseModal('allocModal');
     }
     async function saveAllocation() {
@@ -4109,7 +4216,7 @@
                       return `<tr>
                         <td class="border p-1.5">${escapeHtml(sw ? sw.name : '—')}</td>
                         <td class="border p-1.5 text-right">${formatMoney(i.unitPrice)}</td>
-                        <td class="border p-1.5">${i.expiryDate}</td>
+                        <td class="border p-1.5">${expiryLabel(i.expiryDate)}</td>
                         <td class="border p-1.5 text-center"><button onclick="deleteRoundItem(${r.id}, ${i.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600">🗑️</button></td>
                       </tr>`;
                     }).join('')}
@@ -4136,6 +4243,7 @@
       tbody.innerHTML = roundCreateRows.map(row => {
         const usedElsewhere = new Set(roundCreateRows.filter(r => r.id !== row.id).map(r => r.softwareId));
         const options = licenseDB.softwareCatalog.filter(s => s.id === row.softwareId || !usedElsewhere.has(s.id));
+        const perpetual = isPerpetualSoftware(row.softwareId);
         return `
           <tr>
             <td class="border p-1.5">
@@ -4147,7 +4255,9 @@
               <input type="number" min="0" step="1000" value="${row.unitPrice}" oninput="updateRoundCreateRow(${row.id}, 'unitPrice', Number(this.value))" class="w-full border p-1 rounded text-xs">
             </td>
             <td class="border p-1.5">
-              <input type="date" value="${row.expiryDate}" onchange="updateRoundCreateRow(${row.id}, 'expiryDate', this.value)" class="w-full border p-1 rounded text-xs">
+              ${perpetual
+                ? `<span class="text-green-700 font-semibold text-xs">Vĩnh viễn</span>`
+                : `<input type="date" value="${row.expiryDate || ''}" onchange="updateRoundCreateRow(${row.id}, 'expiryDate', this.value)" class="w-full border p-1 rounded text-xs">`}
             </td>
             <td class="border p-1.5 text-center">
               <button type="button" onclick="removeRoundCreateRow(${row.id})" class="text-red-500 hover:text-red-700">🗑️</button>
@@ -4189,9 +4299,9 @@
       const name = document.getElementById('roundName').value.trim();
       const note = document.getElementById('roundNote').value.trim();
       if (!name) return showToast('Vui lòng nhập Tên kỳ mua.', 'warning');
-      const invalidRow = roundCreateRows.find(r => !r.expiryDate || r.unitPrice < 0);
+      const invalidRow = roundCreateRows.find(r => (!isPerpetualSoftware(r.softwareId) && !r.expiryDate) || r.unitPrice < 0);
       if (invalidRow) return showToast('Vui lòng nhập đủ Đơn giá và Ngày hết hạn cho mọi dòng phần mềm.', 'warning');
-      const items = roundCreateRows.map(r => ({ softwareId: r.softwareId, unitPrice: r.unitPrice, expiryDate: r.expiryDate }));
+      const items = roundCreateRows.map(r => ({ softwareId: r.softwareId, unitPrice: r.unitPrice, expiryDate: isPerpetualSoftware(r.softwareId) ? null : r.expiryDate }));
       try {
         await apiFetch('/api/license/rounds', { method: 'POST', body: JSON.stringify({ name, note, items }) });
         showToast(`Đã tạo kỳ mua "${name}"${items.length ? ` với ${items.length} phần mềm` : ''}.`, 'success');
@@ -4227,7 +4337,12 @@
       const softwareId = Number(document.getElementById('roundItemSoftware').value) || null;
       const sw = softwareId ? licenseDB.softwareCatalog.find(s => s.id === softwareId) : null;
       const hint = document.getElementById('roundItemDurationHint');
-      if (sw && sw.defaultDurationMonths) {
+      document.getElementById('roundItemLicenseTypeBadge').innerHTML = sw ? licenseTypeBadge(sw.licenseType) : '';
+      const perpetual = !!(sw && sw.licenseType === 'PERPETUAL');
+      document.getElementById('roundItemExpiryWrap').classList.toggle('hidden', perpetual);
+      if (perpetual) {
+        hint.textContent = '';
+      } else if (sw && sw.defaultDurationMonths) {
         document.getElementById('roundItemExpiryDate').value = addMonthsISO(sw.defaultDurationMonths);
         hint.textContent = `Tự tính theo thời hạn mặc định của phần mềm này (${sw.defaultDurationMonths} tháng) — vẫn có thể sửa lại.`;
       } else {
@@ -4250,10 +4365,11 @@
       const roundId = Number(document.getElementById('roundItemRoundId').value);
       const softwareId = Number(document.getElementById('roundItemSoftware').value);
       const unitPrice = Number(document.getElementById('roundItemUnitPrice').value);
-      const expiryDate = document.getElementById('roundItemExpiryDate').value;
+      const perpetual = isPerpetualSoftware(softwareId);
+      const expiryDate = perpetual ? null : document.getElementById('roundItemExpiryDate').value;
       if (!softwareId) return showToast('Vui lòng chọn Phần mềm.', 'warning');
       if (!Number.isFinite(unitPrice) || unitPrice < 0) return showToast('Đơn giá không hợp lệ.', 'warning');
-      if (!expiryDate) return showToast('Vui lòng chọn Ngày hết hạn dự kiến.', 'warning');
+      if (!perpetual && !expiryDate) return showToast('Vui lòng chọn Ngày hết hạn dự kiến.', 'warning');
       try {
         await apiFetch(`/api/license/rounds/${roundId}/items`, { method: 'POST', body: JSON.stringify({ softwareId, unitPrice, expiryDate }) });
         showToast('Đã thêm phần mềm vào kỳ mua.', 'success');
@@ -4374,7 +4490,7 @@
             <td class="border p-2 text-center font-semibold">${r.requestedQuantity}</td>
             <td class="border p-2 text-right">${formatMoney(r.unitPrice)}</td>
             <td class="border p-2 text-right font-semibold">${formatMoney(r.totalAmount)}</td>
-            <td class="border p-2">${r.expiryDate}</td>
+            <td class="border p-2">${expiryLabel(r.expiryDate)}</td>
             <td class="border p-2 text-center">${purchaseStatusBadge(r.status)}</td>
           </tr>
         `;
@@ -4388,7 +4504,8 @@
     let regRows = [];
     let regRowSeq = 1;
     function nearestExpiryFor(companyId, softwareId) {
-      const codes = licenseDB.licenseCodes.filter(c => c.companyId === companyId && c.softwareId === softwareId);
+      // Bỏ qua mã Vĩnh viễn (expiryDate null) — không bao giờ tính là sắp hết hạn.
+      const codes = licenseDB.licenseCodes.filter(c => c.companyId === companyId && c.softwareId === softwareId && c.expiryDate);
       return codes.reduce((min, c) => (!min || c.expiryDate < min) ? c.expiryDate : min, null);
     }
     function isRenewalCandidate(companyId, softwareId) {
@@ -4398,8 +4515,9 @@
       return diffDays <= REG_RENEWAL_WINDOW_DAYS;
     }
     function regExpiryBadge(companyId, softwareId) {
+      if (currentCodeCount(companyId, softwareId) === 0) return '<span class="text-gray-400">— chưa từng mua</span>';
       const expiry = nearestExpiryFor(companyId, softwareId);
-      if (!expiry) return '<span class="text-gray-400">— chưa từng mua</span>';
+      if (!expiry) return '<span class="text-[10px] font-bold text-green-700 bg-green-100 px-1.5 py-0.5 rounded-full">Vĩnh viễn</span>';
       const diffDays = Math.floor((new Date(expiry) - new Date(new Date().toDateString())) / 86400000);
       let tag;
       if (diffDays < 0) tag = `<span class="text-[10px] font-bold text-red-700 bg-red-100 px-1.5 py-0.5 rounded-full">Đã hết hạn</span>`;
@@ -4451,7 +4569,7 @@
               <td class="border p-1.5">${(item && companyId) ? regExpiryBadge(companyId, item.softwareId) : '<span class="text-gray-400">—</span>'}</td>
               <td class="border p-1.5 text-center text-gray-500">${used}</td>
               <td class="border p-1.5"><input type="number" min="1" value="${row.quantity}" oninput="updateRegRow(${row.id}, 'quantity', Number(this.value))" class="w-full border p-1 rounded text-xs"></td>
-              <td class="border p-1.5 text-gray-500">${item ? item.expiryDate : '—'}</td>
+              <td class="border p-1.5 text-gray-500">${item ? expiryLabel(item.expiryDate) : '—'}</td>
               <td class="border p-1.5 text-right font-semibold">${formatMoney(total)}</td>
               <td class="border p-1.5 text-center"><button type="button" onclick="removeRegRow(${row.id})" class="text-red-500 hover:text-red-700">🗑️</button></td>
             </tr>
