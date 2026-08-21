@@ -9,7 +9,6 @@ const htmlPath = path.join(__dirname, '..', 'public', 'index.html');
 
 const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
 const [major, minor] = pkg.version.split('.').map(Number);
-const oldLabel = `v${major}.${minor}`;
 const newMinor = minor + 1;
 const newVersion = `${major}.${newMinor}.0`;
 const newLabel = `v${major}.${newMinor}`;
@@ -18,7 +17,11 @@ pkg.version = newVersion;
 fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
 
 let html = fs.readFileSync(htmlPath, 'utf8');
-html = html.split(`DMS ${oldLabel}`).join(`DMS ${newLabel}`);
+// Khớp theo REGEX bất kỳ nhãn "DMS vX.Y" nào đang có trong file — không chỉ
+// đúng nhãn cũ tính từ package.json — để tự sửa lại kể cả khi 1 nhánh tính
+// năng merge vào mang theo nhãn cũ/lệch (đã từng khiến nhãn bị kẹt ở v6.0
+// trong khi package.json đã lên tới 6.6.0).
+html = html.replace(/DMS v\d+\.\d+/g, `DMS ${newLabel}`);
 fs.writeFileSync(htmlPath, html);
 
-console.log(`Đã tăng phiên bản: ${oldLabel} -> ${newLabel} (package.json: ${newVersion})`);
+console.log(`Đã tăng phiên bản: -> ${newLabel} (package.json: ${newVersion})`);
