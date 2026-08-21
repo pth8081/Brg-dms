@@ -137,16 +137,22 @@ CREATE TABLE IF NOT EXISTS lic_software_catalog (
     code VARCHAR(50) NOT NULL
 );
 
--- Lô phát hành license: mỗi lần "phát hành" tạo ra 1 lô gồm N mã cụ thể cho
--- 1 công ty + 1 phần mềm, dùng chung ngày cấp/ngày hết hạn của lô. Mã lẻ nằm
--- ở lic_license_codes, được Phân bổ gán cho từng nhân viên (assigned_employee_id
--- NULL = chưa cấp cho ai). Ngày hết hạn của Phân bổ LUÔN lấy từ batch, không
--- lưu lặp ở từng mã để tránh lệch dữ liệu.
+-- Phát hành license: MỖI LẦN phát hành cho 1 công ty + 1 phần mềm là 1 lần
+-- "gia hạn" — số lượng nhập vào là TỔNG SỐ LƯỢNG MONG MUỐN hiện tại (không
+-- phải số mã mới cộng dồn). Hệ thống tự tính chênh lệch so với số mã đang có
+-- để CHỈ SINH THÊM đúng phần chênh (mã cũ đã gán người dùng giữ nguyên), rồi
+-- CẬP NHẬT ngày hết hạn cho TOÀN BỘ mã cũ + mã mới của công ty+phần mềm đó về
+-- ngày hết hạn của lần phát hành này. Mua ít hơn số đang có KHÔNG tự xóa/thu
+-- hồi gì — Admin chủ động thu hồi tay ở tab Phân bổ (VD nhân sự đã nghỉ việc).
+-- lic_license_batches giờ là LỊCH SỬ các lần phát hành (không còn là nơi lưu
+-- ngày hết hạn áp dụng cho mã — ngày hết hạn nằm trực tiếp ở lic_license_codes
+-- vì nó được cập nhật hàng loạt độc lập với lô đã sinh ra mã).
 CREATE TABLE IF NOT EXISTS lic_license_batches (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     company_id BIGINT NOT NULL,
     software_id BIGINT NOT NULL,
-    quantity INT NOT NULL,
+    total_quantity INT NOT NULL DEFAULT 0,
+    codes_generated INT NOT NULL DEFAULT 0,
     issued_date DATE NOT NULL,
     expiry_date DATE NOT NULL,
     note VARCHAR(500) NULL DEFAULT NULL,
@@ -154,16 +160,76 @@ CREATE TABLE IF NOT EXISTS lic_license_batches (
 );
 CREATE INDEX IF NOT EXISTS idx_lic_license_batches_company ON lic_license_batches (company_id);
 CREATE INDEX IF NOT EXISTS idx_lic_license_batches_software ON lic_license_batches (software_id);
+-- Nâng cấp CSDL cũ (bản trước dùng cột "quantity" là số mã sinh ra ngay từ đầu).
+ALTER TABLE lic_license_batches ADD COLUMN IF NOT EXISTS total_quantity INT NOT NULL DEFAULT 0;
+ALTER TABLE lic_license_batches ADD COLUMN IF NOT EXISTS codes_generated INT NOT NULL DEFAULT 0;
 
+-- Mã license lẻ: company_id/software_id/expiry_date lưu trực tiếp (không tra
+-- qua batch) vì ngày hết hạn được cập nhật hàng loạt theo công ty+phần mềm ở
+-- mỗi lần gia hạn, độc lập với lô nào đã sinh ra mã. batch_id chỉ để tra cứu
+-- lịch sử mã này được sinh ra ở lần phát hành nào.
 CREATE TABLE IF NOT EXISTS lic_license_codes (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     batch_id BIGINT NOT NULL,
+    company_id BIGINT NOT NULL,
+    software_id BIGINT NOT NULL,
     code VARCHAR(100) UNIQUE NOT NULL,
+    expiry_date DATE NOT NULL,
     assigned_employee_id BIGINT NULL DEFAULT NULL,
     assigned_at DATE NULL DEFAULT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_lic_license_codes_batch ON lic_license_codes (batch_id);
 CREATE INDEX IF NOT EXISTS idx_lic_license_codes_employee ON lic_license_codes (assigned_employee_id);
+CREATE INDEX IF NOT EXISTS idx_lic_license_codes_company_software ON lic_license_codes (company_id, software_id);
+-- Nâng cấp CSDL cũ: thêm cột rồi lấy company_id/software_id/expiry_date từ
+-- batch gốc (bản trước lưu ngày hết hạn qua batch).
+ALTER TABLE lic_license_codes ADD COLUMN IF NOT EXISTS company_id BIGINT NULL DEFAULT NULL;
+ALTER TABLE lic_license_codes ADD COLUMN IF NOT EXISTS software_id BIGINT NULL DEFAULT NULL;
+ALTER TABLE lic_license_codes ADD COLUMN IF NOT EXISTS expiry_date DATE NULL DEFAULT NULL;
+UPDATE lic_license_codes c JOIN lic_license_batches b ON b.id = c.batch_id
+    SET c.company_id = b.company_id, c.software_id = b.software_id, c.expiry_date = b.expiry_date
+    WHERE c.company_id IS NULL;
+
+-- 9. Module Đăng ký / Phát hành đăng ký mua bản quyền — Admin tạo "Kỳ mua",
+-- định nghĩa phần mềm + đơn giá + ngày hết hạn dự kiến cho kỳ đó; các công ty
+-- vào đăng ký nhu cầu (tham khảo số lượng đang dùng, tự nhập số lượng mới
+-- mong muốn); Admin duyệt/từ chối. Độc lập với việc phát hành license thực tế
+-- (Admin vẫn chủ động vào tab Phát hành license để sinh mã).
+CREATE TABLE IF NOT EXISTS lic_purchase_rounds (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    note VARCHAR(500) NULL DEFAULT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'OPEN',
+    created_at VARCHAR(100)
+);
+
+CREATE TABLE IF NOT EXISTS lic_purchase_round_items (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    round_id BIGINT NOT NULL,
+    software_id BIGINT NOT NULL,
+    unit_price DECIMAL(18,2) NOT NULL,
+    expiry_date DATE NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_lic_round_items_round ON lic_purchase_round_items (round_id);
+
+CREATE TABLE IF NOT EXISTS lic_purchase_registrations (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    round_id BIGINT NOT NULL,
+    round_item_id BIGINT NOT NULL,
+    company_id BIGINT NOT NULL,
+    current_quantity INT NOT NULL DEFAULT 0,
+    requested_quantity INT NOT NULL,
+    unit_price DECIMAL(18,2) NOT NULL,
+    total_amount DECIMAL(18,2) NOT NULL,
+    expiry_date DATE NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    note VARCHAR(500) NULL DEFAULT NULL,
+    created_at VARCHAR(100),
+    decided_by VARCHAR(100) NULL DEFAULT NULL,
+    decided_at VARCHAR(100) NULL DEFAULT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_lic_reg_round ON lic_purchase_registrations (round_id);
+CREATE INDEX IF NOT EXISTS idx_lic_reg_company ON lic_purchase_registrations (company_id);
 
 -- Khởi tạo Dữ liệu Mẫu Ban Đầu Cho Môi Trường Mới (Chỉ tạo Admin gốc nếu chưa tồn tại)
 INSERT INTO depts (name, abbr) VALUES ('Phòng IT', 'IT'), ('Phòng Nhân Sự', 'NS'), ('Phòng Kế Toán', 'KT'), ('Ban Giám Đốc', 'BGD')
