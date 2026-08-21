@@ -1186,6 +1186,405 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
     }
 });
 
+// ============================================================
+// MODULE QUẢN LÝ BẢN QUYỀN PHẦN MỀM — GIAI ĐOẠN 1 (NỀN TẢNG)
+// Công ty / Cây đơn vị tổ chức (N cấp) / Nhân viên / Danh mục phần mềm.
+// Độc lập hoàn toàn với depts/users của module Quản lý Tài liệu (quyết định
+// đã thống nhất với người dùng). Toàn bộ module chỉ Admin được truy cập.
+// ============================================================
+function mapCompany(c) { return { id: c.id, name: c.name, code: c.code, active: !!c.active }; }
+function mapOrgUnit(u) { return { id: u.id, companyId: u.company_id, parentId: u.parent_id, name: u.name, level: u.level_label, sortOrder: u.sort_order }; }
+function mapEmployee(e) { return { id: e.id, orgUnitId: e.org_unit_id, fullName: e.full_name, title: e.title, employeeCode: e.employee_code, email: e.email, active: !!e.active }; }
+function mapSoftware(s) { return { id: s.id, name: s.name, code: s.code }; }
+function validCode(code, maxLen) {
+    return typeof code === 'string' && new RegExp(`^[A-Z0-9]{1,${maxLen}}$`).test(code);
+}
+
+app.get('/api/license/bootstrap', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const [companies] = await pool.query('SELECT * FROM lic_companies ORDER BY name');
+        const [orgUnits] = await pool.query('SELECT * FROM lic_org_units ORDER BY sort_order, name');
+        const [employees] = await pool.query('SELECT * FROM lic_employees ORDER BY full_name');
+        const [software] = await pool.query('SELECT * FROM lic_software_catalog ORDER BY name');
+        res.json({
+            companies: companies.map(mapCompany),
+            orgUnits: orgUnits.map(mapOrgUnit),
+            employees: employees.map(mapEmployee),
+            softwareCatalog: software.map(mapSoftware)
+        });
+    } catch (err) {
+        console.error('❌ Lỗi tải dữ liệu module Bản quyền:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Công ty ---
+app.post('/api/license/companies', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const name = String((req.body && req.body.name) || '').trim();
+        const code = String((req.body && req.body.code) || '').trim().toUpperCase();
+        if (!name) return res.status(400).json({ error: 'Tên công ty không được để trống.' });
+        if (!validCode(code, 20)) return res.status(400).json({ error: 'Mã công ty không hợp lệ (chỉ chữ/số không dấu, tối đa 20 ký tự).' });
+        const [result] = await pool.query('INSERT INTO lic_companies (name, code, active) VALUES (?, ?, TRUE)', [name, code]);
+        await writeAuditLog({ module: 'LICENSE', actionType: 'CREATE_COMPANY', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: name, description: `Thêm công ty [${name}] (mã ${code}) vào module Bản quyền.` });
+        res.json({ success: true, id: result.insertId });
+    } catch (err) {
+        if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Tên công ty đã tồn tại.' });
+        console.error('❌ Lỗi thêm công ty:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.put('/api/license/companies/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const name = String((req.body && req.body.name) || '').trim();
+        const code = String((req.body && req.body.code) || '').trim().toUpperCase();
+        if (!name) return res.status(400).json({ error: 'Tên công ty không được để trống.' });
+        if (!validCode(code, 20)) return res.status(400).json({ error: 'Mã công ty không hợp lệ (chỉ chữ/số không dấu, tối đa 20 ký tự).' });
+        const [result] = await pool.query('UPDATE lic_companies SET name = ?, code = ? WHERE id = ?', [name, code, id]);
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Không tìm thấy công ty.' });
+        await writeAuditLog({ module: 'LICENSE', actionType: 'UPDATE_COMPANY', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: name, description: `Cập nhật công ty [${name}] (mã ${code}).` });
+        res.json({ success: true });
+    } catch (err) {
+        if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Tên công ty đã tồn tại.' });
+        console.error('❌ Lỗi cập nhật công ty:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.delete('/api/license/companies/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query('SELECT name FROM lic_companies WHERE id = ?', [id]);
+        if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy công ty.' });
+        const [units] = await pool.query('SELECT COUNT(*) AS cnt FROM lic_org_units WHERE company_id = ?', [id]);
+        if (units[0].cnt > 0) return res.status(400).json({ error: 'Không thể xóa — công ty vẫn còn đơn vị trực thuộc. Hãy xóa hết đơn vị con trước.' });
+        await pool.query('DELETE FROM lic_companies WHERE id = ?', [id]);
+        await writeAuditLog({ module: 'LICENSE', actionType: 'DELETE_COMPANY', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: rows[0].name, description: `Xóa công ty [${rows[0].name}] khỏi module Bản quyền.` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi xóa công ty:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Đơn vị tổ chức (cây N cấp) ---
+app.post('/api/license/org-units', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const companyId = Number(req.body && req.body.companyId);
+        const parentId = req.body && req.body.parentId ? Number(req.body.parentId) : null;
+        const name = String((req.body && req.body.name) || '').trim();
+        const level = String((req.body && req.body.level) || '').trim();
+        if (!companyId) return res.status(400).json({ error: 'Thiếu công ty.' });
+        if (!name) return res.status(400).json({ error: 'Tên đơn vị không được để trống.' });
+        if (!level) return res.status(400).json({ error: 'Vui lòng nhập Cấp cho đơn vị.' });
+        const [companyRows] = await pool.query('SELECT id FROM lic_companies WHERE id = ?', [companyId]);
+        if (!companyRows[0]) return res.status(400).json({ error: 'Công ty không tồn tại.' });
+        if (parentId) {
+            const [parentRows] = await pool.query('SELECT id, company_id FROM lic_org_units WHERE id = ?', [parentId]);
+            if (!parentRows[0]) return res.status(400).json({ error: 'Đơn vị cha không tồn tại.' });
+            if (parentRows[0].company_id !== companyId) return res.status(400).json({ error: 'Đơn vị cha phải thuộc cùng công ty.' });
+        }
+        const [result] = await pool.query('INSERT INTO lic_org_units (company_id, parent_id, name, level_label, sort_order) VALUES (?, ?, ?, ?, 0)', [companyId, parentId, name, level]);
+        await writeAuditLog({ module: 'LICENSE', actionType: 'CREATE_ORG_UNIT', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: name, description: `Thêm đơn vị [${name}] (${level}).` });
+        res.json({ success: true, id: result.insertId });
+    } catch (err) {
+        console.error('❌ Lỗi thêm đơn vị:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// Không cho đổi công ty/đơn vị cha khi sửa — tránh vòng lặp cha-con và đảo
+// lộn dữ liệu Phân bổ ở giai đoạn sau; muốn chuyển nhánh thì xóa/tạo lại.
+app.put('/api/license/org-units/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const name = String((req.body && req.body.name) || '').trim();
+        const level = String((req.body && req.body.level) || '').trim();
+        if (!name) return res.status(400).json({ error: 'Tên đơn vị không được để trống.' });
+        if (!level) return res.status(400).json({ error: 'Vui lòng nhập Cấp cho đơn vị.' });
+        const [result] = await pool.query('UPDATE lic_org_units SET name = ?, level_label = ? WHERE id = ?', [name, level, id]);
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Không tìm thấy đơn vị.' });
+        await writeAuditLog({ module: 'LICENSE', actionType: 'UPDATE_ORG_UNIT', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: name, description: `Cập nhật đơn vị [${name}] (${level}).` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi cập nhật đơn vị:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.delete('/api/license/org-units/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query('SELECT name FROM lic_org_units WHERE id = ?', [id]);
+        if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy đơn vị.' });
+        const [children] = await pool.query('SELECT COUNT(*) AS cnt FROM lic_org_units WHERE parent_id = ?', [id]);
+        if (children[0].cnt > 0) return res.status(400).json({ error: 'Không thể xóa — đơn vị này còn đơn vị con bên dưới.' });
+        const [emps] = await pool.query('SELECT COUNT(*) AS cnt FROM lic_employees WHERE org_unit_id = ?', [id]);
+        if (emps[0].cnt > 0) return res.status(400).json({ error: 'Không thể xóa — vẫn còn nhân viên thuộc đơn vị này.' });
+        await pool.query('DELETE FROM lic_org_units WHERE id = ?', [id]);
+        await writeAuditLog({ module: 'LICENSE', actionType: 'DELETE_ORG_UNIT', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: rows[0].name, description: `Xóa đơn vị [${rows[0].name}] khỏi module Bản quyền.` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi xóa đơn vị:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Nhân viên ---
+app.post('/api/license/employees', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const orgUnitId = Number(req.body && req.body.orgUnitId);
+        const fullName = String((req.body && req.body.fullName) || '').trim();
+        const title = String((req.body && req.body.title) || '').trim();
+        const employeeCode = String((req.body && req.body.employeeCode) || '').trim();
+        const email = String((req.body && req.body.email) || '').trim();
+        if (!orgUnitId) return res.status(400).json({ error: 'Vui lòng chọn Đơn vị.' });
+        if (!fullName) return res.status(400).json({ error: 'Họ và tên không được để trống.' });
+        const [unitRows] = await pool.query('SELECT id FROM lic_org_units WHERE id = ?', [orgUnitId]);
+        if (!unitRows[0]) return res.status(400).json({ error: 'Đơn vị không tồn tại.' });
+        const [result] = await pool.query(
+            'INSERT INTO lic_employees (org_unit_id, full_name, title, employee_code, email, active) VALUES (?, ?, ?, ?, ?, TRUE)',
+            [orgUnitId, fullName, title || null, employeeCode || null, email || null]
+        );
+        await writeAuditLog({ module: 'LICENSE', actionType: 'CREATE_EMPLOYEE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: fullName, description: `Thêm nhân viên [${fullName}] vào module Bản quyền.` });
+        res.json({ success: true, id: result.insertId });
+    } catch (err) {
+        console.error('❌ Lỗi thêm nhân viên:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.put('/api/license/employees/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const orgUnitId = Number(req.body && req.body.orgUnitId);
+        const fullName = String((req.body && req.body.fullName) || '').trim();
+        const title = String((req.body && req.body.title) || '').trim();
+        const employeeCode = String((req.body && req.body.employeeCode) || '').trim();
+        const email = String((req.body && req.body.email) || '').trim();
+        if (!orgUnitId) return res.status(400).json({ error: 'Vui lòng chọn Đơn vị.' });
+        if (!fullName) return res.status(400).json({ error: 'Họ và tên không được để trống.' });
+        const [unitRows] = await pool.query('SELECT id FROM lic_org_units WHERE id = ?', [orgUnitId]);
+        if (!unitRows[0]) return res.status(400).json({ error: 'Đơn vị không tồn tại.' });
+        const [result] = await pool.query(
+            'UPDATE lic_employees SET org_unit_id = ?, full_name = ?, title = ?, employee_code = ?, email = ? WHERE id = ?',
+            [orgUnitId, fullName, title || null, employeeCode || null, email || null, id]
+        );
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Không tìm thấy nhân viên.' });
+        await writeAuditLog({ module: 'LICENSE', actionType: 'UPDATE_EMPLOYEE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: fullName, description: `Cập nhật nhân viên [${fullName}].` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi cập nhật nhân viên:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.delete('/api/license/employees/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query('SELECT full_name FROM lic_employees WHERE id = ?', [id]);
+        if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy nhân viên.' });
+        await pool.query('DELETE FROM lic_employees WHERE id = ?', [id]);
+        await writeAuditLog({ module: 'LICENSE', actionType: 'DELETE_EMPLOYEE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: rows[0].full_name, description: `Xóa nhân viên [${rows[0].full_name}] khỏi module Bản quyền.` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi xóa nhân viên:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Danh mục phần mềm ---
+app.post('/api/license/software', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const name = String((req.body && req.body.name) || '').trim();
+        const code = String((req.body && req.body.code) || '').trim().toUpperCase();
+        if (!name) return res.status(400).json({ error: 'Tên phần mềm không được để trống.' });
+        if (!validCode(code, 50)) return res.status(400).json({ error: 'Mã phần mềm không hợp lệ (chỉ chữ/số không dấu, tối đa 50 ký tự).' });
+        const [result] = await pool.query('INSERT INTO lic_software_catalog (name, code) VALUES (?, ?)', [name, code]);
+        await writeAuditLog({ module: 'LICENSE', actionType: 'CREATE_SOFTWARE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: name, description: `Thêm phần mềm [${name}] (mã ${code}) vào danh mục.` });
+        res.json({ success: true, id: result.insertId });
+    } catch (err) {
+        if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Tên phần mềm đã tồn tại.' });
+        console.error('❌ Lỗi thêm phần mềm:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.put('/api/license/software/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const name = String((req.body && req.body.name) || '').trim();
+        const code = String((req.body && req.body.code) || '').trim().toUpperCase();
+        if (!name) return res.status(400).json({ error: 'Tên phần mềm không được để trống.' });
+        if (!validCode(code, 50)) return res.status(400).json({ error: 'Mã phần mềm không hợp lệ (chỉ chữ/số không dấu, tối đa 50 ký tự).' });
+        const [result] = await pool.query('UPDATE lic_software_catalog SET name = ?, code = ? WHERE id = ?', [name, code, id]);
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Không tìm thấy phần mềm.' });
+        await writeAuditLog({ module: 'LICENSE', actionType: 'UPDATE_SOFTWARE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: name, description: `Cập nhật phần mềm [${name}] (mã ${code}).` });
+        res.json({ success: true });
+    } catch (err) {
+        if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Tên phần mềm đã tồn tại.' });
+        console.error('❌ Lỗi cập nhật phần mềm:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.delete('/api/license/software/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query('SELECT name FROM lic_software_catalog WHERE id = ?', [id]);
+        if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy phần mềm.' });
+        await pool.query('DELETE FROM lic_software_catalog WHERE id = ?', [id]);
+        await writeAuditLog({ module: 'LICENSE', actionType: 'DELETE_SOFTWARE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: rows[0].name, description: `Xóa phần mềm [${rows[0].name}] khỏi danh mục.` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi xóa phần mềm:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Nhập CSV hàng loạt (Tổ chức công ty / Nhân viên) ---
+// Client chỉ parse CSV thành mảng dòng thô rồi gửi lên — server tự validate
+// và tạo dữ liệu hoàn toàn, không tin cấu trúc/quan hệ do client suy luận sẵn.
+app.post('/api/license/org-units/import', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const rows = Array.isArray(req.body && req.body.rows) ? req.body.rows.slice(0, 2000) : [];
+        if (rows.length === 0) return res.status(400).json({ error: 'File không có dữ liệu hợp lệ.' });
+
+        const [existingCompanies] = await pool.query('SELECT * FROM lic_companies');
+        const companyByCode = new Map(existingCompanies.map(c => [c.code, c]));
+        const [existingUnits] = await pool.query('SELECT * FROM lic_org_units');
+        const unitByKey = new Map(existingUnits.map(u => [`${u.company_id}::${u.name}`, u]));
+
+        const errors = [];
+        let companiesCreated = 0, unitsCreated = 0;
+
+        // Bước 1: đảm bảo mọi công ty được nhắc tới đều tồn tại (tạo mới nếu thiếu).
+        for (let i = 0; i < rows.length; i++) {
+            const r = rows[i] || {};
+            const code = String(r.ma_cong_ty || '').trim().toUpperCase();
+            const name = String(r.ten_cong_ty || '').trim();
+            if (!code || !name) { errors.push(`Dòng ${i + 2}: thiếu mã hoặc tên công ty.`); continue; }
+            if (!companyByCode.has(code)) {
+                try {
+                    const [result] = await pool.query('INSERT INTO lic_companies (name, code, active) VALUES (?, ?, TRUE)', [name, code]);
+                    companyByCode.set(code, { id: result.insertId, name, code });
+                    companiesCreated++;
+                } catch (e) {
+                    if (e.code === 'ER_DUP_ENTRY') errors.push(`Dòng ${i + 2}: công ty tên [${name}] đã tồn tại với mã khác.`);
+                    else throw e;
+                }
+            }
+        }
+
+        // Bước 2: tạo đơn vị theo nhiều lượt — mỗi lượt chỉ tạo được các dòng có
+        // đơn vị cha đã tồn tại (hoặc không cha); lặp tới khi hết tiến triển, để
+        // không phụ thuộc thứ tự dòng trong file (cha có thể nằm sau con).
+        const pending = rows
+            .map((r, i) => ({ r: r || {}, rowNo: i + 2 }))
+            .filter(({ r }) => String(r.ten_don_vi || '').trim());
+
+        let progress = true;
+        while (progress && pending.length > 0) {
+            progress = false;
+            for (let idx = pending.length - 1; idx >= 0; idx--) {
+                const { r, rowNo } = pending[idx];
+                const code = String(r.ma_cong_ty || '').trim().toUpperCase();
+                const company = companyByCode.get(code);
+                if (!company) { pending.splice(idx, 1); continue; } // đã báo lỗi ở bước 1
+                const unitName = String(r.ten_don_vi || '').trim();
+                const level = String(r.cap || '').trim();
+                const parentName = String(r.don_vi_cha || '').trim();
+                if (!level) { errors.push(`Dòng ${rowNo}: thiếu Cấp cho đơn vị [${unitName}].`); pending.splice(idx, 1); continue; }
+
+                let parentId = null;
+                if (parentName) {
+                    const parent = unitByKey.get(`${company.id}::${parentName}`);
+                    if (!parent) continue; // chưa tạo được cha, thử lượt sau
+                    parentId = parent.id;
+                }
+
+                const key = `${company.id}::${unitName}`;
+                if (unitByKey.has(key)) { pending.splice(idx, 1); continue; } // đã có sẵn, bỏ qua
+                const [result] = await pool.query(
+                    'INSERT INTO lic_org_units (company_id, parent_id, name, level_label, sort_order) VALUES (?, ?, ?, ?, 0)',
+                    [company.id, parentId, unitName, level]
+                );
+                unitByKey.set(key, { id: result.insertId, company_id: company.id, name: unitName });
+                unitsCreated++;
+                pending.splice(idx, 1);
+                progress = true;
+            }
+        }
+        for (const { r, rowNo } of pending) {
+            errors.push(`Dòng ${rowNo}: không tìm thấy đơn vị cha [${r.don_vi_cha}] — kiểm tra lại tên hoặc thứ tự dòng.`);
+        }
+
+        await writeAuditLog({ module: 'LICENSE', actionType: 'IMPORT_ORG_UNITS', status: errors.length ? 'PARTIAL' : 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: 'Tổ chức công ty', description: `Nhập CSV: ${companiesCreated} công ty mới, ${unitsCreated} đơn vị mới, ${errors.length} lỗi.` });
+        res.json({ success: true, companiesCreated, unitsCreated, errors });
+    } catch (err) {
+        console.error('❌ Lỗi nhập CSV tổ chức công ty:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.post('/api/license/employees/import', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const rows = Array.isArray(req.body && req.body.rows) ? req.body.rows.slice(0, 2000) : [];
+        if (rows.length === 0) return res.status(400).json({ error: 'File không có dữ liệu hợp lệ.' });
+
+        const [companies] = await pool.query('SELECT * FROM lic_companies');
+        const companyByCode = new Map(companies.map(c => [c.code, c]));
+        const [units] = await pool.query('SELECT * FROM lic_org_units');
+        const unitByKey = new Map(units.map(u => [`${u.company_id}::${u.name}`, u]));
+        const [existingEmployees] = await pool.query('SELECT * FROM lic_employees');
+        const employeeByCode = new Map(existingEmployees.filter(e => e.employee_code).map(e => [e.employee_code, e]));
+
+        const errors = [];
+        let created = 0, updated = 0;
+
+        for (let i = 0; i < rows.length; i++) {
+            const r = rows[i] || {};
+            const rowNo = i + 2;
+            const fullName = String(r.ho_ten || '').trim();
+            const companyCode = String(r.ma_cong_ty || '').trim().toUpperCase();
+            const unitName = String(r.don_vi || '').trim();
+            const employeeCode = String(r.ma_nv || '').trim();
+            const title = String(r.chuc_danh || '').trim();
+            const email = String(r.email || '').trim();
+
+            if (!fullName) { errors.push(`Dòng ${rowNo}: thiếu Họ và tên.`); continue; }
+            const company = companyByCode.get(companyCode);
+            if (!company) { errors.push(`Dòng ${rowNo}: không tìm thấy công ty mã [${companyCode}].`); continue; }
+            const unit = unitByKey.get(`${company.id}::${unitName}`);
+            if (!unit) { errors.push(`Dòng ${rowNo}: không tìm thấy đơn vị [${unitName}] trong công ty [${companyCode}] — nhập Tổ chức công ty trước.`); continue; }
+
+            if (employeeCode && employeeByCode.has(employeeCode)) {
+                const existing = employeeByCode.get(employeeCode);
+                await pool.query(
+                    'UPDATE lic_employees SET org_unit_id = ?, full_name = ?, title = ?, email = ? WHERE id = ?',
+                    [unit.id, fullName, title || null, email || null, existing.id]
+                );
+                updated++;
+            } else {
+                const [result] = await pool.query(
+                    'INSERT INTO lic_employees (org_unit_id, full_name, title, employee_code, email, active) VALUES (?, ?, ?, ?, ?, TRUE)',
+                    [unit.id, fullName, title || null, employeeCode || null, email || null]
+                );
+                if (employeeCode) employeeByCode.set(employeeCode, { id: result.insertId, employee_code: employeeCode });
+                created++;
+            }
+        }
+
+        await writeAuditLog({ module: 'LICENSE', actionType: 'IMPORT_EMPLOYEES', status: errors.length ? 'PARTIAL' : 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: 'Danh sách nhân viên', description: `Nhập CSV: ${created} nhân viên mới, ${updated} cập nhật, ${errors.length} lỗi.` });
+        res.json({ success: true, created, updated, errors });
+    } catch (err) {
+        console.error('❌ Lỗi nhập CSV nhân viên:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`🚀 Máy chủ DMS Production đang chạy tại cổng http://localhost:${PORT}`);

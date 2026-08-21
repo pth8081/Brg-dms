@@ -97,6 +97,46 @@ CREATE TABLE IF NOT EXISTS system_logs (
     status VARCHAR(50)
 );
 
+-- 8. Module Quản Lý Bản Quyền Phần Mềm — Giai đoạn 1 (nền tảng): Công ty, cây
+-- Đơn vị tổ chức (N cấp, tự tham chiếu qua parent_id, KHÔNG cứng 4 cấp), Nhân
+-- viên, Danh mục phần mềm. Độc lập hoàn toàn với depts/users của module Quản
+-- lý Tài liệu (theo yêu cầu — nhân sự giữ bản quyền không nhất thiết có tài
+-- khoản đăng nhập DMS).
+CREATE TABLE IF NOT EXISTS lic_companies (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) UNIQUE NOT NULL,
+    code VARCHAR(20) NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+CREATE TABLE IF NOT EXISTS lic_org_units (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    company_id BIGINT NOT NULL,
+    parent_id BIGINT NULL DEFAULT NULL,
+    name VARCHAR(255) NOT NULL,
+    level_label VARCHAR(50) NOT NULL,
+    sort_order INT NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_lic_org_units_company ON lic_org_units (company_id);
+CREATE INDEX IF NOT EXISTS idx_lic_org_units_parent ON lic_org_units (parent_id);
+
+CREATE TABLE IF NOT EXISTS lic_employees (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    org_unit_id BIGINT NOT NULL,
+    full_name VARCHAR(255) NOT NULL,
+    title VARCHAR(255) NULL DEFAULT NULL,
+    employee_code VARCHAR(50) NULL DEFAULT NULL,
+    email VARCHAR(255) NULL DEFAULT NULL,
+    active BOOLEAN NOT NULL DEFAULT TRUE
+);
+CREATE INDEX IF NOT EXISTS idx_lic_employees_org_unit ON lic_employees (org_unit_id);
+
+CREATE TABLE IF NOT EXISTS lic_software_catalog (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) UNIQUE NOT NULL,
+    code VARCHAR(50) NOT NULL
+);
+
 -- Khởi tạo Dữ liệu Mẫu Ban Đầu Cho Môi Trường Mới (Chỉ tạo Admin gốc nếu chưa tồn tại)
 INSERT INTO depts (name, abbr) VALUES ('Phòng IT', 'IT'), ('Phòng Nhân Sự', 'NS'), ('Phòng Kế Toán', 'KT'), ('Ban Giám Đốc', 'BGD')
 ON DUPLICATE KEY UPDATE name=name;
