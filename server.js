@@ -1659,8 +1659,17 @@ app.post('/api/license/batches', requireAuth, requireAdmin, async (req, res) => 
             expiryDate = rawExpiryDate;
         }
 
-        const [existingCountRows] = await pool.query('SELECT COUNT(*) AS cnt FROM lic_license_codes WHERE company_id = ? AND software_id = ?', [companyId, softwareId]);
-        const existingCount = existingCountRows[0].cnt;
+        // Sắp theo số lượt đang được gán giảm dần — khi mua ÍT HƠN số mã đang có,
+        // các mã đã gán cho nhân viên được ƯU TIÊN gia hạn trước, mã còn trống mới
+        // bị loại ra (giữ nguyên hạn cũ) nếu không đủ chỗ trong tổng số lượng mới.
+        const [existingCodesRaw] = await pool.query(
+            `SELECT c.id, COUNT(a.id) AS assign_count
+             FROM lic_license_codes c LEFT JOIN lic_license_code_assignments a ON a.code_id = c.id
+             WHERE c.company_id = ? AND c.software_id = ?
+             GROUP BY c.id ORDER BY assign_count DESC, c.id ASC`,
+            [companyId, softwareId]
+        );
+        const existingCount = existingCodesRaw.length;
         const toGenerate = Math.max(0, totalQuantity - existingCount);
 
         const [batchResult] = await pool.query(
@@ -1669,19 +1678,36 @@ app.post('/api/license/batches', requireAuth, requireAdmin, async (req, res) => 
         );
         const batchId = batchResult.insertId;
 
+        let newCodeIds = [];
         if (toGenerate > 0) {
             const codes = await generateLicenseCodes(companyRows[0].code, softwareRows[0].code, toGenerate);
             await pool.query(
                 'INSERT INTO lic_license_codes (batch_id, company_id, software_id, code, expiry_date) VALUES ?',
                 [codes.map(c => [batchId, companyId, softwareId, c, expiryDate])]
             );
+            const [newCodeRows] = await pool.query(`SELECT id FROM lic_license_codes WHERE code IN (${codes.map(() => '?').join(',')})`, codes);
+            newCodeIds = newCodeRows.map(r => r.id);
         }
-        // Gia hạn: đưa ngày hết hạn của TOÀN BỘ mã (cũ lẫn vừa sinh) của công
-        // ty+phần mềm này về cùng 1 mốc — đúng bản chất "phát hành cho gia hạn".
-        await pool.query('UPDATE lic_license_codes SET expiry_date = ? WHERE company_id = ? AND software_id = ?', [expiryDate, companyId, softwareId]);
 
-        await writeAuditLog({ module: 'LICENSE', actionType: 'ISSUE_BATCH', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `${companyRows[0].code}/${softwareRows[0].code}`, description: `Phát hành license [${softwareRows[0].code}] cho công ty [${companyRows[0].code}]: tổng ${totalQuantity} (sinh mới ${toGenerate})${expiryDate ? `, gia hạn toàn bộ đến ${expiryDate}` : ' (license vĩnh viễn, không có hạn)'}.` });
-        res.json({ success: true, id: batchId, codesGenerated: toGenerate });
+        // Gia hạn: CHỈ gia hạn đúng số lượng = totalQuantity mã (mã cũ được giữ lại
+        // theo thứ tự ưu tiên ở trên + toàn bộ mã vừa sinh) — nếu tổng số lượng mua
+        // kỳ này ÍT HƠN số mã đang có, phần dư (existingCount - totalQuantity mã)
+        // GIỮ NGUYÊN ngày hết hạn cũ, không tự động gia hạn theo lần phát hành này
+        // (Admin thấy cảnh báo/hết hạn ở tab Phân bổ, tự quyết định thu hồi hay
+        // gia hạn tiếp cho những mã đó ở lần phát hành sau).
+        let renewedCount = 0;
+        if (expiryDate) {
+            const keepExistingCount = totalQuantity - toGenerate; // = min(totalQuantity, existingCount)
+            const idsToRenew = existingCodesRaw.slice(0, keepExistingCount).map(r => r.id).concat(newCodeIds);
+            renewedCount = idsToRenew.length;
+            if (idsToRenew.length > 0) {
+                await pool.query(`UPDATE lic_license_codes SET expiry_date = ? WHERE id IN (${idsToRenew.map(() => '?').join(',')})`, [expiryDate, ...idsToRenew]);
+            }
+        }
+
+        const keptOldExpiryCount = existingCount - (totalQuantity - toGenerate);
+        await writeAuditLog({ module: 'LICENSE', actionType: 'ISSUE_BATCH', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `${companyRows[0].code}/${softwareRows[0].code}`, description: `Phát hành license [${softwareRows[0].code}] cho công ty [${companyRows[0].code}]: tổng ${totalQuantity} (sinh mới ${toGenerate})${expiryDate ? `, gia hạn ${renewedCount} mã đến ${expiryDate}` : ' (license vĩnh viễn, không có hạn)'}${keptOldExpiryCount > 0 ? `, ${keptOldExpiryCount} mã cũ giữ nguyên hạn trước đó` : ''}.` });
+        res.json({ success: true, id: batchId, codesGenerated: toGenerate, renewedCount, keptOldExpiryCount });
     } catch (err) {
         console.error('❌ Lỗi phát hành license:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
