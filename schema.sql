@@ -26,6 +26,29 @@ BEGIN
 END$$
 DELIMITER ;
 
+-- Tương tự create_index_if_not_exists nhưng tạo UNIQUE INDEX — dùng để chặn
+-- trùng lặp ở tầng CSDL (VD mã tài liệu trùng do 2 request ghi đồng thời),
+-- không chỉ dựa vào kiểm tra ở tầng ứng dụng (vốn không atomic).
+DELIMITER $$
+DROP PROCEDURE IF EXISTS create_unique_index_if_not_exists$$
+CREATE PROCEDURE create_unique_index_if_not_exists(
+    IN p_table_name VARCHAR(64),
+    IN p_index_name VARCHAR(64),
+    IN p_columns VARCHAR(255)
+)
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = p_table_name AND INDEX_NAME = p_index_name
+    ) THEN
+        SET @create_uidx_sql = CONCAT('CREATE UNIQUE INDEX ', p_index_name, ' ON ', p_table_name, ' (', p_columns, ')');
+        PREPARE stmt_create_uidx FROM @create_uidx_sql;
+        EXECUTE stmt_create_uidx;
+        DEALLOCATE PREPARE stmt_create_uidx;
+    END IF;
+END$$
+DELIMITER ;
+
 -- "ADD COLUMN IF NOT EXISTS" cũng là cú pháp RIÊNG của MariaDB — MySQL chuẩn
 -- (đã kiểm chứng thật trên MySQL 8.0.46) KHÔNG hỗ trợ, báo lỗi cú pháp giống
 -- hệt CREATE INDEX ở trên. Thủ tục này thay thế, chạy được trên cả 2 hệ.
@@ -123,6 +146,15 @@ CREATE TABLE IF NOT EXISTS docs (
     deleted_at DATETIME NULL DEFAULT NULL,
     deleted_by VARCHAR(100) NULL DEFAULT NULL
 );
+-- Chặn trùng mã tài liệu ở tầng CSDL: mã tự sinh (đếm-rồi-tăng, không atomic)
+-- có thể trùng nếu 2 người upload gần như đồng thời cho cùng phòng ban+phân
+-- loại — UNIQUE (code, version_no) vẫn cho phép NHIỀU phiên bản của CÙNG 1
+-- tài liệu dùng chung 1 mã (version_no khác nhau), chỉ chặn 2 tài liệu KHÁC
+-- NHAU (2 doc_group_id khác nhau) cùng nhận trùng mã ở version_no=1.
+-- Lưu ý khi nâng cấp CSDL cũ: nếu ALTER này báo lỗi trùng lặp, nghĩa là CSDL
+-- đã có sẵn dữ liệu trùng mã từ trước (đúng lỗi mà ràng buộc này ngăn chặn) —
+-- cần dò và xử lý thủ công các dòng trùng trước khi chạy lại.
+CALL create_unique_index_if_not_exists('docs', 'uq_docs_code_version', 'code, version_no');
 
 -- Migrate cho CSDL đã tồn tại từ trước (không có sẵn các cột trên): thêm cột
 -- nếu thiếu, rồi gán mỗi tài liệu cũ thành nhóm 1 phiên bản của chính nó.
@@ -372,8 +404,70 @@ CALL create_index_if_not_exists('lic_purchase_registrations', 'idx_lic_reg_round
 CALL create_index_if_not_exists('lic_purchase_registrations', 'idx_lic_reg_company', 'company_id');
 ALTER TABLE lic_purchase_registrations MODIFY COLUMN expiry_date DATE NULL DEFAULT NULL;
 
+-- 10. Module Ngân sách — ĐỘC LẬP hoàn toàn với Kỳ mua bản quyền ở trên (không
+-- liên kết dữ liệu, không tự sinh Kỳ mua). Dùng để LẬP DỰ TRÙ ngân sách theo
+-- kỳ (vd năm/quý) TRƯỚC khi mở Kỳ mua thật: Admin tạo Kỳ ngân sách + hạng mục
+-- phần mềm (đơn giá dự kiến); dự trù được nhập theo TỪNG ĐƠN VỊ TRỰC THUỘC
+-- (org_unit, chi tiết hơn cấp công ty của Kỳ mua) — hệ thống tự tính số lượng
+-- license đang thực sự được gán cho nhân viên trong đơn vị đó (kể cả các đơn
+-- vị con bên dưới) để gợi ý tham khảo; mỗi dòng dự trù có trạng thái
+-- PENDING/APPROVED/REJECTED, Admin duyệt riêng từng dòng — sau khi duyệt xong,
+-- Admin tự tay tạo Kỳ mua thật dựa trên số liệu đã tổng hợp (không tự động).
+CREATE TABLE IF NOT EXISTS lic_budget_rounds (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    note VARCHAR(500) NULL DEFAULT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'OPEN',
+    created_at VARCHAR(100)
+);
+
+CREATE TABLE IF NOT EXISTS lic_budget_round_items (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    round_id BIGINT NOT NULL,
+    software_id BIGINT NOT NULL,
+    unit_price DECIMAL(18,2) NOT NULL
+);
+CALL create_index_if_not_exists('lic_budget_round_items', 'idx_lic_budget_items_round', 'round_id');
+
+CREATE TABLE IF NOT EXISTS lic_budget_registrations (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    round_id BIGINT NOT NULL,
+    round_item_id BIGINT NOT NULL,
+    org_unit_id BIGINT NOT NULL,
+    current_quantity INT NOT NULL DEFAULT 0,
+    requested_quantity INT NOT NULL,
+    unit_price DECIMAL(18,2) NOT NULL,
+    total_amount DECIMAL(18,2) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    note VARCHAR(500) NULL DEFAULT NULL,
+    created_at VARCHAR(100),
+    decided_by VARCHAR(100) NULL DEFAULT NULL,
+    decided_at VARCHAR(100) NULL DEFAULT NULL
+);
+CALL create_index_if_not_exists('lic_budget_registrations', 'idx_lic_budget_reg_round', 'round_id');
+CALL create_index_if_not_exists('lic_budget_registrations', 'idx_lic_budget_reg_orgunit', 'org_unit_id');
+
+-- Snapshot tài khoản Active Directory lấy qua đồng bộ LDAP định kỳ — dùng để
+-- đối chiếu với nhân viên đang giữ license (khớp theo email) ở tab Phân bổ.
+-- disabled_at KHÔNG phải ngày AD thực sự disable account (AD không lưu sẵn
+-- mốc này) — đây là ngày HỆ THỐNG lần đầu phát hiện tài khoản chuyển từ
+-- active sang disable qua so sánh giữa 2 lần đồng bộ liên tiếp.
+CREATE TABLE IF NOT EXISTS ad_accounts (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(255) UNIQUE NOT NULL,
+    full_name VARCHAR(255) NULL DEFAULT NULL,
+    email VARCHAR(255) NULL DEFAULT NULL,
+    active TINYINT(1) NOT NULL DEFAULT 1,
+    company VARCHAR(255) NULL DEFAULT NULL,
+    org_unit VARCHAR(255) NULL DEFAULT NULL,
+    disabled_at DATE NULL DEFAULT NULL,
+    last_synced_at VARCHAR(100) NULL DEFAULT NULL
+);
+CALL create_index_if_not_exists('ad_accounts', 'idx_ad_accounts_email', 'email');
+
 -- Dọn dẹp: xóa các thủ tục tạm sau khi dùng xong, không để lại trong CSDL thật.
 DROP PROCEDURE IF EXISTS create_index_if_not_exists;
+DROP PROCEDURE IF EXISTS create_unique_index_if_not_exists;
 DROP PROCEDURE IF EXISTS add_column_if_not_exists;
 DROP PROCEDURE IF EXISTS drop_column_if_exists;
 
