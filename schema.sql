@@ -404,6 +404,24 @@ CALL create_index_if_not_exists('lic_purchase_registrations', 'idx_lic_reg_round
 CALL create_index_if_not_exists('lic_purchase_registrations', 'idx_lic_reg_company', 'company_id');
 ALTER TABLE lic_purchase_registrations MODIFY COLUMN expiry_date DATE NULL DEFAULT NULL;
 
+-- Snapshot tài khoản Active Directory lấy qua đồng bộ LDAP định kỳ — dùng để
+-- đối chiếu với nhân viên đang giữ license (khớp theo email) ở tab Phân bổ.
+-- disabled_at KHÔNG phải ngày AD thực sự disable account (AD không lưu sẵn
+-- mốc này) — đây là ngày HỆ THỐNG lần đầu phát hiện tài khoản chuyển từ
+-- active sang disable qua so sánh giữa 2 lần đồng bộ liên tiếp.
+CREATE TABLE IF NOT EXISTS ad_accounts (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(255) UNIQUE NOT NULL,
+    full_name VARCHAR(255) NULL DEFAULT NULL,
+    email VARCHAR(255) NULL DEFAULT NULL,
+    active TINYINT(1) NOT NULL DEFAULT 1,
+    company VARCHAR(255) NULL DEFAULT NULL,
+    org_unit VARCHAR(255) NULL DEFAULT NULL,
+    disabled_at DATE NULL DEFAULT NULL,
+    last_synced_at VARCHAR(100) NULL DEFAULT NULL
+);
+CALL create_index_if_not_exists('ad_accounts', 'idx_ad_accounts_email', 'email');
+
 -- Dọn dẹp: xóa các thủ tục tạm sau khi dùng xong, không để lại trong CSDL thật.
 DROP PROCEDURE IF EXISTS create_index_if_not_exists;
 DROP PROCEDURE IF EXISTS create_unique_index_if_not_exists;

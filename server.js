@@ -282,6 +282,121 @@ async function ldapAuthenticate(username, password, ldapConfig) {
     }
 }
 
+// --- Đồng bộ tài khoản Active Directory (module AD) ---
+// Độc lập với ldapAuthenticate ở trên (dùng để đăng nhập) — bind bằng 1 tài
+// khoản DỊCH VỤ có quyền duyệt thư mục, tìm toàn bộ user trong searchBaseDn,
+// lưu snapshot vào ad_accounts. AD không lưu sẵn "ngày disable" nên hệ thống
+// tự ghi nhận: chỉ đặt disabled_at = hôm nay ở đúng lần đồng bộ ĐẦU TIÊN phát
+// hiện tài khoản chuyển từ active sang disable (so với lần đồng bộ trước).
+async function ldapSyncAccounts() {
+    const ldapConfig = await getLdapConfig();
+    if (!ldapConfig || !ldapConfig.adSyncEnabled || !ldapConfig.url || !ldapConfig.serviceBindDn || !ldapConfig.searchBaseDn) {
+        throw new Error('Chưa cấu hình đủ thông tin để đồng bộ AD (URL/Bind DN/Base DN).');
+    }
+    const isSecure = /^ldaps:\/\//i.test(String(ldapConfig.url || ''));
+    const client = new LdapClient({
+        url: ldapConfig.url,
+        timeout: 20000,
+        connectTimeout: 5000,
+        ...(isSecure ? { tlsOptions: { rejectUnauthorized: ldapConfig.tlsRejectUnauthorized !== false } } : {})
+    });
+    let entries;
+    try {
+        await client.bind(ldapConfig.serviceBindDn, ldapConfig.servicePassword || '');
+        const attributes = ['sAMAccountName', 'displayName', 'mail', 'userAccountControl'];
+        if (ldapConfig.companyAttr) attributes.push(ldapConfig.companyAttr);
+        if (ldapConfig.orgUnitAttr) attributes.push(ldapConfig.orgUnitAttr);
+        const result = await client.search(ldapConfig.searchBaseDn, {
+            scope: 'sub',
+            filter: '(&(objectClass=user)(objectCategory=person))',
+            attributes
+        });
+        entries = result.searchEntries;
+    } finally {
+        try { await client.unbind(); } catch (e) { /* bỏ qua lỗi khi đóng kết nối */ }
+    }
+
+    const [existingRows] = await pool.query('SELECT username, active FROM ad_accounts');
+    const wasActiveByUsername = new Map(existingRows.map(r => [r.username, !!r.active]));
+    const today = new Date().toISOString().slice(0, 10);
+    const nowIso = new Date().toISOString();
+
+    let created = 0, updated = 0;
+    for (const entry of entries) {
+        const username = String(entry.sAMAccountName || '').trim();
+        if (!username) continue;
+        const fullName = String(entry.displayName || '').trim() || null;
+        const email = String(entry.mail || '').trim() || null;
+        const uac = Number(entry.userAccountControl) || 0;
+        const active = (uac & 2) === 0; // bit ACCOUNTDISABLE
+        const company = ldapConfig.companyAttr ? (String(entry[ldapConfig.companyAttr] || '').trim() || null) : null;
+        const orgUnit = ldapConfig.orgUnitAttr ? (String(entry[ldapConfig.orgUnitAttr] || '').trim() || null) : null;
+
+        if (!wasActiveByUsername.has(username)) {
+            // Lần đầu thấy tài khoản này — nếu đã disable ngay từ lần đầu thì
+            // không biết chính xác ngày disable thật, để trống thay vì đoán.
+            await pool.query(
+                'INSERT INTO ad_accounts (username, full_name, email, active, company, org_unit, disabled_at, last_synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                [username, fullName, email, active, company, orgUnit, null, nowIso]
+            );
+            created++;
+        } else {
+            const wasActive = wasActiveByUsername.get(username);
+            const justDisabled = wasActive && !active;
+            if (justDisabled) {
+                await pool.query(
+                    'UPDATE ad_accounts SET full_name=?, email=?, active=?, company=?, org_unit=?, disabled_at=?, last_synced_at=? WHERE username=?',
+                    [fullName, email, active, company, orgUnit, today, nowIso, username]
+                );
+            } else if (active) {
+                await pool.query(
+                    'UPDATE ad_accounts SET full_name=?, email=?, active=?, company=?, org_unit=?, disabled_at=NULL, last_synced_at=? WHERE username=?',
+                    [fullName, email, active, company, orgUnit, nowIso, username]
+                );
+            } else {
+                await pool.query(
+                    'UPDATE ad_accounts SET full_name=?, email=?, active=?, company=?, org_unit=?, last_synced_at=? WHERE username=?',
+                    [fullName, email, active, company, orgUnit, nowIso, username]
+                );
+            }
+            updated++;
+        }
+    }
+    return { total: entries.length, created, updated };
+}
+
+async function getAdLastSyncAt() {
+    const [rows] = await pool.query("SELECT config_value FROM app_configs WHERE config_key = 'adLastSyncAt'");
+    if (!rows[0]) return 0;
+    const v = typeof rows[0].config_value === 'string' ? JSON.parse(rows[0].config_value) : rows[0].config_value;
+    return v && v.at ? new Date(v.at).getTime() : 0;
+}
+async function setAdLastSyncAt() {
+    const payload = JSON.stringify({ at: new Date().toISOString() });
+    await pool.query(
+        'INSERT INTO app_configs (config_key, config_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE config_value = ?',
+        ['adLastSyncAt', payload, payload]
+    );
+}
+// Đồng bộ AD theo lịch hàng ngày: kiểm tra mỗi giờ xem đã quá 24h kể từ lần
+// đồng bộ gần nhất chưa, thay vì dùng cron riêng — đơn giản, không cần thêm
+// hạ tầng, phù hợp với 1 tiến trình Node duy nhất của ứng dụng này.
+async function maybeRunScheduledAdSync() {
+    try {
+        const ldapConfig = await getLdapConfig();
+        if (!ldapConfig || !ldapConfig.adSyncEnabled) return;
+        const lastSyncAt = await getAdLastSyncAt();
+        if (Date.now() - lastSyncAt < 24 * 60 * 60 * 1000) return;
+        const result = await ldapSyncAccounts();
+        await setAdLastSyncAt();
+        console.log(`🔄 Đồng bộ AD tự động theo lịch: ${result.created} mới, ${result.updated} cập nhật (tổng ${result.total}).`);
+    } catch (e) {
+        console.error('❌ Lỗi đồng bộ AD theo lịch:', e.message);
+    }
+}
+setInterval(maybeRunScheduledAdSync, 60 * 60 * 1000);
+setTimeout(maybeRunScheduledAdSync, 10000);
+
 // --- API AUTH ---
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
     try {
@@ -442,7 +557,27 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
             workflows: workflows.map(w => ({ ...w, steps: typeof w.steps === 'string' ? JSON.parse(w.steps || '[]') : w.steps })),
             deptWorkflows: configMap.deptWorkflows || {},
             emailConfig: configMap.emailConfig || { enabled: true, smtpHost: 'smtp.gmail.com', smtpPort: 587, senderEmail: 'dms-noreply@company.com' },
-            ldapConfig: configMap.ldapConfig || { enabled: false, url: '', bindFormat: 'upn', domain: '', tlsRejectUnauthorized: true },
+            ldapConfig: (() => {
+                const raw = configMap.ldapConfig
+                    ? (typeof configMap.ldapConfig === 'string' ? JSON.parse(configMap.ldapConfig) : configMap.ldapConfig)
+                    : {};
+                return {
+                    enabled: raw.enabled || false,
+                    url: raw.url || '',
+                    bindFormat: raw.bindFormat || 'upn',
+                    domain: raw.domain || '',
+                    tlsRejectUnauthorized: raw.tlsRejectUnauthorized !== false,
+                    // Đồng bộ tài khoản AD (module AD) — mật khẩu tài khoản dịch vụ
+                    // KHÔNG bao giờ trả về thật cho client, chỉ báo đã có cấu hình hay
+                    // chưa (giống hệt cách xử lý mật khẩu user ở bootstrap).
+                    adSyncEnabled: raw.adSyncEnabled || false,
+                    serviceBindDn: raw.serviceBindDn || '',
+                    servicePassword: raw.servicePassword ? '••••••••' : '',
+                    searchBaseDn: raw.searchBaseDn || '',
+                    companyAttr: raw.companyAttr || '',
+                    orgUnitAttr: raw.orgUnitAttr || ''
+                };
+            })(),
             systemLogs: logs,
             maxPdfSizeMB: MAX_PDF_SIZE_MB
         });
@@ -1222,6 +1357,31 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                     return res.status(400).json({ error: 'Định dạng đăng nhập LDAP không hợp lệ.' });
                 }
             }
+            // Đồng bộ tài khoản AD (module AD, độc lập với việc dùng LDAP để đăng
+            // nhập ở trên) cần thêm tài khoản dịch vụ có quyền duyệt thư mục.
+            if (table === 'ldapConfig' && data && data.adSyncEnabled) {
+                if (!data.url || !/^ldaps?:\/\//i.test(String(data.url))) {
+                    return res.status(400).json({ error: 'URL máy chủ LDAP không hợp lệ (phải bắt đầu bằng ldap:// hoặc ldaps://).' });
+                }
+                if (!data.serviceBindDn || !String(data.serviceBindDn).trim()) {
+                    return res.status(400).json({ error: 'Thiếu Bind DN của tài khoản dịch vụ để đồng bộ AD.' });
+                }
+                if (!data.searchBaseDn || !String(data.searchBaseDn).trim()) {
+                    return res.status(400).json({ error: 'Thiếu Base DN để tìm kiếm tài khoản trong AD.' });
+                }
+            }
+            // Bảo mật: mật khẩu tài khoản dịch vụ AD không bao giờ trả về cho
+            // client (bootstrap che đi) — nếu client không gửi mật khẩu mới (trống)
+            // thì giữ nguyên mật khẩu cũ đã lưu, giống hệt cách xử lý mật khẩu user.
+            if (table === 'ldapConfig') {
+                const [existingCfgRows] = await pool.query("SELECT config_value FROM app_configs WHERE config_key = 'ldapConfig'");
+                const existingCfg = existingCfgRows[0]
+                    ? (typeof existingCfgRows[0].config_value === 'string' ? JSON.parse(existingCfgRows[0].config_value) : existingCfgRows[0].config_value)
+                    : {};
+                if (!data.servicePassword || !String(data.servicePassword).trim()) {
+                    data.servicePassword = existingCfg.servicePassword || '';
+                }
+            }
             await pool.query(
                 'INSERT INTO app_configs (config_key, config_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE config_value = ?',
                 [table, JSON.stringify(data), JSON.stringify(data)]
@@ -1314,6 +1474,7 @@ function validDateStr(s) { return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/
 function mapBatch(b) { return { id: b.id, companyId: b.company_id, softwareId: b.software_id, totalQuantity: b.total_quantity, codesGenerated: b.codes_generated, issuedDate: fmtDate(b.issued_date), expiryDate: fmtDate(b.expiry_date), note: b.note }; }
 function mapCode(c) { return { id: c.id, batchId: c.batch_id, companyId: c.company_id, softwareId: c.software_id, code: c.code, expiryDate: fmtDate(c.expiry_date) }; }
 function mapCodeAssignment(a) { return { id: a.id, codeId: a.code_id, employeeId: a.employee_id, assignedAt: fmtDate(a.assigned_at) }; }
+function mapAdAccount(a) { return { id: a.id, username: a.username, fullName: a.full_name, email: a.email, active: !!a.active, company: a.company, orgUnit: a.org_unit, disabledAt: fmtDate(a.disabled_at), lastSyncedAt: a.last_synced_at }; }
 function mapRound(r) { return { id: r.id, name: r.name, note: r.note, status: r.status, createdAt: r.created_at }; }
 function mapRoundItem(i) { return { id: i.id, roundId: i.round_id, softwareId: i.software_id, unitPrice: Number(i.unit_price), expiryDate: fmtDate(i.expiry_date) }; }
 function mapRegistration(r) { return { id: r.id, roundId: r.round_id, roundItemId: r.round_item_id, companyId: r.company_id, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity, unitPrice: Number(r.unit_price), totalAmount: Number(r.total_amount), expiryDate: fmtDate(r.expiry_date), status: r.status, note: r.note, createdAt: r.created_at, decidedBy: r.decided_by, decidedAt: r.decided_at }; }
@@ -1330,6 +1491,8 @@ app.get('/api/license/bootstrap', requireAuth, requireAdmin, async (req, res) =>
         const [rounds] = await pool.query('SELECT * FROM lic_purchase_rounds ORDER BY id DESC');
         const [roundItems] = await pool.query('SELECT * FROM lic_purchase_round_items ORDER BY id');
         const [registrations] = await pool.query('SELECT * FROM lic_purchase_registrations ORDER BY id DESC');
+        const [adAccounts] = await pool.query('SELECT * FROM ad_accounts ORDER BY username');
+        const adLastSyncAt = await getAdLastSyncAt();
         res.json({
             companies: companies.map(mapCompany),
             orgUnits: orgUnits.map(mapOrgUnit),
@@ -1340,11 +1503,29 @@ app.get('/api/license/bootstrap', requireAuth, requireAdmin, async (req, res) =>
             licenseCodeAssignments: codeAssignments.map(mapCodeAssignment),
             purchaseRounds: rounds.map(mapRound),
             purchaseRoundItems: roundItems.map(mapRoundItem),
-            purchaseRegistrations: registrations.map(mapRegistration)
+            purchaseRegistrations: registrations.map(mapRegistration),
+            adAccounts: adAccounts.map(mapAdAccount),
+            adLastSyncAt: adLastSyncAt || null
         });
     } catch (err) {
         console.error('❌ Lỗi tải dữ liệu module Bản quyền:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.post('/api/ad/sync', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const ldapConfig = await getLdapConfig();
+        if (!ldapConfig || !ldapConfig.adSyncEnabled) {
+            return res.status(400).json({ error: 'Chưa bật đồng bộ tài khoản AD trong cấu hình LDAP (mục Quản trị).' });
+        }
+        const result = await ldapSyncAccounts();
+        await setAdLastSyncAt();
+        await writeAuditLog({ module: 'LICENSE', actionType: 'AD_SYNC', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: 'Đồng bộ AD', description: `Đồng bộ tài khoản AD: ${result.created} mới, ${result.updated} cập nhật (tổng ${result.total}).` });
+        res.json({ success: true, ...result });
+    } catch (err) {
+        console.error('❌ Lỗi đồng bộ AD:', err.message);
+        res.status(500).json({ error: 'Không thể kết nối hoặc đồng bộ với máy chủ AD — kiểm tra lại cấu hình LDAP.' });
     }
 });
 
@@ -1823,6 +2004,91 @@ app.post('/api/license/codes/:id/unassign', requireAuth, requireAdmin, async (re
         res.json({ success: true });
     } catch (err) {
         console.error('❌ Lỗi thu hồi license:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Phân bổ tự động: xử lý hàng loạt nhân viên đang giữ mã ĐÃ HẾT HẠN ---
+// (thường phát sinh khi 1 lần phát hành mua ít hơn số mã đang có — xem
+// POST /api/license/batches). Với mỗi dòng Admin xác nhận: RENEW = gia hạn
+// thẳng đúng mã đang cầm lên ngày hết hạn của LÔ PHÁT HÀNH GẦN NHẤT của công
+// ty+phần mềm đó; REVOKE = thu hồi hẳn (nhân viên đã nghỉ/không dùng nữa).
+app.post('/api/license/companies/:companyId/auto-allocate', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { companyId } = req.params;
+        const items = Array.isArray(req.body && req.body.items) ? req.body.items : [];
+        if (items.length === 0) return res.status(400).json({ error: 'Không có mục nào để xử lý.' });
+        if (items.length > 500) return res.status(400).json({ error: 'Số lượng xử lý trong 1 lần không được vượt quá 500.' });
+
+        const normalized = [];
+        for (let i = 0; i < items.length; i++) {
+            const it = items[i] || {};
+            const codeId = Number(it.codeId);
+            const employeeId = Number(it.employeeId);
+            const action = String(it.action || '').toUpperCase();
+            if (!codeId || !employeeId) return res.status(400).json({ error: `Dòng ${i + 1}: thiếu mã license hoặc nhân viên.` });
+            if (!['RENEW', 'REVOKE'].includes(action)) return res.status(400).json({ error: `Dòng ${i + 1}: hành động không hợp lệ.` });
+            normalized.push({ codeId, employeeId, action });
+        }
+
+        // Zero-trust: xác nhận lại toàn bộ mã đều thuộc đúng công ty này và lượt
+        // gán đó có thực sự tồn tại — không tin dữ liệu client gửi kèm.
+        const codeIds = [...new Set(normalized.map(n => n.codeId))];
+        const [codeRows] = await pool.query(
+            `SELECT id, company_id, software_id FROM lic_license_codes WHERE id IN (${codeIds.map(() => '?').join(',')})`,
+            codeIds
+        );
+        const codeById = new Map(codeRows.map(r => [r.id, r]));
+        for (const n of normalized) {
+            const code = codeById.get(n.codeId);
+            if (!code || String(code.company_id) !== String(companyId)) {
+                return res.status(400).json({ error: 'Có mã license không thuộc công ty này.' });
+            }
+        }
+        const [assignRows] = await pool.query(
+            `SELECT code_id, employee_id FROM lic_license_code_assignments WHERE code_id IN (${codeIds.map(() => '?').join(',')})`,
+            codeIds
+        );
+        const assignSet = new Set(assignRows.map(r => `${r.code_id}::${r.employee_id}`));
+        for (const n of normalized) {
+            if (!assignSet.has(`${n.codeId}::${n.employeeId}`)) {
+                return res.status(400).json({ error: 'Có phân bổ không tồn tại hoặc đã thay đổi — vui lòng tải lại trang.' });
+            }
+        }
+
+        // Ngày hết hạn "gia hạn theo" = ngày hết hạn của lô phát hành GẦN NHẤT
+        // (id lớn nhất) của đúng công ty + phần mềm đó.
+        const softwareIds = [...new Set(codeIds.map(id => codeById.get(id).software_id))];
+        const [latestBatchRows] = await pool.query(
+            `SELECT b1.software_id, b1.expiry_date FROM lic_license_batches b1
+             INNER JOIN (
+                 SELECT software_id, MAX(id) AS max_id FROM lic_license_batches
+                 WHERE company_id = ? AND software_id IN (${softwareIds.map(() => '?').join(',')})
+                 GROUP BY software_id
+             ) b2 ON b1.software_id = b2.software_id AND b1.id = b2.max_id`,
+            [companyId, ...softwareIds]
+        );
+        const latestExpiryBySoftware = new Map(latestBatchRows.map(r => [r.software_id, fmtDate(r.expiry_date)]));
+
+        let renewedCount = 0, revokedCount = 0;
+        for (const n of normalized) {
+            const code = codeById.get(n.codeId);
+            if (n.action === 'REVOKE') {
+                await pool.query('DELETE FROM lic_license_code_assignments WHERE code_id = ? AND employee_id = ?', [n.codeId, n.employeeId]);
+                revokedCount++;
+            } else {
+                const newExpiry = latestExpiryBySoftware.get(code.software_id);
+                if (newExpiry) {
+                    await pool.query('UPDATE lic_license_codes SET expiry_date = ? WHERE id = ?', [newExpiry, n.codeId]);
+                    renewedCount++;
+                }
+            }
+        }
+
+        await writeAuditLog({ module: 'LICENSE', actionType: 'AUTO_ALLOCATE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `Công ty #${companyId}`, description: `Phân bổ tự động: gia hạn ${renewedCount} mã, thu hồi ${revokedCount} mã.` });
+        res.json({ success: true, renewedCount, revokedCount });
+    } catch (err) {
+        console.error('❌ Lỗi phân bổ tự động:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });

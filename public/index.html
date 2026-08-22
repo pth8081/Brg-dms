@@ -393,6 +393,41 @@
             <button type="submit" class="bg-sky-600 text-white px-4 py-1.5 rounded font-bold hover:bg-sky-700">Lưu Cấu Hình LDAP</button>
           </div>
         </form>
+
+        <h3 class="font-bold text-sky-900 text-sm flex items-center gap-1 pt-2">🗂️ Đồng Bộ Tài Khoản AD (module Tài khoản AD)</h3>
+        <form onsubmit="saveAdSyncConfig(event)" class="grid grid-cols-1 md:grid-cols-4 gap-3 bg-white p-3 rounded border text-xs">
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Đồng Bộ AD</label>
+            <select id="cfgAdSyncEnabled" class="w-full border p-1.5 rounded bg-white font-bold">
+              <option value="true">Bật (Active)</option>
+              <option value="false">Tắt (Disabled)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Bind DN Tài Khoản Dịch Vụ</label>
+            <input id="cfgAdServiceBindDn" placeholder="svc-dms@congty.local" class="w-full border p-1.5 rounded">
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Mật Khẩu Tài Khoản Dịch Vụ</label>
+            <input id="cfgAdServicePassword" type="password" placeholder="Để trống nếu giữ nguyên" class="w-full border p-1.5 rounded" autocomplete="new-password">
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Base DN Tìm Kiếm</label>
+            <input id="cfgAdSearchBaseDn" placeholder="OU=Users,DC=congty,DC=local" class="w-full border p-1.5 rounded">
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Attribute AD ứng với "Công ty" (tùy chọn)</label>
+            <input id="cfgAdCompanyAttr" placeholder="VD: company" class="w-full border p-1.5 rounded">
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Attribute AD ứng với "Khối phòng ban" (tùy chọn)</label>
+            <input id="cfgAdOrgUnitAttr" placeholder="VD: department" class="w-full border p-1.5 rounded">
+          </div>
+          <div class="md:col-span-4 flex justify-between items-center pt-1">
+            <span class="text-gray-500 italic text-[11px]">Dùng LDAP Server URL ở trên. Tài khoản dịch vụ cần quyền duyệt (search) thư mục trong Base DN. Hệ thống tự đồng bộ hàng ngày, có thể bấm "Đồng bộ ngay" ở tab Tài khoản AD để chạy thử ngay.</span>
+            <button type="submit" class="bg-sky-600 text-white px-4 py-1.5 rounded font-bold hover:bg-sky-700">Lưu Cấu Hình Đồng Bộ AD</button>
+          </div>
+        </form>
       </div>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -738,6 +773,7 @@
       <button id="btnLicenseSubSoftware" onclick="switchLicenseSubTab('software')" class="text-xs px-3 py-1.5 rounded font-semibold">💽 Danh mục phần mềm</button>
       <button id="btnLicenseSubBatch" onclick="switchLicenseSubTab('batch')" class="text-xs px-3 py-1.5 rounded font-semibold">📜 Phát hành license</button>
       <button id="btnLicenseSubAlloc" onclick="switchLicenseSubTab('alloc')" class="text-xs px-3 py-1.5 rounded font-semibold">📦 Phân bổ</button>
+      <button id="btnLicenseSubAD" onclick="switchLicenseSubTab('ad')" class="text-xs px-3 py-1.5 rounded font-semibold">🗂️ Tài khoản AD</button>
       <button id="btnLicenseSubPurchase" onclick="switchLicenseSubTab('purchase')" class="text-xs px-3 py-1.5 rounded font-semibold">🛒 Đăng ký mua bản quyền</button>
       <button id="btnLicenseSubRounds" onclick="switchLicenseSubTab('rounds')" class="text-xs px-3 py-1.5 rounded font-semibold">📋 Phát hành đăng ký mua</button>
     </div>
@@ -863,7 +899,11 @@
           <input id="allocFilterSearch" type="text" oninput="renderAllocTable()" placeholder="Tên nhân viên, mã license..." class="w-full border p-1.5 rounded">
         </div>
       </div>
-      <button onclick="openAllocModal()" class="bg-teal-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-teal-700 transition text-xs">+ Thêm phân bổ</button>
+      <div class="flex flex-wrap gap-2">
+        <button onclick="openAllocModal()" class="bg-teal-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-teal-700 transition text-xs">+ Thêm phân bổ</button>
+        <button onclick="openAutoAllocateModal()" class="bg-amber-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-amber-700 transition text-xs">⚡ Phân bổ tự động</button>
+        <button onclick="openControlReportModal()" class="bg-slate-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-slate-700 transition text-xs">🔍 Kiểm soát</button>
+      </div>
       <div class="overflow-x-auto">
         <table class="w-full border-collapse border bg-white text-xs">
           <thead>
@@ -882,6 +922,30 @@
             </tr>
           </thead>
           <tbody id="allocTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Sub-tab: Tài khoản AD -->
+    <div id="licenseSubAD" class="hidden space-y-3">
+      <div class="flex items-center gap-2 flex-wrap">
+        <button onclick="syncAdAccountsNow()" class="bg-teal-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-teal-700 transition text-xs">🔄 Đồng bộ ngay</button>
+        <span id="adLastSyncLabel" class="text-xs text-gray-500"></span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full border-collapse border bg-white text-xs">
+          <thead>
+            <tr class="bg-gray-100 text-left">
+              <th class="border p-2 w-10">STT</th>
+              <th class="border p-2">Tài khoản</th>
+              <th class="border p-2">Họ và tên</th>
+              <th class="border p-2 text-center">Tình trạng</th>
+              <th class="border p-2">Công ty</th>
+              <th class="border p-2">Khối phòng ban</th>
+              <th class="border p-2">Ngày disable</th>
+            </tr>
+          </thead>
+          <tbody id="adAccountsTableBody"></tbody>
         </table>
       </div>
     </div>
@@ -1169,6 +1233,63 @@
     </div>
   </div>
 
+  <!-- MODAL: Phân bổ tự động (xử lý hàng loạt nhân viên đang giữ mã đã hết hạn) -->
+  <div id="autoAllocateModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-4xl w-full p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+      <h3 class="font-bold text-gray-900 text-base">⚡ Phân bổ tự động</h3>
+      <p class="text-xs text-gray-500">Chọn công ty để xem lại các nhân viên đang giữ mã license ĐÃ HẾT HẠN. Với mỗi dòng: để trống (mặc định) sẽ gia hạn thẳng đúng mã đó lên ngày hết hạn của lần phát hành gần nhất; tích "Bỏ khỏi DS phân bổ" nếu xác nhận nhân viên đã nghỉ / không dùng phần mềm nữa (sẽ thu hồi mã).</p>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Công ty</label>
+        <select id="autoAllocCompany" onchange="renderAutoAllocateRows()" class="w-full border p-2 rounded text-sm bg-white"></select>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full border-collapse border bg-white text-xs">
+          <thead>
+            <tr class="bg-gray-100 text-left">
+              <th class="border p-2">Họ và tên</th>
+              <th class="border p-2">Phần mềm</th>
+              <th class="border p-2">Mã license</th>
+              <th class="border p-2">Hạn hiện tại</th>
+              <th class="border p-2">Hạn mới (nếu gia hạn)</th>
+              <th class="border p-2 text-center">Bỏ khỏi DS phân bổ</th>
+            </tr>
+          </thead>
+          <tbody id="autoAllocateRowsBody"></tbody>
+        </table>
+      </div>
+      <div class="flex justify-end gap-2 pt-1">
+        <button type="button" onclick="closeLicenseModal('autoAllocateModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" onclick="saveAutoAllocate()" class="bg-amber-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-amber-700">Xử lý</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Kiểm soát (đối chiếu nhân viên đang giữ license với tài khoản AD đã disable) -->
+  <div id="controlReportModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-3xl w-full p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+      <h3 class="font-bold text-gray-900 text-base">🔍 Kiểm soát — đối chiếu với tài khoản AD</h3>
+      <p class="text-xs text-gray-500">Danh sách nhân viên đang giữ ít nhất 1 mã license mà tài khoản AD tương ứng (khớp theo email) đã bị Disable — có thể là nhân viên đã nghỉ nhưng chưa được thu hồi license.</p>
+      <div class="overflow-x-auto">
+        <table class="w-full border-collapse border bg-white text-xs">
+          <thead>
+            <tr class="bg-gray-100 text-left">
+              <th class="border p-2">Công ty</th>
+              <th class="border p-2">Họ và tên</th>
+              <th class="border p-2">Email</th>
+              <th class="border p-2">Tài khoản AD</th>
+              <th class="border p-2">Ngày disable</th>
+              <th class="border p-2">Số license đang giữ</th>
+            </tr>
+          </thead>
+          <tbody id="controlReportBody"></tbody>
+        </table>
+      </div>
+      <div class="flex justify-end gap-2 pt-1">
+        <button type="button" onclick="closeLicenseModal('controlReportModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Đóng</button>
+      </div>
+    </div>
+  </div>
+
   <!-- MODAL: Tạo Kỳ mua bản quyền -->
   <div id="roundModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">
     <div class="bg-white rounded-lg shadow-2xl max-w-2xl w-full p-5 space-y-4 max-h-[90vh] overflow-y-auto">
@@ -1382,7 +1503,7 @@
 
     // Dữ liệu module Quản Lý Bản Quyền — độc lập với DB ở trên, tải riêng khi
     // admin mở module (không tải kèm bootstrap chính vì chỉ admin dùng tới).
-    const licenseDB = { companies: [], orgUnits: [], employees: [], softwareCatalog: [], licenseBatches: [], licenseCodes: [], licenseCodeAssignments: [], purchaseRounds: [], purchaseRoundItems: [], purchaseRegistrations: [], loaded: false };
+    const licenseDB = { companies: [], orgUnits: [], employees: [], softwareCatalog: [], licenseBatches: [], licenseCodes: [], licenseCodeAssignments: [], purchaseRounds: [], purchaseRoundItems: [], purchaseRegistrations: [], adAccounts: [], adLastSyncAt: null, loaded: false };
     let licenseExpandedNodes = new Set();
 
     let currentUser = null;
@@ -1425,6 +1546,11 @@
       DB.systemLogs = data.systemLogs || [];
       DB.maxPdfSizeMB = data.maxPdfSizeMB || 20;
       DB.ldapConfig = data.ldapConfig || {};
+      // Bootstrap chỉ trả mật khẩu tài khoản dịch vụ AD dạng che (••••••••) để
+      // hiển thị "đã có cấu hình" — xóa ngay trong bộ nhớ để KHÔNG BAO GIỜ vô
+      // tình gửi lại chuỗi che này lên server như thể đó là mật khẩu mới (VD khi
+      // lưu form đăng nhập LDAP ở trên, vốn không liên quan tới mật khẩu này).
+      if (DB.ldapConfig.servicePassword) DB.ldapConfig.servicePassword = '';
     }
 
     async function syncStorage(key) {
@@ -3186,7 +3312,11 @@
       if (enabled && !domain) {
         return showToast('Vui lòng nhập Domain / Tên NetBIOS.', 'danger');
       }
+      // Gộp (không ghi đè hoàn toàn) vì cùng 1 đối tượng ldapConfig còn được dùng
+      // chung bởi form "Đồng Bộ Tài Khoản AD" bên dưới — ghi đè hết sẽ xóa mất
+      // cấu hình đồng bộ AD đã lưu trước đó.
       DB.ldapConfig = {
+        ...DB.ldapConfig,
         enabled,
         url,
         bindFormat: document.getElementById('cfgLdapBindFormat').value,
@@ -3205,6 +3335,39 @@
       document.getElementById('cfgLdapBindFormat').value = DB.ldapConfig.bindFormat || 'upn';
       document.getElementById('cfgLdapDomain').value = DB.ldapConfig.domain || '';
       document.getElementById('cfgLdapTlsReject').value = DB.ldapConfig.tlsRejectUnauthorized !== false ? 'true' : 'false';
+      document.getElementById('cfgAdSyncEnabled').value = DB.ldapConfig.adSyncEnabled ? 'true' : 'false';
+      document.getElementById('cfgAdServiceBindDn').value = DB.ldapConfig.serviceBindDn || '';
+      document.getElementById('cfgAdServicePassword').value = '';
+      document.getElementById('cfgAdSearchBaseDn').value = DB.ldapConfig.searchBaseDn || '';
+      document.getElementById('cfgAdCompanyAttr').value = DB.ldapConfig.companyAttr || '';
+      document.getElementById('cfgAdOrgUnitAttr').value = DB.ldapConfig.orgUnitAttr || '';
+    }
+
+    function saveAdSyncConfig(e) {
+      e.preventDefault();
+      const adSyncEnabled = document.getElementById('cfgAdSyncEnabled').value === 'true';
+      const serviceBindDn = document.getElementById('cfgAdServiceBindDn').value.trim();
+      const servicePassword = document.getElementById('cfgAdServicePassword').value;
+      const searchBaseDn = document.getElementById('cfgAdSearchBaseDn').value.trim();
+      if (adSyncEnabled && (!DB.ldapConfig || !DB.ldapConfig.url || !/^ldaps?:\/\//i.test(DB.ldapConfig.url))) {
+        return showToast('Vui lòng cấu hình LDAP Server URL hợp lệ ở phần trên trước.', 'danger');
+      }
+      if (adSyncEnabled && !serviceBindDn) return showToast('Vui lòng nhập Bind DN tài khoản dịch vụ.', 'danger');
+      if (adSyncEnabled && !searchBaseDn) return showToast('Vui lòng nhập Base DN tìm kiếm.', 'danger');
+      // Gộp vào ldapConfig chung, không ghi đè phần cấu hình đăng nhập ở form trên.
+      DB.ldapConfig = {
+        ...DB.ldapConfig,
+        adSyncEnabled,
+        serviceBindDn,
+        servicePassword, // để trống = giữ nguyên mật khẩu cũ (server tự xử lý)
+        searchBaseDn,
+        companyAttr: document.getElementById('cfgAdCompanyAttr').value.trim(),
+        orgUnitAttr: document.getElementById('cfgAdOrgUnitAttr').value.trim()
+      };
+      syncStorage('ldapConfig');
+      logSystemAction('CONFIG', 'UPDATE_AD_SYNC_CONFIG', `Cập nhật cấu hình đồng bộ tài khoản AD (${adSyncEnabled ? 'Bật' : 'Tắt'}).`, 'SUCCESS', 'AD');
+      showToast('Đã lưu cấu hình đồng bộ AD thành công!', 'success');
+      document.getElementById('cfgAdServicePassword').value = '';
     }
 
     function downloadUserTemplate() {
@@ -3391,6 +3554,8 @@
       licenseDB.licenseBatches = data.licenseBatches || [];
       licenseDB.licenseCodes = data.licenseCodes || [];
       licenseDB.licenseCodeAssignments = data.licenseCodeAssignments || [];
+      licenseDB.adAccounts = data.adAccounts || [];
+      licenseDB.adLastSyncAt = data.adLastSyncAt || null;
       licenseDB.purchaseRounds = data.purchaseRounds || [];
       licenseDB.purchaseRoundItems = data.purchaseRoundItems || [];
       licenseDB.purchaseRegistrations = data.purchaseRegistrations || [];
@@ -3410,8 +3575,8 @@
     function switchLicenseSubTab(subName) {
       if (!currentUser || !currentUser.perms.admin) return;
 
-      const subs = { org: 'licenseSubOrg', emp: 'licenseSubEmp', software: 'licenseSubSoftware', batch: 'licenseSubBatch', alloc: 'licenseSubAlloc', purchase: 'licenseSubPurchase', rounds: 'licenseSubRounds' };
-      const btns = { org: 'btnLicenseSubOrg', emp: 'btnLicenseSubEmp', software: 'btnLicenseSubSoftware', batch: 'btnLicenseSubBatch', alloc: 'btnLicenseSubAlloc', purchase: 'btnLicenseSubPurchase', rounds: 'btnLicenseSubRounds' };
+      const subs = { org: 'licenseSubOrg', emp: 'licenseSubEmp', software: 'licenseSubSoftware', batch: 'licenseSubBatch', alloc: 'licenseSubAlloc', ad: 'licenseSubAD', purchase: 'licenseSubPurchase', rounds: 'licenseSubRounds' };
+      const btns = { org: 'btnLicenseSubOrg', emp: 'btnLicenseSubEmp', software: 'btnLicenseSubSoftware', batch: 'btnLicenseSubBatch', alloc: 'btnLicenseSubAlloc', ad: 'btnLicenseSubAD', purchase: 'btnLicenseSubPurchase', rounds: 'btnLicenseSubRounds' };
       Object.keys(subs).forEach(key => {
         document.getElementById(subs[key]).classList.toggle('hidden', key !== subName);
         const btn = document.getElementById(btns[key]);
@@ -3427,6 +3592,7 @@
         if (subName === 'software') renderSoftwareTable();
         if (subName === 'batch') renderBatchTable();
         if (subName === 'alloc') { populateAllocFilterSelects(); renderAllocTable(); }
+        if (subName === 'ad') { renderAdAccountsTable(); }
         if (subName === 'purchase') { populateRegistrationFilterSelects(); renderRegistrationsTable(); }
         if (subName === 'rounds') { renderRoundsList(); populateAdminRegFilterSelects(); renderAdminRegistrationsTable(); }
       }).catch(err => showToast(err.message || 'Không thể tải dữ liệu module Bản quyền.', 'danger'));
@@ -4032,6 +4198,147 @@ function isPerpetualSoftware(softwareId) {
       } catch (err) {
         showToast(err.message, 'danger');
       }
+    }
+
+    // --- Tài khoản AD (đồng bộ LDAP, độc lập với đăng nhập LDAP đã có) ---
+    function renderAdAccountsTable() {
+      const tbody = document.getElementById('adAccountsTableBody');
+      const label = document.getElementById('adLastSyncLabel');
+      label.textContent = licenseDB.adLastSyncAt ? `Đồng bộ gần nhất: ${new Date(licenseDB.adLastSyncAt).toLocaleString('vi-VN')}` : 'Chưa đồng bộ lần nào.';
+      if (licenseDB.adAccounts.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center text-gray-500 p-4">Chưa có dữ liệu tài khoản AD — bấm "Đồng bộ ngay" để tải (cần bật đồng bộ AD trong mục Quản trị trước).</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = licenseDB.adAccounts.map((a, i) => `
+        <tr class="hover:bg-gray-50">
+          <td class="border p-2">${i + 1}</td>
+          <td class="border p-2 font-mono">${escapeHtml(a.username)}</td>
+          <td class="border p-2">${escapeHtml(a.fullName || '—')}</td>
+          <td class="border p-2 text-center">${a.active ? '<span class="text-[10px] font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Active</span>' : '<span class="text-[10px] font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded-full">Disable</span>'}</td>
+          <td class="border p-2">${escapeHtml(a.company || '—')}</td>
+          <td class="border p-2">${escapeHtml(a.orgUnit || '—')}</td>
+          <td class="border p-2">${a.disabledAt || '—'}</td>
+        </tr>
+      `).join('');
+    }
+    async function syncAdAccountsNow() {
+      try {
+        const result = await apiFetch('/api/ad/sync', { method: 'POST' });
+        showToast(`Đã đồng bộ AD: ${result.created} mới, ${result.updated} cập nhật (tổng ${result.total}).`, 'success');
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        renderAdAccountsTable();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+
+    // --- Phân bổ tự động (xử lý hàng loạt nhân viên đang giữ mã đã hết hạn) ---
+    function openAutoAllocateModal() {
+      document.getElementById('autoAllocCompany').innerHTML = licenseDB.companies.length
+        ? licenseDB.companies.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')
+        : '<option value="">-- Chưa có công ty --</option>';
+      renderAutoAllocateRows();
+      openLicenseModal('autoAllocateModal');
+    }
+    function expiredAssignmentsForCompany(companyId) {
+      const today = new Date().toISOString().slice(0, 10);
+      return licenseDB.licenseCodeAssignments
+        .map(a => {
+          const code = licenseDB.licenseCodes.find(c => c.id === a.codeId);
+          if (!code || code.companyId !== companyId || !code.expiryDate || code.expiryDate >= today) return null;
+          const emp = licenseDB.employees.find(e => e.id === a.employeeId);
+          const software = licenseDB.softwareCatalog.find(s => s.id === code.softwareId);
+          if (!emp || !software) return null;
+          return { assignment: a, code, emp, software };
+        })
+        .filter(Boolean);
+    }
+    function latestBatchExpiryFor(companyId, softwareId) {
+      const batches = licenseDB.licenseBatches.filter(b => b.companyId === companyId && b.softwareId === softwareId);
+      if (batches.length === 0) return null;
+      return batches.reduce((a, b) => (a.id > b.id ? a : b)).expiryDate;
+    }
+    function renderAutoAllocateRows() {
+      const companyId = Number(document.getElementById('autoAllocCompany').value) || null;
+      const tbody = document.getElementById('autoAllocateRowsBody');
+      const rows = companyId ? expiredAssignmentsForCompany(companyId) : [];
+      if (rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" class="text-center text-gray-400 p-3">Không có nhân viên nào đang giữ mã đã hết hạn cho công ty này.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = rows.map(r => {
+        const newExpiry = latestBatchExpiryFor(companyId, r.software.id);
+        return `
+          <tr>
+            <td class="border p-1.5 font-semibold">${escapeHtml(r.emp.fullName)}</td>
+            <td class="border p-1.5">${escapeHtml(r.software.name)}</td>
+            <td class="border p-1.5 font-mono text-[11px]">${escapeHtml(r.code.code)}</td>
+            <td class="border p-1.5 text-red-700 font-semibold">${r.code.expiryDate}</td>
+            <td class="border p-1.5 text-green-700">${newExpiry || '— (chưa có lô mới)'}</td>
+            <td class="border p-1.5 text-center">
+              <input type="checkbox" data-code-id="${r.code.id}" data-employee-id="${r.emp.id}" class="autoAllocRevokeCheck w-4 h-4">
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+    async function saveAutoAllocate() {
+      const companyId = Number(document.getElementById('autoAllocCompany').value);
+      if (!companyId) return showToast('Vui lòng chọn Công ty.', 'warning');
+      const rows = expiredAssignmentsForCompany(companyId);
+      if (rows.length === 0) return showToast('Không có gì để xử lý.', 'warning');
+      const checkboxes = document.querySelectorAll('.autoAllocRevokeCheck');
+      const revokeSet = new Set(Array.from(checkboxes).filter(c => c.checked).map(c => `${c.dataset.codeId}::${c.dataset.employeeId}`));
+      const items = rows.map(r => ({
+        codeId: r.code.id,
+        employeeId: r.emp.id,
+        action: revokeSet.has(`${r.code.id}::${r.emp.id}`) ? 'REVOKE' : 'RENEW'
+      }));
+      try {
+        const result = await apiFetch(`/api/license/companies/${companyId}/auto-allocate`, { method: 'POST', body: JSON.stringify({ items }) });
+        showToast(`Đã gia hạn ${result.renewedCount} mã, thu hồi ${result.revokedCount} mã.`, 'success');
+        closeLicenseModal('autoAllocateModal');
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        renderAllocTable();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+
+    // --- Kiểm soát: đối chiếu nhân viên đang giữ license với tài khoản AD disable ---
+    function openControlReportModal() {
+      const disabledEmails = new Map(
+        licenseDB.adAccounts.filter(a => !a.active && a.email).map(a => [a.email.toLowerCase(), a])
+      );
+      const rowsByEmployee = new Map();
+      licenseDB.licenseCodeAssignments.forEach(a => {
+        const emp = licenseDB.employees.find(e => e.id === a.employeeId);
+        if (!emp || !emp.email) return;
+        const adAccount = disabledEmails.get(emp.email.toLowerCase());
+        if (!adAccount) return;
+        const code = licenseDB.licenseCodes.find(c => c.id === a.codeId);
+        const company = code ? licenseDB.companies.find(x => x.id === code.companyId) : null;
+        const key = emp.id;
+        if (!rowsByEmployee.has(key)) rowsByEmployee.set(key, { emp, adAccount, company, count: 0 });
+        rowsByEmployee.get(key).count++;
+      });
+      const rows = Array.from(rowsByEmployee.values());
+      const tbody = document.getElementById('controlReportBody');
+      tbody.innerHTML = rows.length
+        ? rows.map(r => `
+            <tr>
+              <td class="border p-2">${escapeHtml(r.company ? r.company.name : '—')}</td>
+              <td class="border p-2 font-semibold">${escapeHtml(r.emp.fullName)}</td>
+              <td class="border p-2">${escapeHtml(r.emp.email)}</td>
+              <td class="border p-2 font-mono">${escapeHtml(r.adAccount.username)}</td>
+              <td class="border p-2">${r.adAccount.disabledAt || '—'}</td>
+              <td class="border p-2 text-center">${r.count}</td>
+            </tr>
+          `).join('')
+        : `<tr><td colspan="6" class="text-center text-gray-400 p-3">Không có trường hợp nào — mọi nhân viên đang giữ license đều có tài khoản AD active (hoặc chưa xác định được).</td></tr>`;
+      openLicenseModal('controlReportModal');
     }
 
     // Trả về [id, ...toàn bộ id hậu duệ] — dùng để lọc nhân viên khi người
