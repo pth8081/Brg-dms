@@ -776,6 +776,7 @@
       <button id="btnLicenseSubAD" onclick="switchLicenseSubTab('ad')" class="text-xs px-3 py-1.5 rounded font-semibold">🗂️ Tài khoản AD</button>
       <button id="btnLicenseSubPurchase" onclick="switchLicenseSubTab('purchase')" class="text-xs px-3 py-1.5 rounded font-semibold">🛒 Đăng ký mua bản quyền</button>
       <button id="btnLicenseSubRounds" onclick="switchLicenseSubTab('rounds')" class="text-xs px-3 py-1.5 rounded font-semibold">📋 Phát hành đăng ký mua</button>
+      <button id="btnLicenseSubBudget" onclick="switchLicenseSubTab('budget')" class="text-xs px-3 py-1.5 rounded font-semibold">💰 Ngân sách</button>
     </div>
 
     <!-- Sub-tab: Tổ chức công ty -->
@@ -1026,6 +1027,55 @@
               </tr>
             </thead>
             <tbody id="adminRegistrationsTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sub-tab: Ngân sách (ĐỘC LẬP với Kỳ mua — dự trù theo đơn vị trực thuộc) -->
+    <div id="licenseSubBudget" class="hidden space-y-4">
+      <div class="bg-amber-50 border border-amber-200 rounded p-2 text-[11px] text-amber-800">
+        Module Ngân sách dùng để LẬP DỰ TRÙ trước khi mở Kỳ mua thật — độc lập hoàn toàn với "Phát hành đăng ký mua" ở trên. Số "Đang dùng" tính theo license ĐANG được gán cho nhân viên trong từng đơn vị trực thuộc (gồm cả đơn vị con bên dưới).
+      </div>
+      <button onclick="openBudgetRoundModal()" class="bg-amber-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-amber-700 transition text-xs">+ Tạo kỳ ngân sách mới</button>
+      <div id="budgetRoundsListContainer" class="space-y-3"></div>
+
+      <div class="border-t pt-4">
+        <div class="flex justify-between items-center mb-2">
+          <h3 class="font-bold text-gray-800 text-sm">Dự trù ngân sách theo đơn vị</h3>
+          <button onclick="openBudgetRegistrationModal()" class="bg-amber-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-amber-700 transition text-xs">+ Lập dự trù</button>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded border text-xs mb-2">
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Lọc theo Kỳ ngân sách</label>
+            <select id="budgetRegFilterRound" onchange="renderBudgetRegistrationsTable()" class="w-full border p-1.5 rounded bg-white"></select>
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Lọc theo Trạng thái</label>
+            <select id="budgetRegFilterStatus" onchange="renderBudgetRegistrationsTable()" class="w-full border p-1.5 rounded bg-white">
+              <option value="">-- Tất cả --</option>
+              <option value="PENDING">Chờ duyệt</option>
+              <option value="APPROVED">Đã duyệt</option>
+              <option value="REJECTED">Từ chối</option>
+            </select>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse border bg-white text-xs">
+            <thead>
+              <tr class="bg-gray-100 text-left">
+                <th class="border p-2 w-10">STT</th>
+                <th class="border p-2">Đơn vị trực thuộc</th>
+                <th class="border p-2">Phần mềm</th>
+                <th class="border p-2 text-center">Đang dùng</th>
+                <th class="border p-2 text-center">Dự trù mới</th>
+                <th class="border p-2 text-right">Đơn giá</th>
+                <th class="border p-2 text-right">Thành tiền</th>
+                <th class="border p-2 text-center">Trạng thái</th>
+                <th class="border p-2 text-center">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody id="budgetRegistrationsTableBody"></tbody>
           </table>
         </div>
       </div>
@@ -1407,6 +1457,115 @@
     </div>
   </div>
 
+  <!-- MODAL: Tạo Kỳ ngân sách -->
+  <div id="budgetRoundModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-2xl w-full p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+      <h3 class="font-bold text-gray-900 text-base">Tạo kỳ ngân sách</h3>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Tên kỳ ngân sách</label>
+          <input id="budgetRoundName" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Dự trù ngân sách 2028">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Ghi chú (tùy chọn)</label>
+          <input id="budgetRoundNote" type="text" class="w-full border p-2 rounded text-sm">
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Danh sách phần mềm trong kỳ</label>
+        <div class="overflow-x-auto border rounded">
+          <table class="w-full text-xs border-collapse">
+            <thead>
+              <tr class="bg-gray-100 text-left">
+                <th class="border p-2">Phần mềm</th>
+                <th class="border p-2">Đơn giá dự kiến (VNĐ)</th>
+                <th class="border p-2 w-8"></th>
+              </tr>
+            </thead>
+            <tbody id="budgetRoundCreateItemsBody"></tbody>
+          </table>
+        </div>
+        <div class="flex justify-between items-center mt-2">
+          <button type="button" onclick="addBudgetRoundCreateRow()" class="text-xs font-semibold text-amber-700 bg-amber-50 border border-dashed border-amber-600 rounded px-2.5 py-1.5 hover:bg-amber-100">+ Thêm dòng</button>
+          <span id="budgetRoundCreateItemsHint" class="text-[11px] text-gray-500"></span>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 pt-1">
+        <button type="button" onclick="closeLicenseModal('budgetRoundModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" onclick="saveBudgetRound()" class="bg-amber-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-amber-700">Tạo kỳ ngân sách</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Thêm phần mềm vào Kỳ ngân sách -->
+  <div id="budgetRoundItemModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-sm w-full p-5 space-y-4">
+      <h3 class="font-bold text-gray-900 text-base">Thêm phần mềm vào kỳ ngân sách</h3>
+      <input type="hidden" id="budgetRoundItemRoundId">
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Phần mềm</label>
+        <select id="budgetRoundItemSoftware" class="w-full border p-2 rounded text-sm bg-white"></select>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn giá dự kiến (VNĐ)</label>
+        <input id="budgetRoundItemUnitPrice" type="number" min="0" step="1000" class="w-full border p-2 rounded text-sm" placeholder="VD: 1500000">
+      </div>
+      <div class="flex justify-end gap-2 pt-1">
+        <button type="button" onclick="closeLicenseModal('budgetRoundItemModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" onclick="saveBudgetRoundItem()" class="bg-amber-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-amber-700">Thêm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Lập dự trù ngân sách theo đơn vị trực thuộc -->
+  <div id="budgetRegistrationModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-3xl w-full p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+      <h3 class="font-bold text-gray-900 text-base">Lập dự trù ngân sách</h3>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Kỳ ngân sách</label>
+          <select id="budgetRegRound" onchange="onBudgetRegRoundOrUnitChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn vị trực thuộc</label>
+          <select id="budgetRegOrgUnit" onchange="onBudgetRegRoundOrUnitChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
+        </div>
+      </div>
+      <div class="bg-amber-50 border border-amber-200 rounded p-2 text-[11px] text-amber-800">
+        "Đang dùng" = số license đang được gán cho nhân viên thuộc đơn vị này (gồm cả đơn vị con bên dưới), chỉ để tham khảo khi nhập số lượng dự trù.
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Danh sách phần mềm dự trù</label>
+        <div class="overflow-x-auto border rounded">
+          <table class="w-full text-xs border-collapse">
+            <thead>
+              <tr class="bg-gray-100 text-left">
+                <th class="border p-2">Phần mềm</th>
+                <th class="border p-2 text-center">Đang dùng</th>
+                <th class="border p-2">SL dự trù</th>
+                <th class="border p-2 text-right">Thành tiền</th>
+                <th class="border p-2 w-8"></th>
+              </tr>
+            </thead>
+            <tbody id="budgetRegItemsBody"></tbody>
+          </table>
+        </div>
+        <div class="flex justify-between items-center mt-2">
+          <button type="button" onclick="addBudgetRegRow()" class="text-xs font-semibold text-amber-700 bg-amber-50 border border-dashed border-amber-600 rounded px-2.5 py-1.5 hover:bg-amber-100">+ Thêm dòng</button>
+          <span class="text-xs text-gray-600">Tổng cộng <strong id="budgetRegTotal" class="text-amber-700">0 ₫</strong></span>
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Ghi chú (tùy chọn)</label>
+        <input id="budgetRegNote" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Dự kiến tăng nhân sự phòng này">
+      </div>
+      <div class="flex justify-end gap-2 pt-1">
+        <button type="button" onclick="closeLicenseModal('budgetRegistrationModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" onclick="saveBudgetRegistration()" class="bg-amber-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-amber-700">Gửi dự trù</button>
+      </div>
+    </div>
+  </div>
+
   <!-- MODAL XEM TÀI LIỆU (PROTECTED VIEWER) -->
   <div id="viewDocModal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-[60] p-4">
     <div class="bg-white rounded-lg shadow-2xl max-w-4xl w-full flex flex-col max-h-[90vh] overflow-hidden">
@@ -1503,7 +1662,7 @@
 
     // Dữ liệu module Quản Lý Bản Quyền — độc lập với DB ở trên, tải riêng khi
     // admin mở module (không tải kèm bootstrap chính vì chỉ admin dùng tới).
-    const licenseDB = { companies: [], orgUnits: [], employees: [], softwareCatalog: [], licenseBatches: [], licenseCodes: [], licenseCodeAssignments: [], purchaseRounds: [], purchaseRoundItems: [], purchaseRegistrations: [], adAccounts: [], adLastSyncAt: null, loaded: false };
+    const licenseDB = { companies: [], orgUnits: [], employees: [], softwareCatalog: [], licenseBatches: [], licenseCodes: [], licenseCodeAssignments: [], purchaseRounds: [], purchaseRoundItems: [], purchaseRegistrations: [], budgetRounds: [], budgetRoundItems: [], budgetRegistrations: [], adAccounts: [], adLastSyncAt: null, loaded: false };
     let licenseExpandedNodes = new Set();
 
     let currentUser = null;
@@ -3559,6 +3718,9 @@
       licenseDB.purchaseRounds = data.purchaseRounds || [];
       licenseDB.purchaseRoundItems = data.purchaseRoundItems || [];
       licenseDB.purchaseRegistrations = data.purchaseRegistrations || [];
+      licenseDB.budgetRounds = data.budgetRounds || [];
+      licenseDB.budgetRoundItems = data.budgetRoundItems || [];
+      licenseDB.budgetRegistrations = data.budgetRegistrations || [];
       licenseDB.loaded = true;
       // Chỉ đặt mặc định (mở các đơn vị cấp cao nhất) ở lần tải đầu tiên — các
       // lần tải lại sau (sau khi thêm/sửa/xóa) phải GIỮ NGUYÊN trạng thái
@@ -3575,8 +3737,8 @@
     function switchLicenseSubTab(subName) {
       if (!currentUser || !currentUser.perms.admin) return;
 
-      const subs = { org: 'licenseSubOrg', emp: 'licenseSubEmp', software: 'licenseSubSoftware', batch: 'licenseSubBatch', alloc: 'licenseSubAlloc', ad: 'licenseSubAD', purchase: 'licenseSubPurchase', rounds: 'licenseSubRounds' };
-      const btns = { org: 'btnLicenseSubOrg', emp: 'btnLicenseSubEmp', software: 'btnLicenseSubSoftware', batch: 'btnLicenseSubBatch', alloc: 'btnLicenseSubAlloc', ad: 'btnLicenseSubAD', purchase: 'btnLicenseSubPurchase', rounds: 'btnLicenseSubRounds' };
+      const subs = { org: 'licenseSubOrg', emp: 'licenseSubEmp', software: 'licenseSubSoftware', batch: 'licenseSubBatch', alloc: 'licenseSubAlloc', ad: 'licenseSubAD', purchase: 'licenseSubPurchase', rounds: 'licenseSubRounds', budget: 'licenseSubBudget' };
+      const btns = { org: 'btnLicenseSubOrg', emp: 'btnLicenseSubEmp', software: 'btnLicenseSubSoftware', batch: 'btnLicenseSubBatch', alloc: 'btnLicenseSubAlloc', ad: 'btnLicenseSubAD', purchase: 'btnLicenseSubPurchase', rounds: 'btnLicenseSubRounds', budget: 'btnLicenseSubBudget' };
       Object.keys(subs).forEach(key => {
         document.getElementById(subs[key]).classList.toggle('hidden', key !== subName);
         const btn = document.getElementById(btns[key]);
@@ -3595,6 +3757,7 @@
         if (subName === 'ad') { renderAdAccountsTable(); }
         if (subName === 'purchase') { populateRegistrationFilterSelects(); renderRegistrationsTable(); }
         if (subName === 'rounds') { renderRoundsList(); populateAdminRegFilterSelects(); renderAdminRegistrationsTable(); }
+        if (subName === 'budget') { renderBudgetRoundsList(); populateBudgetRegFilterSelects(); renderBudgetRegistrationsTable(); }
       }).catch(err => showToast(err.message || 'Không thể tải dữ liệu module Bản quyền.', 'danger'));
     }
 
@@ -4940,6 +5103,346 @@ function isPerpetualSoftware(softwareId) {
         licenseDB.loaded = false;
         await loadLicenseBootstrapData();
         renderRegistrationsTable();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+
+    // --- Ngân sách (module ĐỘC LẬP với Kỳ mua — dự trù theo đơn vị trực thuộc) ---
+    function budgetStatusBadge(status) { return purchaseStatusBadge(status); }
+    function renderBudgetRoundsList() {
+      const container = document.getElementById('budgetRoundsListContainer');
+      if (licenseDB.budgetRounds.length === 0) {
+        container.innerHTML = `<div class="text-center text-gray-500 text-sm p-6 border rounded bg-gray-50">Chưa có kỳ ngân sách nào — bấm "+ Tạo kỳ ngân sách mới" để bắt đầu.</div>`;
+        return;
+      }
+      container.innerHTML = licenseDB.budgetRounds.map(r => {
+        const items = licenseDB.budgetRoundItems.filter(i => i.roundId === r.id);
+        const isOpen = r.status === 'OPEN';
+        return `
+          <div class="bg-white border rounded-lg shadow-sm overflow-hidden">
+            <div class="flex justify-between items-center gap-2 px-4 py-3 bg-amber-50 border-b">
+              <div class="flex items-center gap-2">
+                <h3 class="font-bold text-amber-900 text-sm">${escapeHtml(r.name)}</h3>
+                <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${isOpen ? 'text-green-700 bg-green-100' : 'text-gray-600 bg-gray-200'}">${isOpen ? 'Đang mở' : 'Đã đóng'}</span>
+              </div>
+              <div class="flex gap-1 text-xs">
+                ${isOpen ? `<button onclick="openBudgetRoundItemModal(${r.id})" class="px-2 py-1 rounded hover:bg-amber-100 font-semibold text-amber-800">+ Thêm phần mềm</button>` : ''}
+                <button onclick="toggleBudgetRoundStatus(${r.id}, '${isOpen ? 'CLOSED' : 'OPEN'}')" class="px-2 py-1 rounded hover:bg-amber-100">${isOpen ? '🔒 Đóng kỳ' : '🔓 Mở lại'}</button>
+              </div>
+            </div>
+            <div class="p-3">
+              ${r.note ? `<p class="text-xs text-gray-500 mb-2">${escapeHtml(r.note)}</p>` : ''}
+              ${items.length === 0 ? `<div class="text-xs text-gray-400">Chưa có phần mềm nào trong kỳ này.</div>` : `
+                <table class="w-full text-xs border-collapse">
+                  <thead><tr class="bg-gray-50 text-left"><th class="border p-1.5">Phần mềm</th><th class="border p-1.5 text-right">Đơn giá dự kiến</th><th class="border p-1.5 text-center">Thao tác</th></tr></thead>
+                  <tbody>
+                    ${items.map(i => {
+                      const sw = licenseDB.softwareCatalog.find(s => s.id === i.softwareId);
+                      return `<tr>
+                        <td class="border p-1.5">${escapeHtml(sw ? sw.name : '—')}</td>
+                        <td class="border p-1.5 text-right">${formatMoney(i.unitPrice)}</td>
+                        <td class="border p-1.5 text-center"><button onclick="deleteBudgetRoundItem(${r.id}, ${i.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600">🗑️</button></td>
+                      </tr>`;
+                    }).join('')}
+                  </tbody>
+                </table>
+              `}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+    let budgetRoundCreateRows = [];
+    let budgetRoundCreateRowSeq = 1;
+    function renderBudgetRoundCreateRows() {
+      const tbody = document.getElementById('budgetRoundCreateItemsBody');
+      const hint = document.getElementById('budgetRoundCreateItemsHint');
+      if (budgetRoundCreateRows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="3" class="text-center text-gray-400 p-3">Chưa có phần mềm nào — bấm "+ Thêm dòng" để bắt đầu.</td></tr>`;
+        hint.textContent = '';
+        return;
+      }
+      hint.textContent = `${budgetRoundCreateRows.length} phần mềm`;
+      tbody.innerHTML = budgetRoundCreateRows.map(row => {
+        const usedElsewhere = new Set(budgetRoundCreateRows.filter(r => r.id !== row.id).map(r => r.softwareId));
+        const options = licenseDB.softwareCatalog.filter(s => s.id === row.softwareId || !usedElsewhere.has(s.id));
+        return `
+          <tr>
+            <td class="border p-1.5">
+              <select onchange="updateBudgetRoundCreateRow(${row.id}, 'softwareId', Number(this.value))" class="w-full border p-1 rounded text-xs bg-white">
+                ${options.map(s => `<option value="${s.id}" ${s.id === row.softwareId ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('')}
+              </select>
+            </td>
+            <td class="border p-1.5">
+              <input type="number" min="0" step="1000" value="${row.unitPrice}" oninput="updateBudgetRoundCreateRow(${row.id}, 'unitPrice', Number(this.value))" class="w-full border p-1 rounded text-xs">
+            </td>
+            <td class="border p-1.5 text-center">
+              <button type="button" onclick="removeBudgetRoundCreateRow(${row.id})" class="text-red-500 hover:text-red-700">🗑️</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+    function updateBudgetRoundCreateRow(id, field, value) {
+      const row = budgetRoundCreateRows.find(r => r.id === id);
+      if (!row) return;
+      row[field] = value;
+    }
+    function removeBudgetRoundCreateRow(id) {
+      budgetRoundCreateRows = budgetRoundCreateRows.filter(r => r.id !== id);
+      renderBudgetRoundCreateRows();
+    }
+    function addBudgetRoundCreateRow() {
+      const usedIds = new Set(budgetRoundCreateRows.map(r => r.softwareId));
+      const next = licenseDB.softwareCatalog.find(s => !usedIds.has(s.id));
+      if (!next) { showToast('Đã thêm hết danh mục phần mềm hiện có.', 'warning'); return; }
+      budgetRoundCreateRows.push({ id: budgetRoundCreateRowSeq++, softwareId: next.id, unitPrice: 0 });
+      renderBudgetRoundCreateRows();
+    }
+    function openBudgetRoundModal() {
+      document.getElementById('budgetRoundName').value = '';
+      document.getElementById('budgetRoundNote').value = '';
+      budgetRoundCreateRows = [];
+      renderBudgetRoundCreateRows();
+      openLicenseModal('budgetRoundModal');
+    }
+    async function saveBudgetRound() {
+      const name = document.getElementById('budgetRoundName').value.trim();
+      const note = document.getElementById('budgetRoundNote').value.trim();
+      if (!name) return showToast('Vui lòng nhập Tên kỳ ngân sách.', 'warning');
+      const invalidRow = budgetRoundCreateRows.find(r => r.unitPrice < 0);
+      if (invalidRow) return showToast('Đơn giá không hợp lệ.', 'warning');
+      const items = budgetRoundCreateRows.map(r => ({ softwareId: r.softwareId, unitPrice: r.unitPrice }));
+      try {
+        await apiFetch('/api/license/budget-rounds', { method: 'POST', body: JSON.stringify({ name, note, items }) });
+        showToast(`Đã tạo kỳ ngân sách "${name}"${items.length ? ` với ${items.length} phần mềm` : ''}.`, 'success');
+        closeLicenseModal('budgetRoundModal');
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        renderBudgetRoundsList();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+    async function toggleBudgetRoundStatus(id, status) {
+      try {
+        await apiFetch(`/api/license/budget-rounds/${id}`, { method: 'PUT', body: JSON.stringify({ status }) });
+        showToast(status === 'CLOSED' ? 'Đã đóng kỳ ngân sách.' : 'Đã mở lại kỳ ngân sách.', 'success');
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        renderBudgetRoundsList();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+    function openBudgetRoundItemModal(roundId) {
+      document.getElementById('budgetRoundItemRoundId').value = roundId;
+      const usedSoftwareIds = new Set(licenseDB.budgetRoundItems.filter(i => i.roundId === roundId).map(i => i.softwareId));
+      const options = licenseDB.softwareCatalog.filter(s => !usedSoftwareIds.has(s.id));
+      document.getElementById('budgetRoundItemSoftware').innerHTML = options.length
+        ? options.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')
+        : '<option value="">-- Không còn phần mềm nào để thêm --</option>';
+      document.getElementById('budgetRoundItemUnitPrice').value = '';
+      openLicenseModal('budgetRoundItemModal');
+    }
+    async function saveBudgetRoundItem() {
+      const roundId = Number(document.getElementById('budgetRoundItemRoundId').value);
+      const softwareId = Number(document.getElementById('budgetRoundItemSoftware').value);
+      const unitPrice = Number(document.getElementById('budgetRoundItemUnitPrice').value);
+      if (!softwareId) return showToast('Vui lòng chọn Phần mềm.', 'warning');
+      if (!Number.isFinite(unitPrice) || unitPrice < 0) return showToast('Đơn giá không hợp lệ.', 'warning');
+      try {
+        await apiFetch(`/api/license/budget-rounds/${roundId}/items`, { method: 'POST', body: JSON.stringify({ softwareId, unitPrice }) });
+        showToast('Đã thêm phần mềm vào kỳ ngân sách.', 'success');
+        closeLicenseModal('budgetRoundItemModal');
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        renderBudgetRoundsList();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+    async function deleteBudgetRoundItem(roundId, itemId) {
+      const ok = await showConfirm({ title: 'Xóa hạng mục', message: 'Xóa phần mềm này khỏi kỳ ngân sách? Chỉ xóa được khi chưa có đơn vị nào dự trù.', danger: true, confirmText: 'Xóa' });
+      if (!ok) return;
+      try {
+        await apiFetch(`/api/license/budget-rounds/${roundId}/items/${itemId}`, { method: 'DELETE' });
+        showToast('Đã xóa hạng mục.', 'success');
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        renderBudgetRoundsList();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+    function populateBudgetRegFilterSelects() {
+      document.getElementById('budgetRegFilterRound').innerHTML = '<option value="">-- Tất cả kỳ ngân sách --</option>' +
+        licenseDB.budgetRounds.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('');
+    }
+    function renderBudgetRegistrationsTable() {
+      const roundId = document.getElementById('budgetRegFilterRound').value;
+      const status = document.getElementById('budgetRegFilterStatus').value;
+      const tbody = document.getElementById('budgetRegistrationsTableBody');
+      let rows = licenseDB.budgetRegistrations.slice();
+      if (roundId) rows = rows.filter(r => r.roundId === Number(roundId));
+      if (status) rows = rows.filter(r => r.status === status);
+      if (rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-gray-500 p-4">Chưa có dự trù nào.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = rows.map((r, i) => {
+        const item = licenseDB.budgetRoundItems.find(x => x.id === r.roundItemId);
+        const software = item ? licenseDB.softwareCatalog.find(s => s.id === item.softwareId) : null;
+        return `
+          <tr class="hover:bg-gray-50">
+            <td class="border p-2">${i + 1}</td>
+            <td class="border p-2">${escapeHtml(orgUnitPath(r.orgUnitId))}</td>
+            <td class="border p-2">${escapeHtml(software ? software.name : '—')}</td>
+            <td class="border p-2 text-center">${r.currentQuantity}</td>
+            <td class="border p-2 text-center font-semibold">${r.requestedQuantity}</td>
+            <td class="border p-2 text-right">${formatMoney(r.unitPrice)}</td>
+            <td class="border p-2 text-right font-semibold">${formatMoney(r.totalAmount)}</td>
+            <td class="border p-2 text-center">${budgetStatusBadge(r.status)}</td>
+            <td class="border p-2 text-center">
+              ${r.status === 'PENDING' ? `
+                <button onclick="approveBudgetRegistration(${r.id})" class="px-1.5 py-0.5 rounded hover:bg-green-100 text-green-700 text-[11px] font-semibold">Duyệt</button>
+                <button onclick="rejectBudgetRegistration(${r.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600 text-[11px] font-semibold">Từ chối</button>
+              ` : '—'}
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+    async function approveBudgetRegistration(id) {
+      const ok = await showConfirm({ title: 'Duyệt dự trù', message: 'Duyệt dự trù ngân sách này?', confirmText: 'Duyệt' });
+      if (!ok) return;
+      try {
+        await apiFetch(`/api/license/budget-registrations/${id}/approve`, { method: 'POST' });
+        showToast('Đã duyệt dự trù.', 'success');
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        renderBudgetRegistrationsTable();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+    async function rejectBudgetRegistration(id) {
+      const ok = await showConfirm({ title: 'Từ chối dự trù', message: 'Từ chối dự trù ngân sách này?', danger: true, confirmText: 'Từ chối' });
+      if (!ok) return;
+      try {
+        await apiFetch(`/api/license/budget-registrations/${id}/reject`, { method: 'POST' });
+        showToast('Đã từ chối dự trù.', 'success');
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        renderBudgetRegistrationsTable();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+    // Số license đang được GÁN cho nhân viên trong 1 đơn vị trực thuộc (gồm cả
+    // đơn vị con bên dưới) — KHÁC currentCodeCount (đếm theo tổng mã công ty sở
+    // hữu), vì ở cấp đơn vị chỉ nhân viên mới xác định được org_unit, còn mã
+    // license chỉ gắn với company_id.
+    function currentUsageForOrgUnit(orgUnitId, softwareId) {
+      const subtreeIds = new Set(orgSubtreeIds(orgUnitId));
+      const empIdsInUnit = new Set(licenseDB.employees.filter(e => subtreeIds.has(e.orgUnitId)).map(e => e.id));
+      return licenseDB.licenseCodeAssignments.filter(a => {
+        if (!empIdsInUnit.has(a.employeeId)) return false;
+        const code = licenseDB.licenseCodes.find(c => c.id === a.codeId);
+        return code && code.softwareId === softwareId;
+      }).length;
+    }
+    let budgetRegRows = [];
+    let budgetRegRowSeq = 1;
+    function onBudgetRegRoundOrUnitChange() {
+      renderBudgetRegRows();
+    }
+    function renderBudgetRegRows() {
+      const tbody = document.getElementById('budgetRegItemsBody');
+      const orgUnitId = Number(document.getElementById('budgetRegOrgUnit').value) || null;
+      const roundId = Number(document.getElementById('budgetRegRound').value) || null;
+      const roundItems = roundId ? licenseDB.budgetRoundItems.filter(i => i.roundId === roundId) : [];
+      if (budgetRegRows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" class="text-center text-gray-400 p-3">Chưa có phần mềm nào — bấm "+ Thêm dòng" để bắt đầu.</td></tr>`;
+      } else {
+        tbody.innerHTML = budgetRegRows.map(row => {
+          const usedElsewhere = new Set(budgetRegRows.filter(r => r.id !== row.id).map(r => r.roundItemId));
+          const options = roundItems.filter(it => it.id === row.roundItemId || !usedElsewhere.has(it.id));
+          const item = roundItems.find(it => it.id === row.roundItemId);
+          const used = (orgUnitId && item) ? currentUsageForOrgUnit(orgUnitId, item.softwareId) : 0;
+          const total = item ? item.unitPrice * (row.quantity || 0) : 0;
+          return `
+            <tr>
+              <td class="border p-1.5">
+                <select onchange="updateBudgetRegRow(${row.id}, 'roundItemId', Number(this.value))" class="w-full border p-1 rounded text-xs bg-white">
+                  ${options.map(it => {
+                    const s = licenseDB.softwareCatalog.find(x => x.id === it.softwareId);
+                    return `<option value="${it.id}" ${it.id === row.roundItemId ? 'selected' : ''}>${escapeHtml(s ? s.name : '—')}</option>`;
+                  }).join('')}
+                </select>
+              </td>
+              <td class="border p-1.5 text-center text-gray-500">${used}</td>
+              <td class="border p-1.5"><input type="number" min="1" value="${row.quantity}" oninput="updateBudgetRegRow(${row.id}, 'quantity', Number(this.value))" class="w-full border p-1 rounded text-xs"></td>
+              <td class="border p-1.5 text-right font-semibold">${formatMoney(total)}</td>
+              <td class="border p-1.5 text-center"><button type="button" onclick="removeBudgetRegRow(${row.id})" class="text-red-500 hover:text-red-700">🗑️</button></td>
+            </tr>
+          `;
+        }).join('');
+      }
+      const grandTotal = budgetRegRows.reduce((sum, row) => {
+        const item = roundItems.find(it => it.id === row.roundItemId);
+        return sum + (item ? item.unitPrice * (row.quantity || 0) : 0);
+      }, 0);
+      document.getElementById('budgetRegTotal').textContent = formatMoney(grandTotal);
+    }
+    function updateBudgetRegRow(id, field, value) {
+      const row = budgetRegRows.find(r => r.id === id);
+      if (!row) return;
+      row[field] = value;
+      renderBudgetRegRows();
+    }
+    function removeBudgetRegRow(id) {
+      budgetRegRows = budgetRegRows.filter(r => r.id !== id);
+      renderBudgetRegRows();
+    }
+    function addBudgetRegRow() {
+      const roundId = Number(document.getElementById('budgetRegRound').value) || null;
+      const roundItems = roundId ? licenseDB.budgetRoundItems.filter(i => i.roundId === roundId) : [];
+      const usedIds = new Set(budgetRegRows.map(r => r.roundItemId));
+      const next = roundItems.find(it => !usedIds.has(it.id));
+      if (!next) { showToast(roundItems.length === 0 ? 'Kỳ ngân sách này chưa có phần mềm nào.' : 'Đã thêm hết phần mềm có trong kỳ ngân sách này.', 'warning'); return; }
+      budgetRegRows.push({ id: budgetRegRowSeq++, roundItemId: next.id, quantity: 1 });
+      renderBudgetRegRows();
+    }
+    function openBudgetRegistrationModal() {
+      const openRounds = licenseDB.budgetRounds.filter(r => r.status === 'OPEN');
+      document.getElementById('budgetRegRound').innerHTML = openRounds.length
+        ? openRounds.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('')
+        : '<option value="">-- Không có kỳ ngân sách nào đang mở --</option>';
+      document.getElementById('budgetRegOrgUnit').innerHTML = licenseDB.orgUnits.map(u => `<option value="${u.id}">${escapeHtml(orgUnitPath(u.id))}</option>`).join('');
+      document.getElementById('budgetRegNote').value = '';
+      budgetRegRows = [];
+      renderBudgetRegRows();
+      openLicenseModal('budgetRegistrationModal');
+    }
+    async function saveBudgetRegistration() {
+      const roundId = Number(document.getElementById('budgetRegRound').value);
+      const orgUnitId = Number(document.getElementById('budgetRegOrgUnit').value);
+      const note = document.getElementById('budgetRegNote').value.trim();
+      if (!roundId) return showToast('Vui lòng chọn Kỳ ngân sách.', 'warning');
+      if (!orgUnitId) return showToast('Vui lòng chọn Đơn vị trực thuộc.', 'warning');
+      if (budgetRegRows.length === 0) return showToast('Vui lòng thêm ít nhất 1 phần mềm để dự trù.', 'warning');
+      const invalidRow = budgetRegRows.find(r => !r.quantity || r.quantity < 1);
+      if (invalidRow) return showToast('Vui lòng nhập Số lượng hợp lệ cho mọi dòng.', 'warning');
+      const items = budgetRegRows.map(r => ({ roundItemId: r.roundItemId, requestedQuantity: r.quantity }));
+      try {
+        await apiFetch('/api/license/budget-registrations', { method: 'POST', body: JSON.stringify({ roundId, orgUnitId, items, note }) });
+        showToast(`Đã gửi ${items.length} dự trù, chờ duyệt.`, 'success');
+        closeLicenseModal('budgetRegistrationModal');
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        renderBudgetRegistrationsTable();
       } catch (err) {
         showToast(err.message, 'danger');
       }

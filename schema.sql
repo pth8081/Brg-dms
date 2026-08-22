@@ -404,6 +404,49 @@ CALL create_index_if_not_exists('lic_purchase_registrations', 'idx_lic_reg_round
 CALL create_index_if_not_exists('lic_purchase_registrations', 'idx_lic_reg_company', 'company_id');
 ALTER TABLE lic_purchase_registrations MODIFY COLUMN expiry_date DATE NULL DEFAULT NULL;
 
+-- 10. Module Ngân sách — ĐỘC LẬP hoàn toàn với Kỳ mua bản quyền ở trên (không
+-- liên kết dữ liệu, không tự sinh Kỳ mua). Dùng để LẬP DỰ TRÙ ngân sách theo
+-- kỳ (vd năm/quý) TRƯỚC khi mở Kỳ mua thật: Admin tạo Kỳ ngân sách + hạng mục
+-- phần mềm (đơn giá dự kiến); dự trù được nhập theo TỪNG ĐƠN VỊ TRỰC THUỘC
+-- (org_unit, chi tiết hơn cấp công ty của Kỳ mua) — hệ thống tự tính số lượng
+-- license đang thực sự được gán cho nhân viên trong đơn vị đó (kể cả các đơn
+-- vị con bên dưới) để gợi ý tham khảo; mỗi dòng dự trù có trạng thái
+-- PENDING/APPROVED/REJECTED, Admin duyệt riêng từng dòng — sau khi duyệt xong,
+-- Admin tự tay tạo Kỳ mua thật dựa trên số liệu đã tổng hợp (không tự động).
+CREATE TABLE IF NOT EXISTS lic_budget_rounds (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    note VARCHAR(500) NULL DEFAULT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'OPEN',
+    created_at VARCHAR(100)
+);
+
+CREATE TABLE IF NOT EXISTS lic_budget_round_items (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    round_id BIGINT NOT NULL,
+    software_id BIGINT NOT NULL,
+    unit_price DECIMAL(18,2) NOT NULL
+);
+CALL create_index_if_not_exists('lic_budget_round_items', 'idx_lic_budget_items_round', 'round_id');
+
+CREATE TABLE IF NOT EXISTS lic_budget_registrations (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    round_id BIGINT NOT NULL,
+    round_item_id BIGINT NOT NULL,
+    org_unit_id BIGINT NOT NULL,
+    current_quantity INT NOT NULL DEFAULT 0,
+    requested_quantity INT NOT NULL,
+    unit_price DECIMAL(18,2) NOT NULL,
+    total_amount DECIMAL(18,2) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    note VARCHAR(500) NULL DEFAULT NULL,
+    created_at VARCHAR(100),
+    decided_by VARCHAR(100) NULL DEFAULT NULL,
+    decided_at VARCHAR(100) NULL DEFAULT NULL
+);
+CALL create_index_if_not_exists('lic_budget_registrations', 'idx_lic_budget_reg_round', 'round_id');
+CALL create_index_if_not_exists('lic_budget_registrations', 'idx_lic_budget_reg_orgunit', 'org_unit_id');
+
 -- Snapshot tài khoản Active Directory lấy qua đồng bộ LDAP định kỳ — dùng để
 -- đối chiếu với nhân viên đang giữ license (khớp theo email) ở tab Phân bổ.
 -- disabled_at KHÔNG phải ngày AD thực sự disable account (AD không lưu sẵn
