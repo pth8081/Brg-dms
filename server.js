@@ -1542,6 +1542,118 @@ app.get('/api/license/bootstrap', requireAuth, requireAdmin, async (req, res) =>
     }
 });
 
+// --- Module Báo cáo — tổng hợp số liệu cho 2 phân hệ nghiệp vụ (Tài liệu,
+// Bản quyền). Chỉ đọc, không có tham số lọc phức tạp ở bản đầu tiên này.
+app.get('/api/reports/docs', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT dept, status, created_at, history FROM docs WHERE deleted_at IS NULL');
+        const totals = { total: rows.length, pending: 0, approved: 0, rejected: 0 };
+        const byDeptMap = new Map();
+        // Thời gian "nằm ở bước X" = khoảng cách từ mốc trước đó (ngày tạo hoặc
+        // lượt duyệt trước) đến lúc bước X được xử lý — ước lượng bước nào đang
+        // là điểm nghẽn trong quy trình duyệt.
+        const stepDurations = new Map();
+        rows.forEach(d => {
+            if (d.status === 'PENDING') totals.pending++;
+            else if (d.status === 'APPROVED') totals.approved++;
+            else if (d.status === 'REJECTED') totals.rejected++;
+            const deptKey = d.dept || 'Chưa phân loại';
+            byDeptMap.set(deptKey, (byDeptMap.get(deptKey) || 0) + 1);
+            let history = d.history;
+            if (typeof history === 'string') { try { history = JSON.parse(history); } catch { history = []; } }
+            if (Array.isArray(history) && history.length > 0) {
+                let prevTime = new Date(d.created_at);
+                for (const h of history) {
+                    const at = new Date(h.at);
+                    if (isNaN(prevTime.getTime()) || isNaN(at.getTime())) { prevTime = at; continue; }
+                    const days = (at - prevTime) / 86400000;
+                    if (days >= 0 && Number.isInteger(h.stepOrder)) {
+                        if (!stepDurations.has(h.stepOrder)) stepDurations.set(h.stepOrder, []);
+                        stepDurations.get(h.stepOrder).push(days);
+                    }
+                    prevTime = at;
+                }
+            }
+        });
+        const byDept = [...byDeptMap.entries()].map(([dept, count]) => ({ dept, count })).sort((a, b) => b.count - a.count);
+        const avgDaysByStep = [...stepDurations.entries()]
+            .map(([stepOrder, arr]) => ({ stepOrder, avgDays: Math.round((arr.reduce((s, x) => s + x, 0) / arr.length) * 10) / 10 }))
+            .sort((a, b) => a.stepOrder - b.stepOrder);
+        res.json({ totals, byDept, avgDaysByStep });
+    } catch (err) {
+        console.error('❌ Lỗi tải báo cáo tài liệu:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.get('/api/reports/license', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const [[{ totalCodes }]] = await pool.query('SELECT COUNT(*) AS totalCodes FROM lic_license_codes');
+        const [[{ assignedCodes }]] = await pool.query('SELECT COUNT(DISTINCT code_id) AS assignedCodes FROM lic_license_code_assignments');
+        const today = new Date().toISOString().slice(0, 10);
+        const in30 = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+        const [[expiryCounts]] = await pool.query(
+            `SELECT
+               SUM(expiry_date IS NULL) AS perpetualCnt,
+               SUM(expiry_date IS NOT NULL AND expiry_date < ?) AS expiredCnt,
+               SUM(expiry_date IS NOT NULL AND expiry_date >= ? AND expiry_date <= ?) AS expiringSoonCnt,
+               SUM(expiry_date IS NOT NULL AND expiry_date > ?) AS validCnt
+             FROM lic_license_codes`,
+            [today, today, in30, in30]
+        );
+        const [byCompanyRows] = await pool.query(
+            `SELECT co.name AS companyName, COUNT(*) AS cnt
+             FROM lic_license_codes c JOIN lic_companies co ON co.id = c.company_id
+             GROUP BY co.id ORDER BY cnt DESC LIMIT 6`
+        );
+        const [latestRoundRows] = await pool.query('SELECT id, name FROM lic_budget_rounds ORDER BY id DESC LIMIT 1');
+        let budgetVsUsage = [];
+        if (latestRoundRows[0]) {
+            const [regRows] = await pool.query(
+                `SELECT r.current_quantity, r.requested_quantity, u.name AS unitName
+                 FROM lic_budget_registrations r JOIN lic_org_units u ON u.id = r.org_unit_id
+                 WHERE r.round_id = ? ORDER BY r.id`,
+                [latestRoundRows[0].id]
+            );
+            budgetVsUsage = regRows.map(r => ({ unitName: r.unitName, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity }));
+        }
+        const [spendRows] = await pool.query(
+            `SELECT ro.id AS roundId, ro.name AS roundName, SUM(reg.total_amount) AS total
+             FROM lic_purchase_registrations reg JOIN lic_purchase_rounds ro ON ro.id = reg.round_id
+             WHERE reg.status = 'APPROVED'
+             GROUP BY ro.id ORDER BY ro.id DESC LIMIT 6`
+        );
+        const [controlRows] = await pool.query(
+            `SELECT COUNT(DISTINCT e.id) AS cnt
+             FROM ad_accounts a
+             JOIN lic_employees e ON LOWER(e.email) = LOWER(a.email)
+             JOIN lic_license_code_assignments asg ON asg.employee_id = e.id
+             WHERE a.active = 0 AND a.email IS NOT NULL AND a.email != ''`
+        );
+        res.json({
+            totals: {
+                totalCodes,
+                assignedCodes,
+                freeCodes: totalCodes - assignedCodes,
+                expiringSoon: Number(expiryCounts.expiringSoonCnt) || 0
+            },
+            byCompany: byCompanyRows.map(r => ({ companyName: r.companyName, count: r.cnt })),
+            expiryBreakdown: [
+                { label: 'Còn hạn', count: Number(expiryCounts.validCnt) || 0 },
+                { label: 'Sắp hết hạn (≤30 ngày)', count: Number(expiryCounts.expiringSoonCnt) || 0 },
+                { label: 'Đã hết hạn', count: Number(expiryCounts.expiredCnt) || 0 },
+                { label: 'Vĩnh viễn', count: Number(expiryCounts.perpetualCnt) || 0 }
+            ],
+            budgetVsUsage,
+            spendByRound: spendRows.reverse().map(r => ({ roundName: r.roundName, total: Number(r.total) || 0 })),
+            controlAlertCount: controlRows[0].cnt
+        });
+    } catch (err) {
+        console.error('❌ Lỗi tải báo cáo bản quyền:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
 app.post('/api/ad/sync', requireAuth, requireAdmin, async (req, res) => {
     try {
         const ldapConfig = await getLdapConfig();

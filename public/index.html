@@ -168,6 +168,7 @@
         <div class="flex gap-2 justify-end mt-2 flex-wrap">
           <button id="btnDocTab" onclick="switchTab('doc')" class="hidden text-xs bg-blue-600 text-white px-2.5 py-1 rounded hover:bg-blue-700 font-semibold">📂 Quản lý tài liệu</button>
           <button id="btnLicenseTab" onclick="switchTab('license')" class="hidden text-xs bg-teal-600 text-white px-2.5 py-1 rounded hover:bg-teal-700 font-semibold">🔑 Quản lý Bản quyền</button>
+          <button id="btnReportsTab" onclick="switchTab('reports')" class="hidden text-xs bg-indigo-600 text-white px-2.5 py-1 rounded hover:bg-indigo-700 font-semibold">📊 Báo cáo</button>
           <button id="btnAdminTab" onclick="switchTab('admin')" class="hidden text-xs bg-purple-600 text-white px-2.5 py-1 rounded hover:bg-purple-700 font-semibold">⚙️ Quản trị & Phân quyền</button>
           <button onclick="logout()" class="text-xs text-red-500 underline py-1 hover:text-red-700 font-semibold">Đăng xuất</button>
         </div>
@@ -767,18 +768,31 @@
 
   <!-- Màn hình 4: Module Quản Lý Bản Quyền — Giai đoạn 1 (nền tảng) -->
   <div id="licenseSection" class="hidden space-y-6">
-    <div class="flex gap-2 border-b pb-2 flex-wrap items-center">
-      <button id="btnLicenseSubOrg" onclick="switchLicenseSubTab('org')" class="text-xs px-3 py-1.5 rounded font-semibold">🏢 Tổ chức công ty</button>
-      <button id="btnLicenseSubEmp" onclick="switchLicenseSubTab('emp')" class="text-xs px-3 py-1.5 rounded font-semibold">👤 Danh sách nhân viên</button>
-      <button id="btnLicenseSubSoftware" onclick="switchLicenseSubTab('software')" class="text-xs px-3 py-1.5 rounded font-semibold">💽 Danh mục phần mềm</button>
-      <button id="btnLicenseSubBatch" onclick="switchLicenseSubTab('batch')" class="text-xs px-3 py-1.5 rounded font-semibold">📜 Phát hành license</button>
-      <button id="btnLicenseSubAlloc" onclick="switchLicenseSubTab('alloc')" class="text-xs px-3 py-1.5 rounded font-semibold">📦 Phân bổ</button>
-      <button id="btnLicenseSubAD" onclick="switchLicenseSubTab('ad')" class="text-xs px-3 py-1.5 rounded font-semibold">🗂️ Tài khoản AD</button>
-      <button id="btnLicenseSubPurchase" onclick="switchLicenseSubTab('purchase')" class="text-xs px-3 py-1.5 rounded font-semibold">🛒 Đăng ký mua bản quyền</button>
-      <button id="btnLicenseSubRounds" onclick="switchLicenseSubTab('rounds')" class="text-xs px-3 py-1.5 rounded font-semibold">📋 Phát hành đăng ký mua</button>
-      <button id="btnLicenseSubBudget" onclick="switchLicenseSubTab('budget')" class="text-xs px-3 py-1.5 rounded font-semibold">💰 Ngân sách</button>
-    </div>
+    <div class="grid grid-cols-1 md:grid-cols-[212px_1fr] gap-4">
+      <nav class="flex md:flex-col gap-1 overflow-x-auto md:overflow-visible border-b md:border-b-0 md:border-r border-gray-200 pb-2 md:pb-0 md:pr-3 -mx-1 px-1 md:mx-0 md:px-0">
+        <div class="flex md:flex-col gap-1 md:gap-0.5">
+          <div class="hidden md:block px-2.5 pt-1 pb-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">📇 Danh mục</div>
+          <button id="btnLicenseSubOrg" onclick="switchLicenseSubTab('org')" class="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap text-gray-600 hover:bg-gray-100 transition-colors w-full text-left">🏢 Tổ chức công ty</button>
+          <button id="btnLicenseSubEmp" onclick="switchLicenseSubTab('emp')" class="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap text-gray-600 hover:bg-gray-100 transition-colors w-full text-left">👤 Nhân viên</button>
+          <button id="btnLicenseSubSoftware" onclick="switchLicenseSubTab('software')" class="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap text-gray-600 hover:bg-gray-100 transition-colors w-full text-left">💽 Phần mềm</button>
+        </div>
+        <div class="hidden md:block h-px bg-gray-200 my-2"></div>
+        <div class="flex md:flex-col gap-1 md:gap-0.5">
+          <div class="hidden md:block px-2.5 pt-1 pb-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">⚙️ Vận hành</div>
+          <button id="btnLicenseSubBatch" onclick="switchLicenseSubTab('batch')" class="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap text-gray-600 hover:bg-gray-100 transition-colors w-full text-left">📜 Phát hành license</button>
+          <button id="btnLicenseSubAlloc" onclick="switchLicenseSubTab('alloc')" class="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap text-gray-600 hover:bg-gray-100 transition-colors w-full text-left">📦 Phân bổ</button>
+          <button id="btnLicenseSubAD" onclick="switchLicenseSubTab('ad')" class="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap text-gray-600 hover:bg-gray-100 transition-colors w-full text-left">🗂️ Tài khoản AD</button>
+        </div>
+        <div class="hidden md:block h-px bg-gray-200 my-2"></div>
+        <div class="flex md:flex-col gap-1 md:gap-0.5">
+          <div class="hidden md:block px-2.5 pt-1 pb-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">🛒 Mua sắm &amp; Ngân sách</div>
+          <button id="btnLicenseSubPurchase" onclick="switchLicenseSubTab('purchase')" class="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap text-gray-600 hover:bg-gray-100 transition-colors w-full text-left">🛒 Đăng ký mua bản quyền</button>
+          <button id="btnLicenseSubRounds" onclick="switchLicenseSubTab('rounds')" class="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap text-gray-600 hover:bg-gray-100 transition-colors w-full text-left">📋 Phát hành đăng ký mua</button>
+          <button id="btnLicenseSubBudget" onclick="switchLicenseSubTab('budget')" class="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap text-gray-600 hover:bg-gray-100 transition-colors w-full text-left">💰 Ngân sách</button>
+        </div>
+      </nav>
 
+      <div class="min-w-0">
     <!-- Sub-tab: Tổ chức công ty -->
     <div id="licenseSubOrg" class="space-y-3">
       <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
@@ -1077,6 +1091,110 @@
             </thead>
             <tbody id="budgetRegistrationsTableBody"></tbody>
           </table>
+        </div>
+      </div>
+    </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Màn hình 5: Module Báo cáo — tổng hợp số liệu theo phân hệ nghiệp vụ -->
+  <div id="reportsSection" class="hidden space-y-5">
+    <div class="inline-flex bg-gray-100 border border-gray-200 rounded-lg p-1 gap-1">
+      <button id="btnReportsSubDoc" onclick="switchReportsSubsystem('doc')" class="text-xs px-3.5 py-1.5 rounded-md font-semibold">📂 Tài liệu</button>
+      <button id="btnReportsSubLicense" onclick="switchReportsSubsystem('license')" class="text-xs px-3.5 py-1.5 rounded-md font-semibold">🔑 Bản quyền</button>
+    </div>
+
+    <!-- ===== Báo cáo Tài liệu ===== -->
+    <div id="reportsDocPane">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="bg-white border rounded-xl p-4 shadow-sm">
+          <div class="text-xs font-semibold text-gray-500 mb-1">Tổng tài liệu</div>
+          <div id="repDocTotal" class="text-2xl font-bold text-gray-900">—</div>
+        </div>
+        <div class="bg-white border rounded-xl p-4 shadow-sm">
+          <div class="text-xs font-semibold text-gray-500 mb-1">Đang chờ duyệt</div>
+          <div id="repDocPending" class="text-2xl font-bold text-amber-600">—</div>
+        </div>
+        <div class="bg-white border rounded-xl p-4 shadow-sm">
+          <div class="text-xs font-semibold text-gray-500 mb-1">Đã duyệt</div>
+          <div id="repDocApproved" class="text-2xl font-bold text-green-600">—</div>
+        </div>
+        <div class="bg-white border rounded-xl p-4 shadow-sm">
+          <div class="text-xs font-semibold text-gray-500 mb-1">Từ chối</div>
+          <div id="repDocRejected" class="text-2xl font-bold text-red-600">—</div>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+        <div class="bg-white border rounded-xl p-4 shadow-sm">
+          <h3 class="text-sm font-bold text-gray-800">Tài liệu theo phòng ban</h3>
+          <p class="text-xs text-gray-500 mb-3">Số lượng tài liệu đang quản lý (chưa xóa), theo phòng ban</p>
+          <div id="chartDocDept" class="overflow-x-auto"></div>
+        </div>
+        <div class="bg-white border rounded-xl p-4 shadow-sm">
+          <h3 class="text-sm font-bold text-gray-800">Trạng thái phê duyệt</h3>
+          <p class="text-xs text-gray-500 mb-3">Tỷ trọng theo trạng thái hiện tại</p>
+          <div id="chartDocStatus" class="overflow-x-auto"></div>
+        </div>
+      </div>
+      <div class="bg-white border rounded-xl p-4 shadow-sm mt-4">
+        <h3 class="text-sm font-bold text-gray-800">Thời gian duyệt trung bình theo bước</h3>
+        <p class="text-xs text-gray-500 mb-3">Số ngày trung bình tài liệu nằm ở mỗi bước trước khi được xử lý — bước nào cao là điểm nghẽn</p>
+        <div id="chartDocStep" class="overflow-x-auto"></div>
+      </div>
+    </div>
+
+    <!-- ===== Báo cáo Bản quyền ===== -->
+    <div id="reportsLicensePane" class="hidden">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="bg-white border rounded-xl p-4 shadow-sm">
+          <div class="text-xs font-semibold text-gray-500 mb-1">Tổng mã license</div>
+          <div id="repLicTotal" class="text-2xl font-bold text-gray-900">—</div>
+        </div>
+        <div class="bg-white border rounded-xl p-4 shadow-sm">
+          <div class="text-xs font-semibold text-gray-500 mb-1">Đã gán</div>
+          <div id="repLicAssigned" class="text-2xl font-bold text-teal-700">—</div>
+        </div>
+        <div class="bg-white border rounded-xl p-4 shadow-sm">
+          <div class="text-xs font-semibold text-gray-500 mb-1">Còn trống</div>
+          <div id="repLicFree" class="text-2xl font-bold text-gray-500">—</div>
+        </div>
+        <div class="bg-white border rounded-xl p-4 shadow-sm">
+          <div class="text-xs font-semibold text-gray-500 mb-1">Sắp hết hạn ≤ 30 ngày</div>
+          <div id="repLicExpiring" class="text-2xl font-bold text-amber-600">—</div>
+        </div>
+      </div>
+
+      <div id="repControlAlert" class="hidden flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-3.5 mt-4">
+        <span class="text-lg leading-none">🔍</span>
+        <div>
+          <div id="repControlAlertTitle" class="text-sm font-bold text-gray-900"></div>
+          <div class="text-xs text-gray-600 mt-0.5">Trích từ báo cáo "Kiểm soát" trong tab Phân bổ — nên thu hồi license để tránh lãng phí.</div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+        <div class="bg-white border rounded-xl p-4 shadow-sm">
+          <h3 class="text-sm font-bold text-gray-800">License theo công ty</h3>
+          <p class="text-xs text-gray-500 mb-3">Tổng số mã đang sở hữu, top 6 công ty</p>
+          <div id="chartLicCompany" class="overflow-x-auto"></div>
+        </div>
+        <div class="bg-white border rounded-xl p-4 shadow-sm">
+          <h3 class="text-sm font-bold text-gray-800">Tình trạng hạn sử dụng</h3>
+          <p class="text-xs text-gray-500 mb-3">Toàn hệ thống, tất cả công ty &amp; phần mềm</p>
+          <div id="chartLicExpiry" class="overflow-x-auto"></div>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+        <div class="bg-white border rounded-xl p-4 shadow-sm">
+          <h3 class="text-sm font-bold text-gray-800">Ngân sách dự trù so với đang dùng</h3>
+          <p class="text-xs text-gray-500 mb-3">Theo đơn vị trực thuộc, kỳ ngân sách gần nhất</p>
+          <div id="chartBudget" class="overflow-x-auto"></div>
+        </div>
+        <div class="bg-white border rounded-xl p-4 shadow-sm">
+          <h3 class="text-sm font-bold text-gray-800">Chi phí theo kỳ mua</h3>
+          <p class="text-xs text-gray-500 mb-3">Tổng thành tiền các đăng ký đã duyệt</p>
+          <div id="chartSpend" class="overflow-x-auto"></div>
         </div>
       </div>
     </div>
@@ -1957,6 +2075,7 @@
 
       document.getElementById('btnAdminTab').classList.toggle('hidden', !user.perms.admin);
       document.getElementById('btnLicenseTab').classList.toggle('hidden', !user.perms.admin);
+      document.getElementById('btnReportsTab').classList.toggle('hidden', !user.perms.admin);
       document.getElementById('btnDocTab').classList.remove('hidden');
 
       populateDropdowns();
@@ -1986,10 +2105,12 @@
       document.getElementById('docSection').classList.toggle('hidden', tabName !== 'doc');
       document.getElementById('adminSection').classList.toggle('hidden', tabName !== 'admin');
       document.getElementById('licenseSection').classList.toggle('hidden', tabName !== 'license');
+      document.getElementById('reportsSection').classList.toggle('hidden', tabName !== 'reports');
 
       if (tabName === 'doc') { renderDocs(); updateUploadDeptDropdown(); }
       if (tabName === 'admin' && currentUser.perms.admin) { switchAdminSubTab('users'); }
       if (tabName === 'license' && currentUser.perms.admin) { switchLicenseSubTab('org'); }
+      if (tabName === 'reports' && currentUser.perms.admin) { switchReportsSubsystem('doc'); }
     }
 
     function switchAdminSubTab(subName) {
@@ -3742,10 +3863,10 @@
       Object.keys(subs).forEach(key => {
         document.getElementById(subs[key]).classList.toggle('hidden', key !== subName);
         const btn = document.getElementById(btns[key]);
-        btn.classList.toggle('bg-teal-600', key === subName);
-        btn.classList.toggle('text-white', key === subName);
-        btn.classList.toggle('bg-gray-200', key !== subName);
-        btn.classList.toggle('text-gray-700', key !== subName);
+        btn.classList.toggle('bg-teal-50', key === subName);
+        btn.classList.toggle('text-teal-800', key === subName);
+        btn.classList.toggle('text-gray-600', key !== subName);
+        btn.classList.toggle('hover:bg-gray-100', key !== subName);
       });
 
       loadLicenseBootstrapData().then(() => {
@@ -5543,6 +5664,195 @@ function isPerpetualSoftware(softwareId) {
       };
       reader.readAsText(file);
       e.target.value = '';
+    }
+
+    // ===================== Module Báo cáo =====================
+    const reportsDB = { doc: null, license: null };
+    const REPORT_COLORS = { doc: '#2563eb', license: '#0d9488', budget: '#d97706', good: '#16a34a', warn: '#d97706', crit: '#dc2626', neutral: '#94a3b8' };
+
+    function switchReportsSubsystem(sub) {
+      document.getElementById('reportsDocPane').classList.toggle('hidden', sub !== 'doc');
+      document.getElementById('reportsLicensePane').classList.toggle('hidden', sub !== 'license');
+      const btnDoc = document.getElementById('btnReportsSubDoc');
+      const btnLic = document.getElementById('btnReportsSubLicense');
+      btnDoc.classList.toggle('bg-white', sub === 'doc'); btnDoc.classList.toggle('shadow-sm', sub === 'doc'); btnDoc.classList.toggle('text-gray-900', sub === 'doc'); btnDoc.classList.toggle('text-gray-500', sub !== 'doc');
+      btnLic.classList.toggle('bg-white', sub === 'license'); btnLic.classList.toggle('shadow-sm', sub === 'license'); btnLic.classList.toggle('text-gray-900', sub === 'license'); btnLic.classList.toggle('text-gray-500', sub !== 'license');
+      if (sub === 'doc') loadDocReport();
+      else loadLicenseReport();
+    }
+
+    async function loadDocReport() {
+      if (!reportsDB.doc) {
+        try { reportsDB.doc = await apiFetch('/api/reports/docs'); }
+        catch (err) { showToast(err.message || 'Không thể tải báo cáo tài liệu.', 'danger'); return; }
+      }
+      const d = reportsDB.doc;
+      document.getElementById('repDocTotal').textContent = d.totals.total;
+      document.getElementById('repDocPending').textContent = d.totals.pending;
+      document.getElementById('repDocApproved').textContent = d.totals.approved;
+      document.getElementById('repDocRejected').textContent = d.totals.rejected;
+      reportBarChart('chartDocDept', d.byDept.map(x => ({ label: x.dept, value: x.count })), { color: REPORT_COLORS.doc });
+      reportStatusBar('chartDocStatus', [
+        { label: 'Đã duyệt', value: d.totals.approved, color: REPORT_COLORS.good },
+        { label: 'Chờ duyệt', value: d.totals.pending, color: REPORT_COLORS.warn },
+        { label: 'Từ chối', value: d.totals.rejected, color: REPORT_COLORS.crit },
+      ]);
+      reportBarChart('chartDocStep', d.avgDaysByStep.map(x => ({ label: `Bước ${x.stepOrder}`, value: x.avgDays })), { color: REPORT_COLORS.doc, unit: ' ngày' });
+    }
+
+    async function loadLicenseReport() {
+      if (!reportsDB.license) {
+        try { reportsDB.license = await apiFetch('/api/reports/license'); }
+        catch (err) { showToast(err.message || 'Không thể tải báo cáo bản quyền.', 'danger'); return; }
+      }
+      const d = reportsDB.license;
+      document.getElementById('repLicTotal').textContent = d.totals.totalCodes;
+      document.getElementById('repLicAssigned').textContent = d.totals.assignedCodes;
+      document.getElementById('repLicFree').textContent = d.totals.freeCodes;
+      document.getElementById('repLicExpiring').textContent = d.totals.expiringSoon;
+
+      const alertBox = document.getElementById('repControlAlert');
+      if (d.controlAlertCount > 0) {
+        alertBox.classList.remove('hidden');
+        document.getElementById('repControlAlertTitle').textContent = `${d.controlAlertCount} tài khoản AD đã bị disable nhưng vẫn còn giữ license`;
+      } else {
+        alertBox.classList.add('hidden');
+      }
+
+      reportBarChart('chartLicCompany', d.byCompany.map(x => ({ label: x.companyName, value: x.count })), { color: REPORT_COLORS.license });
+      reportStatusBar('chartLicExpiry', d.expiryBreakdown.filter(x => x.count > 0).map(x => ({
+        label: x.label, value: x.count,
+        color: x.label.startsWith('Còn hạn') ? REPORT_COLORS.good : x.label.startsWith('Sắp') ? REPORT_COLORS.warn : x.label.startsWith('Đã hết') ? REPORT_COLORS.crit : REPORT_COLORS.neutral
+      })));
+      reportGroupedBarChart('chartBudget', d.budgetVsUsage.map(x => ({ label: x.unitName, dang_dung: x.currentQuantity, du_tru: x.requestedQuantity })), [
+        { key: 'dang_dung', name: 'Đang dùng', color: REPORT_COLORS.license },
+        { key: 'du_tru', name: 'Dự trù mới', color: REPORT_COLORS.budget },
+      ]);
+      reportLineChart('chartSpend', d.spendByRound.map(x => ({ label: x.roundName, value: x.total })), { color: REPORT_COLORS.budget });
+    }
+
+    function reportNiceMax(v) {
+      const mag = Math.pow(10, Math.floor(Math.log10(Math.max(v, 1))));
+      const norm = v / mag;
+      const step = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
+      return step * mag;
+    }
+    function reportEmptyState(elId) {
+      document.getElementById(elId).innerHTML = `<div class="text-center text-gray-400 text-xs py-10">Chưa có dữ liệu.</div>`;
+    }
+
+    // Biểu đồ cột đơn giản, 1 chuỗi số liệu.
+    function reportBarChart(elId, data, opts) {
+      opts = opts || {};
+      if (!data || data.length === 0) return reportEmptyState(elId);
+      const color = opts.color || REPORT_COLORS.doc;
+      const unit = opts.unit || '';
+      const w = 460, h = 220, padL = 34, padB = 30, padT = 10, padR = 10;
+      const innerW = w - padL - padR, innerH = h - padT - padB;
+      const max = reportNiceMax(Math.max(...data.map(d => d.value)) * 1.15 || 1);
+      const bw = Math.min(28, innerW / data.length - 14);
+      const step = innerW / data.length;
+      let gridSvg = '';
+      for (let i = 0; i <= 4; i++) {
+        const y = padT + innerH - (innerH * i / 4);
+        gridSvg += `<line x1="${padL}" x2="${w - padR}" y1="${y}" y2="${y}" stroke="#e7e5e0" stroke-width="1"/>`;
+        gridSvg += `<text x="${padL - 8}" y="${y + 3}" font-size="10" fill="#9ca3af" text-anchor="end">${Math.round(max * i / 4).toLocaleString('vi-VN')}</text>`;
+      }
+      let bars = '';
+      data.forEach((d, i) => {
+        const bh = (d.value / max) * innerH;
+        const x = padL + step * i + (step - bw) / 2;
+        const y = padT + innerH - bh;
+        bars += `
+          <rect x="${x}" y="${y}" width="${bw}" height="${bh}" rx="4" ry="4" fill="${color}"><title>${escapeHtml(String(d.label))}: ${d.value.toLocaleString('vi-VN')}${unit}</title></rect>
+          <text x="${x + bw / 2}" y="${padT + innerH + 16}" font-size="10.5" fill="#6b7280" text-anchor="middle">${escapeHtml(String(d.label)).slice(0, 12)}</text>
+          <text x="${x + bw / 2}" y="${y - 6}" font-size="10.5" font-weight="700" fill="#374151" text-anchor="middle">${d.value}</text>
+        `;
+      });
+      document.getElementById(elId).innerHTML = `<svg viewBox="0 0 ${w} ${h}" width="100%" style="max-width:${w}px" height="${h}">${gridSvg}${bars}</svg>`;
+    }
+
+    // Biểu đồ cột 2 chuỗi (nhóm cạnh nhau), có chú giải.
+    function reportGroupedBarChart(elId, data, series) {
+      if (!data || data.length === 0) return reportEmptyState(elId);
+      const w = 460, h = 230, padL = 34, padB = 30, padT = 10, padR = 10;
+      const innerW = w - padL - padR, innerH = h - padT - padB;
+      const max = reportNiceMax(Math.max(...data.flatMap(d => series.map(s => d[s.key] || 0))) * 1.15 || 1);
+      const groupW = innerW / data.length;
+      const barW = Math.min(18, (groupW - 16) / series.length);
+      let gridSvg = '';
+      for (let i = 0; i <= 4; i++) {
+        const y = padT + innerH - (innerH * i / 4);
+        gridSvg += `<line x1="${padL}" x2="${w - padR}" y1="${y}" y2="${y}" stroke="#e7e5e0" stroke-width="1"/>`;
+        gridSvg += `<text x="${padL - 8}" y="${y + 3}" font-size="10" fill="#9ca3af" text-anchor="end">${Math.round(max * i / 4).toLocaleString('vi-VN')}</text>`;
+      }
+      let bars = '';
+      data.forEach((d, i) => {
+        const groupX = padL + groupW * i + (groupW - barW * series.length - 2) / 2;
+        series.forEach((s, si) => {
+          const val = d[s.key] || 0;
+          const bh = (val / max) * innerH;
+          const x = groupX + si * (barW + 2);
+          const y = padT + innerH - bh;
+          bars += `<rect x="${x}" y="${y}" width="${barW}" height="${bh}" rx="3" ry="3" fill="${s.color}"><title>${escapeHtml(String(d.label))} — ${s.name}: ${val.toLocaleString('vi-VN')}</title></rect>`;
+        });
+        bars += `<text x="${groupX + (barW * series.length) / 2}" y="${padT + innerH + 16}" font-size="10.5" fill="#6b7280" text-anchor="middle">${escapeHtml(String(d.label)).slice(0, 12)}</text>`;
+      });
+      const legend = series.map(s => `<span class="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-600 mr-4"><span class="inline-block w-2.5 h-2.5 rounded-sm" style="background:${s.color}"></span>${s.name}</span>`).join('');
+      document.getElementById(elId).innerHTML = `<svg viewBox="0 0 ${w} ${h}" width="100%" style="max-width:${w}px" height="${h}">${gridSvg}${bars}</svg><div class="mt-2">${legend}</div>`;
+    }
+
+    // Thanh ngang gộp theo trạng thái (part-to-whole), có chú giải kèm số liệu.
+    function reportStatusBar(elId, segments) {
+      segments = (segments || []).filter(s => s.value > 0);
+      if (segments.length === 0) return reportEmptyState(elId);
+      const total = segments.reduce((s, x) => s + x.value, 0);
+      const w = 460, h = 46, gap = 2;
+      let x = 0, rects = '';
+      segments.forEach(seg => {
+        const segW = (seg.value / total) * w;
+        const drawW = Math.max(segW - gap, 0);
+        rects += `<rect x="${x}" y="0" width="${drawW}" height="${h}" rx="4" ry="4" fill="${seg.color}"><title>${escapeHtml(seg.label)}: ${seg.value} (${Math.round(seg.value / total * 100)}%)</title></rect>`;
+        x += segW;
+      });
+      const legend = segments.map(s => `<span class="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-600 mr-4"><span class="inline-block w-2.5 h-2.5 rounded-sm" style="background:${s.color}"></span>${escapeHtml(s.label)} — ${s.value} (${Math.round(s.value / total * 100)}%)</span>`).join('');
+      document.getElementById(elId).innerHTML = `<svg viewBox="0 0 ${w} ${h}" width="100%" style="max-width:${w}px" height="${h}">${rects}</svg><div class="mt-2 flex flex-wrap">${legend}</div>`;
+    }
+
+    // Biểu đồ đường (xu hướng), 1 chuỗi số liệu tiền tệ.
+    function reportLineChart(elId, data, opts) {
+      opts = opts || {};
+      if (!data || data.length === 0) return reportEmptyState(elId);
+      const color = opts.color || REPORT_COLORS.budget;
+      const w = 460, h = 220, padL = 46, padB = 30, padT = 14, padR = 14;
+      const innerW = w - padL - padR, innerH = h - padT - padB;
+      const max = reportNiceMax(Math.max(...data.map(d => d.value)) * 1.15 || 1);
+      const step = data.length > 1 ? innerW / (data.length - 1) : 0;
+      let gridSvg = '';
+      for (let i = 0; i <= 4; i++) {
+        const y = padT + innerH - (innerH * i / 4);
+        gridSvg += `<line x1="${padL}" x2="${w - padR}" y1="${y}" y2="${y}" stroke="#e7e5e0" stroke-width="1"/>`;
+        gridSvg += `<text x="${padL - 8}" y="${y + 3}" font-size="10" fill="#9ca3af" text-anchor="end">${(max * i / 4 / 1000000).toFixed(0)}tr</text>`;
+      }
+      const pts = data.map((d, i) => [padL + step * i, padT + innerH - (d.value / max) * innerH]);
+      const path = pts.map((p, i) => (i === 0 ? 'M' : 'L') + p[0] + ' ' + p[1]).join(' ');
+      const areaPath = path + ` L ${pts[pts.length - 1][0]} ${padT + innerH} L ${pts[0][0]} ${padT + innerH} Z`;
+      let dots = '';
+      data.forEach((d, i) => {
+        const [x, y] = pts[i];
+        dots += `
+          <circle cx="${x}" cy="${y}" r="4" fill="${color}" stroke="#fff" stroke-width="2"><title>${escapeHtml(String(d.label))}: ${d.value.toLocaleString('vi-VN')} đ</title></circle>
+          <text x="${x}" y="${padT + innerH + 16}" font-size="10.5" fill="#6b7280" text-anchor="middle">${escapeHtml(String(d.label))}</text>
+        `;
+      });
+      document.getElementById(elId).innerHTML = `
+        <svg viewBox="0 0 ${w} ${h}" width="100%" style="max-width:${w}px" height="${h}">
+          ${gridSvg}
+          <path d="${areaPath}" fill="${color}" opacity="0.1"/>
+          <path d="${path}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+          ${dots}
+        </svg>
+      `;
     }
   </script>
 </body>
