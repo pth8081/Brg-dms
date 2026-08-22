@@ -4061,8 +4061,8 @@ function isPerpetualSoftware(softwareId) {
       try {
         const result = await apiFetch('/api/license/batches', { method: 'POST', body: JSON.stringify({ companyId, softwareId, totalQuantity, issuedDate, expiryDate, note }) });
         const parts = [];
-        parts.push(result.codesGenerated > 0 ? `Đã sinh thêm ${result.codesGenerated} mã mới` : 'Không sinh mã mới (đã đủ số lượng)');
-        if (expiryDate) parts.push(`gia hạn ${result.renewedCount} mã đến ${expiryDate}`);
+        parts.push(result.codesGenerated > 0 ? `Đã sinh thêm ${result.codesGenerated} mã mới (hạn ${expiryDate || 'vĩnh viễn'})` : 'Không sinh mã mới (đã đủ số lượng)');
+        if (expiryDate && result.renewedCount > 0) parts.push(`gia hạn ${result.renewedCount} mã cũ đến ${expiryDate}`);
         if (result.keptOldExpiryCount > 0) parts.push(`${result.keptOldExpiryCount} mã cũ (dư ra ngoài số lượng mới) giữ nguyên hạn trước đó — kiểm tra ở tab Phân bổ`);
         showToast(parts.join(', ') + '.', 'success');
         closeLicenseModal('batchModal');

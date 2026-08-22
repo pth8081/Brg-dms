@@ -1876,10 +1876,14 @@ app.post('/api/license/batches', requireAuth, requireAdmin, async (req, res) => 
         // GIỮ NGUYÊN ngày hết hạn cũ, không tự động gia hạn theo lần phát hành này
         // (Admin thấy cảnh báo/hết hạn ở tab Phân bổ, tự quyết định thu hồi hay
         // gia hạn tiếp cho những mã đó ở lần phát hành sau).
+        // Lưu ý: mã MỚI sinh đã có expiry_date đúng ngay từ lúc INSERT ở trên —
+        // renewedCount ở đây CHỈ đếm mã CŨ thực sự bị đổi hạn, không cộng gộp
+        // mã mới vào (tránh báo cáo/toast/audit log hiểu nhầm là "gia hạn" cho
+        // cả những mã chưa từng tồn tại trước đó).
         let renewedCount = 0;
         if (expiryDate) {
             const keepExistingCount = totalQuantity - toGenerate; // = min(totalQuantity, existingCount)
-            const idsToRenew = existingCodesRaw.slice(0, keepExistingCount).map(r => r.id).concat(newCodeIds);
+            const idsToRenew = existingCodesRaw.slice(0, keepExistingCount).map(r => r.id);
             renewedCount = idsToRenew.length;
             if (idsToRenew.length > 0) {
                 await pool.query(`UPDATE lic_license_codes SET expiry_date = ? WHERE id IN (${idsToRenew.map(() => '?').join(',')})`, [expiryDate, ...idsToRenew]);
