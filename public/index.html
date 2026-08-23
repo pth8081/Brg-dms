@@ -5886,7 +5886,7 @@ function isPerpetualSoftware(softwareId) {
         label: x.label, value: x.count,
         color: x.label.startsWith('Còn hạn') ? REPORT_COLORS.good : x.label.startsWith('Sắp') ? REPORT_COLORS.warn : x.label.startsWith('Đã hết') ? REPORT_COLORS.crit : REPORT_COLORS.neutral
       })));
-      reportGroupedBarChart('chartBudget', d.budgetVsUsage.map(x => ({ label: x.unitName, dang_dung: x.currentQuantity, du_tru: x.requestedQuantity })), [
+      reportGroupedBarChart('chartBudget', d.budgetVsUsage.map(x => ({ label: `${x.softwareName} – ${x.unitName}`, dang_dung: x.currentQuantity, du_tru: x.requestedQuantity })), [
         { key: 'dang_dung', name: 'Đang dùng', color: REPORT_COLORS.license },
         { key: 'du_tru', name: 'Dự trù mới', color: REPORT_COLORS.budget },
       ]);
@@ -5958,7 +5958,7 @@ function isPerpetualSoftware(softwareId) {
           const y = padT + innerH - bh;
           bars += `<rect x="${x}" y="${y}" width="${barW}" height="${bh}" rx="3" ry="3" fill="${s.color}"><title>${escapeHtml(String(d.label))} — ${s.name}: ${val.toLocaleString('vi-VN')}</title></rect>`;
         });
-        bars += `<text x="${groupX + (barW * series.length) / 2}" y="${padT + innerH + 16}" font-size="10.5" fill="#6b7280" text-anchor="middle">${escapeHtml(String(d.label)).slice(0, 12)}</text>`;
+        bars += `<text x="${groupX + (barW * series.length) / 2}" y="${padT + innerH + 16}" font-size="10.5" fill="#6b7280" text-anchor="middle">${escapeHtml(String(d.label)).slice(0, 16)}</text>`;
       });
       const legend = series.map(s => `<span class="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-600 mr-4"><span class="inline-block w-2.5 h-2.5 rounded-sm" style="background:${s.color}"></span>${s.name}</span>`).join('');
       document.getElementById(elId).innerHTML = `<svg viewBox="0 0 ${w} ${h}" width="100%" style="max-width:${w}px" height="${h}">${gridSvg}${bars}</svg><div class="mt-2">${legend}</div>`;
