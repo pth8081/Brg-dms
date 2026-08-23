@@ -1610,12 +1610,15 @@ app.get('/api/reports/license', requireAuth, requireAdmin, async (req, res) => {
         let budgetVsUsage = [];
         if (latestRoundRows[0]) {
             const [regRows] = await pool.query(
-                `SELECT r.current_quantity, r.requested_quantity, u.name AS unitName
-                 FROM lic_budget_registrations r JOIN lic_org_units u ON u.id = r.org_unit_id
+                `SELECT r.current_quantity, r.requested_quantity, u.name AS unitName, sw.name AS softwareName
+                 FROM lic_budget_registrations r
+                 JOIN lic_org_units u ON u.id = r.org_unit_id
+                 JOIN lic_budget_round_items bi ON bi.id = r.round_item_id
+                 JOIN lic_software_catalog sw ON sw.id = bi.software_id
                  WHERE r.round_id = ? ORDER BY r.id`,
                 [latestRoundRows[0].id]
             );
-            budgetVsUsage = regRows.map(r => ({ unitName: r.unitName, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity }));
+            budgetVsUsage = regRows.map(r => ({ unitName: r.unitName, softwareName: r.softwareName, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity }));
         }
         const [spendRows] = await pool.query(
             `SELECT ro.id AS roundId, ro.name AS roundName, SUM(reg.total_amount) AS total
