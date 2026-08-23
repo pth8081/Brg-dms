@@ -1782,6 +1782,11 @@ app.delete('/api/license/org-units/:id', requireAuth, requireAdmin, async (req, 
         if (children[0].cnt > 0) return res.status(400).json({ error: 'Không thể xóa — đơn vị này còn đơn vị con bên dưới.' });
         const [emps] = await pool.query('SELECT COUNT(*) AS cnt FROM lic_employees WHERE org_unit_id = ?', [id]);
         if (emps[0].cnt > 0) return res.status(400).json({ error: 'Không thể xóa — vẫn còn nhân viên thuộc đơn vị này.' });
+        // Đơn vị có thể đã được dùng để lập dự trù ngân sách (module Ngân sách,
+        // độc lập với nhân viên/mã license) — xóa thẳng sẽ để lại dòng dự trù
+        // mồ côi, không còn tra được tên đơn vị trong bảng Ngân sách.
+        const [budgetRegs] = await pool.query('SELECT COUNT(*) AS cnt FROM lic_budget_registrations WHERE org_unit_id = ?', [id]);
+        if (budgetRegs[0].cnt > 0) return res.status(400).json({ error: 'Không thể xóa — đơn vị này đã có dự trù ngân sách. Không thể xóa đơn vị đã có lịch sử dự trù.' });
         await pool.query('DELETE FROM lic_org_units WHERE id = ?', [id]);
         await writeAuditLog({ module: 'LICENSE', actionType: 'DELETE_ORG_UNIT', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: rows[0].name, description: `Xóa đơn vị [${rows[0].name}] khỏi module Bản quyền.` });
         res.json({ success: true });
@@ -1845,6 +1850,12 @@ app.delete('/api/license/employees/:id', requireAuth, requireAdmin, async (req, 
         const { id } = req.params;
         const [rows] = await pool.query('SELECT full_name FROM lic_employees WHERE id = ?', [id]);
         if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy nhân viên.' });
+        // Không có ràng buộc FK ở tầng CSDL — nếu xóa thẳng mà nhân viên vẫn còn
+        // đang giữ license, dòng lic_license_code_assignments sẽ mồ côi: bảng
+        // Phân bổ tự lọc bỏ (employee_id không tra được), nên Admin không còn
+        // cách nào thấy/thu hồi nữa — mã đó coi như mất vĩnh viễn 1 slot.
+        const [assignments] = await pool.query('SELECT COUNT(*) AS cnt FROM lic_license_code_assignments WHERE employee_id = ?', [id]);
+        if (assignments[0].cnt > 0) return res.status(400).json({ error: 'Không thể xóa — nhân viên này vẫn đang giữ license. Hãy thu hồi hết license ở tab Phân bổ trước.' });
         await pool.query('DELETE FROM lic_employees WHERE id = ?', [id]);
         await writeAuditLog({ module: 'LICENSE', actionType: 'DELETE_EMPLOYEE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: rows[0].full_name, description: `Xóa nhân viên [${rows[0].full_name}] khỏi module Bản quyền.` });
         res.json({ success: true });
@@ -1916,6 +1927,13 @@ app.delete('/api/license/software/:id', requireAuth, requireAdmin, async (req, r
         if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy phần mềm.' });
         const [batches] = await pool.query('SELECT COUNT(*) AS cnt FROM lic_license_batches WHERE software_id = ?', [id]);
         if (batches[0].cnt > 0) return res.status(400).json({ error: 'Không thể xóa — phần mềm này đã có lô license được phát hành.' });
+        // Phần mềm có thể đã được thêm vào Kỳ mua hoặc Kỳ ngân sách (dạng hạng
+        // mục dự kiến) dù chưa từng phát hành mã thật nào — xóa thẳng sẽ để lại
+        // hạng mục mồ côi trong 2 module đó (hiện "—" không tra được tên).
+        const [purchaseItems] = await pool.query('SELECT COUNT(*) AS cnt FROM lic_purchase_round_items WHERE software_id = ?', [id]);
+        if (purchaseItems[0].cnt > 0) return res.status(400).json({ error: 'Không thể xóa — phần mềm này đang là hạng mục trong một Kỳ mua bản quyền.' });
+        const [budgetItems] = await pool.query('SELECT COUNT(*) AS cnt FROM lic_budget_round_items WHERE software_id = ?', [id]);
+        if (budgetItems[0].cnt > 0) return res.status(400).json({ error: 'Không thể xóa — phần mềm này đang là hạng mục trong một Kỳ ngân sách.' });
         await pool.query('DELETE FROM lic_software_catalog WHERE id = ?', [id]);
         await writeAuditLog({ module: 'LICENSE', actionType: 'DELETE_SOFTWARE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: rows[0].name, description: `Xóa phần mềm [${rows[0].name}] khỏi danh mục.` });
         res.json({ success: true });
