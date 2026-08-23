@@ -1480,7 +1480,7 @@ function mapRoundItem(i) { return { id: i.id, roundId: i.round_id, softwareId: i
 function mapRegistration(r) { return { id: r.id, roundId: r.round_id, roundItemId: r.round_item_id, companyId: r.company_id, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity, budgetQuantity: r.budget_quantity === null || r.budget_quantity === undefined ? null : Number(r.budget_quantity), unitPrice: Number(r.unit_price), totalAmount: Number(r.total_amount), expiryDate: fmtDate(r.expiry_date), status: r.status, note: r.note, createdAt: r.created_at, decidedBy: r.decided_by, decidedAt: r.decided_at, issuedBatchId: r.issued_batch_id, issuedQuantity: r.issued_quantity, issuedAt: r.issued_at }; }
 function mapBudgetRound(r) { return { id: r.id, name: r.name, note: r.note, status: r.status, createdAt: r.created_at, scopeType: r.scope_type, scopeId: r.scope_id }; }
 function mapBudgetRoundItem(i) { return { id: i.id, roundId: i.round_id, softwareId: i.software_id, itemType: i.item_type || 'SOFTWARE', itemName: i.item_name, capexOpex: i.capex_opex || 'OPEX', unitPrice: Number(i.unit_price) }; }
-function mapBudgetActual(a) { return { id: a.id, roundItemId: a.round_item_id, purchaseDate: a.purchase_date, vendor: a.vendor, quantity: Number(a.quantity), unitPrice: Number(a.unit_price), amount: Number(a.amount), note: a.note, createdBy: a.created_by, createdAt: a.created_at }; }
+function mapBudgetActual(a) { return { id: a.id, roundItemId: a.round_item_id, companyId: a.company_id, purchaseDate: fmtDate(a.purchase_date), vendor: a.vendor, quantity: Number(a.quantity), unitPrice: Number(a.unit_price), amount: Number(a.amount), note: a.note, createdBy: a.created_by, createdAt: a.created_at }; }
 function mapBudgetRegistration(r) { return { id: r.id, roundId: r.round_id, roundItemId: r.round_item_id, orgUnitId: r.org_unit_id, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity, unitPrice: Number(r.unit_price), totalAmount: Number(r.total_amount), status: r.status, note: r.note, createdAt: r.created_at, decidedBy: r.decided_by, decidedAt: r.decided_at }; }
 // Trả về [orgUnitId, ...toàn bộ id đơn vị con cháu] — dùng để tính số license
 // đang dùng cho 1 đơn vị trực thuộc (gồm cả nhân viên ở các đơn vị con bên
@@ -1823,6 +1823,35 @@ app.get('/api/reports/license', requireAuth, requireAdmin, async (req, res) => {
             const rows = budgetItemComparison.filter(r => r.capexOpex === kind);
             return { capexOpex: kind, planned: rows.reduce((s, r) => s + r.planned, 0), actual: rows.reduce((s, r) => s + r.actual, 0) };
         });
+        // Theo dõi ngân sách theo Công ty — "Kế hoạch" suy ra qua đơn vị trực
+        // thuộc (org_unit.company_id) của dự trù đã duyệt; "Thực tế" lấy trực
+        // tiếp từ company_id (tùy chọn) trên sổ mua thực tế — dòng nào không gán
+        // công ty cụ thể (mua chung) gộp vào nhóm "Chưa phân bổ" riêng.
+        const [plannedByCompanyRows] = await pool.query(
+            `SELECT co.id AS companyId, co.name AS companyName, SUM(r.total_amount) AS total
+             FROM lic_budget_registrations r
+             JOIN lic_org_units u ON u.id = r.org_unit_id
+             JOIN lic_companies co ON co.id = u.company_id
+             WHERE r.status = 'APPROVED'
+             GROUP BY co.id`
+        );
+        const [actualByCompanyRows] = await pool.query('SELECT company_id AS companyId, SUM(amount) AS total FROM lic_budget_actuals GROUP BY company_id');
+        const companyNameMap = new Map(plannedByCompanyRows.map(r => [r.companyId, r.companyName]));
+        const unnamedCompanyIds = actualByCompanyRows.filter(r => r.companyId != null && !companyNameMap.has(r.companyId)).map(r => r.companyId);
+        if (unnamedCompanyIds.length > 0) {
+            const [extraCompanyRows] = await pool.query(`SELECT id, name FROM lic_companies WHERE id IN (${unnamedCompanyIds.map(() => '?').join(',')})`, unnamedCompanyIds);
+            extraCompanyRows.forEach(c => companyNameMap.set(c.id, c.name));
+        }
+        const budgetByCompanyMap = new Map();
+        plannedByCompanyRows.forEach(r => budgetByCompanyMap.set(r.companyId, { companyId: r.companyId, companyName: r.companyName, planned: Number(r.total) || 0, actual: 0 }));
+        actualByCompanyRows.forEach(r => {
+            const key = r.companyId;
+            if (!budgetByCompanyMap.has(key)) {
+                budgetByCompanyMap.set(key, { companyId: key, companyName: key === null ? 'Chưa phân bổ' : (companyNameMap.get(key) || `#${key}`), planned: 0, actual: 0 });
+            }
+            budgetByCompanyMap.get(key).actual = Number(r.total) || 0;
+        });
+        const budgetByCompany = Array.from(budgetByCompanyMap.values()).sort((a, b) => (b.planned + b.actual) - (a.planned + a.actual));
         const [spendRows] = await pool.query(
             `SELECT ro.id AS roundId, ro.name AS roundName, SUM(reg.total_amount) AS total
              FROM lic_purchase_registrations reg JOIN lic_purchase_rounds ro ON ro.id = reg.round_id
@@ -1854,6 +1883,7 @@ app.get('/api/reports/license', requireAuth, requireAdmin, async (req, res) => {
             spendByRound: spendRows.reverse().map(r => ({ roundName: r.roundName, total: Number(r.total) || 0 })),
             budgetItemComparison,
             budgetCapexOpexSummary,
+            budgetByCompany,
             controlAlertCount: controlRows[0].cnt
         });
     } catch (err) {
@@ -3148,17 +3178,22 @@ app.post('/api/license/budget-round-items/:itemId/actuals', requireAuth, require
         const quantity = Number(req.body && req.body.quantity);
         const unitPrice = Number(req.body && req.body.unitPrice);
         const note = String((req.body && req.body.note) || '').trim();
+        const companyId = req.body && req.body.companyId ? Number(req.body.companyId) : null;
         if (!purchaseDate || !/^\d{4}-\d{2}-\d{2}$/.test(purchaseDate)) return res.status(400).json({ error: 'Vui lòng chọn Ngày mua hợp lệ.' });
         if (!Number.isFinite(quantity) || quantity <= 0) return res.status(400).json({ error: 'Số lượng phải lớn hơn 0.' });
         if (!Number.isFinite(unitPrice) || unitPrice < 0) return res.status(400).json({ error: 'Đơn giá không hợp lệ.' });
 
         const [itemRows] = await pool.query('SELECT id FROM lic_budget_round_items WHERE id = ?', [itemId]);
         if (!itemRows[0]) return res.status(404).json({ error: 'Không tìm thấy hạng mục ngân sách.' });
+        if (companyId) {
+            const [companyRows] = await pool.query('SELECT id FROM lic_companies WHERE id = ?', [companyId]);
+            if (!companyRows[0]) return res.status(400).json({ error: 'Công ty được chọn không tồn tại.' });
+        }
 
         const amount = quantity * unitPrice;
         const [result] = await pool.query(
-            'INSERT INTO lic_budget_actuals (round_item_id, purchase_date, vendor, quantity, unit_price, amount, note, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [itemId, purchaseDate, vendor || null, quantity, unitPrice, amount, note || null, req.user.username, new Date().toISOString()]
+            'INSERT INTO lic_budget_actuals (round_item_id, company_id, purchase_date, vendor, quantity, unit_price, amount, note, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [itemId, companyId, purchaseDate, vendor || null, quantity, unitPrice, amount, note || null, req.user.username, new Date().toISOString()]
         );
         await writeAuditLog({ module: 'LICENSE', actionType: 'CREATE_BUDGET_ACTUAL', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `Hạng mục #${itemId}`, description: `Ghi nhận mua thực tế cho hạng mục #${itemId}: SL ${quantity} x ${unitPrice} = ${amount}.` });
         res.json({ success: true, id: result.insertId });
