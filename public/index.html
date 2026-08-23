@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hệ Thống Quản Lý Tài Liệu - DMS v6.12</title>
+  <title>Hệ Thống Quản Lý Tài Liệu - DMS v6.13</title>
   <link rel="stylesheet" href="/style.css">
   <!-- Font riêng cho trang Đăng Nhập (Spectral + Be Vietnam Pro) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -112,7 +112,7 @@
         </div>
 
         <div class="relative z-10 mt-10 pt-6 border-t border-white/10 flex justify-between items-baseline gap-4 text-xs text-white/60">
-          <span>DMS v6.12</span>
+          <span>DMS v6.13</span>
           <span>© 2026 Trung Tâm CNTT</span>
         </div>
       </section>
@@ -160,7 +160,7 @@
     <!-- Header -->
     <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 border-b pb-4">
       <div>
-        <h1 class="text-xl md:text-2xl font-bold text-gray-800">Hệ Thống Quản Lý Tài Liệu (DMS v6.12)</h1>
+        <h1 class="text-xl md:text-2xl font-bold text-gray-800">Hệ Thống Quản Lý Tài Liệu (DMS v6.13)</h1>
         <p class="text-xs text-gray-500">Quản lý tài liệu | Luồng quy trình phê duyệt | Phân quyền truy cập | Log hệ thống</p>
       </div>
       <div id="userHeader" class="text-left sm:text-right hidden">
@@ -919,7 +919,8 @@
       </div>
       <div class="flex flex-wrap gap-2">
         <button onclick="openAllocModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Thêm phân bổ</button>
-        <button onclick="openAutoAllocateModal()" class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">⚡ Phân bổ tự động</button>
+        <button onclick="openBulkAllocateModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">📋 Cấp phát hàng loạt theo nhân sự</button>
+        <button onclick="openAutoAllocateModal()" class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">🔄 Gia hạn/Thu hồi hàng loạt</button>
         <button onclick="openControlReportModal()" class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">🔍 Kiểm soát</button>
       </div>
       <div class="overflow-x-auto">
@@ -994,8 +995,9 @@
               <th class="border p-2">Kỳ mua</th>
               <th class="border p-2">Công ty</th>
               <th class="border p-2">Phần mềm</th>
-              <th class="border p-2 text-center">Đang dùng</th>
-              <th class="border p-2 text-center">Đăng ký mới</th>
+              <th class="border p-2 text-center whitespace-nowrap">Đang dùng</th>
+              <th class="border p-2 text-center whitespace-nowrap">Ngân sách</th>
+              <th class="border p-2 text-center whitespace-nowrap">Mua thực tế</th>
               <th class="border p-2 text-right">Đơn giá</th>
               <th class="border p-2 text-right">Thành tiền</th>
               <th class="border p-2">Ngày hết hạn</th>
@@ -1036,8 +1038,9 @@
                 <th class="border p-2 w-10">STT</th>
                 <th class="border p-2">Công ty</th>
                 <th class="border p-2">Phần mềm</th>
-                <th class="border p-2 text-center">Đang dùng</th>
-                <th class="border p-2 text-center">Đăng ký mới</th>
+                <th class="border p-2 text-center whitespace-nowrap">Đang dùng</th>
+                <th class="border p-2 text-center whitespace-nowrap">Ngân sách</th>
+                <th class="border p-2 text-center whitespace-nowrap">Mua thực tế</th>
                 <th class="border p-2 text-right">Thành tiền</th>
                 <th class="border p-2 text-center whitespace-nowrap">Trạng thái</th>
                 <th class="border p-2 text-center whitespace-nowrap">Thao tác</th>
@@ -1407,8 +1410,8 @@
   <!-- MODAL: Phân bổ tự động (xử lý hàng loạt nhân viên đang giữ mã đã hết hạn) -->
   <div id="autoAllocateModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">
     <div class="bg-white rounded-lg shadow-2xl max-w-4xl w-full p-5 space-y-4 max-h-[90vh] overflow-y-auto">
-      <h3 class="font-bold text-gray-900 text-base">⚡ Phân bổ tự động</h3>
-      <p class="text-xs text-gray-500">Chọn công ty để xem lại các nhân viên đang giữ mã license ĐÃ HẾT HẠN. Với mỗi dòng: để trống (mặc định) sẽ gia hạn thẳng đúng mã đó lên ngày hết hạn của lần phát hành gần nhất; tích "Bỏ khỏi DS phân bổ" nếu xác nhận nhân viên đã nghỉ / không dùng phần mềm nữa (sẽ thu hồi mã).</p>
+      <h3 class="font-bold text-gray-900 text-base">🔄 Gia hạn/Thu hồi hàng loạt</h3>
+      <p class="text-xs text-gray-500">Chọn công ty để xem lại các nhân viên đang giữ mã license ĐÃ HẾT HẠN. Với mỗi dòng: để trống (mặc định) sẽ gia hạn thẳng đúng mã đó lên ngày hết hạn của lần phát hành gần nhất; tích "Bỏ khỏi DS phân bổ" nếu xác nhận nhân viên đã nghỉ / không dùng phần mềm nữa (sẽ thu hồi mã). Lưu ý: đây KHÔNG phải chức năng cấp license mới — muốn cấp cho nhân viên chưa có license, dùng nút "Cấp phát hàng loạt theo nhân sự".</p>
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Công ty</label>
         <select id="autoAllocCompany" onchange="renderAutoAllocateRows()" class="w-full border p-2 rounded text-sm bg-white"></select>
@@ -1431,6 +1434,40 @@
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" onclick="closeLicenseModal('autoAllocateModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
         <button type="button" onclick="saveAutoAllocate()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Xử lý</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Cấp phát hàng loạt theo nhân sự (gán mã còn trống cho nhân viên
+       CHƯA có license, khác hẳn modal Gia hạn/Thu hồi hàng loạt ở trên) -->
+  <div id="bulkAllocateModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-lg w-full p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+      <h3 class="font-bold text-gray-900 text-base">📋 Cấp phát hàng loạt theo nhân sự</h3>
+      <p class="text-xs text-gray-500">Tự động gán mã license còn trống cho mọi nhân viên trong phạm vi đã chọn mà CHƯA có license phần mềm này. Dùng sau khi vừa phát hành xong 1 lô mã mới.</p>
+      <div class="grid grid-cols-1 gap-3">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Công ty</label>
+          <select id="bulkAllocCompany" onchange="onBulkAllocScopeChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Phần mềm</label>
+          <select id="bulkAllocSoftware" onchange="onBulkAllocScopeChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn vị trực thuộc (tùy chọn)</label>
+          <select id="bulkAllocOrgUnit" onchange="onBulkAllocScopeChange()" class="w-full border p-2 rounded text-sm bg-white">
+            <option value="">-- Toàn bộ công ty --</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày cấp</label>
+          <input id="bulkAllocIssuedDate" type="date" class="w-full border p-2 rounded text-sm">
+        </div>
+      </div>
+      <div id="bulkAllocPreview" class="text-xs bg-gray-50 border rounded p-3"></div>
+      <div class="flex justify-end gap-2 pt-1">
+        <button type="button" onclick="closeLicenseModal('bulkAllocateModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" onclick="saveBulkAllocate()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Xác nhận cấp phát</button>
       </div>
     </div>
   </div>
@@ -1474,6 +1511,13 @@
           <label class="block text-xs font-semibold text-gray-600 mb-1">Ghi chú (tùy chọn)</label>
           <input id="roundNote" type="text" class="w-full border p-2 rounded text-sm">
         </div>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Dựa trên Kỳ ngân sách (tùy chọn)</label>
+        <select id="roundBudgetRound" class="w-full border p-2 rounded text-sm bg-white">
+          <option value="">-- Không liên kết Kỳ ngân sách --</option>
+        </select>
+        <p class="text-[11px] text-gray-500 mt-1">Nếu chọn, các đăng ký mua trong kỳ này sẽ hiện thêm cột "Ngân sách" tham chiếu số lượng đã được duyệt dự trù ở kỳ ngân sách đó.</p>
       </div>
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Danh sách phần mềm trong kỳ</label>
@@ -4579,6 +4623,106 @@ function isPerpetualSoftware(softwareId) {
       }
     }
 
+    // --- Cấp phát hàng loạt theo nhân sự (gán mã còn trống cho nhân viên CHƯA
+    // có license — khác hẳn "Gia hạn/Thu hồi hàng loạt" ở trên, vốn chỉ xử lý
+    // các lượt gán ĐÃ TỒN TẠI bị hết hạn) ---
+    function openBulkAllocateModal() {
+      document.getElementById('bulkAllocCompany').innerHTML = licenseDB.companies.length
+        ? licenseDB.companies.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')
+        : '<option value="">-- Chưa có công ty --</option>';
+      document.getElementById('bulkAllocIssuedDate').value = new Date().toISOString().slice(0, 10);
+      onBulkAllocScopeChange();
+      openLicenseModal('bulkAllocateModal');
+    }
+    function onBulkAllocScopeChange() {
+      const companyId = Number(document.getElementById('bulkAllocCompany').value) || null;
+
+      document.getElementById('bulkAllocSoftware').innerHTML = licenseDB.softwareCatalog.length
+        ? licenseDB.softwareCatalog.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')
+        : '<option value="">-- Chưa có phần mềm --</option>';
+
+      const orgUnitSelect = document.getElementById('bulkAllocOrgUnit');
+      const currentOrgUnit = orgUnitSelect.value;
+      const companyOrgUnits = companyId ? licenseDB.orgUnits.filter(u => u.companyId === companyId) : [];
+      orgUnitSelect.innerHTML = '<option value="">-- Toàn bộ công ty --</option>' +
+        companyOrgUnits.map(u => `<option value="${u.id}">${escapeHtml(orgUnitPath(u.id))}</option>`).join('');
+      if (companyOrgUnits.some(u => String(u.id) === currentOrgUnit)) orgUnitSelect.value = currentOrgUnit;
+
+      renderBulkAllocPreview();
+    }
+    // Tính trước (chỉ để xem trước trên giao diện) — server sẽ tự tính lại từ
+    // đầu tại thời điểm xác nhận, không tin theo con số client gửi lên.
+    function computeBulkAllocScope() {
+      const companyId = Number(document.getElementById('bulkAllocCompany').value) || null;
+      const softwareId = Number(document.getElementById('bulkAllocSoftware').value) || null;
+      const orgUnitId = Number(document.getElementById('bulkAllocOrgUnit').value) || null;
+      if (!companyId || !softwareId) return null;
+
+      const scopeOrgUnitIds = new Set(
+        orgUnitId ? orgSubtreeIds(orgUnitId) : licenseDB.orgUnits.filter(u => u.companyId === companyId).map(u => u.id)
+      );
+      const softwareCodeIds = new Set(licenseDB.licenseCodes.filter(c => c.softwareId === softwareId).map(c => c.id));
+      const employeesWithLicense = new Set(
+        licenseDB.licenseCodeAssignments.filter(a => softwareCodeIds.has(a.codeId)).map(a => a.employeeId)
+      );
+      const targetEmployees = licenseDB.employees.filter(e => scopeOrgUnitIds.has(e.orgUnitId) && !employeesWithLicense.has(e.id));
+
+      const maxAssignees = codeMaxAssignees(softwareId);
+      let availableSlots = 0;
+      licenseDB.licenseCodes.filter(c => c.companyId === companyId && c.softwareId === softwareId).forEach(c => {
+        availableSlots += Math.max(0, maxAssignees - codeAssignments(c.id).length);
+      });
+
+      return { targetCount: targetEmployees.length, availableSlots };
+    }
+    function renderBulkAllocPreview() {
+      const box = document.getElementById('bulkAllocPreview');
+      const scope = computeBulkAllocScope();
+      if (!scope) { box.innerHTML = '<span class="text-gray-400">Chọn Công ty và Phần mềm để xem trước.</span>'; return; }
+      const { targetCount, availableSlots } = scope;
+      if (targetCount === 0) {
+        box.innerHTML = `<span class="text-gray-500">Mọi nhân viên trong phạm vi đã chọn đều đã có license phần mềm này.</span>`;
+        return;
+      }
+      const willAssign = Math.min(targetCount, availableSlots);
+      const shortage = targetCount - willAssign;
+      const surplus = availableSlots - willAssign;
+      let html = `<div>Có <b>${targetCount}</b> nhân viên chưa có license, hiện còn <b>${availableSlots}</b> chỗ trống.</div>`;
+      html += `<div class="mt-1">Sẽ cấp được cho <b class="text-success-700">${willAssign}</b> người.</div>`;
+      if (shortage > 0) {
+        html += `<div class="mt-1 text-danger-700 font-semibold">⚠️ Thiếu ${shortage} mã — ${shortage} nhân viên sẽ CHƯA có license, cần phát hành thêm.</div>`;
+      }
+      if (surplus > 0) {
+        html += `<div class="mt-1 text-gray-500">Còn dư ${surplus} mã trong kho sau khi cấp, dành cho nhân viên mới sau này.</div>`;
+      }
+      box.innerHTML = html;
+    }
+    async function saveBulkAllocate() {
+      const companyId = Number(document.getElementById('bulkAllocCompany').value);
+      const softwareId = Number(document.getElementById('bulkAllocSoftware').value);
+      const orgUnitId = Number(document.getElementById('bulkAllocOrgUnit').value) || null;
+      const issuedDate = document.getElementById('bulkAllocIssuedDate').value;
+      if (!companyId) return showToast('Vui lòng chọn Công ty.', 'warning');
+      if (!softwareId) return showToast('Vui lòng chọn Phần mềm.', 'warning');
+      if (!issuedDate) return showToast('Vui lòng chọn Ngày cấp.', 'warning');
+      try {
+        const result = await apiFetch(`/api/license/companies/${companyId}/bulk-allocate`, {
+          method: 'POST', body: JSON.stringify({ softwareId, orgUnitId, issuedDate })
+        });
+        closeLicenseModal('bulkAllocateModal');
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        renderAllocTable();
+        if (result.shortage.length > 0) {
+          showToast(`Đã cấp cho ${result.assignedCount} người. Thiếu ${result.shortage.length} mã: ${result.shortage.map(s => s.fullName).slice(0, 5).join(', ')}${result.shortage.length > 5 ? '...' : ''}.`, 'warning');
+        } else {
+          showToast(`Đã cấp license cho ${result.assignedCount} nhân viên.${result.leftoverSlots > 0 ? ` Còn dư ${result.leftoverSlots} mã trong kho.` : ''}`, 'success');
+        }
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+
     // --- Kiểm soát: đối chiếu nhân viên đang giữ license với tài khoản AD disable ---
     function openControlReportModal() {
       const disabledEmails = new Map(
@@ -4760,6 +4904,16 @@ function isPerpetualSoftware(softwareId) {
 
     // --- Tiện ích chung cho Kỳ mua / Đăng ký mua bản quyền ---
     function formatMoney(n) { return Number(n || 0).toLocaleString('vi-VN') + ' ₫'; }
+    // Cột "Ngân sách" — chỉ có giá trị khi Kỳ mua được tạo có liên kết tới 1
+    // Kỳ ngân sách; nếu không liên kết thì budgetQuantity = null, hiện "—".
+    // Tô cảnh báo khi số đăng ký thực tế VƯỢT số đã dự trù được duyệt.
+    function budgetQuantityCell(r) {
+      if (r.budgetQuantity === null || r.budgetQuantity === undefined) return '<span class="text-gray-400">—</span>';
+      const overBudget = r.requestedQuantity > r.budgetQuantity;
+      return overBudget
+        ? `<span class="text-amber-700 font-semibold" title="Vượt ngân sách đã duyệt">${r.budgetQuantity} ⚠️</span>`
+        : `<span>${r.budgetQuantity}</span>`;
+    }
     function purchaseStatusBadge(status) {
       if (status === 'APPROVED') return `<span class="text-[10px] font-bold text-success-700 bg-success-100 px-2 py-0.5 rounded-full whitespace-nowrap">Đã duyệt</span>`;
       if (status === 'REJECTED') return `<span class="text-[10px] font-bold text-danger-700 bg-danger-100 px-2 py-0.5 rounded-full whitespace-nowrap">Từ chối</span>`;
@@ -4874,6 +5028,8 @@ function isPerpetualSoftware(softwareId) {
     function openRoundModal() {
       document.getElementById('roundName').value = '';
       document.getElementById('roundNote').value = '';
+      document.getElementById('roundBudgetRound').innerHTML = '<option value="">-- Không liên kết Kỳ ngân sách --</option>' +
+        licenseDB.budgetRounds.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('');
       roundCreateRows = [];
       renderRoundCreateRows();
       openLicenseModal('roundModal');
@@ -4881,12 +5037,13 @@ function isPerpetualSoftware(softwareId) {
     async function saveRound() {
       const name = document.getElementById('roundName').value.trim();
       const note = document.getElementById('roundNote').value.trim();
+      const budgetRoundId = Number(document.getElementById('roundBudgetRound').value) || null;
       if (!name) return showToast('Vui lòng nhập Tên kỳ mua.', 'warning');
       const invalidRow = roundCreateRows.find(r => (!isPerpetualSoftware(r.softwareId) && !r.expiryDate) || r.unitPrice < 0);
       if (invalidRow) return showToast('Vui lòng nhập đủ Đơn giá và Ngày hết hạn cho mọi dòng phần mềm.', 'warning');
       const items = roundCreateRows.map(r => ({ softwareId: r.softwareId, unitPrice: r.unitPrice, expiryDate: isPerpetualSoftware(r.softwareId) ? null : r.expiryDate }));
       try {
-        await apiFetch('/api/license/rounds', { method: 'POST', body: JSON.stringify({ name, note, items }) });
+        await apiFetch('/api/license/rounds', { method: 'POST', body: JSON.stringify({ name, note, items, budgetRoundId }) });
         showToast(`Đã tạo kỳ mua "${name}"${items.length ? ` với ${items.length} phần mềm` : ''}.`, 'success');
         closeLicenseModal('roundModal');
         licenseDB.loaded = false;
@@ -4989,7 +5146,7 @@ function isPerpetualSoftware(softwareId) {
       if (roundId) rows = rows.filter(r => r.roundId === Number(roundId));
       if (status) rows = rows.filter(r => r.status === status);
       if (rows.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" class="text-center text-gray-500 p-4">Không có đăng ký nào.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-gray-500 p-4">Không có đăng ký nào.</td></tr>`;
         return;
       }
       tbody.innerHTML = rows.map((r, i) => {
@@ -5002,6 +5159,7 @@ function isPerpetualSoftware(softwareId) {
             <td class="border p-2">${escapeHtml(company ? company.name : '—')}</td>
             <td class="border p-2">${escapeHtml(software ? software.name : '—')}</td>
             <td class="border p-2 text-center">${r.currentQuantity}</td>
+            <td class="border p-2 text-center">${budgetQuantityCell(r)}</td>
             <td class="border p-2 text-center font-semibold">${r.requestedQuantity}</td>
             <td class="border p-2 text-right font-semibold">${formatMoney(r.totalAmount)}</td>
             <td class="border p-2 text-center">${purchaseStatusBadge(r.status)}</td>
@@ -5055,7 +5213,7 @@ function isPerpetualSoftware(softwareId) {
       if (roundId) rows = rows.filter(r => r.roundId === Number(roundId));
       if (status) rows = rows.filter(r => r.status === status);
       if (rows.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="10" class="text-center text-gray-500 p-4">Chưa có đăng ký nào.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="11" class="text-center text-gray-500 p-4">Chưa có đăng ký nào.</td></tr>`;
         return;
       }
       tbody.innerHTML = rows.map((r, i) => {
@@ -5070,6 +5228,7 @@ function isPerpetualSoftware(softwareId) {
             <td class="border p-2">${escapeHtml(company ? company.name : '—')}</td>
             <td class="border p-2">${escapeHtml(software ? software.name : '—')}</td>
             <td class="border p-2 text-center">${r.currentQuantity}</td>
+            <td class="border p-2 text-center">${budgetQuantityCell(r)}</td>
             <td class="border p-2 text-center font-semibold">${r.requestedQuantity}</td>
             <td class="border p-2 text-right">${formatMoney(r.unitPrice)}</td>
             <td class="border p-2 text-right font-semibold">${formatMoney(r.totalAmount)}</td>
