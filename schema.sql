@@ -507,6 +507,38 @@ CALL add_column_if_not_exists('lic_license_batches', 'registration_id', 'BIGINT 
 CALL create_index_if_not_exists('lic_purchase_registrations', 'idx_lic_reg_issued_batch', 'issued_batch_id');
 CALL create_index_if_not_exists('lic_license_batches', 'idx_lic_license_batches_registration', 'registration_id');
 
+-- 14. Kỳ ngân sách mở rộng: hạng mục không còn giới hạn chỉ Phần mềm — thêm
+-- item_type ('SOFTWARE' giữ nguyên hành vi cũ liên kết lic_software_catalog,
+-- 'HARDWARE'/'SERVICE' nhập tên tự do qua item_name, không liên kết danh mục
+-- nào — vì phần cứng/dịch vụ không có "SL đang dùng" tự động như license).
+-- capex_opex BẮT BUỘC chọn khi tạo hạng mục (không tự gợi ý theo license_type
+-- hay bất kỳ suy đoán nào) — dùng để gộp báo cáo CAPEX/OPEX sau này. Dữ liệu
+-- hạng mục cũ trước tính năng này mặc định SOFTWARE/OPEX (không hồi tố phân
+-- loại — Admin có thể sửa lại thủ công nếu cần).
+CALL add_column_if_not_exists('lic_budget_round_items', 'item_type', "ENUM('SOFTWARE','HARDWARE','SERVICE') NOT NULL DEFAULT 'SOFTWARE'");
+CALL add_column_if_not_exists('lic_budget_round_items', 'item_name', 'VARCHAR(255) NULL DEFAULT NULL');
+CALL add_column_if_not_exists('lic_budget_round_items', 'capex_opex', "ENUM('CAPEX','OPEX') NOT NULL DEFAULT 'OPEX'");
+ALTER TABLE lic_budget_round_items MODIFY COLUMN software_id BIGINT NULL DEFAULT NULL;
+
+-- Sổ ghi nhận mua thực tế (nhiều dòng theo thời gian) cho từng hạng mục ngân
+-- sách — ĐỘC LẬP với lic_budget_registrations (dự trù theo đơn vị): "Kế
+-- hoạch" = tổng dự trù đã duyệt của hạng mục, "Thực tế" = tổng các dòng ở
+-- đây, dùng để so sánh dự trù vs thực hiện. Không gắn với đơn vị trực thuộc
+-- vì 1 lần mua thực tế có thể gộp chung cho nhiều đơn vị hoặc cả kỳ.
+CREATE TABLE IF NOT EXISTS lic_budget_actuals (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    round_item_id BIGINT NOT NULL,
+    purchase_date DATE NOT NULL,
+    vendor VARCHAR(255) NULL DEFAULT NULL,
+    quantity DECIMAL(18,2) NOT NULL DEFAULT 1,
+    unit_price DECIMAL(18,2) NOT NULL,
+    amount DECIMAL(18,2) NOT NULL,
+    note VARCHAR(500) NULL DEFAULT NULL,
+    created_by VARCHAR(100) NULL DEFAULT NULL,
+    created_at VARCHAR(100)
+);
+CALL create_index_if_not_exists('lic_budget_actuals', 'idx_lic_budget_actuals_item', 'round_item_id');
+
 -- Dọn dẹp: xóa các thủ tục tạm sau khi dùng xong, không để lại trong CSDL thật.
 DROP PROCEDURE IF EXISTS create_index_if_not_exists;
 DROP PROCEDURE IF EXISTS create_unique_index_if_not_exists;
