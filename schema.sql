@@ -465,6 +465,15 @@ CREATE TABLE IF NOT EXISTS ad_accounts (
 );
 CALL create_index_if_not_exists('ad_accounts', 'idx_ad_accounts_email', 'email');
 
+-- 11. Liên kết Kỳ mua với Kỳ ngân sách (tùy chọn) — Kỳ mua vẫn hoạt động độc
+-- lập như trước nếu không chọn; nếu Admin chọn 1 Kỳ ngân sách khi tạo Kỳ mua,
+-- mỗi lượt đăng ký mua trong kỳ đó sẽ tham chiếu thêm số lượng đã được duyệt
+-- dự trù (cộng dồn theo mọi đơn vị trực thuộc của công ty đăng ký) cho đúng
+-- phần mềm, hiển thị cột "Ngân sách" bên cạnh "Đang dùng"/"Mua thực tế" —
+-- không thay đổi gì tới bảng lic_budget_* đã có.
+CALL add_column_if_not_exists('lic_purchase_rounds', 'budget_round_id', 'BIGINT NULL DEFAULT NULL');
+CALL add_column_if_not_exists('lic_purchase_registrations', 'budget_quantity', 'INT NULL DEFAULT NULL');
+
 -- Dọn dẹp: xóa các thủ tục tạm sau khi dùng xong, không để lại trong CSDL thật.
 DROP PROCEDURE IF EXISTS create_index_if_not_exists;
 DROP PROCEDURE IF EXISTS create_unique_index_if_not_exists;
