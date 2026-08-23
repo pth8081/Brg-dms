@@ -1471,13 +1471,13 @@ function fmtDate(d) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 function validDateStr(s) { return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s); }
-function mapBatch(b) { return { id: b.id, companyId: b.company_id, softwareId: b.software_id, totalQuantity: b.total_quantity, codesGenerated: b.codes_generated, issuedDate: fmtDate(b.issued_date), expiryDate: fmtDate(b.expiry_date), note: b.note }; }
+function mapBatch(b) { return { id: b.id, companyId: b.company_id, softwareId: b.software_id, totalQuantity: b.total_quantity, codesGenerated: b.codes_generated, issuedDate: fmtDate(b.issued_date), expiryDate: fmtDate(b.expiry_date), note: b.note, registrationId: b.registration_id }; }
 function mapCode(c) { return { id: c.id, batchId: c.batch_id, companyId: c.company_id, softwareId: c.software_id, code: c.code, expiryDate: fmtDate(c.expiry_date) }; }
 function mapCodeAssignment(a) { return { id: a.id, codeId: a.code_id, employeeId: a.employee_id, assignedAt: fmtDate(a.assigned_at) }; }
 function mapAdAccount(a) { return { id: a.id, username: a.username, fullName: a.full_name, email: a.email, active: !!a.active, company: a.company, orgUnit: a.org_unit, disabledAt: fmtDate(a.disabled_at), lastSyncedAt: a.last_synced_at }; }
-function mapRound(r) { return { id: r.id, name: r.name, note: r.note, status: r.status, createdAt: r.created_at, budgetRoundId: r.budget_round_id, scopeType: r.scope_type, scopeId: r.scope_id }; }
+function mapRound(r) { return { id: r.id, name: r.name, note: r.note, status: r.status, createdAt: r.created_at, budgetRoundId: r.budget_round_id, scopeType: r.scope_type, scopeId: r.scope_id, roundType: r.round_type }; }
 function mapRoundItem(i) { return { id: i.id, roundId: i.round_id, softwareId: i.software_id, unitPrice: Number(i.unit_price), expiryDate: fmtDate(i.expiry_date) }; }
-function mapRegistration(r) { return { id: r.id, roundId: r.round_id, roundItemId: r.round_item_id, companyId: r.company_id, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity, budgetQuantity: r.budget_quantity === null || r.budget_quantity === undefined ? null : Number(r.budget_quantity), unitPrice: Number(r.unit_price), totalAmount: Number(r.total_amount), expiryDate: fmtDate(r.expiry_date), status: r.status, note: r.note, createdAt: r.created_at, decidedBy: r.decided_by, decidedAt: r.decided_at }; }
+function mapRegistration(r) { return { id: r.id, roundId: r.round_id, roundItemId: r.round_item_id, companyId: r.company_id, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity, budgetQuantity: r.budget_quantity === null || r.budget_quantity === undefined ? null : Number(r.budget_quantity), unitPrice: Number(r.unit_price), totalAmount: Number(r.total_amount), expiryDate: fmtDate(r.expiry_date), status: r.status, note: r.note, createdAt: r.created_at, decidedBy: r.decided_by, decidedAt: r.decided_at, issuedBatchId: r.issued_batch_id, issuedQuantity: r.issued_quantity, issuedAt: r.issued_at }; }
 function mapBudgetRound(r) { return { id: r.id, name: r.name, note: r.note, status: r.status, createdAt: r.created_at, scopeType: r.scope_type, scopeId: r.scope_id }; }
 function mapBudgetRoundItem(i) { return { id: i.id, roundId: i.round_id, softwareId: i.software_id, unitPrice: Number(i.unit_price) }; }
 function mapBudgetRegistration(r) { return { id: r.id, roundId: r.round_id, roundItemId: r.round_item_id, orgUnitId: r.org_unit_id, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity, unitPrice: Number(r.unit_price), totalAmount: Number(r.total_amount), status: r.status, note: r.note, createdAt: r.created_at, decidedBy: r.decided_by, decidedAt: r.decided_at }; }
@@ -1663,6 +1663,20 @@ app.get('/api/license/portal/bootstrap', requireAuth, async (req, res) => {
         const [allPurchaseRegistrations] = await pool.query('SELECT * FROM lic_purchase_registrations ORDER BY id DESC');
         const visiblePurchaseRegistrations = allPurchaseRegistrations.filter(r => reachableCompanySet.has(r.company_id));
 
+        // Chỉ trả về SỐ LƯỢNG mã đang có theo công ty+phần mềm (không trả mã
+        // thật) — để Cổng tự phục vụ hiện cột "Đang dùng" khi đăng ký, giống
+        // phía Admin, mà không lộ danh sách mã license thật ra ngoài.
+        let licenseUsage = [];
+        if (reachableCompanyIds.length > 0) {
+            const [usageRows] = await pool.query(
+                `SELECT company_id, software_id, COUNT(*) AS cnt FROM lic_license_codes
+                 WHERE company_id IN (${reachableCompanyIds.map(() => '?').join(',')})
+                 GROUP BY company_id, software_id`,
+                reachableCompanyIds
+            );
+            licenseUsage = usageRows.map(r => ({ companyId: r.company_id, softwareId: r.software_id, count: Number(r.cnt) }));
+        }
+
         const scopeLabel = userScope.type === 'COMPANY'
             ? (allCompanies.find(c => c.id === userScope.id)?.name || '—')
             : (allOrgUnits.find(u => u.id === userScope.id)?.name || '—');
@@ -1677,7 +1691,8 @@ app.get('/api/license/portal/bootstrap', requireAuth, async (req, res) => {
             purchaseRegistrations: visiblePurchaseRegistrations.map(mapRegistration),
             budgetRounds: visibleBudgetRounds.map(mapBudgetRound),
             budgetRoundItems: visibleBudgetRoundItems.map(mapBudgetRoundItem),
-            budgetRegistrations: visibleBudgetRegistrations.map(mapBudgetRegistration)
+            budgetRegistrations: visibleBudgetRegistrations.map(mapBudgetRegistration),
+            licenseUsage
         });
     } catch (err) {
         console.error('❌ Lỗi tải dữ liệu Cổng tự phục vụ Bản quyền:', err.message);
@@ -1766,7 +1781,7 @@ app.get('/api/reports/license', requireAuth, requireAdmin, async (req, res) => {
         const [spendRows] = await pool.query(
             `SELECT ro.id AS roundId, ro.name AS roundName, SUM(reg.total_amount) AS total
              FROM lic_purchase_registrations reg JOIN lic_purchase_rounds ro ON ro.id = reg.round_id
-             WHERE reg.status = 'APPROVED'
+             WHERE reg.status IN ('APPROVED', 'ISSUED')
              GROUP BY ro.id ORDER BY ro.id DESC LIMIT 6`
         );
         const [controlRows] = await pool.query(
@@ -2117,18 +2132,37 @@ async function generateLicenseCodes(companyCode, softwareCode, count) {
 // phần chênh lệch so với số mã đang có để CHỈ SINH THÊM đúng phần đó (mã cũ đã
 // gán người dùng giữ nguyên), rồi cập nhật ngày hết hạn cho TOÀN BỘ mã cũ+mới
 // của công ty+phần mềm này. Mua ít hơn số đang có KHÔNG tự xóa/thu hồi gì.
+// Phát hành license BẮT BUỘC gắn với 1 đăng ký mua đã duyệt (registrationId)
+// — không còn đường phát hành tự do ngoài Kỳ mua. Số lượng lấy mặc định từ
+// đăng ký đã duyệt nhưng Admin có thể ĐIỀU CHỈNH lúc phát hành (thực tế mua
+// có thể khác số đã duyệt). Logic sinh mã rẽ theo loại Kỳ mua:
+// - RENEWAL: giữ nguyên 100% logic delta + gia hạn hàng loạt cũ (đối chiếu
+//   SL đang có, ưu tiên gia hạn mã đã gán trước).
+// - NEW: sinh THẲNG đúng số lượng nhập vào KHO, không đụng/gia hạn mã cũ nào.
 app.post('/api/license/batches', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const companyId = Number(req.body && req.body.companyId);
-        const softwareId = Number(req.body && req.body.softwareId);
-        const totalQuantity = Number(req.body && req.body.totalQuantity);
+        const registrationId = Number(req.body && req.body.registrationId);
+        const quantity = Number(req.body && req.body.quantity);
         const issuedDate = String((req.body && req.body.issuedDate) || '').trim();
         const rawExpiryDate = String((req.body && req.body.expiryDate) || '').trim();
         const note = String((req.body && req.body.note) || '').trim();
-        if (!companyId) return res.status(400).json({ error: 'Vui lòng chọn Công ty.' });
-        if (!softwareId) return res.status(400).json({ error: 'Vui lòng chọn Phần mềm.' });
-        if (!Number.isInteger(totalQuantity) || totalQuantity < 0 || totalQuantity > 5000) return res.status(400).json({ error: 'Tổng số lượng phải là số nguyên từ 0 đến 5000.' });
+        if (!registrationId) return res.status(400).json({ error: 'Vui lòng chọn Đăng ký mua đã duyệt để phát hành.' });
+        if (!Number.isInteger(quantity) || quantity < 0 || quantity > 5000) return res.status(400).json({ error: 'Số lượng phải là số nguyên từ 0 đến 5000.' });
         if (!validDateStr(issuedDate)) return res.status(400).json({ error: 'Ngày cấp không hợp lệ.' });
+
+        const [regRows] = await pool.query('SELECT * FROM lic_purchase_registrations WHERE id = ?', [registrationId]);
+        if (!regRows[0]) return res.status(404).json({ error: 'Không tìm thấy đăng ký mua.' });
+        const registration = regRows[0];
+        if (registration.status !== 'APPROVED') return res.status(400).json({ error: 'Chỉ phát hành được cho đăng ký đã duyệt.' });
+        if (registration.issued_batch_id) return res.status(400).json({ error: 'Đăng ký này đã được phát hành trước đó.' });
+
+        const [roundRows] = await pool.query('SELECT id, round_type FROM lic_purchase_rounds WHERE id = ?', [registration.round_id]);
+        if (!roundRows[0]) return res.status(400).json({ error: 'Kỳ mua của đăng ký này không còn tồn tại.' });
+        const roundType = roundRows[0].round_type;
+        const [itemRows] = await pool.query('SELECT id, software_id FROM lic_purchase_round_items WHERE id = ?', [registration.round_item_id]);
+        if (!itemRows[0]) return res.status(400).json({ error: 'Hạng mục phần mềm của đăng ký này không còn tồn tại.' });
+        const companyId = registration.company_id;
+        const softwareId = itemRows[0].software_id;
 
         const [companyRows] = await pool.query('SELECT id, code FROM lic_companies WHERE id = ?', [companyId]);
         if (!companyRows[0]) return res.status(400).json({ error: 'Công ty không tồn tại.' });
@@ -2148,6 +2182,8 @@ app.post('/api/license/batches', requireAuth, requireAdmin, async (req, res) => 
         // Sắp theo số lượt đang được gán giảm dần — khi mua ÍT HƠN số mã đang có,
         // các mã đã gán cho nhân viên được ƯU TIÊN gia hạn trước, mã còn trống mới
         // bị loại ra (giữ nguyên hạn cũ) nếu không đủ chỗ trong tổng số lượng mới.
+        // Với Kỳ mua mới (NEW) danh sách này chỉ để tính total_quantity báo cáo —
+        // không dùng để tính toGenerate hay để gia hạn.
         const [existingCodesRaw] = await pool.query(
             `SELECT c.id, COUNT(a.id) AS assign_count
              FROM lic_license_codes c LEFT JOIN lic_license_code_assignments a ON a.code_id = c.id
@@ -2156,47 +2192,47 @@ app.post('/api/license/batches', requireAuth, requireAdmin, async (req, res) => 
             [companyId, softwareId]
         );
         const existingCount = existingCodesRaw.length;
-        const toGenerate = Math.max(0, totalQuantity - existingCount);
+        // RENEWAL: quantity = TỔNG số lượng mong muốn sau lô này (như thiết kế cũ).
+        // NEW: quantity = số lượng MUA THÊM, cộng thẳng vào kho, không đụng mã cũ.
+        const toGenerate = roundType === 'NEW' ? quantity : Math.max(0, quantity - existingCount);
+        const totalQuantityForRecord = roundType === 'NEW' ? existingCount + quantity : quantity;
 
         const [batchResult] = await pool.query(
-            'INSERT INTO lic_license_batches (company_id, software_id, total_quantity, codes_generated, issued_date, expiry_date, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [companyId, softwareId, totalQuantity, toGenerate, issuedDate, expiryDate, note || null, new Date().toISOString()]
+            'INSERT INTO lic_license_batches (company_id, software_id, total_quantity, codes_generated, issued_date, expiry_date, note, created_at, registration_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [companyId, softwareId, totalQuantityForRecord, toGenerate, issuedDate, expiryDate, note || null, new Date().toISOString(), registrationId]
         );
         const batchId = batchResult.insertId;
 
-        let newCodeIds = [];
         if (toGenerate > 0) {
             const codes = await generateLicenseCodes(companyRows[0].code, softwareRows[0].code, toGenerate);
             await pool.query(
                 'INSERT INTO lic_license_codes (batch_id, company_id, software_id, code, expiry_date) VALUES ?',
                 [codes.map(c => [batchId, companyId, softwareId, c, expiryDate])]
             );
-            const [newCodeRows] = await pool.query(`SELECT id FROM lic_license_codes WHERE code IN (${codes.map(() => '?').join(',')})`, codes);
-            newCodeIds = newCodeRows.map(r => r.id);
         }
 
-        // Gia hạn: CHỈ gia hạn đúng số lượng = totalQuantity mã (mã cũ được giữ lại
-        // theo thứ tự ưu tiên ở trên + toàn bộ mã vừa sinh) — nếu tổng số lượng mua
-        // kỳ này ÍT HƠN số mã đang có, phần dư (existingCount - totalQuantity mã)
-        // GIỮ NGUYÊN ngày hết hạn cũ, không tự động gia hạn theo lần phát hành này
-        // (Admin thấy cảnh báo/hết hạn ở tab Phân bổ, tự quyết định thu hồi hay
-        // gia hạn tiếp cho những mã đó ở lần phát hành sau).
-        // Lưu ý: mã MỚI sinh đã có expiry_date đúng ngay từ lúc INSERT ở trên —
-        // renewedCount ở đây CHỈ đếm mã CŨ thực sự bị đổi hạn, không cộng gộp
-        // mã mới vào (tránh báo cáo/toast/audit log hiểu nhầm là "gia hạn" cho
-        // cả những mã chưa từng tồn tại trước đó).
+        // Gia hạn (CHỈ áp dụng cho Kỳ mua RENEWAL): mã cũ được giữ lại theo thứ tự
+        // ưu tiên ở trên + toàn bộ mã vừa sinh, đúng bằng quantity mã. Nếu quantity
+        // ÍT HƠN số mã đang có, phần dư GIỮ NGUYÊN ngày hết hạn cũ, không tự động
+        // gia hạn theo lần phát hành này. Kỳ mua NEW không đụng tới mã cũ nào.
         let renewedCount = 0;
-        if (expiryDate) {
-            const keepExistingCount = totalQuantity - toGenerate; // = min(totalQuantity, existingCount)
+        if (roundType === 'RENEWAL' && expiryDate) {
+            const keepExistingCount = quantity - toGenerate; // = min(quantity, existingCount)
             const idsToRenew = existingCodesRaw.slice(0, keepExistingCount).map(r => r.id);
             renewedCount = idsToRenew.length;
             if (idsToRenew.length > 0) {
                 await pool.query(`UPDATE lic_license_codes SET expiry_date = ? WHERE id IN (${idsToRenew.map(() => '?').join(',')})`, [expiryDate, ...idsToRenew]);
             }
         }
+        const keptOldExpiryCount = roundType === 'RENEWAL' ? existingCount - (quantity - toGenerate) : 0;
 
-        const keptOldExpiryCount = existingCount - (totalQuantity - toGenerate);
-        await writeAuditLog({ module: 'LICENSE', actionType: 'ISSUE_BATCH', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `${companyRows[0].code}/${softwareRows[0].code}`, description: `Phát hành license [${softwareRows[0].code}] cho công ty [${companyRows[0].code}]: tổng ${totalQuantity} (sinh mới ${toGenerate})${expiryDate ? `, gia hạn ${renewedCount} mã đến ${expiryDate}` : ' (license vĩnh viễn, không có hạn)'}${keptOldExpiryCount > 0 ? `, ${keptOldExpiryCount} mã cũ giữ nguyên hạn trước đó` : ''}.` });
+        const issuedAt = new Date().toISOString();
+        await pool.query(
+            'UPDATE lic_purchase_registrations SET status = ?, issued_batch_id = ?, issued_quantity = ?, issued_at = ? WHERE id = ?',
+            ['ISSUED', batchId, quantity, issuedAt, registrationId]
+        );
+
+        await writeAuditLog({ module: 'LICENSE', actionType: 'ISSUE_BATCH', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `${companyRows[0].code}/${softwareRows[0].code}`, description: `Phát hành license [${softwareRows[0].code}] cho công ty [${companyRows[0].code}] theo đăng ký #${registrationId} (${roundType === 'NEW' ? 'Mua mới' : 'Gia hạn'}): ${roundType === 'NEW' ? `mua thêm ${quantity}` : `tổng ${quantity}`} (sinh mới ${toGenerate})${expiryDate ? (roundType === 'RENEWAL' ? `, gia hạn ${renewedCount} mã đến ${expiryDate}` : `, hạn ${expiryDate}`) : ' (license vĩnh viễn, không có hạn)'}${keptOldExpiryCount > 0 ? `, ${keptOldExpiryCount} mã cũ giữ nguyên hạn trước đó` : ''}.` });
         res.json({ success: true, id: batchId, codesGenerated: toGenerate, renewedCount, keptOldExpiryCount });
     } catch (err) {
         console.error('❌ Lỗi phát hành license:', err.message);
@@ -2216,6 +2252,16 @@ app.delete('/api/license/batches/:id', requireAuth, requireAdmin, async (req, re
         if (assigned[0].cnt > 0) return res.status(400).json({ error: 'Không thể xóa — lượt phát hành này đã sinh ra mã đang được phân bổ cho nhân viên. Hãy thu hồi hết trước.' });
         await pool.query('DELETE FROM lic_license_codes WHERE batch_id = ?', [id]);
         await pool.query('DELETE FROM lic_license_batches WHERE id = ?', [id]);
+        // Nếu lượt phát hành này gắn với 1 đăng ký mua (luồng mới bắt buộc theo
+        // registrationId), đưa đăng ký về lại APPROVED để Admin có thể phát hành
+        // lại (VD lỡ nhập sai số lượng/hạn) — không để đăng ký kẹt ở ISSUED mà
+        // lô phát hành tương ứng đã bị xóa.
+        if (rows[0].registration_id) {
+            await pool.query(
+                'UPDATE lic_purchase_registrations SET status = ?, issued_batch_id = NULL, issued_quantity = NULL, issued_at = NULL WHERE id = ? AND issued_batch_id = ?',
+                ['APPROVED', rows[0].registration_id, id]
+            );
+        }
         await writeAuditLog({ module: 'LICENSE', actionType: 'DELETE_BATCH', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `Lượt phát hành #${id}`, description: `Xóa lượt phát hành license #${id} (chưa có mã nào được phân bổ).` });
         res.json({ success: true });
     } catch (err) {
@@ -2526,6 +2572,8 @@ app.post('/api/license/rounds', requireAuth, requireAdmin, async (req, res) => {
         const note = String((req.body && req.body.note) || '').trim();
         const items = Array.isArray(req.body && req.body.items) ? req.body.items : [];
         const budgetRoundId = req.body && req.body.budgetRoundId ? Number(req.body.budgetRoundId) : null;
+        const roundType = String((req.body && req.body.roundType) || 'RENEWAL').trim().toUpperCase();
+        if (!['RENEWAL', 'NEW'].includes(roundType)) return res.status(400).json({ error: 'Loại kỳ mua không hợp lệ.' });
         if (!name) return res.status(400).json({ error: 'Tên kỳ mua không được để trống.' });
         if (items.length > 200) return res.status(400).json({ error: 'Số lượng phần mềm trong 1 lần tạo không được vượt quá 200.' });
         if (budgetRoundId) {
@@ -2558,13 +2606,16 @@ app.post('/api/license/rounds', requireAuth, requireAdmin, async (req, res) => {
             }
         }
         // Phần mềm Vĩnh viễn (PERPETUAL) không cần Ngày hết hạn — các loại còn
-        // lại vẫn bắt buộc nhập như trước.
+        // lại vẫn bắt buộc nhập như trước, TRỪ Kỳ mua mới (NEW) — hạng mục kỳ
+        // mua mới chưa biết trước hạn (Ngày hết hạn được nhập lúc Phát hành).
         const normalizedItems = [];
         for (const it of rawItems) {
             const isPerpetual = softwareTypeById.get(it.softwareId) === 'PERPETUAL';
             let expiryDate = null;
-            if (!isPerpetual) {
+            if (!isPerpetual && roundType === 'RENEWAL') {
                 if (!validDateStr(it.rawExpiryDate)) return res.status(400).json({ error: `Dòng ${it.line}: Ngày hết hạn không hợp lệ.` });
+                expiryDate = it.rawExpiryDate;
+            } else if (!isPerpetual && it.rawExpiryDate && validDateStr(it.rawExpiryDate)) {
                 expiryDate = it.rawExpiryDate;
             }
             normalizedItems.push({ softwareId: it.softwareId, unitPrice: it.unitPrice, expiryDate });
@@ -2573,8 +2624,8 @@ app.post('/api/license/rounds', requireAuth, requireAdmin, async (req, res) => {
         let roundId;
         try {
             const [result] = await pool.query(
-                'INSERT INTO lic_purchase_rounds (name, note, status, created_at, budget_round_id, scope_type, scope_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                [name, note || null, 'OPEN', new Date().toISOString(), budgetRoundId, scopeType, scopeId]
+                'INSERT INTO lic_purchase_rounds (name, note, status, created_at, budget_round_id, scope_type, scope_id, round_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                [name, note || null, 'OPEN', new Date().toISOString(), budgetRoundId, scopeType, scopeId, roundType]
             );
             roundId = result.insertId;
             if (normalizedItems.length > 0) {
@@ -2620,7 +2671,7 @@ app.post('/api/license/rounds/:id/items', requireAuth, requireAdmin, async (req,
         if (!softwareId) return res.status(400).json({ error: 'Vui lòng chọn Phần mềm.' });
         if (!Number.isFinite(unitPrice) || unitPrice < 0) return res.status(400).json({ error: 'Đơn giá không hợp lệ.' });
 
-        const [roundRows] = await pool.query('SELECT id, status FROM lic_purchase_rounds WHERE id = ?', [id]);
+        const [roundRows] = await pool.query('SELECT id, status, round_type FROM lic_purchase_rounds WHERE id = ?', [id]);
         if (!roundRows[0]) return res.status(404).json({ error: 'Không tìm thấy kỳ mua.' });
         if (roundRows[0].status !== 'OPEN') return res.status(400).json({ error: 'Kỳ mua đã đóng, không thể thêm phần mềm.' });
         const [softwareRows] = await pool.query('SELECT id, name, license_type FROM lic_software_catalog WHERE id = ?', [softwareId]);
@@ -2628,10 +2679,14 @@ app.post('/api/license/rounds/:id/items', requireAuth, requireAdmin, async (req,
         const [dupRows] = await pool.query('SELECT id FROM lic_purchase_round_items WHERE round_id = ? AND software_id = ?', [id, softwareId]);
         if (dupRows[0]) return res.status(400).json({ error: 'Phần mềm này đã có trong kỳ mua.' });
 
+        // Kỳ mua mới (NEW) không bắt buộc Ngày hết hạn ở bước này — hạn sẽ được
+        // nhập trực tiếp lúc Phát hành.
         const isPerpetual = softwareRows[0].license_type === 'PERPETUAL';
         let expiryDate = null;
-        if (!isPerpetual) {
+        if (!isPerpetual && roundRows[0].round_type === 'RENEWAL') {
             if (!validDateStr(rawExpiryDate)) return res.status(400).json({ error: 'Ngày hết hạn không hợp lệ.' });
+            expiryDate = rawExpiryDate;
+        } else if (!isPerpetual && rawExpiryDate && validDateStr(rawExpiryDate)) {
             expiryDate = rawExpiryDate;
         }
 

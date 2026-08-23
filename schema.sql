@@ -487,6 +487,26 @@ CALL add_column_if_not_exists('lic_purchase_rounds', 'scope_id', 'BIGINT NULL DE
 CALL add_column_if_not_exists('lic_budget_rounds', 'scope_type', "ENUM('COMPANY','ORG_UNIT') NULL DEFAULT NULL");
 CALL add_column_if_not_exists('lic_budget_rounds', 'scope_id', 'BIGINT NULL DEFAULT NULL');
 
+-- 13. Kỳ mua 2 loại: 'RENEWAL' (gia hạn — giữ nguyên logic cũ: đối chiếu SL
+-- đang dùng, hạng mục kỳ có sẵn Ngày hết hạn áp dụng chung, đăng ký hiện Hạn
+-- hiện tại/Hạn mới) và 'NEW' (mua mới — hạng mục kỳ KHÔNG cần Ngày hết hạn vì
+-- chưa biết trước, đăng ký chỉ hiện Đang dùng + SL mua thêm, Ngày hết hạn
+-- được nhập trực tiếp lúc Phát hành). Dữ liệu Kỳ cũ trước tính năng này mặc
+-- định RENEWAL — giữ nguyên 100% hành vi trước đây.
+CALL add_column_if_not_exists('lic_purchase_rounds', 'round_type', "ENUM('RENEWAL','NEW') NOT NULL DEFAULT 'RENEWAL'");
+-- Phát hành license nay BẮT BUỘC gắn với 1 đăng ký đã duyệt (không còn phát
+-- hành tự do ngoài Kỳ mua) — theo dõi đăng ký đã được phát hành bằng lô nào,
+-- số lượng THỰC TẾ phát hành (có thể khác số đã duyệt nếu Admin điều chỉnh
+-- lúc phát hành) và thời điểm phát hành. issued_batch_id NULL = chưa phát
+-- hành. registration_id trên lic_license_batches NULL cho các lô lịch sử đã
+-- phát hành trước khi có tính năng này (không hồi tố).
+CALL add_column_if_not_exists('lic_purchase_registrations', 'issued_batch_id', 'BIGINT NULL DEFAULT NULL');
+CALL add_column_if_not_exists('lic_purchase_registrations', 'issued_quantity', 'INT NULL DEFAULT NULL');
+CALL add_column_if_not_exists('lic_purchase_registrations', 'issued_at', 'VARCHAR(100) NULL DEFAULT NULL');
+CALL add_column_if_not_exists('lic_license_batches', 'registration_id', 'BIGINT NULL DEFAULT NULL');
+CALL create_index_if_not_exists('lic_purchase_registrations', 'idx_lic_reg_issued_batch', 'issued_batch_id');
+CALL create_index_if_not_exists('lic_license_batches', 'idx_lic_license_batches_registration', 'registration_id');
+
 -- Dọn dẹp: xóa các thủ tục tạm sau khi dùng xong, không để lại trong CSDL thật.
 DROP PROCEDURE IF EXISTS create_index_if_not_exists;
 DROP PROCEDURE IF EXISTS create_unique_index_if_not_exists;
