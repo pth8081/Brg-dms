@@ -56,6 +56,38 @@
 }
 
 @layer components {
+  /* --- Hệ nút hành động theo 4 vai trò cố định (Chính/Phụ/Tích cực/Nguy
+     hiểm) — thay cho việc mỗi nơi tự chọn 1 màu Tailwind rời rạc (trước đây
+     có chỗ indigo, chỗ emerald, chỗ slate... cho cùng 1 loại hành động). Dùng
+     đúng các màu ngữ nghĩa brand/success/danger đã khai báo ở @theme trên,
+     không thêm màu mới. */
+  .btn-primary { background-color: var(--color-brand-600); color: #fff; }
+  .btn-primary:hover { background-color: var(--color-brand-700); }
+  .btn-secondary { background-color: #fff; color: var(--color-gray-700, #374151); border: 1px solid var(--color-gray-300, #d1d5db); }
+  .btn-secondary:hover { background-color: var(--color-gray-50, #f9fafb); }
+  .btn-success { background-color: var(--color-success-600); color: #fff; }
+  .btn-success:hover { background-color: var(--color-success-700); }
+  .btn-danger { background-color: var(--color-danger-600); color: #fff; }
+  .btn-danger:hover { background-color: var(--color-danger-700); }
+  .btn-danger-ghost { color: var(--color-danger-600); background-color: transparent; }
+  .btn-danger-ghost:hover { background-color: var(--color-danger-50); }
+
+  /* --- Menu điều hướng chính (4 phân hệ) — dạng tab: mục đang chọn có gạch
+     chân + chữ màu brand, các mục còn lại trung tính. Thay cho 4 nút tô đầy
+     4 màu bão hòa khác nhau (xanh dương/xanh lá/chàm/tím) trước đây. */
+  .nav-tab {
+    color: var(--color-gray-600, #4b5563);
+    border-bottom: 2px solid transparent;
+    background-color: transparent;
+  }
+  .nav-tab:hover { background-color: var(--color-gray-100, #f3f4f6); }
+  .nav-tab.active {
+    color: var(--color-brand-600);
+    border-bottom-color: var(--color-brand-600);
+    background-color: transparent;
+  }
+  .nav-tab.active:hover { background-color: var(--color-brand-50); }
+
   /* --- Vân giấy nhẹ trên panel thương hiệu trang Đăng Nhập --- */
   .login-grain {
     background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.35) 1px, transparent 0);

@@ -9,6 +9,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Spectral:wght@500;600;700&family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- ExcelJS (tự lưu trữ, không gọi CDN ngoài) — dùng để đọc/ghi file .xlsx thay cho
+       CSV: tránh lỗi vỡ dấu tiếng Việt và sai dấu phân tách cột khi mở bằng Excel. -->
+  <script src="/vendor/exceljs.min.js"></script>
   <style>
     .dash-card.active-card {
       ring-width: 2px;
@@ -155,21 +158,21 @@
   <div id="appShell" class="hidden max-w-7xl mx-auto bg-white p-4 md:p-6 rounded-lg shadow-md space-y-6">
 
     <!-- Header -->
-    <div class="flex justify-between items-center border-b pb-4">
+    <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 border-b pb-4">
       <div>
         <h1 class="text-xl md:text-2xl font-bold text-gray-800">Hệ Thống Quản Lý Tài Liệu (DMS v6.11)</h1>
         <p class="text-xs text-gray-500">Quản lý tài liệu | Luồng quy trình phê duyệt | Phân quyền truy cập | Log hệ thống</p>
       </div>
-      <div id="userHeader" class="text-right hidden">
+      <div id="userHeader" class="text-left sm:text-right hidden">
         <div class="cursor-pointer group inline-block" onclick="openProfileModal()" title="Bấm để cập nhật thông tin cá nhân & đổi mật khẩu">
           <span id="userInfo" class="font-bold text-blue-600 block text-sm group-hover:underline"></span>
           <span id="userPhoneInfo" class="text-xs text-gray-500 block"></span>
         </div>
-        <div class="flex gap-2 justify-end mt-2 flex-wrap">
-          <button id="btnDocTab" onclick="switchTab('doc')" class="hidden text-xs bg-blue-600 text-white px-2.5 py-1 rounded hover:bg-blue-700 font-semibold">📂 Quản lý tài liệu</button>
-          <button id="btnLicenseTab" onclick="switchTab('license')" class="hidden text-xs bg-teal-600 text-white px-2.5 py-1 rounded hover:bg-teal-700 font-semibold">🔑 Quản lý Bản quyền</button>
-          <button id="btnReportsTab" onclick="switchTab('reports')" class="hidden text-xs bg-indigo-600 text-white px-2.5 py-1 rounded hover:bg-indigo-700 font-semibold">📊 Báo cáo</button>
-          <button id="btnAdminTab" onclick="switchTab('admin')" class="hidden text-xs bg-purple-600 text-white px-2.5 py-1 rounded hover:bg-purple-700 font-semibold">⚙️ Quản trị & Phân quyền</button>
+        <div class="flex gap-2 justify-start sm:justify-end mt-2 flex-wrap">
+          <button id="btnDocTab" onclick="switchTab('doc')" class="nav-tab hidden text-xs px-2.5 py-2 font-semibold transition-colors">📂 Quản lý tài liệu</button>
+          <button id="btnLicenseTab" onclick="switchTab('license')" class="nav-tab hidden text-xs px-2.5 py-2 font-semibold transition-colors">🔑 Quản lý Bản quyền</button>
+          <button id="btnReportsTab" onclick="switchTab('reports')" class="nav-tab hidden text-xs px-2.5 py-2 font-semibold transition-colors">📊 Báo cáo</button>
+          <button id="btnAdminTab" onclick="switchTab('admin')" class="nav-tab hidden text-xs px-2.5 py-2 font-semibold transition-colors">⚙️ Quản trị & Phân quyền</button>
           <button onclick="logout()" class="text-xs text-red-500 underline py-1 hover:text-red-700 font-semibold">Đăng xuất</button>
         </div>
       </div>
@@ -293,7 +296,7 @@
                 <th class="border p-2">Phân Loại</th>
                 <th class="border p-2 text-center">Phiên Bản</th>
                 <th class="border p-2">Tiến Trình Phê Duyệt</th>
-                <th class="border p-2 text-center min-w-[140px]">Thao Tác</th>
+                <th class="border p-2 text-center min-w-[140px] whitespace-nowrap">Thao Tác</th>
               </tr>
             </thead>
             <tbody id="docTableBody"></tbody>
@@ -349,9 +352,9 @@
             <label class="block font-semibold text-gray-600 mb-1">Email Hệ Thống (Sender)</label>
             <input id="cfgSenderEmail" type="email" placeholder="dms-noreply@company.com" class="w-full border p-1.5 rounded" required>
           </div>
-          <div class="md:col-span-4 flex justify-between items-center pt-1">
+          <div class="md:col-span-4 flex flex-col sm:flex-row justify-between sm:items-center gap-2 pt-1">
             <span class="text-gray-500 italic text-[11px]">Cấu hình mail hệ thống dùng để thông báo tự động khi phát sinh tài liệu cần duyệt.</span>
-            <button type="submit" class="bg-amber-600 text-white px-4 py-1.5 rounded font-bold hover:bg-amber-700">Lưu Cấu Hình Email</button>
+            <button type="submit" class="shrink-0 btn-primary px-4 py-1.5 rounded font-bold">Lưu Cấu Hình Email</button>
           </div>
         </form>
       </div>
@@ -389,9 +392,9 @@
               <option value="false">Không (chỉ dùng khi AD có chứng chỉ tự ký)</option>
             </select>
           </div>
-          <div class="md:col-span-4 flex justify-between items-center pt-1">
+          <div class="md:col-span-4 flex flex-col sm:flex-row justify-between sm:items-center gap-2 pt-1">
             <span class="text-gray-500 italic text-[11px]">Đăng nhập sẽ thử mật khẩu local trước; nếu sai và LDAP đang bật, hệ thống thử xác thực qua AD với cùng tài khoản/mật khẩu. Username phải đã tồn tại sẵn trong DMS (mục Quản Lý Người Dùng) — LDAP không tự tạo tài khoản mới.</span>
-            <button type="submit" class="bg-sky-600 text-white px-4 py-1.5 rounded font-bold hover:bg-sky-700">Lưu Cấu Hình LDAP</button>
+            <button type="submit" class="shrink-0 btn-primary px-4 py-1.5 rounded font-bold">Lưu Cấu Hình LDAP</button>
           </div>
         </form>
 
@@ -424,9 +427,9 @@
             <label class="block font-semibold text-gray-600 mb-1">Attribute AD ứng với "Khối phòng ban" (tùy chọn)</label>
             <input id="cfgAdOrgUnitAttr" placeholder="VD: department" class="w-full border p-1.5 rounded">
           </div>
-          <div class="md:col-span-4 flex justify-between items-center pt-1">
+          <div class="md:col-span-4 flex flex-col sm:flex-row justify-between sm:items-center gap-2 pt-1">
             <span class="text-gray-500 italic text-[11px]">Dùng LDAP Server URL ở trên. Tài khoản dịch vụ cần quyền duyệt (search) thư mục trong Base DN. Hệ thống tự đồng bộ hàng ngày, có thể bấm "Đồng bộ ngay" ở tab Tài khoản AD để chạy thử ngay.</span>
-            <button type="submit" class="bg-sky-600 text-white px-4 py-1.5 rounded font-bold hover:bg-sky-700">Lưu Cấu Hình Đồng Bộ AD</button>
+            <button type="submit" class="shrink-0 btn-primary px-4 py-1.5 rounded font-bold">Lưu Cấu Hình Đồng Bộ AD</button>
           </div>
         </form>
       </div>
@@ -440,7 +443,7 @@
             <input id="txtDeptName" placeholder="Tên phòng ban mới..." class="border p-1.5 rounded text-xs flex-1" required>
             <input id="txtDeptAbbr" placeholder="Viết tắt (VD: IT)" maxlength="10" class="border p-1.5 rounded text-xs w-24" required>
             <button id="btnCancelDept" type="button" onclick="resetDeptForm()" class="hidden bg-gray-400 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-gray-500">Hủy</button>
-            <button id="btnSaveDept" type="submit" class="bg-indigo-600 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-indigo-700">Thêm</button>
+            <button id="btnSaveDept" type="submit" class="btn-primary px-3 py-1.5 rounded text-xs font-bold">Thêm</button>
           </form>
           <div class="max-h-36 overflow-y-auto bg-white rounded border">
             <ul id="deptList" class="divide-y text-xs"></ul>
@@ -455,7 +458,7 @@
             <input id="txtCatName" placeholder="Tên loại tài liệu mới..." class="border p-1.5 rounded text-xs flex-1" required>
             <input id="txtCatAbbr" placeholder="Viết tắt (VD: HD)" maxlength="10" class="border p-1.5 rounded text-xs w-24" required>
             <button id="btnCancelCat" type="button" onclick="resetCatForm()" class="hidden bg-gray-400 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-gray-500">Hủy</button>
-            <button id="btnSaveCat" type="submit" class="bg-emerald-600 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-emerald-700">Thêm</button>
+            <button id="btnSaveCat" type="submit" class="btn-primary px-3 py-1.5 rounded text-xs font-bold">Thêm</button>
           </form>
           <div class="max-h-36 overflow-y-auto bg-white rounded border">
             <ul id="catList" class="divide-y text-xs"></ul>
@@ -549,14 +552,14 @@
 
           <div class="flex justify-end gap-2 pt-2">
             <button type="button" onclick="resetUserForm()" class="bg-gray-400 text-white px-4 py-1.5 rounded text-xs font-bold">Hủy</button>
-            <button id="btnSaveUser" type="submit" class="bg-purple-600 text-white px-6 py-1.5 rounded text-xs font-bold hover:bg-purple-700">+ Thêm Vào Danh Sách</button>
+            <button id="btnSaveUser" type="submit" class="btn-primary px-6 py-1.5 rounded text-xs font-bold">+ Thêm Vào Danh Sách</button>
           </div>
         </form>
 
         <div id="pendingUsersBox" class="hidden bg-purple-50 border border-purple-300 rounded p-3 space-y-2">
           <div class="flex justify-between items-center">
             <h4 class="font-bold text-sm text-purple-900">📝 User Đang Chờ Lưu (<span id="pendingUsersCount">0</span>)</h4>
-            <button onclick="saveAllPendingUsers()" class="bg-purple-700 text-white text-xs px-4 py-1.5 rounded font-bold hover:bg-purple-800">💾 Lưu Tất Cả</button>
+            <button onclick="saveAllPendingUsers()" class="btn-primary text-xs px-4 py-1.5 rounded font-bold">💾 Lưu Tất Cả</button>
           </div>
           <div class="overflow-x-auto bg-white rounded border">
             <table class="w-full text-xs text-left">
@@ -565,7 +568,7 @@
                   <th class="p-2 border">Username</th>
                   <th class="p-2 border">Họ Tên</th>
                   <th class="p-2 border">Phòng Ban</th>
-                  <th class="p-2 border text-center">Thao Tác</th>
+                  <th class="p-2 border text-center whitespace-nowrap">Thao Tác</th>
                 </tr>
               </thead>
               <tbody id="pendingUsersTableBody"></tbody>
@@ -576,10 +579,10 @@
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 my-3 border-t pt-3">
           <h4 class="font-bold text-sm text-gray-800">Danh Sách Tài Khoản & Quyền Hạn</h4>
           <div class="flex flex-wrap gap-2 text-xs">
-            <button type="button" onclick="downloadUserTemplate()" class="bg-gray-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-gray-700 transition">📄 Tải File CSV Mẫu</button>
-            <button type="button" onclick="exportUsersCSV()" class="bg-emerald-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-emerald-700 transition">📤 Xuất CSV</button>
-            <label class="bg-blue-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-blue-700 cursor-pointer transition">
-              📥 Import CSV <input type="file" accept=".csv" onchange="importUsersCSV(event)" class="hidden">
+            <button type="button" onclick="downloadUserTemplate()" class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition">📄 Tải File Excel Mẫu</button>
+            <button type="button" onclick="exportUsersXlsx()" class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition">📤 Xuất Excel</button>
+            <label class="btn-secondary px-2.5 py-1.5 rounded font-semibold cursor-pointer transition">
+              📥 Nhập Excel <input type="file" accept=".xlsx" onchange="importUsersXlsx(event)" class="hidden">
             </label>
           </div>
         </div>
@@ -594,7 +597,7 @@
                 <th class="border p-2">Phòng Ban</th>
                 <th class="border p-2">Chi Tiết Quyền Hạn</th>
                 <th class="border p-2 text-center">Trạng Thái</th>
-                <th class="border p-2 text-center min-w-[100px]">Thao Tác</th>
+                <th class="border p-2 text-center min-w-[100px] whitespace-nowrap">Thao Tác</th>
               </tr>
             </thead>
             <tbody id="userTableBody"></tbody>
@@ -614,7 +617,7 @@
               </h3>
               <p class="text-xs text-emerald-800">Gán quy trình phê duyệt tài liệu riêng cho từng phòng ban và thiết lập tài khoản người phê duyệt chi tiết. Có thể chỉnh nhiều phòng ban rồi lưu 1 lần, hoặc lưu riêng từng phòng.</p>
             </div>
-            <button onclick="saveAllDeptWorkflows()" class="shrink-0 bg-emerald-700 text-white text-xs px-4 py-2 rounded font-bold hover:bg-emerald-800">💾 Lưu Tất Cả Cấu Hình</button>
+            <button onclick="saveAllDeptWorkflows()" class="shrink-0 btn-primary text-xs px-4 py-2 rounded font-bold">💾 Lưu Tất Cả Cấu Hình</button>
           </div>
           <div id="deptWorkflowConfigContainer" class="space-y-4"></div>
         </div>
@@ -644,7 +647,7 @@
 
             <div class="flex justify-end gap-2">
               <button id="btnCancelWf" type="button" onclick="resetWorkflowForm()" class="hidden bg-gray-400 text-white text-xs px-3 py-1.5 rounded font-bold">Hủy</button>
-              <button id="btnSaveWf" type="submit" class="bg-emerald-600 text-white text-xs px-4 py-1.5 rounded font-bold hover:bg-emerald-700">Lưu Mẫu Quy Trình</button>
+              <button id="btnSaveWf" type="submit" class="btn-primary text-xs px-4 py-1.5 rounded font-bold">Lưu Mẫu Quy Trình</button>
             </div>
           </form>
 
@@ -656,7 +659,7 @@
                   <th class="p-2 border">Tên Quy Trình</th>
                   <th class="p-2 border">Số Bước</th>
                   <th class="p-2 border">Cấu Trúc Các Bước</th>
-                  <th class="p-2 border text-center">Thao Tác</th>
+                  <th class="p-2 border text-center whitespace-nowrap">Thao Tác</th>
                 </tr>
               </thead>
               <tbody id="workflowTableBody"></tbody>
@@ -676,7 +679,7 @@
             </div>
             <div class="flex gap-2">
               <button onclick="clearSystemLogs()" class="text-xs bg-red-600 text-white px-3 py-1.5 rounded font-bold hover:bg-red-700">🗑️ Xóa Log</button>
-              <button onclick="exportSystemLogsCSV()" class="text-xs bg-emerald-600 text-white px-3 py-1.5 rounded font-bold hover:bg-emerald-700">📥 Xuất Log CSV</button>
+              <button onclick="exportSystemLogsXlsx()" class="btn-secondary text-xs px-3 py-1.5 rounded font-bold">📥 Xuất Log Excel</button>
             </div>
           </div>
 
@@ -738,7 +741,7 @@
               <p class="text-xs text-red-800">Tài liệu đã xóa được giữ ở đây, có thể khôi phục lại hoặc xóa vĩnh viễn (không thể hoàn tác).</p>
             </div>
             <div class="flex gap-2">
-              <button id="btnTrashRestore" onclick="bulkRestoreTrash()" class="hidden text-xs bg-emerald-600 text-white px-3 py-1.5 rounded font-bold hover:bg-emerald-700">♻️ Khôi Phục Đã Chọn (<span id="trashRestoreCount">0</span>)</button>
+              <button id="btnTrashRestore" onclick="bulkRestoreTrash()" class="hidden text-xs btn-success px-3 py-1.5 rounded font-bold">♻️ Khôi Phục Đã Chọn (<span id="trashRestoreCount">0</span>)</button>
               <button id="btnTrashPurge" onclick="bulkPurgeTrash()" class="hidden text-xs bg-red-700 text-white px-3 py-1.5 rounded font-bold hover:bg-red-800">🔥 Xóa Vĩnh Viễn Đã Chọn (<span id="trashPurgeCount">0</span>)</button>
             </div>
           </div>
@@ -754,7 +757,7 @@
                 <th class="border p-2">Phòng Ban</th>
                 <th class="border p-2">Xóa Bởi</th>
                 <th class="border p-2">Thời Gian Xóa</th>
-                <th class="border p-2 text-center">Thao Tác</th>
+                <th class="border p-2 text-center whitespace-nowrap">Thao Tác</th>
               </tr>
             </thead>
             <tbody id="trashTableBody"></tbody>
@@ -797,10 +800,10 @@
     <div id="licenseSubOrg" class="space-y-3">
       <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
         <div class="flex flex-wrap gap-2 text-xs">
-          <button onclick="openCompanyModal()" class="bg-teal-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-teal-700 transition">+ Thêm công ty</button>
-          <button onclick="downloadOrgUnitTemplate()" class="bg-gray-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-gray-700 transition">📄 Tải File CSV Mẫu</button>
-          <label class="bg-blue-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-blue-700 cursor-pointer transition">
-            📥 Nhập CSV <input type="file" accept=".csv" onchange="importOrgUnitsCSV(event)" class="hidden">
+          <button onclick="openCompanyModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition">+ Thêm công ty</button>
+          <button onclick="downloadOrgUnitTemplate()" class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition">📄 Tải File Excel Mẫu</button>
+          <label class="btn-secondary px-2.5 py-1.5 rounded font-semibold cursor-pointer transition">
+            📥 Nhập Excel <input type="file" accept=".xlsx" onchange="importOrgUnitsXlsx(event)" class="hidden">
           </label>
         </div>
         <span class="text-[11px] text-gray-500">Bấm "+ Con" trong từng đơn vị để thêm bất kỳ cấp nào — không giới hạn số cấp.</span>
@@ -826,10 +829,10 @@
       </div>
       <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
         <div class="flex flex-wrap gap-2 text-xs">
-          <button onclick="openEmployeeModal()" class="bg-teal-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-teal-700 transition">+ Thêm nhân viên</button>
-          <button onclick="downloadEmployeeTemplate()" class="bg-gray-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-gray-700 transition">📄 Tải File CSV Mẫu</button>
-          <label class="bg-blue-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-blue-700 cursor-pointer transition">
-            📥 Nhập CSV <input type="file" accept=".csv" onchange="importEmployeesCSV(event)" class="hidden">
+          <button onclick="openEmployeeModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition">+ Thêm nhân viên</button>
+          <button onclick="downloadEmployeeTemplate()" class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition">📄 Tải File Excel Mẫu</button>
+          <label class="btn-secondary px-2.5 py-1.5 rounded font-semibold cursor-pointer transition">
+            📥 Nhập Excel <input type="file" accept=".xlsx" onchange="importEmployeesXlsx(event)" class="hidden">
           </label>
         </div>
         <span id="empCountHint" class="text-[11px] text-gray-500"></span>
@@ -844,7 +847,7 @@
               <th class="border p-2">Đơn vị</th>
               <th class="border p-2">Công ty</th>
               <th class="border p-2">Email</th>
-              <th class="border p-2 text-center">Thao tác</th>
+              <th class="border p-2 text-center whitespace-nowrap">Thao tác</th>
             </tr>
           </thead>
           <tbody id="licenseEmpTableBody"></tbody>
@@ -854,7 +857,7 @@
 
     <!-- Sub-tab: Danh mục phần mềm -->
     <div id="licenseSubSoftware" class="hidden space-y-3">
-      <button onclick="openSoftwareModal()" class="bg-teal-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-teal-700 transition text-xs">+ Thêm phần mềm</button>
+      <button onclick="openSoftwareModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Thêm phần mềm</button>
       <div class="overflow-x-auto">
         <table class="w-full border-collapse border bg-white text-xs max-w-3xl">
           <thead>
@@ -865,7 +868,7 @@
               <th class="border p-2 text-center">Thời hạn mặc định</th>
               <th class="border p-2 text-center">Số người/mã</th>
               <th class="border p-2 text-center">Khác công ty</th>
-              <th class="border p-2 text-center">Thao tác</th>
+              <th class="border p-2 text-center whitespace-nowrap">Thao tác</th>
             </tr>
           </thead>
           <tbody id="softwareTableBody"></tbody>
@@ -876,7 +879,7 @@
     <!-- Sub-tab: Phát hành license -->
     <div id="licenseSubBatch" class="hidden space-y-3">
       <div class="flex justify-between items-center gap-2">
-        <button onclick="openBatchModal()" class="bg-teal-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-teal-700 transition text-xs">+ Phát hành license</button>
+        <button onclick="openBatchModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Phát hành license</button>
         <span class="text-[11px] text-gray-500">Mỗi lần phát hành = 1 lần gia hạn: nhập <b>tổng số lượng mong muốn</b>, hệ thống chỉ sinh thêm phần chênh lệch và gia hạn toàn bộ mã cũ về ngày hết hạn mới.</span>
       </div>
       <div class="overflow-x-auto">
@@ -890,7 +893,7 @@
               <th class="border p-2 text-center">Mã mới sinh</th>
               <th class="border p-2">Ngày cấp</th>
               <th class="border p-2">Ngày gia hạn đến</th>
-              <th class="border p-2 text-center">Thao tác</th>
+              <th class="border p-2 text-center whitespace-nowrap">Thao tác</th>
             </tr>
           </thead>
           <tbody id="batchTableBody"></tbody>
@@ -915,9 +918,9 @@
         </div>
       </div>
       <div class="flex flex-wrap gap-2">
-        <button onclick="openAllocModal()" class="bg-teal-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-teal-700 transition text-xs">+ Thêm phân bổ</button>
-        <button onclick="openAutoAllocateModal()" class="bg-amber-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-amber-700 transition text-xs">⚡ Phân bổ tự động</button>
-        <button onclick="openControlReportModal()" class="bg-slate-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-slate-700 transition text-xs">🔍 Kiểm soát</button>
+        <button onclick="openAllocModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Thêm phân bổ</button>
+        <button onclick="openAutoAllocateModal()" class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">⚡ Phân bổ tự động</button>
+        <button onclick="openControlReportModal()" class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">🔍 Kiểm soát</button>
       </div>
       <div class="overflow-x-auto">
         <table class="w-full border-collapse border bg-white text-xs">
@@ -929,11 +932,11 @@
               <th class="border p-2">Họ và tên</th>
               <th class="border p-2">Chức danh</th>
               <th class="border p-2">Phần mềm</th>
-              <th class="border p-2">Mã license</th>
-              <th class="border p-2">Ngày cấp</th>
-              <th class="border p-2">Ngày hết hạn</th>
-              <th class="border p-2 text-center">Trạng thái</th>
-              <th class="border p-2 text-center">Thao tác</th>
+              <th class="border p-2 whitespace-nowrap">Mã license</th>
+              <th class="border p-2 whitespace-nowrap">Ngày cấp</th>
+              <th class="border p-2 whitespace-nowrap">Ngày hết hạn</th>
+              <th class="border p-2 text-center whitespace-nowrap">Trạng thái</th>
+              <th class="border p-2 text-center whitespace-nowrap">Thao tác</th>
             </tr>
           </thead>
           <tbody id="allocTableBody"></tbody>
@@ -944,7 +947,7 @@
     <!-- Sub-tab: Tài khoản AD -->
     <div id="licenseSubAD" class="hidden space-y-3">
       <div class="flex items-center gap-2 flex-wrap">
-        <button onclick="syncAdAccountsNow()" class="bg-teal-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-teal-700 transition text-xs">🔄 Đồng bộ ngay</button>
+        <button onclick="syncAdAccountsNow()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">🔄 Đồng bộ ngay</button>
         <span id="adLastSyncLabel" class="text-xs text-gray-500"></span>
       </div>
       <div class="overflow-x-auto">
@@ -982,7 +985,7 @@
           </select>
         </div>
       </div>
-      <button onclick="openRegistrationModal()" class="bg-teal-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-teal-700 transition text-xs">+ Đăng ký mua</button>
+      <button onclick="openRegistrationModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Đăng ký mua</button>
       <div class="overflow-x-auto">
         <table class="w-full border-collapse border bg-white text-xs">
           <thead>
@@ -996,7 +999,7 @@
               <th class="border p-2 text-right">Đơn giá</th>
               <th class="border p-2 text-right">Thành tiền</th>
               <th class="border p-2">Ngày hết hạn</th>
-              <th class="border p-2 text-center">Trạng thái</th>
+              <th class="border p-2 text-center whitespace-nowrap">Trạng thái</th>
             </tr>
           </thead>
           <tbody id="registrationsTableBody"></tbody>
@@ -1006,7 +1009,7 @@
 
     <!-- Sub-tab: Phát hành đăng ký mua (Admin quản lý Kỳ mua) -->
     <div id="licenseSubRounds" class="hidden space-y-4">
-      <button onclick="openRoundModal()" class="bg-teal-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-teal-700 transition text-xs">+ Tạo kỳ mua mới</button>
+      <button onclick="openRoundModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Tạo kỳ mua mới</button>
       <div id="roundsListContainer" class="space-y-3"></div>
 
       <div class="border-t pt-4">
@@ -1036,8 +1039,8 @@
                 <th class="border p-2 text-center">Đang dùng</th>
                 <th class="border p-2 text-center">Đăng ký mới</th>
                 <th class="border p-2 text-right">Thành tiền</th>
-                <th class="border p-2 text-center">Trạng thái</th>
-                <th class="border p-2 text-center">Thao tác</th>
+                <th class="border p-2 text-center whitespace-nowrap">Trạng thái</th>
+                <th class="border p-2 text-center whitespace-nowrap">Thao tác</th>
               </tr>
             </thead>
             <tbody id="adminRegistrationsTableBody"></tbody>
@@ -1051,13 +1054,13 @@
       <div class="bg-amber-50 border border-amber-200 rounded p-2 text-[11px] text-amber-800">
         Module Ngân sách dùng để LẬP DỰ TRÙ trước khi mở Kỳ mua thật — độc lập hoàn toàn với "Phát hành đăng ký mua" ở trên. Số "Đang dùng" tính theo license ĐANG được gán cho nhân viên trong từng đơn vị trực thuộc (gồm cả đơn vị con bên dưới).
       </div>
-      <button onclick="openBudgetRoundModal()" class="bg-amber-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-amber-700 transition text-xs">+ Tạo kỳ ngân sách mới</button>
+      <button onclick="openBudgetRoundModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Tạo kỳ ngân sách mới</button>
       <div id="budgetRoundsListContainer" class="space-y-3"></div>
 
       <div class="border-t pt-4">
         <div class="flex justify-between items-center mb-2">
           <h3 class="font-bold text-gray-800 text-sm">Dự trù ngân sách theo đơn vị</h3>
-          <button onclick="openBudgetRegistrationModal()" class="bg-amber-600 text-white px-2.5 py-1.5 rounded font-semibold hover:bg-amber-700 transition text-xs">+ Lập dự trù</button>
+          <button onclick="openBudgetRegistrationModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Lập dự trù</button>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded border text-xs mb-2">
           <div>
@@ -1085,8 +1088,8 @@
                 <th class="border p-2 text-center">Dự trù mới</th>
                 <th class="border p-2 text-right">Đơn giá</th>
                 <th class="border p-2 text-right">Thành tiền</th>
-                <th class="border p-2 text-center">Trạng thái</th>
-                <th class="border p-2 text-center">Thao tác</th>
+                <th class="border p-2 text-center whitespace-nowrap">Trạng thái</th>
+                <th class="border p-2 text-center whitespace-nowrap">Thao tác</th>
               </tr>
             </thead>
             <tbody id="budgetRegistrationsTableBody"></tbody>
@@ -1215,7 +1218,7 @@
       </div>
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" onclick="closeLicenseModal('companyModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveCompany()" class="bg-teal-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-teal-700">Lưu</button>
+        <button type="button" onclick="saveCompany()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
       </div>
     </div>
   </div>
@@ -1240,7 +1243,7 @@
       </div>
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" onclick="closeLicenseModal('orgUnitModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveOrgUnit()" class="bg-teal-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-teal-700">Lưu</button>
+        <button type="button" onclick="saveOrgUnit()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
       </div>
     </div>
   </div>
@@ -1276,7 +1279,7 @@
       </div>
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" onclick="closeLicenseModal('employeeModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveEmployee()" class="bg-teal-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-teal-700">Lưu</button>
+        <button type="button" onclick="saveEmployee()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
       </div>
     </div>
   </div>
@@ -1318,7 +1321,7 @@
       </div>
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" onclick="closeLicenseModal('softwareModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveSoftware()" class="bg-teal-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-teal-700">Lưu</button>
+        <button type="button" onclick="saveSoftware()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
       </div>
     </div>
   </div>
@@ -1356,7 +1359,7 @@
       </div>
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" onclick="closeLicenseModal('batchModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveBatch()" class="bg-teal-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-teal-700">Phát hành</button>
+        <button type="button" onclick="saveBatch()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Phát hành</button>
       </div>
     </div>
   </div>
@@ -1396,7 +1399,7 @@
       </div>
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" onclick="closeLicenseModal('allocModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveAllocation()" class="bg-teal-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-teal-700">Cấp phát</button>
+        <button type="button" onclick="saveAllocation()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Cấp phát</button>
       </div>
     </div>
   </div>
@@ -1427,7 +1430,7 @@
       </div>
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" onclick="closeLicenseModal('autoAllocateModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveAutoAllocate()" class="bg-amber-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-amber-700">Xử lý</button>
+        <button type="button" onclick="saveAutoAllocate()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Xử lý</button>
       </div>
     </div>
   </div>
@@ -1488,13 +1491,13 @@
           </table>
         </div>
         <div class="flex justify-between items-center mt-2">
-          <button type="button" onclick="addRoundCreateRow()" class="text-xs font-semibold text-teal-700 bg-teal-50 border border-dashed border-teal-600 rounded px-2.5 py-1.5 hover:bg-teal-100">+ Thêm dòng</button>
+          <button type="button" onclick="addRoundCreateRow()" class="text-xs font-semibold text-brand-700 bg-brand-50 border border-dashed border-brand-600 rounded px-2.5 py-1.5 hover:bg-brand-100">+ Thêm dòng</button>
           <span id="roundCreateItemsHint" class="text-[11px] text-gray-500"></span>
         </div>
       </div>
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" onclick="closeLicenseModal('roundModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveRound()" class="bg-teal-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-teal-700">Tạo kỳ mua</button>
+        <button type="button" onclick="saveRound()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Tạo kỳ mua</button>
       </div>
     </div>
   </div>
@@ -1519,7 +1522,7 @@
       </div>
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" onclick="closeLicenseModal('roundItemModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveRoundItem()" class="bg-teal-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-teal-700">Thêm</button>
+        <button type="button" onclick="saveRoundItem()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Thêm</button>
       </div>
     </div>
   </div>
@@ -1560,7 +1563,7 @@
           </table>
         </div>
         <div class="flex justify-between items-center mt-2">
-          <button type="button" onclick="addRegRow()" class="text-xs font-semibold text-teal-700 bg-teal-50 border border-dashed border-teal-600 rounded px-2.5 py-1.5 hover:bg-teal-100">+ Thêm dòng</button>
+          <button type="button" onclick="addRegRow()" class="text-xs font-semibold text-brand-700 bg-brand-50 border border-dashed border-brand-600 rounded px-2.5 py-1.5 hover:bg-brand-100">+ Thêm dòng</button>
           <span class="text-xs text-gray-600">Tổng cộng <strong id="regTotal" class="text-teal-700">0 ₫</strong></span>
         </div>
       </div>
@@ -1570,7 +1573,7 @@
       </div>
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" onclick="closeLicenseModal('registrationModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveRegistration()" class="bg-teal-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-teal-700">Gửi đăng ký</button>
+        <button type="button" onclick="saveRegistration()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Gửi đăng ký</button>
       </div>
     </div>
   </div>
@@ -1604,13 +1607,13 @@
           </table>
         </div>
         <div class="flex justify-between items-center mt-2">
-          <button type="button" onclick="addBudgetRoundCreateRow()" class="text-xs font-semibold text-amber-700 bg-amber-50 border border-dashed border-amber-600 rounded px-2.5 py-1.5 hover:bg-amber-100">+ Thêm dòng</button>
+          <button type="button" onclick="addBudgetRoundCreateRow()" class="text-xs font-semibold text-brand-700 bg-brand-50 border border-dashed border-brand-600 rounded px-2.5 py-1.5 hover:bg-brand-100">+ Thêm dòng</button>
           <span id="budgetRoundCreateItemsHint" class="text-[11px] text-gray-500"></span>
         </div>
       </div>
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" onclick="closeLicenseModal('budgetRoundModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveBudgetRound()" class="bg-amber-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-amber-700">Tạo kỳ ngân sách</button>
+        <button type="button" onclick="saveBudgetRound()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Tạo kỳ ngân sách</button>
       </div>
     </div>
   </div>
@@ -1630,7 +1633,7 @@
       </div>
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" onclick="closeLicenseModal('budgetRoundItemModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveBudgetRoundItem()" class="bg-amber-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-amber-700">Thêm</button>
+        <button type="button" onclick="saveBudgetRoundItem()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Thêm</button>
       </div>
     </div>
   </div>
@@ -1669,7 +1672,7 @@
           </table>
         </div>
         <div class="flex justify-between items-center mt-2">
-          <button type="button" onclick="addBudgetRegRow()" class="text-xs font-semibold text-amber-700 bg-amber-50 border border-dashed border-amber-600 rounded px-2.5 py-1.5 hover:bg-amber-100">+ Thêm dòng</button>
+          <button type="button" onclick="addBudgetRegRow()" class="text-xs font-semibold text-brand-700 bg-brand-50 border border-dashed border-brand-600 rounded px-2.5 py-1.5 hover:bg-brand-100">+ Thêm dòng</button>
           <span class="text-xs text-gray-600">Tổng cộng <strong id="budgetRegTotal" class="text-amber-700">0 ₫</strong></span>
         </div>
       </div>
@@ -1679,7 +1682,7 @@
       </div>
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" onclick="closeLicenseModal('budgetRegistrationModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveBudgetRegistration()" class="bg-amber-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-amber-700">Gửi dự trù</button>
+        <button type="button" onclick="saveBudgetRegistration()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Gửi dự trù</button>
       </div>
     </div>
   </div>
@@ -2106,6 +2109,11 @@
       document.getElementById('adminSection').classList.toggle('hidden', tabName !== 'admin');
       document.getElementById('licenseSection').classList.toggle('hidden', tabName !== 'license');
       document.getElementById('reportsSection').classList.toggle('hidden', tabName !== 'reports');
+
+      document.getElementById('btnDocTab').classList.toggle('active', tabName === 'doc');
+      document.getElementById('btnLicenseTab').classList.toggle('active', tabName === 'license');
+      document.getElementById('btnReportsTab').classList.toggle('active', tabName === 'reports');
+      document.getElementById('btnAdminTab').classList.toggle('active', tabName === 'admin');
 
       if (tabName === 'doc') { renderDocs(); updateUploadDeptDropdown(); }
       if (tabName === 'admin' && currentUser.perms.admin) { switchAdminSubTab('users'); }
@@ -2834,7 +2842,7 @@
             <td class="border p-2">${escapeHtml(latest.deletedBy || '')}</td>
             <td class="border p-2">${latest.deletedAt ? new Date(latest.deletedAt).toLocaleString('vi-VN') : ''}</td>
             <td class="border p-2 text-center space-x-1">
-              <button onclick="restoreTrashGroup('${escapeJsAttr(gid)}', '${escapeJsAttr(latest.code)}')" class="text-xs bg-emerald-600 text-white px-2 py-0.5 rounded font-bold">Khôi Phục</button>
+              <button onclick="restoreTrashGroup('${escapeJsAttr(gid)}', '${escapeJsAttr(latest.code)}')" class="text-xs btn-success px-2 py-0.5 rounded font-bold">Khôi Phục</button>
               <button onclick="purgeTrashGroup('${escapeJsAttr(gid)}', '${escapeJsAttr(latest.code)}')" class="text-xs bg-red-700 text-white px-2 py-0.5 rounded font-bold">Xóa Vĩnh Viễn</button>
             </td>
           </tr>
@@ -2965,7 +2973,7 @@
             <div class="border-t pt-1.5 space-y-1">${historyHtml}</div>
             <div class="flex gap-1.5 pt-1">
               <button onclick="openViewDocModal(${v.id})" class="text-xs bg-blue-600 text-white px-2 py-1 rounded font-semibold hover:bg-blue-700">Xem</button>
-              ${canDownload ? `<button onclick="downloadDoc(${v.id})" class="text-xs bg-emerald-600 text-white px-2 py-1 rounded font-semibold hover:bg-emerald-700">Tải</button>` : ''}
+              ${canDownload ? `<button onclick="downloadDoc(${v.id})" class="text-xs btn-secondary px-2 py-1 rounded font-semibold">Tải</button>` : ''}
             </div>
           </div>
         `;
@@ -3004,7 +3012,7 @@
                 <select id="wfSelect_${escapeHtml(dept)}" onchange="onDeptWfSelectChange('${escapeJsAttr(dept)}')" class="border p-1 rounded text-xs bg-white font-bold">
                   ${wfOptions}
                 </select>
-                <button onclick="saveDeptWorkflow('${escapeJsAttr(dept)}')" class="bg-emerald-600 text-white text-xs px-3 py-1 rounded font-bold hover:bg-emerald-700">Lưu Gán Quy Trình</button>
+                <button onclick="saveDeptWorkflow('${escapeJsAttr(dept)}')" class="btn-primary text-xs px-3 py-1 rounded font-bold">Lưu Gán Quy Trình</button>
               </div>
             </div>
             <div id="approverSteps_${escapeHtml(dept)}" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
@@ -3651,55 +3659,41 @@
     }
 
     function downloadUserTemplate() {
-      const csv = `username,password,fullName,email,phone,dept\nuser_demo,123456,Nguyễn Văn Demo,demo@company.com,0987654321,Phòng IT`;
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = 'user_import_template.csv';
-      link.click();
+      downloadXlsxFile('user_import_template.xlsx',
+        ['username', 'password', 'fullName', 'email', 'phone', 'dept'],
+        [['user_demo', '123456', 'Nguyễn Văn Demo', 'demo@company.com', '0987654321', 'Phòng IT']]);
     }
 
-    function exportUsersCSV() {
-      let csv = 'username,fullName,email,phone,dept\n';
-      DB.users.forEach(u => {
-        csv += `"${u.username}","${u.name}","${u.email || ''}","${u.phone || ''}","${u.dept}"\n`;
-      });
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = `dms_users_export_${Date.now()}.csv`;
-      link.click();
+    function exportUsersXlsx() {
+      downloadXlsxFile(`dms_users_export_${Date.now()}.xlsx`,
+        ['username', 'fullName', 'email', 'phone', 'dept'],
+        DB.users.map(u => [u.username, u.name, u.email || '', u.phone || '', u.dept]));
     }
 
-    function importUsersCSV(e) {
+    async function importUsersXlsx(e) {
       const file = e.target.files[0];
       if (!file) return;
-
-      const reader = new FileReader();
-      reader.onload = function(evt) {
-        const lines = evt.target.result.split('\n');
+      try {
+        const rows = await readXlsxRows(file, ['username', 'pass', 'name', 'email', 'phone', 'dept']);
         let count = 0;
-        for (let i = 1; i < lines.length; i++) {
-          const line = lines[i].trim();
-          if (!line) continue;
-          const parts = line.split(',').map(p => p.replace(/^"|"$/g, '').trim());
-          if (parts.length >= 6) {
-            const [username, pass, name, email, phone, dept] = parts;
-            if (!DB.users.some(u => u.username === username)) {
-              DB.users.push({
-                id: Date.now() + Math.random(),
-                username, pass, name, email, phone, dept,
-                perms: { admin: false, uploadAll: false, viewDraftAll: false, viewApprovedAll: false, downloadAll: false }
-              });
-              count++;
-            }
+        rows.forEach(r => {
+          if (!r.username) return;
+          if (!DB.users.some(u => u.username === r.username)) {
+            DB.users.push({
+              id: Date.now() + Math.random(),
+              username: r.username, pass: r.pass, name: r.name, email: r.email, phone: r.phone, dept: r.dept,
+              perms: { admin: false, uploadAll: false, viewDraftAll: false, viewApprovedAll: false, downloadAll: false }
+            });
+            count++;
           }
-        }
+        });
         syncStorage('users');
         showToast(`Đã import thành công ${count} tài khoản người dùng!`, 'success');
         renderUsers();
-      };
-      reader.readAsText(file);
+      } catch (err) {
+        showToast(err.message || 'Không thể nhập file Excel.', 'danger');
+      }
+      e.target.value = '';
     }
 
     // --- LOG HỆ THỐNG ---
@@ -3750,16 +3744,10 @@
       renderSystemLogs();
     }
 
-    function exportSystemLogsCSV() {
-      let csv = 'Timestamp,Username,FullName,IP,Module,ActionType,Description,Status\n';
-      DB.systemLogs.forEach(l => {
-        csv += `"${l.timestamp}","${l.username}","${l.fullName}","${l.ipAddress}","${l.module}","${l.actionType}","${l.description}","${l.status}"\n`;
-      });
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = `system_logs_${Date.now()}.csv`;
-      link.click();
+    function exportSystemLogsXlsx() {
+      downloadXlsxFile(`system_logs_${Date.now()}.xlsx`,
+        ['Timestamp', 'Username', 'FullName', 'IP', 'Module', 'ActionType', 'Description', 'Status'],
+        DB.systemLogs.map(l => [l.timestamp, l.username, l.fullName, l.ipAddress, l.module, l.actionType, l.description, l.status]));
     }
 
     function resetLogFilters() {
@@ -3915,8 +3903,8 @@
               <span class="text-[10px] font-bold text-teal-700 bg-teal-100 px-2 py-0.5 rounded">${escapeHtml(c.code)}</span>
             </div>
             <div class="flex gap-1 text-xs">
-              <button onclick="openOrgUnitModal(${c.id}, null)" class="px-2 py-1 rounded hover:bg-teal-100 font-semibold text-teal-800">+ Thêm đơn vị</button>
-              <button onclick="openCompanyModal(${c.id})" class="px-2 py-1 rounded hover:bg-teal-100">✏️ Sửa</button>
+              <button onclick="openOrgUnitModal(${c.id}, null)" class="px-2 py-1 rounded hover:bg-brand-100 font-semibold text-brand-700">+ Thêm đơn vị</button>
+              <button onclick="openCompanyModal(${c.id})" class="px-2 py-1 rounded hover:bg-brand-100 text-brand-700">✏️ Sửa</button>
               <button onclick="deleteCompany(${c.id})" class="px-2 py-1 rounded hover:bg-red-100 text-red-600">🗑️</button>
             </div>
           </div>
@@ -3943,7 +3931,7 @@
               <span class="text-xs font-semibold flex-1">${escapeHtml(u.name)}</span>
               <span class="text-[11px] text-gray-400">${empCount > 0 ? empCount + ' nhân viên' : ''}</span>
               <div class="flex gap-1 opacity-0 group-hover:opacity-100 text-[11px]">
-                <button onclick="openOrgUnitModal(${companyId}, ${u.id})" class="px-1.5 py-0.5 rounded hover:bg-teal-100 text-teal-800 font-semibold">+ Con</button>
+                <button onclick="openOrgUnitModal(${companyId}, ${u.id})" class="px-1.5 py-0.5 rounded hover:bg-brand-100 text-brand-700 font-semibold">+ Con</button>
                 <button onclick="openOrgUnitModal(${companyId}, ${u.parentId ?? 'null'}, ${u.id})" class="px-1.5 py-0.5 rounded hover:bg-gray-200">✏️</button>
                 <button onclick="deleteOrgUnit(${u.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600">🗑️</button>
               </div>
@@ -4440,14 +4428,14 @@ function isPerpetualSoftware(softwareId) {
       tbody.innerHTML = rows.map((r, i) => {
         let statusHtml;
         if (!r.code.expiryDate) {
-          statusHtml = `<span class="text-[10px] font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Vĩnh viễn</span>`;
+          statusHtml = `<span class="text-[10px] font-bold text-success-700 bg-success-100 px-2 py-0.5 rounded-full whitespace-nowrap">Vĩnh viễn</span>`;
         } else if (r.code.expiryDate < today) {
-          statusHtml = `<span class="text-[10px] font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded-full">Đã hết hạn</span>`;
+          statusHtml = `<span class="text-[10px] font-bold text-danger-700 bg-danger-100 px-2 py-0.5 rounded-full whitespace-nowrap">Đã hết hạn</span>`;
         } else {
           const daysLeft = Math.ceil((new Date(r.code.expiryDate) - new Date(today)) / 86400000);
           statusHtml = daysLeft <= 30
-            ? `<span class="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">Còn ${daysLeft} ngày</span>`
-            : `<span class="text-[10px] font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Còn hạn</span>`;
+            ? `<span class="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full whitespace-nowrap">Còn ${daysLeft} ngày</span>`
+            : `<span class="text-[10px] font-bold text-success-700 bg-success-100 px-2 py-0.5 rounded-full whitespace-nowrap">Còn hạn</span>`;
         }
         const maxAssignees = r.software ? codeMaxAssignees(r.software.id) : 1;
         const usedCount = codeAssignments(r.code.id).length;
@@ -4459,11 +4447,11 @@ function isPerpetualSoftware(softwareId) {
             <td class="border p-2 font-semibold">${escapeHtml(r.emp.fullName)}</td>
             <td class="border p-2">${escapeHtml(r.emp.title || '—')}</td>
             <td class="border p-2">${escapeHtml(r.software ? r.software.name : '—')}</td>
-            <td class="border p-2 font-mono text-[11px]">${escapeHtml(r.code.code)} <span class="text-gray-400">(${usedCount}/${maxAssignees})</span>${codeShareBadge(r.code.id)}</td>
-            <td class="border p-2">${r.assignment.assignedAt}</td>
-            <td class="border p-2">${expiryLabel(r.code.expiryDate)}</td>
+            <td class="border p-2 font-mono text-[11px] whitespace-nowrap">${escapeHtml(r.code.code)} <span class="text-gray-400">(${usedCount}/${maxAssignees})</span>${codeShareBadge(r.code.id)}</td>
+            <td class="border p-2 whitespace-nowrap">${r.assignment.assignedAt}</td>
+            <td class="border p-2 whitespace-nowrap">${expiryLabel(r.code.expiryDate)}</td>
             <td class="border p-2 text-center">${statusHtml}</td>
-            <td class="border p-2 text-center"><button onclick="revokeAllocation(${r.code.id}, ${r.emp.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600 text-[11px] font-semibold">Thu hồi</button></td>
+            <td class="border p-2 text-center"><button onclick="revokeAllocation(${r.code.id}, ${r.emp.id})" class="btn-danger-ghost px-1.5 py-0.5 rounded text-[11px] font-semibold whitespace-nowrap">Thu hồi</button></td>
           </tr>
         `;
       }).join('');
@@ -4773,9 +4761,9 @@ function isPerpetualSoftware(softwareId) {
     // --- Tiện ích chung cho Kỳ mua / Đăng ký mua bản quyền ---
     function formatMoney(n) { return Number(n || 0).toLocaleString('vi-VN') + ' ₫'; }
     function purchaseStatusBadge(status) {
-      if (status === 'APPROVED') return `<span class="text-[10px] font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Đã duyệt</span>`;
-      if (status === 'REJECTED') return `<span class="text-[10px] font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded-full">Từ chối</span>`;
-      return `<span class="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">Chờ duyệt</span>`;
+      if (status === 'APPROVED') return `<span class="text-[10px] font-bold text-success-700 bg-success-100 px-2 py-0.5 rounded-full whitespace-nowrap">Đã duyệt</span>`;
+      if (status === 'REJECTED') return `<span class="text-[10px] font-bold text-danger-700 bg-danger-100 px-2 py-0.5 rounded-full whitespace-nowrap">Từ chối</span>`;
+      return `<span class="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full whitespace-nowrap">Chờ duyệt</span>`;
     }
 
     // --- Phát hành đăng ký mua (Admin: quản lý Kỳ mua + duyệt đăng ký) ---
@@ -4796,15 +4784,15 @@ function isPerpetualSoftware(softwareId) {
                 <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${isOpen ? 'text-green-700 bg-green-100' : 'text-gray-600 bg-gray-200'}">${isOpen ? 'Đang mở' : 'Đã đóng'}</span>
               </div>
               <div class="flex gap-1 text-xs">
-                ${isOpen ? `<button onclick="openRoundItemModal(${r.id})" class="px-2 py-1 rounded hover:bg-teal-100 font-semibold text-teal-800">+ Thêm phần mềm</button>` : ''}
-                <button onclick="toggleRoundStatus(${r.id}, '${isOpen ? 'CLOSED' : 'OPEN'}')" class="px-2 py-1 rounded hover:bg-teal-100">${isOpen ? '🔒 Đóng kỳ' : '🔓 Mở lại'}</button>
+                ${isOpen ? `<button onclick="openRoundItemModal(${r.id})" class="px-2 py-1 rounded hover:bg-brand-100 font-semibold text-brand-700">+ Thêm phần mềm</button>` : ''}
+                <button onclick="toggleRoundStatus(${r.id}, '${isOpen ? 'CLOSED' : 'OPEN'}')" class="px-2 py-1 rounded hover:bg-gray-100 text-gray-700">${isOpen ? '🔒 Đóng kỳ' : '🔓 Mở lại'}</button>
               </div>
             </div>
             <div class="p-3">
               ${r.note ? `<p class="text-xs text-gray-500 mb-2">${escapeHtml(r.note)}</p>` : ''}
               ${items.length === 0 ? `<div class="text-xs text-gray-400">Chưa có phần mềm nào trong kỳ này.</div>` : `
                 <table class="w-full text-xs border-collapse">
-                  <thead><tr class="bg-gray-50 text-left"><th class="border p-1.5">Phần mềm</th><th class="border p-1.5 text-right">Đơn giá</th><th class="border p-1.5">Hết hạn</th><th class="border p-1.5 text-center">Thao tác</th></tr></thead>
+                  <thead><tr class="bg-gray-50 text-left"><th class="border p-1.5">Phần mềm</th><th class="border p-1.5 text-right">Đơn giá</th><th class="border p-1.5">Hết hạn</th><th class="border p-1.5 text-center whitespace-nowrap">Thao tác</th></tr></thead>
                   <tbody>
                     ${items.map(i => {
                       const sw = licenseDB.softwareCatalog.find(s => s.id === i.softwareId);
@@ -5019,8 +5007,8 @@ function isPerpetualSoftware(softwareId) {
             <td class="border p-2 text-center">${purchaseStatusBadge(r.status)}</td>
             <td class="border p-2 text-center">
               ${r.status === 'PENDING' ? `
-                <button onclick="approveRegistration(${r.id})" class="px-1.5 py-0.5 rounded hover:bg-green-100 text-green-700 text-[11px] font-semibold">Duyệt</button>
-                <button onclick="rejectRegistration(${r.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600 text-[11px] font-semibold">Từ chối</button>
+                <button onclick="approveRegistration(${r.id})" class="px-1.5 py-0.5 rounded hover:bg-success-50 text-success-700 text-[11px] font-semibold whitespace-nowrap">Duyệt</button>
+                <button onclick="rejectRegistration(${r.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600 text-[11px] font-semibold whitespace-nowrap">Từ chối</button>
               ` : '—'}
             </td>
           </tr>
@@ -5248,15 +5236,15 @@ function isPerpetualSoftware(softwareId) {
                 <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${isOpen ? 'text-green-700 bg-green-100' : 'text-gray-600 bg-gray-200'}">${isOpen ? 'Đang mở' : 'Đã đóng'}</span>
               </div>
               <div class="flex gap-1 text-xs">
-                ${isOpen ? `<button onclick="openBudgetRoundItemModal(${r.id})" class="px-2 py-1 rounded hover:bg-amber-100 font-semibold text-amber-800">+ Thêm phần mềm</button>` : ''}
-                <button onclick="toggleBudgetRoundStatus(${r.id}, '${isOpen ? 'CLOSED' : 'OPEN'}')" class="px-2 py-1 rounded hover:bg-amber-100">${isOpen ? '🔒 Đóng kỳ' : '🔓 Mở lại'}</button>
+                ${isOpen ? `<button onclick="openBudgetRoundItemModal(${r.id})" class="px-2 py-1 rounded hover:bg-brand-100 font-semibold text-brand-700">+ Thêm phần mềm</button>` : ''}
+                <button onclick="toggleBudgetRoundStatus(${r.id}, '${isOpen ? 'CLOSED' : 'OPEN'}')" class="px-2 py-1 rounded hover:bg-gray-100 text-gray-700">${isOpen ? '🔒 Đóng kỳ' : '🔓 Mở lại'}</button>
               </div>
             </div>
             <div class="p-3">
               ${r.note ? `<p class="text-xs text-gray-500 mb-2">${escapeHtml(r.note)}</p>` : ''}
               ${items.length === 0 ? `<div class="text-xs text-gray-400">Chưa có phần mềm nào trong kỳ này.</div>` : `
                 <table class="w-full text-xs border-collapse">
-                  <thead><tr class="bg-gray-50 text-left"><th class="border p-1.5">Phần mềm</th><th class="border p-1.5 text-right">Đơn giá dự kiến</th><th class="border p-1.5 text-center">Thao tác</th></tr></thead>
+                  <thead><tr class="bg-gray-50 text-left"><th class="border p-1.5">Phần mềm</th><th class="border p-1.5 text-right">Đơn giá dự kiến</th><th class="border p-1.5 text-center whitespace-nowrap">Thao tác</th></tr></thead>
                   <tbody>
                     ${items.map(i => {
                       const sw = licenseDB.softwareCatalog.find(s => s.id === i.softwareId);
@@ -5427,8 +5415,8 @@ function isPerpetualSoftware(softwareId) {
             <td class="border p-2 text-center">${budgetStatusBadge(r.status)}</td>
             <td class="border p-2 text-center">
               ${r.status === 'PENDING' ? `
-                <button onclick="approveBudgetRegistration(${r.id})" class="px-1.5 py-0.5 rounded hover:bg-green-100 text-green-700 text-[11px] font-semibold">Duyệt</button>
-                <button onclick="rejectBudgetRegistration(${r.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600 text-[11px] font-semibold">Từ chối</button>
+                <button onclick="approveBudgetRegistration(${r.id})" class="px-1.5 py-0.5 rounded hover:bg-success-50 text-success-700 text-[11px] font-semibold whitespace-nowrap">Duyệt</button>
+                <button onclick="rejectBudgetRegistration(${r.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600 text-[11px] font-semibold whitespace-nowrap">Từ chối</button>
               ` : '—'}
             </td>
           </tr>
@@ -5569,37 +5557,29 @@ function isPerpetualSoftware(softwareId) {
       }
     }
 
-    // --- CSV mẫu / nhập hàng loạt ---
-    function parseCsvLine(line) {
-      const result = [];
-      let cur = '', inQuotes = false;
-      for (let i = 0; i < line.length; i++) {
-        const ch = line[i];
-        if (inQuotes) {
-          if (ch === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else inQuotes = false; }
-          else cur += ch;
-        } else {
-          if (ch === '"') inQuotes = true;
-          else if (ch === ',') { result.push(cur); cur = ''; }
-          else cur += ch;
-        }
-      }
-      result.push(cur);
-      return result.map(s => s.trim());
-    }
-    function parseCsvRows(text, headerKeys) {
-      const lines = text.split(/\r\n|\n|\r/).filter(l => l.trim() !== '');
-      const rows = [];
-      for (let i = 1; i < lines.length; i++) {
-        const cells = parseCsvLine(lines[i]);
-        const obj = {};
-        headerKeys.forEach((key, idx) => { obj[key] = cells[idx] || ''; });
-        rows.push(obj);
-      }
-      return rows;
-    }
-    function downloadCsvFile(filename, csvText) {
-      const blob = new Blob(['﻿' + csvText], { type: 'text/csv;charset=utf-8;' });
+    // --- File Excel (.xlsx) mẫu / nhập hàng loạt -----------------------------
+    // Dùng .xlsx thay cho .csv: tránh 2 lỗi kinh điển khi thao tác CSV bằng Excel
+    // tiếng Việt — (1) Excel ở máy dùng vùng miền Việt Nam mặc định tách cột
+    // theo dấu ";" (vì dấu "," được dùng làm dấu thập phân), nên mở CSV chuẩn
+    // (dùng ",") bị dồn hết dữ liệu vào 1 cột; (2) khi sửa rồi bấm Lưu, Excel
+    // thường ghi đè file bằng bảng mã ANSI hệ thống thay vì UTF-8 khiến tiếng
+    // Việt có dấu bị vỡ chữ ở lần mở sau. File .xlsx lưu chuỗi ký tự trực tiếp
+    // trong cấu trúc riêng, không qua dấu phân tách hay bảng mã nên tránh được
+    // cả hai lỗi trên. Dùng thư viện ExcelJS tự lưu trữ tại /vendor (không gọi
+    // CDN ngoài) — xem thẻ <script> nạp ở đầu file.
+    async function downloadXlsxFile(filename, headerRow, dataRows) {
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Sheet1');
+      ws.addRow(headerRow);
+      ws.getRow(1).font = { bold: true };
+      dataRows.forEach(r => ws.addRow(r));
+      ws.columns.forEach(col => {
+        let maxLen = 10;
+        col.eachCell({ includeEmpty: true }, cell => { maxLen = Math.max(maxLen, String(cell.value ?? '').length); });
+        col.width = Math.min(maxLen + 2, 60);
+      });
+      const buf = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
       link.download = filename;
@@ -5607,62 +5587,82 @@ function isPerpetualSoftware(softwareId) {
       link.click();
       link.remove();
     }
+    async function readXlsxRows(file, headerKeys) {
+      const buf = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (evt) => resolve(evt.target.result);
+        reader.onerror = () => reject(new Error('Không thể đọc file.'));
+        reader.readAsArrayBuffer(file);
+      });
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(buf);
+      const ws = wb.worksheets[0];
+      const rows = [];
+      if (!ws) return rows;
+      ws.eachRow((row, rowNumber) => {
+        if (rowNumber === 1) return; // bỏ qua dòng tiêu đề
+        const values = row.values.slice(1); // row.values của ExcelJS có index[0] rỗng
+        const obj = {};
+        headerKeys.forEach((key, idx) => {
+          const v = values[idx];
+          obj[key] = (v === undefined || v === null) ? '' : String(v).trim();
+        });
+        rows.push(obj);
+      });
+      return rows;
+    }
     function reportImportErrors(errors) {
       if (!errors || errors.length === 0) return;
       showToast(`Có ${errors.length} dòng lỗi: ${errors.slice(0, 3).join(' | ')}${errors.length > 3 ? '...' : ''}`, 'warning');
     }
 
     function downloadOrgUnitTemplate() {
-      downloadCsvFile('mau_to_chuc_cong_ty.csv',
-        'ma_cong_ty,ten_cong_ty,ten_don_vi,cap,don_vi_cha\n' +
-        '"SV","Công ty Cổ phần Đầu tư Sao Việt","Khối Kinh doanh","Khối",""\n' +
-        '"SV","Công ty Cổ phần Đầu tư Sao Việt","Ban Bán hàng","Ban","Khối Kinh doanh"');
+      downloadXlsxFile('mau_to_chuc_cong_ty.xlsx',
+        ['ma_cong_ty', 'ten_cong_ty', 'ten_don_vi', 'cap', 'don_vi_cha'],
+        [
+          ['SV', 'Công ty Cổ phần Đầu tư Sao Việt', 'Khối Kinh doanh', 'Khối', ''],
+          ['SV', 'Công ty Cổ phần Đầu tư Sao Việt', 'Ban Bán hàng', 'Ban', 'Khối Kinh doanh'],
+        ]);
     }
     function downloadEmployeeTemplate() {
-      downloadCsvFile('mau_nhan_vien.csv',
-        'ma_nv,ho_ten,chuc_danh,ma_cong_ty,don_vi,email\n' +
-        '"SV-004","Nguyễn Văn Example","Chuyên viên","SV","Phòng Bán hàng Miền Bắc","example@saoviet.vn"');
+      downloadXlsxFile('mau_nhan_vien.xlsx',
+        ['ma_nv', 'ho_ten', 'chuc_danh', 'ma_cong_ty', 'don_vi', 'email'],
+        [
+          ['SV-004', 'Nguyễn Văn Example', 'Chuyên viên', 'SV', 'Phòng Bán hàng Miền Bắc', 'example@saoviet.vn'],
+        ]);
     }
 
-    function importOrgUnitsCSV(e) {
+    async function importOrgUnitsXlsx(e) {
       const file = e.target.files[0];
       if (!file) return;
-      const reader = new FileReader();
-      reader.onload = async (evt) => {
-        try {
-          const rows = parseCsvRows(evt.target.result, ['ma_cong_ty', 'ten_cong_ty', 'ten_don_vi', 'cap', 'don_vi_cha']);
-          const result = await apiFetch('/api/license/org-units/import', { method: 'POST', body: JSON.stringify({ rows }) });
-          showToast(`Đã nhập ${result.companiesCreated} công ty mới, ${result.unitsCreated} đơn vị mới.`, 'success');
-          reportImportErrors(result.errors);
-          licenseDB.loaded = false;
-          await loadLicenseBootstrapData();
-          renderCompanyList();
-        } catch (err) {
-          showToast(err.message || 'Không thể nhập file CSV.', 'danger');
-        }
-      };
-      reader.readAsText(file);
+      try {
+        const rows = await readXlsxRows(file, ['ma_cong_ty', 'ten_cong_ty', 'ten_don_vi', 'cap', 'don_vi_cha']);
+        const result = await apiFetch('/api/license/org-units/import', { method: 'POST', body: JSON.stringify({ rows }) });
+        showToast(`Đã nhập ${result.companiesCreated} công ty mới, ${result.unitsCreated} đơn vị mới.`, 'success');
+        reportImportErrors(result.errors);
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        renderCompanyList();
+      } catch (err) {
+        showToast(err.message || 'Không thể nhập file Excel.', 'danger');
+      }
       e.target.value = '';
     }
-    function importEmployeesCSV(e) {
+    async function importEmployeesXlsx(e) {
       const file = e.target.files[0];
       if (!file) return;
-      const reader = new FileReader();
-      reader.onload = async (evt) => {
-        try {
-          const rows = parseCsvRows(evt.target.result, ['ma_nv', 'ho_ten', 'chuc_danh', 'ma_cong_ty', 'don_vi', 'email']);
-          const result = await apiFetch('/api/license/employees/import', { method: 'POST', body: JSON.stringify({ rows }) });
-          showToast(`Đã nhập ${result.created} nhân viên mới, cập nhật ${result.updated}.`, 'success');
-          reportImportErrors(result.errors);
-          licenseDB.loaded = false;
-          await loadLicenseBootstrapData();
-          populateCompanyFilterSelects();
-          renderLicenseEmployees();
-        } catch (err) {
-          showToast(err.message || 'Không thể nhập file CSV.', 'danger');
-        }
-      };
-      reader.readAsText(file);
+      try {
+        const rows = await readXlsxRows(file, ['ma_nv', 'ho_ten', 'chuc_danh', 'ma_cong_ty', 'don_vi', 'email']);
+        const result = await apiFetch('/api/license/employees/import', { method: 'POST', body: JSON.stringify({ rows }) });
+        showToast(`Đã nhập ${result.created} nhân viên mới, cập nhật ${result.updated}.`, 'success');
+        reportImportErrors(result.errors);
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        populateCompanyFilterSelects();
+        renderLicenseEmployees();
+      } catch (err) {
+        showToast(err.message || 'Không thể nhập file Excel.', 'danger');
+      }
       e.target.value = '';
     }
 
