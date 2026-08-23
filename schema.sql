@@ -539,6 +539,16 @@ CREATE TABLE IF NOT EXISTS lic_budget_actuals (
 );
 CALL create_index_if_not_exists('lic_budget_actuals', 'idx_lic_budget_actuals_item', 'round_item_id');
 
+-- 15. Theo dõi ngân sách theo Công ty: "Kế hoạch" (dự trù đã duyệt) đã suy ra
+-- được theo công ty sẵn qua lic_budget_registrations.org_unit_id ->
+-- lic_org_units.company_id, không cần cột mới. Nhưng "Thực tế" (mua thực tế)
+-- không gắn đơn vị trực thuộc (1 lần mua có thể gộp chung nhiều công ty) nên
+-- cần company_id RIÊNG, TÙY CHỌN — để trống khi mua chung/không phân bổ theo
+-- công ty cụ thể (vẫn tính vào tổng thực tế của hạng mục, chỉ không gộp được
+-- vào báo cáo theo công ty).
+CALL add_column_if_not_exists('lic_budget_actuals', 'company_id', 'BIGINT NULL DEFAULT NULL');
+CALL create_index_if_not_exists('lic_budget_actuals', 'idx_lic_budget_actuals_company', 'company_id');
+
 -- Dọn dẹp: xóa các thủ tục tạm sau khi dùng xong, không để lại trong CSDL thật.
 DROP PROCEDURE IF EXISTS create_index_if_not_exists;
 DROP PROCEDURE IF EXISTS create_unique_index_if_not_exists;

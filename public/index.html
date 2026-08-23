@@ -1086,10 +1086,14 @@
           <h3 class="font-bold text-gray-800 text-sm">Dự trù ngân sách theo đơn vị</h3>
           <button onclick="openBudgetRegistrationModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Lập dự trù</button>
         </div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded border text-xs mb-2">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-gray-50 p-3 rounded border text-xs mb-2">
           <div>
             <label class="block font-semibold text-gray-600 mb-1">Lọc theo Kỳ ngân sách</label>
             <select id="budgetRegFilterRound" onchange="renderBudgetRegistrationsTable()" class="w-full border p-1.5 rounded bg-white"></select>
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Lọc theo Công ty</label>
+            <select id="budgetRegFilterCompany" onchange="renderBudgetRegistrationsTable()" class="w-full border p-1.5 rounded bg-white"></select>
           </div>
           <div>
             <label class="block font-semibold text-gray-600 mb-1">Lọc theo Trạng thái</label>
@@ -1106,6 +1110,7 @@
             <thead>
               <tr class="bg-gray-100 text-left">
                 <th class="border p-2 w-10">STT</th>
+                <th class="border p-2">Công ty</th>
                 <th class="border p-2">Đơn vị trực thuộc</th>
                 <th class="border p-2">Phần mềm</th>
                 <th class="border p-2 text-center">Đang dùng</th>
@@ -1235,6 +1240,11 @@
           <p class="text-xs text-gray-500 mb-3">Chênh lệch âm (đỏ) = đã mua vượt kế hoạch</p>
           <div id="tableBudgetItemComparison" class="overflow-x-auto"></div>
         </div>
+      </div>
+      <div class="bg-white border rounded-xl p-4 shadow-sm mt-4">
+        <h3 class="text-sm font-bold text-gray-800">Ngân sách theo Công ty: Kế hoạch vs Thực tế</h3>
+        <p class="text-xs text-gray-500 mb-3">Kế hoạch suy ra qua đơn vị trực thuộc của dự trù đã duyệt; Thực tế lấy từ Công ty gán khi ghi nhận mua — "Chưa phân bổ" là các lần mua chung không gán công ty cụ thể</p>
+        <div id="tableBudgetByCompany" class="overflow-x-auto"></div>
       </div>
     </div>
   </div>
@@ -1947,6 +1957,7 @@
             <tr class="bg-gray-100 text-left">
               <th class="border p-1.5">Ngày mua</th>
               <th class="border p-1.5">Nhà cung cấp</th>
+              <th class="border p-1.5">Công ty</th>
               <th class="border p-1.5 text-right">SL</th>
               <th class="border p-1.5 text-right">Đơn giá</th>
               <th class="border p-1.5 text-right">Thành tiền</th>
@@ -1959,9 +1970,12 @@
       </div>
       <div class="border-t pt-3">
         <label class="block text-xs font-semibold text-gray-600 mb-2">Ghi nhận 1 lần mua thực tế mới</label>
-        <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
+        <div class="grid grid-cols-2 md:grid-cols-6 gap-2">
           <input id="budgetActualDate" type="date" class="border p-2 rounded text-sm">
           <input id="budgetActualVendor" type="text" placeholder="Nhà cung cấp (tùy chọn)" class="border p-2 rounded text-sm">
+          <select id="budgetActualCompany" class="border p-2 rounded text-sm bg-white">
+            <option value="">-- Không phân bổ (mua chung) --</option>
+          </select>
           <input id="budgetActualQuantity" type="number" min="0" step="1" placeholder="SL" class="border p-2 rounded text-sm">
           <input id="budgetActualUnitPrice" type="number" min="0" step="1000" placeholder="Đơn giá" class="border p-2 rounded text-sm">
           <input id="budgetActualNote" type="text" placeholder="Ghi chú (tùy chọn)" class="border p-2 rounded text-sm">
@@ -6103,6 +6117,8 @@ function isPerpetualSoftware(softwareId) {
       document.getElementById('budgetActualsItemLabel').textContent = budgetItemLabel(item);
       document.getElementById('budgetActualDate').value = '';
       document.getElementById('budgetActualVendor').value = '';
+      document.getElementById('budgetActualCompany').innerHTML = '<option value="">-- Không phân bổ (mua chung) --</option>' +
+        licenseDB.companies.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
       document.getElementById('budgetActualQuantity').value = '';
       document.getElementById('budgetActualUnitPrice').value = item.unitPrice || '';
       document.getElementById('budgetActualNote').value = '';
@@ -6122,23 +6138,28 @@ function isPerpetualSoftware(softwareId) {
       diffEl.className = `text-sm font-bold ${diff < 0 ? 'text-red-600' : 'text-gray-800'}`;
       const tbody = document.getElementById('budgetActualsListBody');
       tbody.innerHTML = rows.length === 0
-        ? `<tr><td colspan="7" class="text-center text-gray-400 p-3">Chưa ghi nhận lần mua thực tế nào.</td></tr>`
-        : rows.map(a => `
+        ? `<tr><td colspan="8" class="text-center text-gray-400 p-3">Chưa ghi nhận lần mua thực tế nào.</td></tr>`
+        : rows.map(a => {
+            const company = a.companyId ? licenseDB.companies.find(c => c.id === a.companyId) : null;
+            return `
             <tr>
               <td class="border p-1.5">${a.purchaseDate}</td>
               <td class="border p-1.5">${escapeHtml(a.vendor || '—')}</td>
+              <td class="border p-1.5">${company ? escapeHtml(company.name) : '<span class="text-gray-400">Chưa phân bổ</span>'}</td>
               <td class="border p-1.5 text-right">${a.quantity}</td>
               <td class="border p-1.5 text-right">${formatMoney(a.unitPrice)}</td>
               <td class="border p-1.5 text-right font-semibold">${formatMoney(a.amount)}</td>
               <td class="border p-1.5">${escapeHtml(a.note || '')}</td>
               <td class="border p-1.5 text-center"><button onclick="deleteBudgetActual(${a.id})" class="text-red-500 hover:text-red-700">🗑️</button></td>
             </tr>
-          `).join('');
+          `;
+          }).join('');
     }
     async function addBudgetActual() {
       const itemId = Number(document.getElementById('budgetActualsItemId').value);
       const purchaseDate = document.getElementById('budgetActualDate').value;
       const vendor = document.getElementById('budgetActualVendor').value.trim();
+      const companyId = Number(document.getElementById('budgetActualCompany').value) || null;
       const quantity = Number(document.getElementById('budgetActualQuantity').value);
       const unitPrice = Number(document.getElementById('budgetActualUnitPrice').value);
       const note = document.getElementById('budgetActualNote').value.trim();
@@ -6146,12 +6167,13 @@ function isPerpetualSoftware(softwareId) {
       if (!Number.isFinite(quantity) || quantity <= 0) return showToast('Số lượng phải lớn hơn 0.', 'warning');
       if (!Number.isFinite(unitPrice) || unitPrice < 0) return showToast('Đơn giá không hợp lệ.', 'warning');
       try {
-        await apiFetch(`/api/license/budget-round-items/${itemId}/actuals`, { method: 'POST', body: JSON.stringify({ purchaseDate, vendor, quantity, unitPrice, note }) });
+        await apiFetch(`/api/license/budget-round-items/${itemId}/actuals`, { method: 'POST', body: JSON.stringify({ purchaseDate, vendor, companyId, quantity, unitPrice, note }) });
         showToast('Đã ghi nhận mua thực tế.', 'success');
         licenseDB.loaded = false;
         await loadLicenseBootstrapData();
         document.getElementById('budgetActualDate').value = '';
         document.getElementById('budgetActualVendor').value = '';
+        document.getElementById('budgetActualCompany').value = '';
         document.getElementById('budgetActualQuantity').value = '';
         document.getElementById('budgetActualNote').value = '';
         renderBudgetActualsModalContent();
@@ -6175,23 +6197,29 @@ function isPerpetualSoftware(softwareId) {
     function populateBudgetRegFilterSelects() {
       document.getElementById('budgetRegFilterRound').innerHTML = '<option value="">-- Tất cả kỳ ngân sách --</option>' +
         licenseDB.budgetRounds.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('');
+      document.getElementById('budgetRegFilterCompany').innerHTML = '<option value="">-- Tất cả công ty --</option>' +
+        licenseDB.companies.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
     }
     function renderBudgetRegistrationsTable() {
       const roundId = document.getElementById('budgetRegFilterRound').value;
+      const companyId = document.getElementById('budgetRegFilterCompany').value;
       const status = document.getElementById('budgetRegFilterStatus').value;
       const tbody = document.getElementById('budgetRegistrationsTableBody');
       let rows = licenseDB.budgetRegistrations.slice();
       if (roundId) rows = rows.filter(r => r.roundId === Number(roundId));
+      if (companyId) rows = rows.filter(r => (companyOfOrgUnit(r.orgUnitId) || {}).id === Number(companyId));
       if (status) rows = rows.filter(r => r.status === status);
       if (rows.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-gray-500 p-4">Chưa có dự trù nào.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="10" class="text-center text-gray-500 p-4">Chưa có dự trù nào.</td></tr>`;
         return;
       }
       tbody.innerHTML = rows.map((r, i) => {
         const item = licenseDB.budgetRoundItems.find(x => x.id === r.roundItemId);
+        const company = companyOfOrgUnit(r.orgUnitId);
         return `
           <tr class="hover:bg-gray-50">
             <td class="border p-2">${i + 1}</td>
+            <td class="border p-2">${escapeHtml(company ? company.name : '—')}</td>
             <td class="border p-2">${escapeHtml(orgUnitPath(r.orgUnitId))}</td>
             <td class="border p-2">${escapeHtml(item ? budgetItemLabel(item) : '—')}</td>
             <td class="border p-2 text-center">${r.currentQuantity}</td>
@@ -6821,6 +6849,27 @@ function isPerpetualSoftware(softwareId) {
         { key: 'thuc_te', name: 'Thực tế', color: REPORT_COLORS.budget },
       ]);
       renderBudgetItemComparisonTable(d.budgetItemComparison || []);
+      renderBudgetByCompanyTable(d.budgetByCompany || []);
+    }
+    function renderBudgetByCompanyTable(rows) {
+      const el = document.getElementById('tableBudgetByCompany');
+      if (rows.length === 0) { reportEmptyState('tableBudgetByCompany'); return; }
+      el.innerHTML = `
+        <table class="w-full text-xs border-collapse">
+          <thead><tr class="bg-gray-50 text-left"><th class="border p-1.5">Công ty</th><th class="border p-1.5 text-right">Kế hoạch</th><th class="border p-1.5 text-right">Thực tế</th><th class="border p-1.5 text-right">Chênh lệch</th></tr></thead>
+          <tbody>
+            ${rows.map(r => {
+              const diff = r.planned - r.actual;
+              return `<tr>
+                <td class="border p-1.5">${r.companyId ? escapeHtml(r.companyName) : `<span class="text-gray-400">${escapeHtml(r.companyName)}</span>`}</td>
+                <td class="border p-1.5 text-right">${formatMoney(r.planned)}</td>
+                <td class="border p-1.5 text-right">${formatMoney(r.actual)}</td>
+                <td class="border p-1.5 text-right font-semibold ${diff < 0 ? 'text-red-600' : ''}">${formatMoney(diff)}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      `;
     }
     function renderBudgetItemComparisonTable(rows) {
       const el = document.getElementById('tableBudgetItemComparison');
