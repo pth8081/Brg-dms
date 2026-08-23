@@ -4637,9 +4637,12 @@ function isPerpetualSoftware(softwareId) {
     function onBulkAllocScopeChange() {
       const companyId = Number(document.getElementById('bulkAllocCompany').value) || null;
 
-      document.getElementById('bulkAllocSoftware').innerHTML = licenseDB.softwareCatalog.length
+      const softwareSelect = document.getElementById('bulkAllocSoftware');
+      const currentSoftware = softwareSelect.value;
+      softwareSelect.innerHTML = licenseDB.softwareCatalog.length
         ? licenseDB.softwareCatalog.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')
         : '<option value="">-- Chưa có phần mềm --</option>';
+      if (licenseDB.softwareCatalog.some(s => String(s.id) === currentSoftware)) softwareSelect.value = currentSoftware;
 
       const orgUnitSelect = document.getElementById('bulkAllocOrgUnit');
       const currentOrgUnit = orgUnitSelect.value;
