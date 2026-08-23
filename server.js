@@ -1475,10 +1475,10 @@ function mapBatch(b) { return { id: b.id, companyId: b.company_id, softwareId: b
 function mapCode(c) { return { id: c.id, batchId: c.batch_id, companyId: c.company_id, softwareId: c.software_id, code: c.code, expiryDate: fmtDate(c.expiry_date) }; }
 function mapCodeAssignment(a) { return { id: a.id, codeId: a.code_id, employeeId: a.employee_id, assignedAt: fmtDate(a.assigned_at) }; }
 function mapAdAccount(a) { return { id: a.id, username: a.username, fullName: a.full_name, email: a.email, active: !!a.active, company: a.company, orgUnit: a.org_unit, disabledAt: fmtDate(a.disabled_at), lastSyncedAt: a.last_synced_at }; }
-function mapRound(r) { return { id: r.id, name: r.name, note: r.note, status: r.status, createdAt: r.created_at, budgetRoundId: r.budget_round_id }; }
+function mapRound(r) { return { id: r.id, name: r.name, note: r.note, status: r.status, createdAt: r.created_at, budgetRoundId: r.budget_round_id, scopeType: r.scope_type, scopeId: r.scope_id }; }
 function mapRoundItem(i) { return { id: i.id, roundId: i.round_id, softwareId: i.software_id, unitPrice: Number(i.unit_price), expiryDate: fmtDate(i.expiry_date) }; }
 function mapRegistration(r) { return { id: r.id, roundId: r.round_id, roundItemId: r.round_item_id, companyId: r.company_id, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity, budgetQuantity: r.budget_quantity === null || r.budget_quantity === undefined ? null : Number(r.budget_quantity), unitPrice: Number(r.unit_price), totalAmount: Number(r.total_amount), expiryDate: fmtDate(r.expiry_date), status: r.status, note: r.note, createdAt: r.created_at, decidedBy: r.decided_by, decidedAt: r.decided_at }; }
-function mapBudgetRound(r) { return { id: r.id, name: r.name, note: r.note, status: r.status, createdAt: r.created_at }; }
+function mapBudgetRound(r) { return { id: r.id, name: r.name, note: r.note, status: r.status, createdAt: r.created_at, scopeType: r.scope_type, scopeId: r.scope_id }; }
 function mapBudgetRoundItem(i) { return { id: i.id, roundId: i.round_id, softwareId: i.software_id, unitPrice: Number(i.unit_price) }; }
 function mapBudgetRegistration(r) { return { id: r.id, roundId: r.round_id, roundItemId: r.round_item_id, orgUnitId: r.org_unit_id, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity, unitPrice: Number(r.unit_price), totalAmount: Number(r.total_amount), status: r.status, note: r.note, createdAt: r.created_at, decidedBy: r.decided_by, decidedAt: r.decided_at }; }
 // Trả về [orgUnitId, ...toàn bộ id đơn vị con cháu] — dùng để tính số license
@@ -1500,6 +1500,72 @@ function orgUnitSubtreeIds(allOrgUnits, rootId) {
         for (const childId of children) { result.push(childId); queue.push(childId); }
     }
     return result;
+}
+
+// Đọc phạm vi tự phục vụ của user (nếu có) từ perms.licenseScopeType/licenseScopeId.
+function getUserLicenseScope(user) {
+    const perms = user && user.perms;
+    if (!perms || !perms.licenseScopeType || !perms.licenseScopeId) return null;
+    if (perms.licenseScopeType !== 'COMPANY' && perms.licenseScopeType !== 'ORG_UNIT') return null;
+    return { type: perms.licenseScopeType, id: Number(perms.licenseScopeId) };
+}
+
+// scope = null nghĩa là không giới hạn (dữ liệu cũ / chưa gán phạm vi) -> luôn
+// coi là chứa target. scope COMPANY chứa mọi đơn vị/công ty thuộc công ty đó.
+// scope ORG_UNIT chứa chính đơn vị đó và mọi đơn vị con cháu (subtree).
+function scopeContainsTarget(scope, allOrgUnits, targetCompanyId, targetOrgUnitId) {
+    if (!scope) return true;
+    if (scope.type === 'COMPANY') {
+        if (targetCompanyId != null) return Number(targetCompanyId) === scope.id;
+        if (targetOrgUnitId != null) {
+            const unit = allOrgUnits.find(u => u.id === targetOrgUnitId);
+            return !!unit && Number(unit.company_id) === scope.id;
+        }
+        return false;
+    }
+    // scope.type === 'ORG_UNIT'
+    if (targetOrgUnitId != null) {
+        return orgUnitSubtreeIds(allOrgUnits, scope.id).includes(Number(targetOrgUnitId));
+    }
+    if (targetCompanyId != null) {
+        const scopeUnit = allOrgUnits.find(u => u.id === scope.id);
+        return !!scopeUnit && Number(scopeUnit.company_id) === Number(targetCompanyId);
+    }
+    return false;
+}
+
+// Có cho phép user (không phải Admin) thao tác (dự trù/đăng ký) lên
+// target (company/org-unit) hay không: user phải có phạm vi, phạm vi user
+// phải bao trùm target, VÀ Kỳ đang thao tác phải có phạm vi rõ ràng (Kỳ
+// chưa gán phạm vi = dữ liệu cũ, chỉ Admin thao tác được).
+function userCanActOnTarget({ isAdmin, userScope, roundScope, allOrgUnits, targetCompanyId, targetOrgUnitId }) {
+    if (isAdmin) return true;
+    if (!userScope) return false;
+    // Kỳ chưa gán phạm vi (dữ liệu cũ) chỉ Admin thao tác được — tài khoản tự
+    // phục vụ không được coi là "khớp" một Kỳ không có phạm vi xác định.
+    if (!roundScope) return false;
+    return scopeContainsTarget(userScope, allOrgUnits, targetCompanyId, targetOrgUnitId)
+        && scopeContainsTarget(roundScope, allOrgUnits, targetCompanyId, targetOrgUnitId);
+}
+
+// Đọc + validate scopeType/scopeId từ body khi Admin tạo Kỳ mua/Kỳ ngân sách.
+// Không truyền (hoặc để trống) -> Kỳ không gán phạm vi, hoạt động như trước
+// (bất kỳ ai có quyền Admin cũng thao tác được, không có tài khoản tự phục vụ
+// nào khớp phạm vi cả vì phạm vi = null).
+async function resolveRoundScope(body) {
+    const scopeTypeRaw = body && body.scopeType ? String(body.scopeType).trim().toUpperCase() : '';
+    if (!scopeTypeRaw) return { scopeType: null, scopeId: null };
+    if (!['COMPANY', 'ORG_UNIT'].includes(scopeTypeRaw)) return { error: 'Phạm vi không hợp lệ.' };
+    const scopeId = Number(body.scopeId);
+    if (!scopeId) return { error: 'Vui lòng chọn công ty/đơn vị cho phạm vi.' };
+    if (scopeTypeRaw === 'COMPANY') {
+        const [rows] = await pool.query('SELECT id FROM lic_companies WHERE id = ?', [scopeId]);
+        if (!rows[0]) return { error: 'Công ty được chọn cho phạm vi không tồn tại.' };
+    } else {
+        const [rows] = await pool.query('SELECT id FROM lic_org_units WHERE id = ?', [scopeId]);
+        if (!rows[0]) return { error: 'Đơn vị được chọn cho phạm vi không tồn tại.' };
+    }
+    return { scopeType: scopeTypeRaw, scopeId };
 }
 
 app.get('/api/license/bootstrap', requireAuth, requireAdmin, async (req, res) => {
@@ -1538,6 +1604,83 @@ app.get('/api/license/bootstrap', requireAuth, requireAdmin, async (req, res) =>
         });
     } catch (err) {
         console.error('❌ Lỗi tải dữ liệu module Bản quyền:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Cổng tự phục vụ (Ngân sách + Kỳ mua) cho tài khoản có phạm vi công
+// ty/đơn vị — CHỈ trả về đúng phần dữ liệu nằm trong phạm vi của user, không
+// lộ công ty/đơn vị khác. Khác hẳn /api/license/bootstrap (dành cho Admin,
+// trả về toàn bộ dữ liệu module). Yêu cầu user phải có phạm vi hợp lệ (không
+// cần quyền Admin) — tài khoản chỉ dùng module Tài liệu bị từ chối ở đây.
+app.get('/api/license/portal/bootstrap', requireAuth, async (req, res) => {
+    try {
+        const userScope = getUserLicenseScope(req.user);
+        if (!userScope) return res.status(403).json({ error: 'Tài khoản này chưa được cấp phạm vi tự phục vụ Bản quyền.' });
+
+        const [allOrgUnits] = await pool.query('SELECT * FROM lic_org_units ORDER BY sort_order, name');
+        const [allCompanies] = await pool.query('SELECT * FROM lic_companies ORDER BY name');
+
+        let reachableOrgUnitIds, reachableCompanyIds;
+        if (userScope.type === 'COMPANY') {
+            reachableOrgUnitIds = allOrgUnits.filter(u => u.company_id === userScope.id).map(u => u.id);
+            reachableCompanyIds = [userScope.id];
+        } else {
+            reachableOrgUnitIds = orgUnitSubtreeIds(allOrgUnits, userScope.id);
+            const scopeUnit = allOrgUnits.find(u => u.id === userScope.id);
+            reachableCompanyIds = scopeUnit ? [scopeUnit.company_id] : [];
+        }
+        const reachableOrgUnitSet = new Set(reachableOrgUnitIds);
+        const reachableCompanySet = new Set(reachableCompanyIds);
+
+        const [software] = await pool.query('SELECT * FROM lic_software_catalog ORDER BY name');
+
+        const [allBudgetRounds] = await pool.query('SELECT * FROM lic_budget_rounds ORDER BY id DESC');
+        const visibleBudgetRounds = allBudgetRounds.filter(r => {
+            if (!r.scope_type) return false;
+            const roundScope = { type: r.scope_type, id: r.scope_id };
+            return userScope.type === 'COMPANY'
+                ? scopeContainsTarget(roundScope, allOrgUnits, userScope.id, null)
+                : scopeContainsTarget(roundScope, allOrgUnits, null, userScope.id);
+        });
+        const visibleBudgetRoundIds = new Set(visibleBudgetRounds.map(r => r.id));
+        const [allBudgetRoundItems] = await pool.query('SELECT * FROM lic_budget_round_items ORDER BY id');
+        const visibleBudgetRoundItems = allBudgetRoundItems.filter(i => visibleBudgetRoundIds.has(i.round_id));
+        const [allBudgetRegistrations] = await pool.query('SELECT * FROM lic_budget_registrations ORDER BY id DESC');
+        const visibleBudgetRegistrations = allBudgetRegistrations.filter(r => reachableOrgUnitSet.has(r.org_unit_id));
+
+        const [allPurchaseRounds] = await pool.query('SELECT * FROM lic_purchase_rounds ORDER BY id DESC');
+        const visiblePurchaseRounds = allPurchaseRounds.filter(r => {
+            if (!r.scope_type) return false;
+            const roundScope = { type: r.scope_type, id: r.scope_id };
+            return userScope.type === 'COMPANY'
+                ? scopeContainsTarget(roundScope, allOrgUnits, userScope.id, null)
+                : scopeContainsTarget(roundScope, allOrgUnits, null, userScope.id);
+        });
+        const visiblePurchaseRoundIds = new Set(visiblePurchaseRounds.map(r => r.id));
+        const [allPurchaseRoundItems] = await pool.query('SELECT * FROM lic_purchase_round_items ORDER BY id');
+        const visiblePurchaseRoundItems = allPurchaseRoundItems.filter(i => visiblePurchaseRoundIds.has(i.round_id));
+        const [allPurchaseRegistrations] = await pool.query('SELECT * FROM lic_purchase_registrations ORDER BY id DESC');
+        const visiblePurchaseRegistrations = allPurchaseRegistrations.filter(r => reachableCompanySet.has(r.company_id));
+
+        const scopeLabel = userScope.type === 'COMPANY'
+            ? (allCompanies.find(c => c.id === userScope.id)?.name || '—')
+            : (allOrgUnits.find(u => u.id === userScope.id)?.name || '—');
+
+        res.json({
+            scope: { type: userScope.type, id: userScope.id, label: scopeLabel },
+            companies: allCompanies.filter(c => reachableCompanySet.has(c.id)).map(mapCompany),
+            orgUnits: allOrgUnits.filter(u => reachableOrgUnitSet.has(u.id)).map(mapOrgUnit),
+            softwareCatalog: software.map(mapSoftware),
+            purchaseRounds: visiblePurchaseRounds.map(mapRound),
+            purchaseRoundItems: visiblePurchaseRoundItems.map(mapRoundItem),
+            purchaseRegistrations: visiblePurchaseRegistrations.map(mapRegistration),
+            budgetRounds: visibleBudgetRounds.map(mapBudgetRound),
+            budgetRoundItems: visibleBudgetRoundItems.map(mapBudgetRoundItem),
+            budgetRegistrations: visibleBudgetRegistrations.map(mapBudgetRegistration)
+        });
+    } catch (err) {
+        console.error('❌ Lỗi tải dữ liệu Cổng tự phục vụ Bản quyền:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
@@ -2389,6 +2532,8 @@ app.post('/api/license/rounds', requireAuth, requireAdmin, async (req, res) => {
             const [budgetRoundRows] = await pool.query('SELECT id FROM lic_budget_rounds WHERE id = ?', [budgetRoundId]);
             if (!budgetRoundRows[0]) return res.status(400).json({ error: 'Kỳ ngân sách được chọn không tồn tại.' });
         }
+        const { scopeType, scopeId, error: scopeErr } = await resolveRoundScope(req.body);
+        if (scopeErr) return res.status(400).json({ error: scopeErr });
 
         const softwareIdSet = new Set();
         const rawItems = [];
@@ -2428,8 +2573,8 @@ app.post('/api/license/rounds', requireAuth, requireAdmin, async (req, res) => {
         let roundId;
         try {
             const [result] = await pool.query(
-                'INSERT INTO lic_purchase_rounds (name, note, status, created_at, budget_round_id) VALUES (?, ?, ?, ?, ?)',
-                [name, note || null, 'OPEN', new Date().toISOString(), budgetRoundId]
+                'INSERT INTO lic_purchase_rounds (name, note, status, created_at, budget_round_id, scope_type, scope_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                [name, note || null, 'OPEN', new Date().toISOString(), budgetRoundId, scopeType, scopeId]
             );
             roundId = result.insertId;
             if (normalizedItems.length > 0) {
@@ -2522,7 +2667,7 @@ app.delete('/api/license/rounds/:roundId/items/:itemId', requireAuth, requireAdm
 // 1 công ty đăng ký NHIỀU phần mềm cùng lúc (items) cho 1 kỳ mua — validate
 // toàn bộ trước, ghi bằng 1 câu INSERT nhiều dòng (thành công/thất bại cùng
 // lúc, không tạo dở dang nếu 1 dòng lỗi).
-app.post('/api/license/registrations', requireAuth, requireAdmin, async (req, res) => {
+app.post('/api/license/registrations', requireAuth, async (req, res) => {
     try {
         const roundId = Number(req.body && req.body.roundId);
         const companyId = Number(req.body && req.body.companyId);
@@ -2533,11 +2678,20 @@ app.post('/api/license/registrations', requireAuth, requireAdmin, async (req, re
         if (items.length === 0) return res.status(400).json({ error: 'Vui lòng thêm ít nhất 1 phần mềm để đăng ký.' });
         if (items.length > 200) return res.status(400).json({ error: 'Số lượng phần mềm trong 1 lần đăng ký không được vượt quá 200.' });
 
-        const [roundRows] = await pool.query('SELECT id, status, budget_round_id FROM lic_purchase_rounds WHERE id = ?', [roundId]);
+        const [roundRows] = await pool.query('SELECT id, status, budget_round_id, scope_type, scope_id FROM lic_purchase_rounds WHERE id = ?', [roundId]);
         if (!roundRows[0]) return res.status(400).json({ error: 'Kỳ mua không tồn tại.' });
         if (roundRows[0].status !== 'OPEN') return res.status(400).json({ error: 'Kỳ mua đã đóng, không thể đăng ký.' });
         const [companyRows] = await pool.query('SELECT id, name FROM lic_companies WHERE id = ?', [companyId]);
         if (!companyRows[0]) return res.status(400).json({ error: 'Công ty không tồn tại.' });
+
+        const isAdmin = !!(req.user.perms && req.user.perms.admin);
+        if (!isAdmin) {
+            const userScope = getUserLicenseScope(req.user);
+            const [allOrgUnitsRows] = await pool.query('SELECT id, parent_id, company_id FROM lic_org_units');
+            const roundScope = roundRows[0].scope_type ? { type: roundRows[0].scope_type, id: roundRows[0].scope_id } : null;
+            const allowed = userCanActOnTarget({ isAdmin, userScope, roundScope, allOrgUnits: allOrgUnitsRows, targetCompanyId: companyId, targetOrgUnitId: null });
+            if (!allowed) return res.status(403).json({ error: 'Bạn không có quyền đăng ký mua cho công ty này trong kỳ mua này.' });
+        }
 
         const roundItemIdSet = new Set();
         const normalizedItems = [];
@@ -2649,6 +2803,8 @@ app.post('/api/license/budget-rounds', requireAuth, requireAdmin, async (req, re
         const items = Array.isArray(req.body && req.body.items) ? req.body.items : [];
         if (!name) return res.status(400).json({ error: 'Tên kỳ ngân sách không được để trống.' });
         if (items.length > 200) return res.status(400).json({ error: 'Số lượng phần mềm trong 1 lần tạo không được vượt quá 200.' });
+        const { scopeType, scopeId, error: scopeErr } = await resolveRoundScope(req.body);
+        if (scopeErr) return res.status(400).json({ error: scopeErr });
 
         const softwareIdSet = new Set();
         const normalizedItems = [];
@@ -2671,8 +2827,8 @@ app.post('/api/license/budget-rounds', requireAuth, requireAdmin, async (req, re
         let roundId;
         try {
             const [result] = await pool.query(
-                'INSERT INTO lic_budget_rounds (name, note, status, created_at) VALUES (?, ?, ?, ?)',
-                [name, note || null, 'OPEN', new Date().toISOString()]
+                'INSERT INTO lic_budget_rounds (name, note, status, created_at, scope_type, scope_id) VALUES (?, ?, ?, ?, ?, ?)',
+                [name, note || null, 'OPEN', new Date().toISOString(), scopeType, scopeId]
             );
             roundId = result.insertId;
             if (normalizedItems.length > 0) {
@@ -2756,7 +2912,7 @@ app.delete('/api/license/budget-rounds/:roundId/items/:itemId', requireAuth, req
 // mã công ty đang SỞ HỮU, không phân biệt đã gán hay chưa) — vì ở cấp đơn vị
 // trực thuộc, chỉ có nhân viên (qua org_unit_id) mới xác định được đơn vị,
 // còn mã license chỉ gắn với company_id, không gắn trực tiếp với đơn vị.
-app.post('/api/license/budget-registrations', requireAuth, requireAdmin, async (req, res) => {
+app.post('/api/license/budget-registrations', requireAuth, async (req, res) => {
     try {
         const roundId = Number(req.body && req.body.roundId);
         const orgUnitId = Number(req.body && req.body.orgUnitId);
@@ -2767,11 +2923,20 @@ app.post('/api/license/budget-registrations', requireAuth, requireAdmin, async (
         if (items.length === 0) return res.status(400).json({ error: 'Vui lòng thêm ít nhất 1 phần mềm để dự trù.' });
         if (items.length > 200) return res.status(400).json({ error: 'Số lượng phần mềm trong 1 lần dự trù không được vượt quá 200.' });
 
-        const [roundRows] = await pool.query('SELECT id, status FROM lic_budget_rounds WHERE id = ?', [roundId]);
+        const [roundRows] = await pool.query('SELECT id, status, scope_type, scope_id FROM lic_budget_rounds WHERE id = ?', [roundId]);
         if (!roundRows[0]) return res.status(400).json({ error: 'Kỳ ngân sách không tồn tại.' });
         if (roundRows[0].status !== 'OPEN') return res.status(400).json({ error: 'Kỳ ngân sách đã đóng, không thể dự trù.' });
         const [orgUnitRows] = await pool.query('SELECT id, name FROM lic_org_units WHERE id = ?', [orgUnitId]);
         if (!orgUnitRows[0]) return res.status(400).json({ error: 'Đơn vị trực thuộc không tồn tại.' });
+        const [allOrgUnits] = await pool.query('SELECT id, parent_id, company_id FROM lic_org_units');
+
+        const isAdmin = !!(req.user.perms && req.user.perms.admin);
+        if (!isAdmin) {
+            const userScope = getUserLicenseScope(req.user);
+            const roundScope = roundRows[0].scope_type ? { type: roundRows[0].scope_type, id: roundRows[0].scope_id } : null;
+            const allowed = userCanActOnTarget({ isAdmin, userScope, roundScope, allOrgUnits, targetCompanyId: null, targetOrgUnitId: orgUnitId });
+            if (!allowed) return res.status(403).json({ error: 'Bạn không có quyền dự trù ngân sách cho đơn vị này trong kỳ ngân sách này.' });
+        }
 
         const roundItemIdSet = new Set();
         const normalizedItems = [];
@@ -2796,7 +2961,6 @@ app.post('/api/license/budget-registrations', requireAuth, requireAdmin, async (
             return res.status(400).json({ error: 'Có hạng mục phần mềm không thuộc kỳ ngân sách này.' });
         }
 
-        const [allOrgUnits] = await pool.query('SELECT id, parent_id FROM lic_org_units');
         const subtreeIds = orgUnitSubtreeIds(allOrgUnits, orgUnitId);
         const softwareIds = itemRows.map(r => r.software_id);
         const [usageRows] = await pool.query(

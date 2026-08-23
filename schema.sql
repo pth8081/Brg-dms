@@ -474,6 +474,19 @@ CALL create_index_if_not_exists('ad_accounts', 'idx_ad_accounts_email', 'email')
 CALL add_column_if_not_exists('lic_purchase_rounds', 'budget_round_id', 'BIGINT NULL DEFAULT NULL');
 CALL add_column_if_not_exists('lic_purchase_registrations', 'budget_quantity', 'INT NULL DEFAULT NULL');
 
+-- 12. Phạm vi cho Kỳ mua / Kỳ ngân sách — mỗi Kỳ Admin tạo gắn đúng 1 phạm vi:
+-- 'COMPANY' (scope_id = id trong lic_companies, áp dụng cho toàn bộ công ty đó)
+-- hoặc 'ORG_UNIT' (scope_id = id trong lic_org_units, áp dụng cho đúng 1
+-- khối/phòng/ban đó và mọi đơn vị con bên dưới). NULL = chưa gán phạm vi (dữ
+-- liệu cũ trước khi có tính năng này, hoặc admin bỏ trống — vẫn hoạt động như
+-- trước, không giới hạn ai được đăng ký). Chỉ tài khoản có phạm vi tự phục vụ
+-- (lưu trong users.perms, không cần cột riêng) khớp với phạm vi của Kỳ mới tự
+-- đăng ký/dự trù được; Admin luôn có thể tạo Kỳ và duyệt không phụ thuộc phạm vi.
+CALL add_column_if_not_exists('lic_purchase_rounds', 'scope_type', "ENUM('COMPANY','ORG_UNIT') NULL DEFAULT NULL");
+CALL add_column_if_not_exists('lic_purchase_rounds', 'scope_id', 'BIGINT NULL DEFAULT NULL');
+CALL add_column_if_not_exists('lic_budget_rounds', 'scope_type', "ENUM('COMPANY','ORG_UNIT') NULL DEFAULT NULL");
+CALL add_column_if_not_exists('lic_budget_rounds', 'scope_id', 'BIGINT NULL DEFAULT NULL');
+
 -- Dọn dẹp: xóa các thủ tục tạm sau khi dùng xong, không để lại trong CSDL thật.
 DROP PROCEDURE IF EXISTS create_index_if_not_exists;
 DROP PROCEDURE IF EXISTS create_unique_index_if_not_exists;
