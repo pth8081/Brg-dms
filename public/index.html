@@ -621,6 +621,7 @@
             <tbody id="userTableBody"></tbody>
           </table>
         </div>
+        <div id="userTablePaginationBox" class="mt-3 flex flex-col sm:flex-row justify-between items-center gap-3 bg-gray-50 p-3 rounded border text-xs text-gray-700"></div>
       </div>
       </div>
       <!-- /Sub-tab: Người Dùng & Phân Quyền -->
@@ -704,7 +705,7 @@
           <div class="grid grid-cols-1 md:grid-cols-4 gap-3 bg-white p-3 rounded border text-xs">
             <div>
               <label class="block font-semibold text-gray-600 mb-1">Lọc Theo Phân Hệ</label>
-              <select id="filterLogModule" onchange="renderSystemLogs()" class="w-full border p-1.5 rounded bg-white font-semibold">
+              <select id="filterLogModule" onchange="resetPageAndRerender('systemLogs','renderSystemLogs')" class="w-full border p-1.5 rounded bg-white font-semibold">
                 <option value="">-- Tất cả phân hệ --</option>
                 <option value="EMAIL">Log Gửi Email (EMAIL)</option>
                 <option value="CONFIG">Log Cấu Hình Hệ Thống (CONFIG)</option>
@@ -715,7 +716,7 @@
             </div>
             <div>
               <label class="block font-semibold text-gray-600 mb-1">Lọc Trạng Thái</label>
-              <select id="filterLogStatus" onchange="renderSystemLogs()" class="w-full border p-1.5 rounded bg-white font-semibold">
+              <select id="filterLogStatus" onchange="resetPageAndRerender('systemLogs','renderSystemLogs')" class="w-full border p-1.5 rounded bg-white font-semibold">
                 <option value="">-- Tất cả trạng thái --</option>
                 <option value="SUCCESS">Thành công (SUCCESS)</option>
                 <option value="FAILED">Thất bại (FAILED)</option>
@@ -723,7 +724,7 @@
             </div>
             <div>
               <label class="block font-semibold text-gray-600 mb-1">Tìm Kiếm</label>
-              <input id="filterLogKeyword" oninput="renderSystemLogs()" placeholder="Username, IP, hành động..." class="w-full border p-1.5 rounded">
+              <input id="filterLogKeyword" oninput="resetPageAndRerender('systemLogs','renderSystemLogs')" placeholder="Username, IP, hành động..." class="w-full border p-1.5 rounded">
             </div>
             <div class="flex items-end">
               <button onclick="resetLogFilters()" class="w-full bg-gray-200 text-gray-700 p-1.5 rounded font-bold hover:bg-gray-300">Đặt Lại Bộ Lọc</button>
@@ -747,6 +748,7 @@
             <tbody id="systemLogTableBody"></tbody>
           </table>
         </div>
+        <div id="systemLogPaginationBox" class="mt-3 flex flex-col sm:flex-row justify-between items-center gap-3 bg-gray-50 p-3 rounded border text-xs text-gray-700"></div>
       </div>
       <!-- /Sub-tab: Log Hệ Thống -->
 
@@ -781,6 +783,7 @@
             <tbody id="trashTableBody"></tbody>
           </table>
         </div>
+        <div id="trashPaginationBox" class="mt-3 flex flex-col sm:flex-row justify-between items-center gap-3 bg-gray-50 p-3 rounded border text-xs text-gray-700"></div>
       </div>
       <!-- /Sub-tab: Thùng Rác -->
     </div>
@@ -834,15 +837,15 @@
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-gray-50 p-3 rounded border text-xs">
         <div>
           <label class="block font-semibold text-gray-600 mb-1">Công ty</label>
-          <select id="empFilterCompany" onchange="onEmpFilterCompanyChange(); renderLicenseEmployees()" class="w-full border p-1.5 rounded bg-white"></select>
+          <select id="empFilterCompany" onchange="onEmpFilterCompanyChange(); resetPageAndRerender('licenseEmp','renderLicenseEmployees')" class="w-full border p-1.5 rounded bg-white"></select>
         </div>
         <div>
           <label class="block font-semibold text-gray-600 mb-1">Đơn vị</label>
-          <select id="empFilterOrgUnit" onchange="renderLicenseEmployees()" class="w-full border p-1.5 rounded bg-white"></select>
+          <select id="empFilterOrgUnit" onchange="resetPageAndRerender('licenseEmp','renderLicenseEmployees')" class="w-full border p-1.5 rounded bg-white"></select>
         </div>
         <div>
           <label class="block font-semibold text-gray-600 mb-1">Tìm kiếm</label>
-          <input id="empFilterSearch" type="text" oninput="renderLicenseEmployees()" placeholder="Tên, mã NV, email..." class="w-full border p-1.5 rounded">
+          <input id="empFilterSearch" type="text" oninput="resetPageAndRerender('licenseEmp','renderLicenseEmployees')" placeholder="Tên, mã NV, email..." class="w-full border p-1.5 rounded">
         </div>
       </div>
       <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
@@ -871,6 +874,7 @@
           <tbody id="licenseEmpTableBody"></tbody>
         </table>
       </div>
+      <div id="licenseEmpPaginationBox" class="flex flex-col sm:flex-row justify-between items-center gap-3 bg-gray-50 p-3 rounded border text-xs text-gray-700"></div>
     </div>
 
     <!-- Sub-tab: Danh mục phần mềm -->
@@ -925,15 +929,15 @@
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-gray-50 p-3 rounded border text-xs">
         <div>
           <label class="block font-semibold text-gray-600 mb-1">Công ty</label>
-          <select id="allocFilterCompany" onchange="renderAllocTable()" class="w-full border p-1.5 rounded bg-white"></select>
+          <select id="allocFilterCompany" onchange="resetPageAndRerender('allocTable','renderAllocTable')" class="w-full border p-1.5 rounded bg-white"></select>
         </div>
         <div>
           <label class="block font-semibold text-gray-600 mb-1">Phần mềm</label>
-          <select id="allocFilterSoftware" onchange="renderAllocTable()" class="w-full border p-1.5 rounded bg-white"></select>
+          <select id="allocFilterSoftware" onchange="resetPageAndRerender('allocTable','renderAllocTable')" class="w-full border p-1.5 rounded bg-white"></select>
         </div>
         <div>
           <label class="block font-semibold text-gray-600 mb-1">Tìm kiếm</label>
-          <input id="allocFilterSearch" type="text" oninput="renderAllocTable()" placeholder="Tên nhân viên, mã license..." class="w-full border p-1.5 rounded">
+          <input id="allocFilterSearch" type="text" oninput="resetPageAndRerender('allocTable','renderAllocTable')" placeholder="Tên nhân viên, mã license..." class="w-full border p-1.5 rounded">
         </div>
       </div>
       <div class="flex flex-wrap gap-2">
@@ -962,6 +966,7 @@
           <tbody id="allocTableBody"></tbody>
         </table>
       </div>
+      <div id="allocTablePaginationBox" class="flex flex-col sm:flex-row justify-between items-center gap-3 bg-gray-50 p-3 rounded border text-xs text-gray-700"></div>
     </div>
 
     <!-- Sub-tab: Tài khoản AD -->
@@ -969,6 +974,28 @@
       <div class="flex items-center gap-2 flex-wrap">
         <button onclick="syncAdAccountsNow()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">🔄 Đồng bộ ngay</button>
         <span id="adLastSyncLabel" class="text-xs text-gray-500"></span>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-4 gap-2 bg-gray-50 p-3 rounded border text-xs">
+        <div>
+          <label class="block font-semibold text-gray-600 mb-1">Tìm kiếm</label>
+          <input id="adFilterSearch" type="text" oninput="resetPageAndRerender('adAccounts','renderAdAccountsTable')" placeholder="Tài khoản, họ và tên..." class="w-full border p-1.5 rounded">
+        </div>
+        <div>
+          <label class="block font-semibold text-gray-600 mb-1">Tình trạng</label>
+          <select id="adFilterStatus" onchange="resetPageAndRerender('adAccounts','renderAdAccountsTable')" class="w-full border p-1.5 rounded bg-white">
+            <option value="">-- Tất cả --</option>
+            <option value="active">Active</option>
+            <option value="disabled">Disable</option>
+          </select>
+        </div>
+        <div>
+          <label class="block font-semibold text-gray-600 mb-1">Công ty</label>
+          <select id="adFilterCompany" onchange="resetPageAndRerender('adAccounts','renderAdAccountsTable')" class="w-full border p-1.5 rounded bg-white"></select>
+        </div>
+        <div>
+          <label class="block font-semibold text-gray-600 mb-1">Khối phòng ban</label>
+          <select id="adFilterOrgUnit" onchange="resetPageAndRerender('adAccounts','renderAdAccountsTable')" class="w-full border p-1.5 rounded bg-white"></select>
+        </div>
       </div>
       <div class="overflow-x-auto">
         <table class="w-full border-collapse border bg-white text-xs">
@@ -986,6 +1013,7 @@
           <tbody id="adAccountsTableBody"></tbody>
         </table>
       </div>
+      <div id="adAccountsPaginationBox" class="flex flex-col sm:flex-row justify-between items-center gap-3 bg-gray-50 p-3 rounded border text-xs text-gray-700"></div>
     </div>
 
     <!-- Sub-tab: Đăng ký mua bản quyền -->
@@ -2148,6 +2176,65 @@
     let expandedGroups = new Set(); // các nhóm tài liệu đang mở rộng xem phiên bản cũ
     let selectedDocGroups = new Set(); // các nhóm tài liệu đang được chọn để xóa hàng loạt (chỉ admin)
 
+    // --- PHÂN TRANG DÙNG CHUNG CHO CÁC BẢNG DANH SÁCH KHÁC (ngoài bảng Tài
+    // liệu chính đã có cơ chế riêng ở trên) — mỗi bảng giữ trạng thái trang
+    // hiện tại/kích cỡ trang riêng theo "key", tránh phải khai báo lại 1 bộ
+    // biến + hàm cho từng bảng. Dùng chung 1 khối HTML style giống hệt
+    // #paginationBox của bảng Tài liệu để đồng nhất giao diện toàn ứng dụng.
+    const paginationStates = {};
+    function getPaginationState(key, defaultPageSize = 20) {
+      if (!paginationStates[key]) paginationStates[key] = { page: 1, pageSize: defaultPageSize };
+      return paginationStates[key];
+    }
+    // Cắt mảng đã lọc theo đúng trang hiện tại của "key", tự kẹp lại trang nếu
+    // trang hiện tại đã vượt quá tổng số trang (VD sau khi lọc còn ít dữ liệu
+    // hơn, hoặc vừa xóa bớt dòng cuối cùng của trang cuối).
+    function paginateSlice(key, items, defaultPageSize = 20) {
+      const state = getPaginationState(key, defaultPageSize);
+      const totalPages = Math.max(1, Math.ceil(items.length / state.pageSize));
+      if (state.page > totalPages) state.page = totalPages;
+      const start = (state.page - 1) * state.pageSize;
+      return items.slice(start, start + state.pageSize);
+    }
+    function renderPaginationBar(barId, key, totalItems, rerenderFnName, { itemLabel = 'dòng', pageSizeOptions = [10, 20, 50] } = {}) {
+      const bar = document.getElementById(barId);
+      if (!bar) return;
+      const state = getPaginationState(key);
+      const totalPages = Math.max(1, Math.ceil(totalItems / state.pageSize));
+      if (state.page > totalPages) state.page = totalPages;
+      let buttons = '';
+      for (let i = 1; i <= totalPages; i++) {
+        buttons += `<button onclick="paginationGoToPage('${key}', ${i}, '${rerenderFnName}')" class="px-2.5 py-1 text-xs rounded font-bold ${i === state.page ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">${i}</button>`;
+      }
+      bar.innerHTML = `
+        <div class="flex items-center gap-2">
+          <span>Hiển thị</span>
+          <select onchange="paginationChangeSize('${key}', this.value, '${rerenderFnName}')" class="border p-1 rounded bg-white font-semibold">
+            ${pageSizeOptions.map(n => `<option value="${n}" ${n === state.pageSize ? 'selected' : ''}>${n}</option>`).join('')}
+          </select>
+          <span>${escapeHtml(itemLabel)} / trang.</span>
+          <span class="font-semibold text-gray-600 border-l pl-2 ml-1">Tổng: ${totalItems} ${escapeHtml(itemLabel)} (Trang ${state.page}/${totalPages})</span>
+        </div>
+        <div class="flex items-center gap-1">${buttons}</div>
+      `;
+    }
+    function paginationGoToPage(key, page, rerenderFnName) {
+      getPaginationState(key).page = page;
+      window[rerenderFnName]();
+    }
+    function paginationChangeSize(key, size, rerenderFnName) {
+      const state = getPaginationState(key);
+      state.pageSize = parseInt(size, 10);
+      state.page = 1;
+      window[rerenderFnName]();
+    }
+    // Gọi từ các ô lọc/tìm kiếm (thay vì gọi thẳng hàm render) để luôn quay về
+    // trang 1 khi đổi điều kiện lọc — tránh "kẹt" ở trang giữa của tập lọc cũ.
+    function resetPageAndRerender(key, rerenderFnName) {
+      getPaginationState(key).page = 1;
+      window[rerenderFnName]();
+    }
+
     // --- LỚP GỌI API (xử lý lỗi 401 dùng chung: tự đưa về màn hình đăng nhập) ---
     async function apiFetch(url, options = {}) {
       // FormData (upload file thật): KHÔNG tự set Content-Type — trình duyệt
@@ -3171,6 +3258,7 @@
     async function loadAndRenderTrash() {
       const tbody = document.getElementById('trashTableBody');
       if (!tbody) return;
+      getPaginationState('trash').page = 1;
       tbody.innerHTML = `<tr><td colspan="7" class="text-center p-4 text-gray-500">⏳ Đang tải...</td></tr>`;
       selectedTrashGroups.clear();
       updateTrashActionButtons();
@@ -3183,9 +3271,12 @@
       }
     }
 
+    let lastTrashDocsCache = []; // dữ liệu thùng rác lần tải gần nhất — dùng để render lại khi đổi trang, không cần gọi lại API
+    function rerenderTrashPage() { renderTrash(lastTrashDocsCache); }
     function renderTrash(trashDocs) {
       const tbody = document.getElementById('trashTableBody');
       if (!tbody) return;
+      lastTrashDocsCache = trashDocs;
 
       // Gộp theo doc_group_id giống danh sách chính — 1 dòng đại diện, xóa/khôi
       // phục áp dụng cho cả nhóm (mọi phiên bản đã xóa cùng lúc).
@@ -3198,10 +3289,13 @@
 
       if (groupMap.size === 0) {
         tbody.innerHTML = `<tr><td colspan="7" class="text-center p-4 text-gray-500">Thùng rác trống.</td></tr>`;
+        renderPaginationBar('trashPaginationBox', 'trash', 0, 'rerenderTrashPage', { itemLabel: 'tài liệu' });
         return;
       }
 
-      tbody.innerHTML = Array.from(groupMap.entries()).map(([gid, versions]) => {
+      const groupEntries = Array.from(groupMap.entries());
+      const pageEntries = paginateSlice('trash', groupEntries);
+      tbody.innerHTML = pageEntries.map(([gid, versions]) => {
         versions.sort((a, b) => (b.versionNo || 1) - (a.versionNo || 1));
         const latest = versions[0];
         return `
@@ -3219,6 +3313,7 @@
           </tr>
         `;
       }).join('');
+      renderPaginationBar('trashPaginationBox', 'trash', groupEntries.length, 'rerenderTrashPage', { itemLabel: 'tài liệu' });
     }
 
     function toggleSelectAllTrash(checked) {
@@ -3929,7 +4024,8 @@
       const tbody = document.getElementById('userTableBody');
       if (!tbody) return;
 
-      tbody.innerHTML = DB.users.map(u => {
+      const pageItems = paginateSlice('userTable', DB.users);
+      tbody.innerHTML = pageItems.map(u => {
         const p = u.perms || {};
         const scopeLabel = roundScopeLabel({ scopeType: p.licenseScopeType, scopeId: p.licenseScopeId });
         const permTags = [
@@ -3960,6 +4056,7 @@
           </tr>
         `;
       }).join('');
+      renderPaginationBar('userTablePaginationBox', 'userTable', DB.users.length, 'renderUsers', { itemLabel: 'người dùng' });
     }
 
     function saveEmailConfig(e) {
@@ -4109,7 +4206,8 @@
       if (filtered.length === 0) {
         tbody.innerHTML = `<tr><td colspan="7" class="text-center p-4 text-gray-500">Không tìm thấy dữ liệu nhật ký hệ thống.</td></tr>`;
       } else {
-        tbody.innerHTML = filtered.map(l => `
+        const pageItems = paginateSlice('systemLogs', filtered);
+        tbody.innerHTML = pageItems.map(l => `
           <tr class="hover:bg-gray-50">
             <td class="border p-2 font-mono text-[11px] text-gray-600">${escapeHtml(l.timestamp)}</td>
             <td class="border p-2 font-bold">${escapeHtml(l.fullName)} (${escapeHtml(l.username)})</td>
@@ -4123,6 +4221,7 @@
           </tr>
         `).join('');
       }
+      renderPaginationBar('systemLogPaginationBox', 'systemLogs', filtered.length, 'renderSystemLogs', { itemLabel: 'dòng log' });
     }
 
     async function clearSystemLogs() {
@@ -4148,6 +4247,7 @@
       document.getElementById('filterLogModule').value = '';
       document.getElementById('filterLogStatus').value = '';
       document.getElementById('filterLogKeyword').value = '';
+      getPaginationState('systemLogs').page = 1;
       renderSystemLogs();
     }
 
@@ -4482,11 +4582,13 @@
       if (rows.length === 0) {
         tbody.innerHTML = `<tr><td colspan="7" class="text-center p-4 text-gray-500">Không có nhân viên nào khớp bộ lọc.</td></tr>`;
       } else {
-        tbody.innerHTML = rows.map((e, i) => {
+        const pageOffset = (getPaginationState('licenseEmp').page - 1) * getPaginationState('licenseEmp').pageSize;
+        const pageItems = paginateSlice('licenseEmp', rows);
+        tbody.innerHTML = pageItems.map((e, i) => {
           const company = companyOfOrgUnit(e.orgUnitId);
           return `
             <tr class="hover:bg-gray-50">
-              <td class="border p-2">${i + 1}</td>
+              <td class="border p-2">${pageOffset + i + 1}</td>
               <td class="border p-2"><div class="font-bold">${escapeHtml(e.fullName)}</div><div class="text-[11px] text-gray-400">${escapeHtml(e.title || '')}</div></td>
               <td class="border p-2">${escapeHtml(e.employeeCode || '')}</td>
               <td class="border p-2">${escapeHtml(orgUnitPath(e.orgUnitId))}</td>
@@ -4500,6 +4602,7 @@
           `;
         }).join('');
       }
+      renderPaginationBar('licenseEmpPaginationBox', 'licenseEmp', rows.length, 'renderLicenseEmployees', { itemLabel: 'nhân viên' });
       document.getElementById('empCountHint').textContent = `${rows.length} / ${licenseDB.employees.length} nhân viên`;
     }
 
@@ -4857,10 +4960,13 @@ function isPerpetualSoftware(softwareId) {
 
       if (rows.length === 0) {
         tbody.innerHTML = `<tr><td colspan="11" class="text-center text-gray-500 p-4">Chưa có phân bổ nào.</td></tr>`;
+        renderPaginationBar('allocTablePaginationBox', 'allocTable', 0, 'renderAllocTable', { itemLabel: 'lượt phân bổ' });
         return;
       }
+      const pageOffset = (getPaginationState('allocTable').page - 1) * getPaginationState('allocTable').pageSize;
+      const pageRows = paginateSlice('allocTable', rows);
       const today = new Date().toISOString().slice(0, 10);
-      tbody.innerHTML = rows.map((r, i) => {
+      tbody.innerHTML = pageRows.map((r, i) => {
         let statusHtml;
         if (!r.code.expiryDate) {
           statusHtml = `<span class="text-[10px] font-bold text-success-700 bg-success-100 px-2 py-0.5 rounded-full whitespace-nowrap">Vĩnh viễn</span>`;
@@ -4876,7 +4982,7 @@ function isPerpetualSoftware(softwareId) {
         const usedCount = codeAssignments(r.code.id).length;
         return `
           <tr class="hover:bg-gray-50">
-            <td class="border p-2">${i + 1}</td>
+            <td class="border p-2">${pageOffset + i + 1}</td>
             <td class="border p-2">${escapeHtml(r.company ? r.company.name : '—')}</td>
             <td class="border p-2">${escapeHtml(orgUnitPath(r.emp.orgUnitId))}</td>
             <td class="border p-2 font-semibold">${escapeHtml(r.emp.fullName)}</td>
@@ -4890,6 +4996,7 @@ function isPerpetualSoftware(softwareId) {
           </tr>
         `;
       }).join('');
+      renderPaginationBar('allocTablePaginationBox', 'allocTable', rows.length, 'renderAllocTable', { itemLabel: 'lượt phân bổ' });
     }
     async function revokeAllocation(codeId, employeeId) {
       const c = licenseDB.licenseCodes.find(x => x.id === codeId);
@@ -4908,17 +5015,57 @@ function isPerpetualSoftware(softwareId) {
     }
 
     // --- Tài khoản AD (đồng bộ LDAP, độc lập với đăng nhập LDAP đã có) ---
+    // Công ty/Khối phòng ban của tài khoản AD là chuỗi tự do đồng bộ thẳng từ
+    // thuộc tính LDAP (không có bảng danh mục riêng) — nên danh sách lựa chọn
+    // của 2 bộ lọc này phải suy ra từ chính dữ liệu adAccounts hiện có, không
+    // lấy từ licenseDB.companies (đó là danh mục công ty của module License,
+    // độc lập và có thể không trùng tên với thuộc tính "company" trên AD).
+    function populateAdAccountFilterSelects() {
+      const companySel = document.getElementById('adFilterCompany');
+      const orgUnitSel = document.getElementById('adFilterOrgUnit');
+      const keepCompany = companySel.value;
+      const keepOrgUnit = orgUnitSel.value;
+      const companies = [...new Set(licenseDB.adAccounts.map(a => a.company).filter(Boolean))].sort();
+      const orgUnits = [...new Set(licenseDB.adAccounts.map(a => a.orgUnit).filter(Boolean))].sort();
+      companySel.innerHTML = '<option value="">-- Tất cả công ty --</option>' + companies.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+      orgUnitSel.innerHTML = '<option value="">-- Tất cả khối/phòng ban --</option>' + orgUnits.map(o => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join('');
+      companySel.value = keepCompany;
+      orgUnitSel.value = keepOrgUnit;
+    }
     function renderAdAccountsTable() {
       const tbody = document.getElementById('adAccountsTableBody');
       const label = document.getElementById('adLastSyncLabel');
       label.textContent = licenseDB.adLastSyncAt ? `Đồng bộ gần nhất: ${new Date(licenseDB.adLastSyncAt).toLocaleString('vi-VN')}` : 'Chưa đồng bộ lần nào.';
+      populateAdAccountFilterSelects();
+
+      const search = document.getElementById('adFilterSearch').value.trim().toLowerCase();
+      const status = document.getElementById('adFilterStatus').value;
+      const company = document.getElementById('adFilterCompany').value;
+      const orgUnit = document.getElementById('adFilterOrgUnit').value;
+      const rows = licenseDB.adAccounts.filter(a => {
+        if (search && !`${a.username} ${a.fullName || ''}`.toLowerCase().includes(search)) return false;
+        if (status === 'active' && !a.active) return false;
+        if (status === 'disabled' && a.active) return false;
+        if (company && a.company !== company) return false;
+        if (orgUnit && a.orgUnit !== orgUnit) return false;
+        return true;
+      });
+
       if (licenseDB.adAccounts.length === 0) {
         tbody.innerHTML = `<tr><td colspan="7" class="text-center text-gray-500 p-4">Chưa có dữ liệu tài khoản AD — bấm "Đồng bộ ngay" để tải (cần bật đồng bộ AD trong mục Quản trị trước).</td></tr>`;
+        renderPaginationBar('adAccountsPaginationBox', 'adAccounts', 0, 'renderAdAccountsTable', { itemLabel: 'tài khoản' });
         return;
       }
-      tbody.innerHTML = licenseDB.adAccounts.map((a, i) => `
+      if (rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center text-gray-500 p-4">Không có tài khoản nào khớp bộ lọc.</td></tr>`;
+        renderPaginationBar('adAccountsPaginationBox', 'adAccounts', 0, 'renderAdAccountsTable', { itemLabel: 'tài khoản' });
+        return;
+      }
+      const pageOffset = (getPaginationState('adAccounts').page - 1) * getPaginationState('adAccounts').pageSize;
+      const pageItems = paginateSlice('adAccounts', rows);
+      tbody.innerHTML = pageItems.map((a, i) => `
         <tr class="hover:bg-gray-50">
-          <td class="border p-2">${i + 1}</td>
+          <td class="border p-2">${pageOffset + i + 1}</td>
           <td class="border p-2 font-mono">${escapeHtml(a.username)}</td>
           <td class="border p-2">${escapeHtml(a.fullName || '—')}</td>
           <td class="border p-2 text-center">${a.active ? '<span class="text-[10px] font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Active</span>' : '<span class="text-[10px] font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded-full">Disable</span>'}</td>
@@ -4927,6 +5074,7 @@ function isPerpetualSoftware(softwareId) {
           <td class="border p-2">${a.disabledAt || '—'}</td>
         </tr>
       `).join('');
+      renderPaginationBar('adAccountsPaginationBox', 'adAccounts', rows.length, 'renderAdAccountsTable', { itemLabel: 'tài khoản' });
     }
     async function syncAdAccountsNow() {
       try {
@@ -6398,6 +6546,24 @@ function isPerpetualSoftware(softwareId) {
       link.click();
       link.remove();
     }
+    // ExcelJS không luôn trả về chuỗi/số thuần cho cell.value — Excel hay tự
+    // động biến ô email/URL thành hyperlink (VD gõ "a@b.com" rồi Excel tự
+    // format thành link mailto:), khi đó .value là OBJECT dạng {text,
+    // hyperlink}, không phải string. Công thức, rich text, ô lỗi cũng trả về
+    // object tương tự. String(object) sẽ ra "[object Object]" nếu không xử lý
+    // riêng — đây là nguyên nhân lỗi "báo object" khi nhập Excel.
+    function xlsxCellToText(v) {
+      if (v === undefined || v === null) return '';
+      if (v instanceof Date) return v.toISOString().slice(0, 10);
+      if (typeof v === 'object') {
+        if (typeof v.text === 'string') return v.text.trim(); // hyperlink: {text, hyperlink}
+        if (Array.isArray(v.richText)) return v.richText.map(r => r.text || '').join('').trim();
+        if (v.result !== undefined) return xlsxCellToText(v.result); // formula: {formula, result}
+        if (v.error !== undefined) return ''; // ô lỗi công thức (#REF!, #N/A...)
+        return '';
+      }
+      return String(v).trim();
+    }
     async function readXlsxRows(file, headerKeys) {
       const buf = await new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -6415,8 +6581,7 @@ function isPerpetualSoftware(softwareId) {
         const values = row.values.slice(1); // row.values của ExcelJS có index[0] rỗng
         const obj = {};
         headerKeys.forEach((key, idx) => {
-          const v = values[idx];
-          obj[key] = (v === undefined || v === null) ? '' : String(v).trim();
+          obj[key] = xlsxCellToText(values[idx]);
         });
         rows.push(obj);
       });
