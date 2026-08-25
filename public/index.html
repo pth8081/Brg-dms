@@ -975,6 +975,28 @@
         <button onclick="syncAdAccountsNow()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">🔄 Đồng bộ ngay</button>
         <span id="adLastSyncLabel" class="text-xs text-gray-500"></span>
       </div>
+      <div class="grid grid-cols-1 sm:grid-cols-4 gap-2 bg-gray-50 p-3 rounded border text-xs">
+        <div>
+          <label class="block font-semibold text-gray-600 mb-1">Tìm kiếm</label>
+          <input id="adFilterSearch" type="text" oninput="resetPageAndRerender('adAccounts','renderAdAccountsTable')" placeholder="Tài khoản, họ và tên..." class="w-full border p-1.5 rounded">
+        </div>
+        <div>
+          <label class="block font-semibold text-gray-600 mb-1">Tình trạng</label>
+          <select id="adFilterStatus" onchange="resetPageAndRerender('adAccounts','renderAdAccountsTable')" class="w-full border p-1.5 rounded bg-white">
+            <option value="">-- Tất cả --</option>
+            <option value="active">Active</option>
+            <option value="disabled">Disable</option>
+          </select>
+        </div>
+        <div>
+          <label class="block font-semibold text-gray-600 mb-1">Công ty</label>
+          <select id="adFilterCompany" onchange="resetPageAndRerender('adAccounts','renderAdAccountsTable')" class="w-full border p-1.5 rounded bg-white"></select>
+        </div>
+        <div>
+          <label class="block font-semibold text-gray-600 mb-1">Khối phòng ban</label>
+          <select id="adFilterOrgUnit" onchange="resetPageAndRerender('adAccounts','renderAdAccountsTable')" class="w-full border p-1.5 rounded bg-white"></select>
+        </div>
+      </div>
       <div class="overflow-x-auto">
         <table class="w-full border-collapse border bg-white text-xs">
           <thead>
@@ -4993,17 +5015,54 @@ function isPerpetualSoftware(softwareId) {
     }
 
     // --- Tài khoản AD (đồng bộ LDAP, độc lập với đăng nhập LDAP đã có) ---
+    // Công ty/Khối phòng ban của tài khoản AD là chuỗi tự do đồng bộ thẳng từ
+    // thuộc tính LDAP (không có bảng danh mục riêng) — nên danh sách lựa chọn
+    // của 2 bộ lọc này phải suy ra từ chính dữ liệu adAccounts hiện có, không
+    // lấy từ licenseDB.companies (đó là danh mục công ty của module License,
+    // độc lập và có thể không trùng tên với thuộc tính "company" trên AD).
+    function populateAdAccountFilterSelects() {
+      const companySel = document.getElementById('adFilterCompany');
+      const orgUnitSel = document.getElementById('adFilterOrgUnit');
+      const keepCompany = companySel.value;
+      const keepOrgUnit = orgUnitSel.value;
+      const companies = [...new Set(licenseDB.adAccounts.map(a => a.company).filter(Boolean))].sort();
+      const orgUnits = [...new Set(licenseDB.adAccounts.map(a => a.orgUnit).filter(Boolean))].sort();
+      companySel.innerHTML = '<option value="">-- Tất cả công ty --</option>' + companies.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+      orgUnitSel.innerHTML = '<option value="">-- Tất cả khối/phòng ban --</option>' + orgUnits.map(o => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join('');
+      companySel.value = keepCompany;
+      orgUnitSel.value = keepOrgUnit;
+    }
     function renderAdAccountsTable() {
       const tbody = document.getElementById('adAccountsTableBody');
       const label = document.getElementById('adLastSyncLabel');
       label.textContent = licenseDB.adLastSyncAt ? `Đồng bộ gần nhất: ${new Date(licenseDB.adLastSyncAt).toLocaleString('vi-VN')}` : 'Chưa đồng bộ lần nào.';
+      populateAdAccountFilterSelects();
+
+      const search = document.getElementById('adFilterSearch').value.trim().toLowerCase();
+      const status = document.getElementById('adFilterStatus').value;
+      const company = document.getElementById('adFilterCompany').value;
+      const orgUnit = document.getElementById('adFilterOrgUnit').value;
+      const rows = licenseDB.adAccounts.filter(a => {
+        if (search && !`${a.username} ${a.fullName || ''}`.toLowerCase().includes(search)) return false;
+        if (status === 'active' && !a.active) return false;
+        if (status === 'disabled' && a.active) return false;
+        if (company && a.company !== company) return false;
+        if (orgUnit && a.orgUnit !== orgUnit) return false;
+        return true;
+      });
+
       if (licenseDB.adAccounts.length === 0) {
         tbody.innerHTML = `<tr><td colspan="7" class="text-center text-gray-500 p-4">Chưa có dữ liệu tài khoản AD — bấm "Đồng bộ ngay" để tải (cần bật đồng bộ AD trong mục Quản trị trước).</td></tr>`;
         renderPaginationBar('adAccountsPaginationBox', 'adAccounts', 0, 'renderAdAccountsTable', { itemLabel: 'tài khoản' });
         return;
       }
+      if (rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center text-gray-500 p-4">Không có tài khoản nào khớp bộ lọc.</td></tr>`;
+        renderPaginationBar('adAccountsPaginationBox', 'adAccounts', 0, 'renderAdAccountsTable', { itemLabel: 'tài khoản' });
+        return;
+      }
       const pageOffset = (getPaginationState('adAccounts').page - 1) * getPaginationState('adAccounts').pageSize;
-      const pageItems = paginateSlice('adAccounts', licenseDB.adAccounts);
+      const pageItems = paginateSlice('adAccounts', rows);
       tbody.innerHTML = pageItems.map((a, i) => `
         <tr class="hover:bg-gray-50">
           <td class="border p-2">${pageOffset + i + 1}</td>
@@ -5015,7 +5074,7 @@ function isPerpetualSoftware(softwareId) {
           <td class="border p-2">${a.disabledAt || '—'}</td>
         </tr>
       `).join('');
-      renderPaginationBar('adAccountsPaginationBox', 'adAccounts', licenseDB.adAccounts.length, 'renderAdAccountsTable', { itemLabel: 'tài khoản' });
+      renderPaginationBar('adAccountsPaginationBox', 'adAccounts', rows.length, 'renderAdAccountsTable', { itemLabel: 'tài khoản' });
     }
     async function syncAdAccountsNow() {
       try {
