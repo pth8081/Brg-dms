@@ -306,10 +306,14 @@ async function ldapSyncAccounts() {
         const attributes = ['sAMAccountName', 'displayName', 'mail', 'userAccountControl'];
         if (ldapConfig.companyAttr) attributes.push(ldapConfig.companyAttr);
         if (ldapConfig.orgUnitAttr) attributes.push(ldapConfig.orgUnitAttr);
+        // AD mặc định giới hạn ~1000 kết quả/lượt tìm kiếm (LDAP code 0x4 —
+        // sizeLimitExceeded) nếu không bật phân trang; bật paged để client tự
+        // lấy hết nhiều trang, không phụ thuộc quy mô OU tìm kiếm.
         const result = await client.search(ldapConfig.searchBaseDn, {
             scope: 'sub',
             filter: '(&(objectClass=user)(objectCategory=person))',
-            attributes
+            attributes,
+            paged: { pageSize: 1000 }
         });
         entries = result.searchEntries;
     } finally {
