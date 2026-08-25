@@ -6546,6 +6546,24 @@ function isPerpetualSoftware(softwareId) {
       link.click();
       link.remove();
     }
+    // ExcelJS không luôn trả về chuỗi/số thuần cho cell.value — Excel hay tự
+    // động biến ô email/URL thành hyperlink (VD gõ "a@b.com" rồi Excel tự
+    // format thành link mailto:), khi đó .value là OBJECT dạng {text,
+    // hyperlink}, không phải string. Công thức, rich text, ô lỗi cũng trả về
+    // object tương tự. String(object) sẽ ra "[object Object]" nếu không xử lý
+    // riêng — đây là nguyên nhân lỗi "báo object" khi nhập Excel.
+    function xlsxCellToText(v) {
+      if (v === undefined || v === null) return '';
+      if (v instanceof Date) return v.toISOString().slice(0, 10);
+      if (typeof v === 'object') {
+        if (typeof v.text === 'string') return v.text.trim(); // hyperlink: {text, hyperlink}
+        if (Array.isArray(v.richText)) return v.richText.map(r => r.text || '').join('').trim();
+        if (v.result !== undefined) return xlsxCellToText(v.result); // formula: {formula, result}
+        if (v.error !== undefined) return ''; // ô lỗi công thức (#REF!, #N/A...)
+        return '';
+      }
+      return String(v).trim();
+    }
     async function readXlsxRows(file, headerKeys) {
       const buf = await new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -6563,8 +6581,7 @@ function isPerpetualSoftware(softwareId) {
         const values = row.values.slice(1); // row.values của ExcelJS có index[0] rỗng
         const obj = {};
         headerKeys.forEach((key, idx) => {
-          const v = values[idx];
-          obj[key] = (v === undefined || v === null) ? '' : String(v).trim();
+          obj[key] = xlsxCellToText(values[idx]);
         });
         rows.push(obj);
       });
