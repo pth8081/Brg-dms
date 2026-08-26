@@ -155,33 +155,42 @@
     </div>
   </div>
 
-  <div id="appShell" class="hidden max-w-7xl mx-auto bg-white p-4 md:p-6 rounded-lg shadow-md space-y-6">
+  <div id="appShell" class="hidden md:flex min-h-screen bg-gray-50">
 
-    <!-- Header -->
-    <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 border-b pb-4">
-      <div>
+    <!-- Sidebar điều hướng chính — thay thanh menu ngang cũ, gom mọi module
+         vào 1 cột dọc cố định bên trái (xem CLAUDE.md phần lịch sử UI/UX). -->
+    <nav id="appSidebar" class="sidebar-shell w-56 shrink-0 flex flex-col gap-0.5 px-3 py-5 md:sticky md:top-0 md:h-screen md:overflow-y-auto">
+      <div class="sidebar-brand text-base px-2 pb-4">DMS</div>
+      <button id="btnHomeTab" onclick="switchTab('home')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md">🏠 Trang chủ</button>
+      <button id="btnDocTab" onclick="switchTab('doc')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md">📂 Quản lý tài liệu</button>
+      <button id="btnLicenseTab" onclick="switchTab('license')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md">🔑 Quản lý Bản quyền</button>
+      <button id="btnLicensePortalTab" onclick="switchTab('licensePortal')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md">💰 Ngân sách &amp; Kỳ mua</button>
+      <button id="btnReportsTab" onclick="switchTab('reports')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md">📊 Báo cáo</button>
+      <button id="btnItAssetsTab" onclick="switchTab('itAssets')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md">🖥️ Quản lý CNTT</button>
+      <button id="btnAdminTab" onclick="switchTab('admin')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md">⚙️ Quản trị &amp; Phân quyền</button>
+
+      <div id="userHeader" class="sidebar-foot hidden mt-auto pt-3 px-2">
+        <div class="cursor-pointer group" onclick="openProfileModal()" title="Bấm để cập nhật thông tin cá nhân & đổi mật khẩu">
+          <span id="userInfo" class="font-bold text-white block text-sm group-hover:underline"></span>
+          <span id="userPhoneInfo" class="text-xs block mt-0.5"></span>
+        </div>
+        <button onclick="logout()" class="text-xs text-red-300 hover:text-red-200 font-semibold mt-2">Đăng xuất</button>
+      </div>
+    </nav>
+
+    <!-- Nội dung chính -->
+    <div class="flex-1 min-w-0 p-4 md:p-6 space-y-6 overflow-x-hidden">
+
+      <div class="border-b pb-4">
         <h1 class="text-xl md:text-2xl font-bold text-gray-800">Hệ Thống Quản Lý Tài Liệu (DMS v6.27)</h1>
         <p class="text-xs text-gray-500">Quản lý tài liệu | Luồng quy trình phê duyệt | Phân quyền truy cập | Log hệ thống</p>
       </div>
-      <div id="userHeader" class="text-left sm:text-right hidden">
-        <div class="cursor-pointer group inline-block" onclick="openProfileModal()" title="Bấm để cập nhật thông tin cá nhân & đổi mật khẩu">
-          <span id="userInfo" class="font-bold text-blue-600 block text-sm group-hover:underline"></span>
-          <span id="userPhoneInfo" class="text-xs text-gray-500 block"></span>
-        </div>
-        <div class="flex gap-2 justify-start sm:justify-end mt-2 flex-wrap">
-          <button id="btnDocTab" onclick="switchTab('doc')" class="nav-tab hidden text-xs px-2.5 py-2 font-semibold transition-colors">📂 Quản lý tài liệu</button>
-          <button id="btnLicenseTab" onclick="switchTab('license')" class="nav-tab hidden text-xs px-2.5 py-2 font-semibold transition-colors">🔑 Quản lý Bản quyền</button>
-          <button id="btnLicensePortalTab" onclick="switchTab('licensePortal')" class="nav-tab hidden text-xs px-2.5 py-2 font-semibold transition-colors">💰 Ngân sách &amp; Kỳ mua</button>
-          <button id="btnReportsTab" onclick="switchTab('reports')" class="nav-tab hidden text-xs px-2.5 py-2 font-semibold transition-colors">📊 Báo cáo</button>
-          <button id="btnItAssetsTab" onclick="switchTab('itAssets')" class="nav-tab hidden text-xs px-2.5 py-2 font-semibold transition-colors">🖥️ Quản lý CNTT</button>
-          <button id="btnAdminTab" onclick="switchTab('admin')" class="nav-tab hidden text-xs px-2.5 py-2 font-semibold transition-colors">⚙️ Quản trị & Phân quyền</button>
-          <button onclick="logout()" class="text-xs text-red-500 underline py-1 hover:text-red-700 font-semibold">Đăng xuất</button>
-        </div>
-      </div>
-    </div>
 
-    <!-- Màn hình 2: Tab Quản Lý Tài Liệu -->
-    <div id="docSection" class="hidden space-y-6">
+      <!-- Màn hình 1: Trang chủ (tổng quan việc chờ xử lý) -->
+      <div id="homeSection" class="hidden space-y-6"></div>
+
+      <!-- Màn hình 2: Tab Quản Lý Tài Liệu -->
+      <div id="docSection" class="hidden space-y-6">
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div id="card-ALL" onclick="filterByCard('')" class="dash-card bg-white border rounded-lg p-4 shadow-sm border-l-4 border-l-blue-500 flex justify-between items-center cursor-pointer transition-all hover:scale-[1.02]">
           <div>
@@ -806,31 +815,21 @@
       <!-- /Sub-tab: Thùng Rác -->
     </div>
 
-  </div>
-
-  <!-- Màn hình 4: Module Quản Lý Bản Quyền — Giai đoạn 1 (nền tảng) -->
-  <div id="licenseSection" class="hidden space-y-4">
-    <!-- Cấp 1: 3 nhóm dạng viên thuốc (cùng ngôn ngữ hình ảnh với sub-nav
-         module Báo cáo) — thay cho sidebar dọc cũ để tận dụng hết chiều rộng
-         màn hình cho nội dung bên dưới. -->
-    <div class="inline-flex bg-gray-100 border border-gray-200 rounded-lg p-1 gap-1">
-      <button id="btnLicenseGroupCatalog" onclick="switchLicenseGroup('catalog')" class="text-xs px-3.5 py-1.5 rounded-md font-semibold transition-colors">📇 Danh mục</button>
-      <button id="btnLicenseGroupOps" onclick="switchLicenseGroup('ops')" class="text-xs px-3.5 py-1.5 rounded-md font-semibold transition-colors">⚙️ Vận hành</button>
-      <button id="btnLicenseGroupPurchase" onclick="switchLicenseGroup('purchase')" class="text-xs px-3.5 py-1.5 rounded-md font-semibold transition-colors">🛒 Mua sắm &amp; Ngân sách</button>
-    </div>
-
-    <!-- Cấp 2: chỉ hiện 3 mục con của đúng nhóm đang chọn (cùng kiểu gạch
-         chân .nav-tab với 5 module chính) — không bao giờ quá 3 mục 1 hàng. -->
+    <!-- Màn hình 4: Module Quản Lý Bản Quyền — Giai đoạn 1 (nền tảng) -->
+    <div id="licenseSection" class="hidden space-y-4">
+    <!-- 1 hàng tab phẳng, bấm thẳng vào mục cần — thay cho nhóm pill 2 tầng
+         trước đây (Danh mục/Vận hành/Mua sắm & Ngân sách + tab con), vốn bị
+         phản hồi là rối vì phải bấm 2 lần mới tới đúng mục. -->
     <div id="licenseSubNavRow" class="flex gap-1 border-b border-gray-200 flex-wrap">
-      <button id="btnLicenseSubOrg" data-group="catalog" onclick="switchLicenseSubTab('org')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🏢 Tổ chức công ty</button>
-      <button id="btnLicenseSubEmp" data-group="catalog" onclick="switchLicenseSubTab('emp')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">👤 Nhân viên</button>
-      <button id="btnLicenseSubSoftware" data-group="catalog" onclick="switchLicenseSubTab('software')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">💽 Phần mềm</button>
-      <button id="btnLicenseSubBatch" data-group="ops" onclick="switchLicenseSubTab('batch')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📜 Phát hành license</button>
-      <button id="btnLicenseSubAlloc" data-group="ops" onclick="switchLicenseSubTab('alloc')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📦 Phân bổ</button>
-      <button id="btnLicenseSubAD" data-group="ops" onclick="switchLicenseSubTab('ad')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🗂️ Tài khoản AD</button>
-      <button id="btnLicenseSubPurchase" data-group="purchase" onclick="switchLicenseSubTab('purchase')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🛒 Đăng ký mua bản quyền</button>
-      <button id="btnLicenseSubRounds" data-group="purchase" onclick="switchLicenseSubTab('rounds')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📋 Phát hành đăng ký mua</button>
-      <button id="btnLicenseSubBudget" data-group="purchase" onclick="switchLicenseSubTab('budget')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">💰 Ngân sách</button>
+      <button id="btnLicenseSubOrg" onclick="switchLicenseSubTab('org')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🏢 Tổ chức công ty</button>
+      <button id="btnLicenseSubEmp" onclick="switchLicenseSubTab('emp')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">👤 Nhân viên</button>
+      <button id="btnLicenseSubSoftware" onclick="switchLicenseSubTab('software')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">💽 Phần mềm</button>
+      <button id="btnLicenseSubBatch" onclick="switchLicenseSubTab('batch')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📜 Phát hành license</button>
+      <button id="btnLicenseSubAlloc" onclick="switchLicenseSubTab('alloc')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📦 Phân bổ</button>
+      <button id="btnLicenseSubAD" onclick="switchLicenseSubTab('ad')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🗂️ Tài khoản AD</button>
+      <button id="btnLicenseSubPurchase" onclick="switchLicenseSubTab('purchase')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🛒 Đăng ký mua bản quyền</button>
+      <button id="btnLicenseSubRounds" onclick="switchLicenseSubTab('rounds')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📋 Phát hành đăng ký mua</button>
+      <button id="btnLicenseSubBudget" onclick="switchLicenseSubTab('budget')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">💰 Ngân sách</button>
     </div>
 
     <!-- Sub-tab: Tổ chức công ty -->
@@ -1455,6 +1454,9 @@
       <div class="bg-blue-50 border border-blue-200 rounded p-3 text-xs text-blue-800">
         💡 Để gửi được email thật, vào <b>Quản trị &amp; Phân quyền → Cấu hình Email</b> và nhập đủ SMTP Host/Port/Tài khoản/Mật khẩu, rồi bật "Kích hoạt gửi Email".
       </div>
+    </div>
+  </div>
+
     </div>
   </div>
 
@@ -2745,18 +2747,20 @@
       document.getElementById('btnReportsTab').classList.toggle('hidden', !user.perms.admin);
       document.getElementById('btnItAssetsTab').classList.toggle('hidden', !user.perms.admin);
       document.getElementById('btnDocTab').classList.remove('hidden');
+      document.getElementById('btnHomeTab').classList.remove('hidden');
 
       const hasPortalScope = !user.perms.admin && !!user.perms.licenseScopeType;
       document.getElementById('btnLicensePortalTab').classList.toggle('hidden', !hasPortalScope);
 
       populateDropdowns();
-      switchTab(hasPortalScope ? 'licensePortal' : 'doc');
+      switchTab('home');
     }
 
     function showLoginScreen() {
       currentUser = null;
       document.getElementById('loginSection').classList.remove('hidden');
       document.getElementById('appShell').classList.add('hidden');
+      document.getElementById('homeSection').classList.add('hidden');
       document.getElementById('docSection').classList.add('hidden');
       document.getElementById('adminSection').classList.add('hidden');
       document.getElementById('licenseSection').classList.add('hidden');
@@ -2775,6 +2779,7 @@
     function switchTab(tabName) {
       if (!currentUser) return logout();
 
+      document.getElementById('homeSection').classList.toggle('hidden', tabName !== 'home');
       document.getElementById('docSection').classList.toggle('hidden', tabName !== 'doc');
       document.getElementById('adminSection').classList.toggle('hidden', tabName !== 'admin');
       document.getElementById('licenseSection').classList.toggle('hidden', tabName !== 'license');
@@ -2782,6 +2787,7 @@
       document.getElementById('reportsSection').classList.toggle('hidden', tabName !== 'reports');
       document.getElementById('itAssetsSection').classList.toggle('hidden', tabName !== 'itAssets');
 
+      document.getElementById('btnHomeTab').classList.toggle('active', tabName === 'home');
       document.getElementById('btnDocTab').classList.toggle('active', tabName === 'doc');
       document.getElementById('btnLicenseTab').classList.toggle('active', tabName === 'license');
       document.getElementById('btnLicensePortalTab').classList.toggle('active', tabName === 'licensePortal');
@@ -2789,12 +2795,97 @@
       document.getElementById('btnItAssetsTab').classList.toggle('active', tabName === 'itAssets');
       document.getElementById('btnAdminTab').classList.toggle('active', tabName === 'admin');
 
+      if (tabName === 'home') { renderHomeDashboard(); }
       if (tabName === 'doc') { renderDocs(); updateUploadDeptDropdown(); }
       if (tabName === 'admin' && currentUser.perms.admin) { switchAdminSubTab('users'); }
       if (tabName === 'license' && currentUser.perms.admin) { switchLicenseSubTab('org'); }
       if (tabName === 'reports' && currentUser.perms.admin) { switchReportsSubsystem('doc'); }
       if (tabName === 'licensePortal' && !currentUser.perms.admin && currentUser.perms.licenseScopeType) { switchPortalSubTab('budget'); }
       if (tabName === 'itAssets' && currentUser.perms.admin) { switchItAssetsSubTab('items'); }
+    }
+
+    // --- Trang chủ: tổng quan các việc đang chờ xử lý, tuỳ theo quyền của
+    // từng tài khoản (Admin thấy đủ 4 thẻ; tài khoản thường chỉ thấy thẻ Tài
+    // liệu chờ duyệt — vì các module còn lại đều yêu cầu quyền Admin). ---
+    async function renderHomeDashboard() {
+      if (!currentUser) return;
+      const isAdmin = !!currentUser.perms.admin;
+      // Dữ liệu License/CNTT chỉ tải khi cần (lazy-load như các module khác) —
+      // Trang chủ là màn hình đầu tiên sau đăng nhập nên phải chủ động tải
+      // trước khi đếm, nếu không sẽ luôn hiện 0 cho tới khi Admin tự vào module đó.
+      if (isAdmin) {
+        await Promise.all([loadLicenseBootstrapData(), loadItAssetsBootstrapData()]);
+      }
+
+      // Tài liệu chờ duyệt: đúng những tài liệu NGƯỜI DÙNG HIỆN TẠI có quyền
+      // duyệt (không phải tổng toàn hệ thống) — tính theo phiên bản mới nhất
+      // của mỗi tài liệu, dùng lại đúng canUserApproveDoc() đã có ở module Tài liệu.
+      const groupMap = new Map();
+      DB.docs.forEach(d => {
+        const gid = String(d.docGroupId || d.id);
+        if (!groupMap.has(gid)) groupMap.set(gid, []);
+        groupMap.get(gid).push(d);
+      });
+      const latestDocs = [];
+      groupMap.forEach(arr => {
+        arr.sort((a, b) => (b.versionNo || 1) - (a.versionNo || 1));
+        latestDocs.push(arr[0]);
+      });
+      const pendingDocsForMe = latestDocs.filter(d => canUserApproveDoc(currentUser, d));
+
+      const cards = [{
+        label: 'Tài liệu chờ duyệt', value: pendingDocsForMe.length, icon: '📂',
+        tone: pendingDocsForMe.length ? 'amber' : 'brand',
+        action: () => { switchTab('doc'); filterByCard('PENDING'); }
+      }];
+
+      if (isAdmin) {
+        const pendingPurchaseRegs = (licenseDB.purchaseRegistrations || []).filter(r => r.status === 'PENDING').length;
+        cards.push({
+          label: 'Đăng ký mua bản quyền chờ duyệt', value: pendingPurchaseRegs, icon: '🔑',
+          tone: pendingPurchaseRegs ? 'amber' : 'brand',
+          action: () => { switchTab('license'); switchLicenseSubTab('rounds'); }
+        });
+        const pendingBudgetRegs = (licenseDB.budgetRegistrations || []).filter(r => r.status === 'PENDING').length;
+        cards.push({
+          label: 'Dự trù ngân sách chờ duyệt', value: pendingBudgetRegs, icon: '💰',
+          tone: pendingBudgetRegs ? 'amber' : 'brand',
+          action: () => { switchTab('license'); switchLicenseSubTab('budget'); }
+        });
+        const itNeedsAttention = (itAssetsDB.items || []).filter(i => i.active && itItemStatusCode(i) !== 'OK').length;
+        cards.push({
+          label: 'Đầu mục CNTT sắp / đã hết hạn', value: itNeedsAttention, icon: '🖥️',
+          tone: itNeedsAttention ? 'danger' : 'brand',
+          action: () => { switchTab('itAssets'); }
+        });
+      }
+
+      window.__homeCardActions = cards.map(c => c.action);
+      const toneClasses = {
+        brand: { border: 'border-l-brand-600', bg: 'bg-brand-100', text: 'text-brand-600' },
+        amber: { border: 'border-l-amber-500', bg: 'bg-amber-100', text: 'text-amber-600' },
+        danger: { border: 'border-l-danger-600', bg: 'bg-danger-100', text: 'text-danger-600' }
+      };
+      const container = document.getElementById('homeSection');
+      container.innerHTML = `
+        <div>
+          <h2 class="text-lg font-bold text-gray-800">Chào ${escapeHtml(currentUser.name)} 👋</h2>
+          <p class="text-sm text-gray-500">Tổng quan các việc đang chờ bạn xử lý.</p>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          ${cards.map((c, i) => {
+            const t = toneClasses[c.tone];
+            return `
+            <div onclick="window.__homeCardActions[${i}]()" class="bg-white border rounded-lg p-4 shadow-sm border-l-4 ${t.border} flex justify-between items-center cursor-pointer transition-all hover:scale-[1.02]">
+              <div>
+                <p class="text-xs text-gray-500 uppercase font-bold">${escapeHtml(c.label)}</p>
+                <h3 class="text-2xl font-bold text-gray-800">${c.value}</h3>
+              </div>
+              <div class="${t.bg} ${t.text} p-3 rounded-full">${c.icon}</div>
+            </div>`;
+          }).join('')}
+        </div>
+      `;
     }
 
     function switchAdminSubTab(subName) {
@@ -4577,43 +4668,9 @@
       }
     }
 
-    // Nhóm cấp 1 (pill) ↔ mục con cấp 2 (nav-tab) — thay cho sidebar dọc cũ.
-    // Mỗi mục con chỉ thuộc đúng 1 nhóm; chuyển nhóm sẽ tự nhảy tới mục con
-    // đầu tiên của nhóm đó nếu mục đang xem không thuộc nhóm vừa chọn.
-    const LICENSE_SUB_GROUPS = {
-      catalog: ['org', 'emp', 'software'],
-      ops: ['batch', 'alloc', 'ad'],
-      purchase: ['purchase', 'rounds', 'budget']
-    };
-    let licenseCurrentSubTab = 'org';
-    function licenseGroupOf(subName) {
-      return Object.keys(LICENSE_SUB_GROUPS).find(g => LICENSE_SUB_GROUPS[g].includes(subName)) || 'catalog';
-    }
-    // Chỉ cập nhật giao diện (pill đang chọn + hàng mục con hiện đúng nhóm) —
-    // KHÔNG tự nhảy tab, để switchLicenseSubTab gọi lại an toàn mà không đệ quy.
-    function applyLicenseGroupUI(group) {
-      Object.keys(LICENSE_SUB_GROUPS).forEach(g => {
-        const btn = document.getElementById('btnLicenseGroup' + g.charAt(0).toUpperCase() + g.slice(1));
-        if (!btn) return;
-        btn.classList.toggle('bg-white', g === group);
-        btn.classList.toggle('shadow-sm', g === group);
-        btn.classList.toggle('text-gray-800', g === group);
-        btn.classList.toggle('text-gray-500', g !== group);
-      });
-      document.querySelectorAll('#licenseSubNavRow button[data-group]').forEach(btn => {
-        btn.classList.toggle('hidden', btn.dataset.group !== group);
-      });
-    }
-    function switchLicenseGroup(group) {
-      applyLicenseGroupUI(group);
-      if (licenseGroupOf(licenseCurrentSubTab) !== group) {
-        switchLicenseSubTab(LICENSE_SUB_GROUPS[group][0]);
-      }
-    }
+    // Chuyển mục con module Bản quyền — 1 hàng tab phẳng (xem #licenseSubNavRow).
     function switchLicenseSubTab(subName) {
       if (!currentUser || !currentUser.perms.admin) return;
-      licenseCurrentSubTab = subName;
-      applyLicenseGroupUI(licenseGroupOf(subName));
 
       const subs = { org: 'licenseSubOrg', emp: 'licenseSubEmp', software: 'licenseSubSoftware', batch: 'licenseSubBatch', alloc: 'licenseSubAlloc', ad: 'licenseSubAD', purchase: 'licenseSubPurchase', rounds: 'licenseSubRounds', budget: 'licenseSubBudget' };
       const btns = { org: 'btnLicenseSubOrg', emp: 'btnLicenseSubEmp', software: 'btnLicenseSubSoftware', batch: 'btnLicenseSubBatch', alloc: 'btnLicenseSubAlloc', ad: 'btnLicenseSubAD', purchase: 'btnLicenseSubPurchase', rounds: 'btnLicenseSubRounds', budget: 'btnLicenseSubBudget' };
