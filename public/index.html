@@ -173,6 +173,7 @@
           <button id="btnLicenseTab" onclick="switchTab('license')" class="nav-tab hidden text-xs px-2.5 py-2 font-semibold transition-colors">🔑 Quản lý Bản quyền</button>
           <button id="btnLicensePortalTab" onclick="switchTab('licensePortal')" class="nav-tab hidden text-xs px-2.5 py-2 font-semibold transition-colors">💰 Ngân sách &amp; Kỳ mua</button>
           <button id="btnReportsTab" onclick="switchTab('reports')" class="nav-tab hidden text-xs px-2.5 py-2 font-semibold transition-colors">📊 Báo cáo</button>
+          <button id="btnItAssetsTab" onclick="switchTab('itAssets')" class="nav-tab hidden text-xs px-2.5 py-2 font-semibold transition-colors">🖥️ Quản lý CNTT</button>
           <button id="btnAdminTab" onclick="switchTab('admin')" class="nav-tab hidden text-xs px-2.5 py-2 font-semibold transition-colors">⚙️ Quản trị & Phân quyền</button>
           <button onclick="logout()" class="text-xs text-red-500 underline py-1 hover:text-red-700 font-semibold">Đăng xuất</button>
         </div>
@@ -355,8 +356,23 @@
             <label class="block font-semibold text-gray-600 mb-1">Email Hệ Thống (Sender)</label>
             <input id="cfgSenderEmail" type="email" placeholder="dms-noreply@company.com" class="w-full border p-1.5 rounded" required>
           </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Kết nối bảo mật (SSL)</label>
+            <select id="cfgSmtpSecure" class="w-full border p-1.5 rounded bg-white">
+              <option value="false">Không (STARTTLS, cổng 587)</option>
+              <option value="true">Có (SSL, cổng 465)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Tài khoản SMTP</label>
+            <input id="cfgSmtpUser" placeholder="dms-noreply@company.com" class="w-full border p-1.5 rounded" autocomplete="off">
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Mật khẩu SMTP</label>
+            <input id="cfgSmtpPass" type="password" placeholder="Để trống nếu không đổi" class="w-full border p-1.5 rounded" autocomplete="new-password">
+          </div>
           <div class="md:col-span-4 flex flex-col sm:flex-row justify-between sm:items-center gap-2 pt-1">
-            <span class="text-gray-500 italic text-[11px]">Cấu hình mail hệ thống dùng để thông báo tự động khi phát sinh tài liệu cần duyệt.</span>
+            <span class="text-gray-500 italic text-[11px]">Cấu hình mail hệ thống dùng để gửi email thật (thông báo duyệt tài liệu, nhắc hết hạn module Quản lý CNTT...). Cần nhập đủ Tài khoản/Mật khẩu SMTP để gửi được.</span>
             <button type="submit" class="shrink-0 btn-primary px-4 py-1.5 rounded font-bold">Lưu Cấu Hình Email</button>
           </div>
         </form>
@@ -1342,6 +1358,182 @@
             <tbody id="portalPurchaseRegTableBody"></tbody>
           </table>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODULE: Quản lý CNTT (theo dõi hạn dịch vụ/bản quyền + nhắc email tự động) -->
+  <div id="itAssetsSection" class="hidden space-y-4">
+    <div class="flex gap-1 border-b border-gray-200 flex-wrap">
+      <button id="btnItSubItems" onclick="switchItAssetsSubTab('items')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🖥️ Đầu mục theo dõi</button>
+      <button id="btnItSubCategories" onclick="switchItAssetsSubTab('categories')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📁 Danh mục</button>
+      <button id="btnItSubConfig" onclick="switchItAssetsSubTab('config')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">⏰ Cấu hình nhắc hẹn</button>
+    </div>
+
+    <!-- Sub-tab: Đầu mục theo dõi -->
+    <div id="itSubItems" class="space-y-3">
+      <div class="flex flex-wrap justify-between items-center gap-2">
+        <h2 class="text-lg font-bold text-gray-800">Đầu mục theo dõi gia hạn</h2>
+        <button onclick="openItItemModal()" class="btn-primary px-4 py-2 rounded text-sm font-bold">+ Thêm đầu mục</button>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-2 bg-gray-50 p-3 rounded border">
+        <input id="itFilterSearch" type="text" placeholder="🔍 Tìm theo tên..." oninput="resetPageAndRerender('itItems','renderItItemsTable')" class="border p-1.5 rounded text-sm">
+        <select id="itFilterCategory" onchange="resetPageAndRerender('itItems','renderItItemsTable')" class="border p-1.5 rounded bg-white text-sm"></select>
+        <select id="itFilterStatus" onchange="resetPageAndRerender('itItems','renderItItemsTable')" class="border p-1.5 rounded bg-white text-sm">
+          <option value="">-- Tất cả trạng thái --</option>
+          <option value="OK">Còn hạn</option>
+          <option value="SOON">Sắp hết hạn</option>
+          <option value="EXPIRED">Đã hết hạn</option>
+        </select>
+        <select id="itFilterActive" onchange="resetPageAndRerender('itItems','renderItItemsTable')" class="border p-1.5 rounded bg-white text-sm">
+          <option value="1">Đang theo dõi</option>
+          <option value="0">Đã tạm ngừng</option>
+          <option value="">-- Tất cả --</option>
+        </select>
+      </div>
+      <div class="overflow-x-auto border rounded">
+        <table class="w-full text-xs border-collapse">
+          <thead>
+            <tr class="bg-gray-100 text-left">
+              <th class="border p-2 w-10">#</th>
+              <th class="border p-2">Tên đầu mục</th>
+              <th class="border p-2">Danh mục</th>
+              <th class="border p-2">Nhà cung cấp</th>
+              <th class="border p-2">Ngày hết hạn</th>
+              <th class="border p-2">Trạng thái</th>
+              <th class="border p-2">Người phụ trách</th>
+              <th class="border p-2 text-right">Chi phí</th>
+              <th class="border p-2 text-center w-20">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody id="itItemsTableBody"></tbody>
+        </table>
+      </div>
+      <div id="itItemsPaginationBox" class="flex flex-col sm:flex-row justify-between items-center gap-3 bg-gray-50 p-3 rounded border text-xs text-gray-700"></div>
+    </div>
+
+    <!-- Sub-tab: Danh mục -->
+    <div id="itSubCategories" class="hidden space-y-3">
+      <div class="flex flex-wrap justify-between items-center gap-2">
+        <h2 class="text-lg font-bold text-gray-800">Danh mục loại dịch vụ/bản quyền</h2>
+        <button onclick="openItCategoryModal()" class="btn-primary px-4 py-2 rounded text-sm font-bold">+ Thêm danh mục</button>
+      </div>
+      <div class="overflow-x-auto border rounded">
+        <table class="w-full text-xs border-collapse">
+          <thead>
+            <tr class="bg-gray-100 text-left">
+              <th class="border p-2 w-10">#</th>
+              <th class="border p-2">Tên danh mục</th>
+              <th class="border p-2 text-center">Số đầu mục</th>
+              <th class="border p-2 text-center">Trạng thái</th>
+              <th class="border p-2 text-center w-20">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody id="itCategoriesTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Sub-tab: Cấu hình nhắc hẹn -->
+    <div id="itSubConfig" class="hidden space-y-3 max-w-2xl">
+      <h2 class="text-lg font-bold text-gray-800">Cấu hình nhắc hẹn hết hạn</h2>
+      <div class="bg-gray-50 border rounded p-4 space-y-3">
+        <label class="flex items-center gap-2 text-sm font-semibold text-gray-700">
+          <input id="itCfgEnabled" type="checkbox" class="w-4 h-4"> Bật gửi email nhắc hết hạn tự động
+        </label>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Các mốc nhắc trước hạn (số ngày, cách nhau bởi dấu phẩy)</label>
+          <input id="itCfgDaysBefore" type="text" placeholder="VD: 30, 15, 7" class="w-full border p-2 rounded text-sm">
+          <p class="text-[11px] text-gray-500 mt-1">Hệ thống luôn tự nhắc thêm vào đúng ngày hết hạn, không phụ thuộc cấu hình này.</p>
+        </div>
+        <div class="flex gap-2 pt-1">
+          <button onclick="saveItReminderConfig()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu cấu hình</button>
+          <button onclick="runItCheckExpiryNow()" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">🔔 Kiểm tra &amp; gửi nhắc ngay</button>
+        </div>
+        <p id="itCfgLastCheckLabel" class="text-[11px] text-gray-500"></p>
+      </div>
+      <div class="bg-blue-50 border border-blue-200 rounded p-3 text-xs text-blue-800">
+        💡 Để gửi được email thật, vào <b>Quản trị &amp; Phân quyền → Cấu hình Email</b> và nhập đủ SMTP Host/Port/Tài khoản/Mật khẩu, rồi bật "Kích hoạt gửi Email".
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Đầu mục CNTT -->
+  <div id="itItemModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-lg w-full p-5 space-y-3 max-h-[90vh] overflow-y-auto">
+      <h3 id="itItemModalTitle" class="font-bold text-gray-900 text-base">Thêm đầu mục</h3>
+      <input type="hidden" id="itItemEditId">
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Tên đầu mục</label>
+        <input id="itItemName" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Cước Internet FPT chi nhánh HN">
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Danh mục</label>
+          <select id="itItemCategory" class="w-full border p-2 rounded text-sm bg-white"></select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Nhà cung cấp</label>
+          <input id="itItemProvider" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: FPT Telecom">
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày bắt đầu (tùy chọn)</label>
+          <input id="itItemStartDate" type="date" class="w-full border p-2 rounded text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày hết hạn</label>
+          <input id="itItemExpiryDate" type="date" class="w-full border p-2 rounded text-sm">
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Mô tả (tùy chọn)</label>
+        <textarea id="itItemDescription" rows="2" class="w-full border p-2 rounded text-sm"></textarea>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Người phụ trách (tài khoản hệ thống)</label>
+          <select id="itItemOwnerUser" class="w-full border p-2 rounded text-sm bg-white">
+            <option value="">-- Không chọn --</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Email phụ trách khác (tùy chọn)</label>
+          <input id="itItemOwnerEmail" type="text" class="w-full border p-2 rounded text-sm" placeholder="vd nhà cung cấp bên ngoài">
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3 items-end">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Chi phí (tùy chọn)</label>
+          <input id="itItemCost" type="number" min="0" step="1000" class="w-full border p-2 rounded text-sm">
+        </div>
+        <label class="flex items-center gap-2 text-sm font-semibold text-gray-700 pb-2">
+          <input id="itItemActive" type="checkbox" class="w-4 h-4" checked> Đang theo dõi
+        </label>
+      </div>
+      <div class="flex justify-end gap-2 pt-1">
+        <button type="button" onclick="closeLicenseModal('itItemModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" onclick="saveItItem()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Danh mục CNTT -->
+  <div id="itCategoryModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-sm w-full p-5 space-y-4">
+      <h3 id="itCategoryModalTitle" class="font-bold text-gray-900 text-base">Thêm danh mục</h3>
+      <input type="hidden" id="itCategoryEditId">
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Tên danh mục</label>
+        <input id="itCategoryName" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Cước Internet">
+      </div>
+      <label class="flex items-center gap-2 text-sm font-semibold text-gray-700">
+        <input id="itCategoryActive" type="checkbox" class="w-4 h-4" checked> Đang sử dụng
+      </label>
+      <div class="flex justify-end gap-2 pt-1">
+        <button type="button" onclick="closeLicenseModal('itCategoryModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" onclick="saveItCategory()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
       </div>
     </div>
   </div>
@@ -2551,6 +2743,7 @@
       document.getElementById('btnAdminTab').classList.toggle('hidden', !user.perms.admin);
       document.getElementById('btnLicenseTab').classList.toggle('hidden', !user.perms.admin);
       document.getElementById('btnReportsTab').classList.toggle('hidden', !user.perms.admin);
+      document.getElementById('btnItAssetsTab').classList.toggle('hidden', !user.perms.admin);
       document.getElementById('btnDocTab').classList.remove('hidden');
 
       const hasPortalScope = !user.perms.admin && !!user.perms.licenseScopeType;
@@ -2568,6 +2761,7 @@
       document.getElementById('adminSection').classList.add('hidden');
       document.getElementById('licenseSection').classList.add('hidden');
       document.getElementById('licensePortalSection').classList.add('hidden');
+      document.getElementById('itAssetsSection').classList.add('hidden');
       document.getElementById('userHeader').classList.add('hidden');
     }
 
@@ -2586,11 +2780,13 @@
       document.getElementById('licenseSection').classList.toggle('hidden', tabName !== 'license');
       document.getElementById('licensePortalSection').classList.toggle('hidden', tabName !== 'licensePortal');
       document.getElementById('reportsSection').classList.toggle('hidden', tabName !== 'reports');
+      document.getElementById('itAssetsSection').classList.toggle('hidden', tabName !== 'itAssets');
 
       document.getElementById('btnDocTab').classList.toggle('active', tabName === 'doc');
       document.getElementById('btnLicenseTab').classList.toggle('active', tabName === 'license');
       document.getElementById('btnLicensePortalTab').classList.toggle('active', tabName === 'licensePortal');
       document.getElementById('btnReportsTab').classList.toggle('active', tabName === 'reports');
+      document.getElementById('btnItAssetsTab').classList.toggle('active', tabName === 'itAssets');
       document.getElementById('btnAdminTab').classList.toggle('active', tabName === 'admin');
 
       if (tabName === 'doc') { renderDocs(); updateUploadDeptDropdown(); }
@@ -2598,6 +2794,7 @@
       if (tabName === 'license' && currentUser.perms.admin) { switchLicenseSubTab('org'); }
       if (tabName === 'reports' && currentUser.perms.admin) { switchReportsSubsystem('doc'); }
       if (tabName === 'licensePortal' && !currentUser.perms.admin && currentUser.perms.licenseScopeType) { switchPortalSubTab('budget'); }
+      if (tabName === 'itAssets' && currentUser.perms.admin) { switchItAssetsSubTab('items'); }
     }
 
     function switchAdminSubTab(subName) {
@@ -4095,7 +4292,12 @@
         enabled: document.getElementById('cfgEmailEnabled').value === 'true',
         smtpHost: document.getElementById('cfgSmtpHost').value.trim(),
         smtpPort: parseInt(document.getElementById('cfgSmtpPort').value, 10) || 587,
-        senderEmail: document.getElementById('cfgSenderEmail').value.trim()
+        smtpSecure: document.getElementById('cfgSmtpSecure').value === 'true',
+        senderEmail: document.getElementById('cfgSenderEmail').value.trim(),
+        smtpUser: document.getElementById('cfgSmtpUser').value.trim(),
+        // Để trống = giữ nguyên mật khẩu cũ đã lưu (server tự xử lý) — không
+        // bao giờ ghi đè bằng chuỗi rỗng nếu Admin không chủ động đổi.
+        smtpPass: document.getElementById('cfgSmtpPass').value
       };
       syncStorage('emailConfig');
       logSystemAction('CONFIG', 'UPDATE_SMTP_CONFIG', `Cập nhật cấu hình SMTP Server thành công.`, 'SUCCESS', 'SMTP');
@@ -4107,7 +4309,14 @@
       document.getElementById('cfgEmailEnabled').value = DB.emailConfig.enabled !== false ? 'true' : 'false';
       document.getElementById('cfgSmtpHost').value = DB.emailConfig.smtpHost || 'smtp.gmail.com';
       document.getElementById('cfgSmtpPort').value = DB.emailConfig.smtpPort || 587;
+      document.getElementById('cfgSmtpSecure').value = DB.emailConfig.smtpSecure ? 'true' : 'false';
       document.getElementById('cfgSenderEmail').value = DB.emailConfig.senderEmail || 'dms-noreply@company.com';
+      document.getElementById('cfgSmtpUser').value = DB.emailConfig.smtpUser || '';
+      // Mật khẩu thật không bao giờ được server trả về — chỉ để trống ô nhập,
+      // placeholder báo đã có cấu hình hay chưa (giống hệt cách xử lý mật
+      // khẩu tài khoản dịch vụ AD).
+      document.getElementById('cfgSmtpPass').value = '';
+      document.getElementById('cfgSmtpPass').placeholder = DB.emailConfig.smtpPass ? 'Đã có mật khẩu (để trống nếu không đổi)' : 'Để trống nếu không đổi';
     }
 
     function saveLdapConfig(e) {
@@ -7289,6 +7498,288 @@ function isPerpetualSoftware(softwareId) {
           ${dots}
         </svg>
       `;
+    }
+
+    // ============================================================
+    // MODULE QUẢN LÝ CNTT — theo dõi hạn dịch vụ/bản quyền + email nhắc tự
+    // động. Chỉ Admin truy cập được; người phụ trách 1 đầu mục không cần vào
+    // app, chỉ cần nhận email nhắc (gửi thật qua SMTP đã cấu hình).
+    // ============================================================
+    const itAssetsDB = { categories: [], items: [], reminderConfig: { enabled: true, daysBeforeList: [30, 15, 7] }, lastCheckAt: null, loaded: false };
+
+    async function loadItAssetsBootstrapData() {
+      if (itAssetsDB.loaded) return;
+      const data = await apiFetch('/api/it/bootstrap');
+      itAssetsDB.categories = data.categories || [];
+      itAssetsDB.items = data.items || [];
+      itAssetsDB.reminderConfig = data.reminderConfig || { enabled: true, daysBeforeList: [30, 15, 7] };
+      itAssetsDB.lastCheckAt = data.lastCheckAt || null;
+      itAssetsDB.loaded = true;
+    }
+
+    function switchItAssetsSubTab(subName) {
+      if (!currentUser || !currentUser.perms.admin) return;
+      const subs = { items: 'itSubItems', categories: 'itSubCategories', config: 'itSubConfig' };
+      const btns = { items: 'btnItSubItems', categories: 'btnItSubCategories', config: 'btnItSubConfig' };
+      Object.keys(subs).forEach(key => {
+        document.getElementById(subs[key]).classList.toggle('hidden', key !== subName);
+        document.getElementById(btns[key]).classList.toggle('active', key === subName);
+      });
+      loadItAssetsBootstrapData().then(() => {
+        if (subName === 'items') renderItItemsTable();
+        if (subName === 'categories') renderItCategoriesTable();
+        if (subName === 'config') renderItReminderConfigForm();
+      });
+    }
+
+    // --- Đầu mục theo dõi ---
+    // Phân loại theo số ngày còn lại tới hạn — dùng chung cho badge trạng
+    // thái và bộ lọc "Trạng thái" (độc lập với cấu hình mốc nhắc email, chỉ
+    // là gợi ý trực quan: ≤30 ngày coi là "Sắp hết hạn").
+    function itItemDaysLeft(item) {
+      const today = new Date(new Date().toDateString());
+      const expiry = new Date(`${item.expiryDate}T00:00:00`);
+      return Math.round((expiry - today) / 86400000);
+    }
+    function itItemStatusCode(item) {
+      const daysLeft = itItemDaysLeft(item);
+      if (daysLeft < 0) return 'EXPIRED';
+      if (daysLeft <= 30) return 'SOON';
+      return 'OK';
+    }
+    function itItemStatusBadge(item) {
+      const daysLeft = itItemDaysLeft(item);
+      const code = itItemStatusCode(item);
+      if (code === 'EXPIRED') return `<span class="text-[10px] font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded-full whitespace-nowrap">Đã hết hạn (${Math.abs(daysLeft)} ngày trước)</span>`;
+      if (code === 'SOON') return `<span class="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full whitespace-nowrap">Sắp hết hạn (còn ${daysLeft} ngày)</span>`;
+      return `<span class="text-[10px] font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-full whitespace-nowrap">Còn hạn</span>`;
+    }
+    function populateItCategoryFilterSelect() {
+      const sel = document.getElementById('itFilterCategory');
+      const keep = sel.value;
+      sel.innerHTML = '<option value="">-- Tất cả danh mục --</option>' + itAssetsDB.categories.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+      sel.value = keep;
+    }
+    function itOwnerLabel(item) {
+      if (item.ownerUserId) {
+        const u = DB.users.find(x => x.id === item.ownerUserId);
+        if (u) return escapeHtml(u.name);
+      }
+      if (item.ownerEmail) return escapeHtml(item.ownerEmail);
+      return '<span class="text-gray-400">— (chỉ Admin)</span>';
+    }
+    function renderItItemsTable() {
+      const tbody = document.getElementById('itItemsTableBody');
+      populateItCategoryFilterSelect();
+
+      const search = document.getElementById('itFilterSearch').value.trim().toLowerCase();
+      const categoryId = document.getElementById('itFilterCategory').value;
+      const status = document.getElementById('itFilterStatus').value;
+      const activeFilter = document.getElementById('itFilterActive').value;
+      const rows = itAssetsDB.items.filter(i => {
+        if (search && !i.name.toLowerCase().includes(search)) return false;
+        if (categoryId && String(i.categoryId) !== categoryId) return false;
+        if (status && itItemStatusCode(i) !== status) return false;
+        if (activeFilter !== '' && (i.active ? '1' : '0') !== activeFilter) return false;
+        return true;
+      });
+
+      if (itAssetsDB.items.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-gray-500 p-4">Chưa có đầu mục nào — bấm "+ Thêm đầu mục" để bắt đầu.</td></tr>`;
+        renderPaginationBar('itItemsPaginationBox', 'itItems', 0, 'renderItItemsTable', { itemLabel: 'đầu mục' });
+        return;
+      }
+      if (rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-gray-500 p-4">Không có đầu mục nào khớp bộ lọc.</td></tr>`;
+        renderPaginationBar('itItemsPaginationBox', 'itItems', 0, 'renderItItemsTable', { itemLabel: 'đầu mục' });
+        return;
+      }
+      const pageOffset = (getPaginationState('itItems').page - 1) * getPaginationState('itItems').pageSize;
+      const pageItems = paginateSlice('itItems', rows);
+      tbody.innerHTML = pageItems.map((i, idx) => {
+        const cat = itAssetsDB.categories.find(c => c.id === i.categoryId);
+        return `
+        <tr class="hover:bg-gray-50 ${i.active ? '' : 'opacity-50'}">
+          <td class="border p-2">${pageOffset + idx + 1}</td>
+          <td class="border p-2 font-semibold">${escapeHtml(i.name)}</td>
+          <td class="border p-2">${escapeHtml(cat ? cat.name : '—')}</td>
+          <td class="border p-2">${escapeHtml(i.provider || '—')}</td>
+          <td class="border p-2 whitespace-nowrap">${i.expiryDate}</td>
+          <td class="border p-2">${itItemStatusBadge(i)}</td>
+          <td class="border p-2">${itOwnerLabel(i)}</td>
+          <td class="border p-2 text-right whitespace-nowrap">${i.cost === null ? '—' : formatMoney(i.cost)}</td>
+          <td class="border p-2 text-center whitespace-nowrap">
+            <button onclick="openItItemModal(${i.id})" class="px-1.5 py-0.5 rounded hover:bg-brand-100 text-brand-700" title="Sửa">✏️</button>
+            <button onclick="deleteItItem(${i.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600" title="Xóa">🗑️</button>
+          </td>
+        </tr>
+      `;
+      }).join('');
+      renderPaginationBar('itItemsPaginationBox', 'itItems', rows.length, 'renderItItemsTable', { itemLabel: 'đầu mục' });
+    }
+    function openItItemModal(id) {
+      document.getElementById('itItemModalTitle').textContent = id ? 'Sửa đầu mục' : 'Thêm đầu mục';
+      document.getElementById('itItemEditId').value = id || '';
+      const item = itAssetsDB.items.find(x => x.id === id);
+      document.getElementById('itItemCategory').innerHTML = '<option value="">-- Chọn danh mục --</option>' + itAssetsDB.categories.filter(c => c.active).map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+      document.getElementById('itItemOwnerUser').innerHTML = '<option value="">-- Không chọn --</option>' + DB.users.filter(u => u.active !== false).map(u => `<option value="${u.id}">${escapeHtml(u.name)} (${u.username})</option>`).join('');
+      document.getElementById('itItemName').value = item ? item.name : '';
+      document.getElementById('itItemCategory').value = item ? item.categoryId : '';
+      document.getElementById('itItemProvider').value = item ? (item.provider || '') : '';
+      document.getElementById('itItemStartDate').value = item ? (item.startDate || '') : '';
+      document.getElementById('itItemExpiryDate').value = item ? item.expiryDate : '';
+      document.getElementById('itItemDescription').value = item ? (item.description || '') : '';
+      document.getElementById('itItemOwnerUser').value = item && item.ownerUserId ? item.ownerUserId : '';
+      document.getElementById('itItemOwnerEmail').value = item ? (item.ownerEmail || '') : '';
+      document.getElementById('itItemCost').value = item && item.cost !== null ? item.cost : '';
+      document.getElementById('itItemActive').checked = item ? !!item.active : true;
+      openLicenseModal('itItemModal');
+    }
+    async function saveItItem() {
+      const id = document.getElementById('itItemEditId').value;
+      const name = document.getElementById('itItemName').value.trim();
+      const categoryId = Number(document.getElementById('itItemCategory').value);
+      const provider = document.getElementById('itItemProvider').value.trim();
+      const startDate = document.getElementById('itItemStartDate').value;
+      const expiryDate = document.getElementById('itItemExpiryDate').value;
+      const description = document.getElementById('itItemDescription').value.trim();
+      const ownerUserId = document.getElementById('itItemOwnerUser').value;
+      const ownerEmail = document.getElementById('itItemOwnerEmail').value.trim();
+      const cost = document.getElementById('itItemCost').value;
+      const active = document.getElementById('itItemActive').checked;
+      if (!name) return showToast('Vui lòng nhập Tên đầu mục.', 'warning');
+      if (!categoryId) return showToast('Vui lòng chọn Danh mục.', 'warning');
+      if (!expiryDate) return showToast('Vui lòng chọn Ngày hết hạn.', 'warning');
+      const body = { name, categoryId, provider, startDate: startDate || null, expiryDate, description, ownerUserId: ownerUserId || null, ownerEmail, cost: cost === '' ? null : Number(cost), active };
+      try {
+        if (id) {
+          await apiFetch(`/api/it/items/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+          showToast(`Đã cập nhật đầu mục "${name}".`, 'success');
+        } else {
+          await apiFetch('/api/it/items', { method: 'POST', body: JSON.stringify(body) });
+          showToast(`Đã thêm đầu mục "${name}".`, 'success');
+        }
+        closeLicenseModal('itItemModal');
+        itAssetsDB.loaded = false;
+        await loadItAssetsBootstrapData();
+        renderItItemsTable();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+    async function deleteItItem(id) {
+      const item = itAssetsDB.items.find(x => x.id === id);
+      const ok = await showConfirm({ title: 'Xóa đầu mục', message: `Xóa đầu mục "${item ? item.name : ''}"? Hành động này không thể hoàn tác.`, danger: true, confirmText: 'Xóa' });
+      if (!ok) return;
+      try {
+        await apiFetch(`/api/it/items/${id}`, { method: 'DELETE' });
+        showToast('Đã xóa đầu mục.', 'success');
+        itAssetsDB.loaded = false;
+        await loadItAssetsBootstrapData();
+        renderItItemsTable();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+
+    // --- Danh mục ---
+    function renderItCategoriesTable() {
+      const tbody = document.getElementById('itCategoriesTableBody');
+      if (itAssetsDB.categories.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" class="text-center text-gray-500 p-4">Chưa có danh mục nào — bấm "+ Thêm danh mục" để bắt đầu.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = itAssetsDB.categories.map((c, i) => {
+        const cnt = itAssetsDB.items.filter(it => it.categoryId === c.id).length;
+        return `
+        <tr class="hover:bg-gray-50">
+          <td class="border p-2">${i + 1}</td>
+          <td class="border p-2 font-semibold">${escapeHtml(c.name)}</td>
+          <td class="border p-2 text-center">${cnt}</td>
+          <td class="border p-2 text-center">${c.active ? '<span class="text-[10px] font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Đang dùng</span>' : '<span class="text-[10px] font-bold text-gray-600 bg-gray-200 px-2 py-0.5 rounded-full">Ngừng dùng</span>'}</td>
+          <td class="border p-2 text-center whitespace-nowrap">
+            <button onclick="openItCategoryModal(${c.id})" class="px-1.5 py-0.5 rounded hover:bg-brand-100 text-brand-700" title="Sửa">✏️</button>
+            <button onclick="deleteItCategory(${c.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600" title="Xóa">🗑️</button>
+          </td>
+        </tr>
+      `;
+      }).join('');
+    }
+    function openItCategoryModal(id) {
+      document.getElementById('itCategoryModalTitle').textContent = id ? 'Sửa danh mục' : 'Thêm danh mục';
+      document.getElementById('itCategoryEditId').value = id || '';
+      const cat = itAssetsDB.categories.find(x => x.id === id);
+      document.getElementById('itCategoryName').value = cat ? cat.name : '';
+      document.getElementById('itCategoryActive').checked = cat ? !!cat.active : true;
+      openLicenseModal('itCategoryModal');
+    }
+    async function saveItCategory() {
+      const id = document.getElementById('itCategoryEditId').value;
+      const name = document.getElementById('itCategoryName').value.trim();
+      const active = document.getElementById('itCategoryActive').checked;
+      if (!name) return showToast('Vui lòng nhập Tên danh mục.', 'warning');
+      try {
+        if (id) {
+          await apiFetch(`/api/it/categories/${id}`, { method: 'PUT', body: JSON.stringify({ name, active }) });
+          showToast(`Đã cập nhật danh mục "${name}".`, 'success');
+        } else {
+          await apiFetch('/api/it/categories', { method: 'POST', body: JSON.stringify({ name }) });
+          showToast(`Đã thêm danh mục "${name}".`, 'success');
+        }
+        closeLicenseModal('itCategoryModal');
+        itAssetsDB.loaded = false;
+        await loadItAssetsBootstrapData();
+        renderItCategoriesTable();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+    async function deleteItCategory(id) {
+      const cat = itAssetsDB.categories.find(x => x.id === id);
+      const ok = await showConfirm({ title: 'Xóa danh mục', message: `Xóa danh mục "${cat ? cat.name : ''}"?`, danger: true, confirmText: 'Xóa' });
+      if (!ok) return;
+      try {
+        await apiFetch(`/api/it/categories/${id}`, { method: 'DELETE' });
+        showToast('Đã xóa danh mục.', 'success');
+        itAssetsDB.loaded = false;
+        await loadItAssetsBootstrapData();
+        renderItCategoriesTable();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+
+    // --- Cấu hình nhắc hẹn ---
+    function renderItReminderConfigForm() {
+      document.getElementById('itCfgEnabled').checked = itAssetsDB.reminderConfig.enabled;
+      document.getElementById('itCfgDaysBefore').value = (itAssetsDB.reminderConfig.daysBeforeList || []).join(', ');
+      document.getElementById('itCfgLastCheckLabel').textContent = itAssetsDB.lastCheckAt
+        ? `Lần kiểm tra gần nhất: ${new Date(itAssetsDB.lastCheckAt).toLocaleString('vi-VN')}`
+        : 'Chưa từng kiểm tra lần nào.';
+    }
+    async function saveItReminderConfig() {
+      const enabled = document.getElementById('itCfgEnabled').checked;
+      const daysBeforeList = document.getElementById('itCfgDaysBefore').value.split(',').map(s => Number(s.trim())).filter(n => Number.isFinite(n));
+      if (!daysBeforeList.length) return showToast('Vui lòng nhập ít nhất 1 mốc nhắc (số ngày).', 'warning');
+      try {
+        const result = await apiFetch('/api/it/reminder-config', { method: 'PUT', body: JSON.stringify({ enabled, daysBeforeList }) });
+        itAssetsDB.reminderConfig = result.reminderConfig;
+        renderItReminderConfigForm();
+        showToast('Đã lưu cấu hình nhắc hẹn.', 'success');
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+    async function runItCheckExpiryNow() {
+      try {
+        const result = await apiFetch('/api/it/check-expiry-now', { method: 'POST' });
+        itAssetsDB.loaded = false;
+        await loadItAssetsBootstrapData();
+        renderItReminderConfigForm();
+        showToast(`Đã kiểm tra ${result.checked} đầu mục, gửi ${result.sent} email nhắc.`, 'success');
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
     }
   </script>
 </body>
