@@ -244,7 +244,9 @@
 
           <textarea id="docSummary" placeholder="Tóm tắt / Trích yếu nội dung tài liệu... (dùng chung cho tất cả file đã chọn)" class="md:col-span-3 border p-2 rounded text-sm h-16" required></textarea>
 
-          <button type="submit" class="md:col-span-3 bg-success-600 text-white py-2.5 rounded-lg font-bold shadow-sm hover:bg-success-700 hover:shadow transition-all">📤 Tải Lên &amp; Trình Ký Phê Duyệt</button>
+          <div class="md:col-span-3 flex justify-end">
+            <button type="submit" class="bg-success-600 text-white px-6 py-2.5 rounded-lg font-bold shadow-sm hover:bg-success-700 hover:shadow transition-all">📤 Tải Lên &amp; Trình Ký Phê Duyệt</button>
+          </div>
         </form>
       </div>
 
@@ -791,32 +793,30 @@
   </div>
 
   <!-- Màn hình 4: Module Quản Lý Bản Quyền — Giai đoạn 1 (nền tảng) -->
-  <div id="licenseSection" class="hidden space-y-6">
-    <div class="grid grid-cols-1 md:grid-cols-[212px_1fr] gap-4">
-      <nav class="flex md:flex-col gap-1 overflow-x-auto md:overflow-visible border-b md:border-b-0 md:border-r border-gray-200 pb-2 md:pb-0 md:pr-3 -mx-1 px-1 md:mx-0 md:px-0">
-        <div class="flex md:flex-col gap-1 md:gap-0.5">
-          <div class="hidden md:block px-2.5 pt-1 pb-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">📇 Danh mục</div>
-          <button id="btnLicenseSubOrg" onclick="switchLicenseSubTab('org')" class="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap text-gray-600 hover:bg-gray-100 transition-colors w-full text-left">🏢 Tổ chức công ty</button>
-          <button id="btnLicenseSubEmp" onclick="switchLicenseSubTab('emp')" class="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap text-gray-600 hover:bg-gray-100 transition-colors w-full text-left">👤 Nhân viên</button>
-          <button id="btnLicenseSubSoftware" onclick="switchLicenseSubTab('software')" class="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap text-gray-600 hover:bg-gray-100 transition-colors w-full text-left">💽 Phần mềm</button>
-        </div>
-        <div class="hidden md:block h-px bg-gray-200 my-2"></div>
-        <div class="flex md:flex-col gap-1 md:gap-0.5">
-          <div class="hidden md:block px-2.5 pt-1 pb-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">⚙️ Vận hành</div>
-          <button id="btnLicenseSubBatch" onclick="switchLicenseSubTab('batch')" class="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap text-gray-600 hover:bg-gray-100 transition-colors w-full text-left">📜 Phát hành license</button>
-          <button id="btnLicenseSubAlloc" onclick="switchLicenseSubTab('alloc')" class="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap text-gray-600 hover:bg-gray-100 transition-colors w-full text-left">📦 Phân bổ</button>
-          <button id="btnLicenseSubAD" onclick="switchLicenseSubTab('ad')" class="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap text-gray-600 hover:bg-gray-100 transition-colors w-full text-left">🗂️ Tài khoản AD</button>
-        </div>
-        <div class="hidden md:block h-px bg-gray-200 my-2"></div>
-        <div class="flex md:flex-col gap-1 md:gap-0.5">
-          <div class="hidden md:block px-2.5 pt-1 pb-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">🛒 Mua sắm &amp; Ngân sách</div>
-          <button id="btnLicenseSubPurchase" onclick="switchLicenseSubTab('purchase')" class="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap text-gray-600 hover:bg-gray-100 transition-colors w-full text-left">🛒 Đăng ký mua bản quyền</button>
-          <button id="btnLicenseSubRounds" onclick="switchLicenseSubTab('rounds')" class="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap text-gray-600 hover:bg-gray-100 transition-colors w-full text-left">📋 Phát hành đăng ký mua</button>
-          <button id="btnLicenseSubBudget" onclick="switchLicenseSubTab('budget')" class="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap text-gray-600 hover:bg-gray-100 transition-colors w-full text-left">💰 Ngân sách</button>
-        </div>
-      </nav>
+  <div id="licenseSection" class="hidden space-y-4">
+    <!-- Cấp 1: 3 nhóm dạng viên thuốc (cùng ngôn ngữ hình ảnh với sub-nav
+         module Báo cáo) — thay cho sidebar dọc cũ để tận dụng hết chiều rộng
+         màn hình cho nội dung bên dưới. -->
+    <div class="inline-flex bg-gray-100 border border-gray-200 rounded-lg p-1 gap-1">
+      <button id="btnLicenseGroupCatalog" onclick="switchLicenseGroup('catalog')" class="text-xs px-3.5 py-1.5 rounded-md font-semibold transition-colors">📇 Danh mục</button>
+      <button id="btnLicenseGroupOps" onclick="switchLicenseGroup('ops')" class="text-xs px-3.5 py-1.5 rounded-md font-semibold transition-colors">⚙️ Vận hành</button>
+      <button id="btnLicenseGroupPurchase" onclick="switchLicenseGroup('purchase')" class="text-xs px-3.5 py-1.5 rounded-md font-semibold transition-colors">🛒 Mua sắm &amp; Ngân sách</button>
+    </div>
 
-      <div class="min-w-0">
+    <!-- Cấp 2: chỉ hiện 3 mục con của đúng nhóm đang chọn (cùng kiểu gạch
+         chân .nav-tab với 5 module chính) — không bao giờ quá 3 mục 1 hàng. -->
+    <div id="licenseSubNavRow" class="flex gap-1 border-b border-gray-200 flex-wrap">
+      <button id="btnLicenseSubOrg" data-group="catalog" onclick="switchLicenseSubTab('org')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🏢 Tổ chức công ty</button>
+      <button id="btnLicenseSubEmp" data-group="catalog" onclick="switchLicenseSubTab('emp')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">👤 Nhân viên</button>
+      <button id="btnLicenseSubSoftware" data-group="catalog" onclick="switchLicenseSubTab('software')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">💽 Phần mềm</button>
+      <button id="btnLicenseSubBatch" data-group="ops" onclick="switchLicenseSubTab('batch')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📜 Phát hành license</button>
+      <button id="btnLicenseSubAlloc" data-group="ops" onclick="switchLicenseSubTab('alloc')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📦 Phân bổ</button>
+      <button id="btnLicenseSubAD" data-group="ops" onclick="switchLicenseSubTab('ad')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🗂️ Tài khoản AD</button>
+      <button id="btnLicenseSubPurchase" data-group="purchase" onclick="switchLicenseSubTab('purchase')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🛒 Đăng ký mua bản quyền</button>
+      <button id="btnLicenseSubRounds" data-group="purchase" onclick="switchLicenseSubTab('rounds')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📋 Phát hành đăng ký mua</button>
+      <button id="btnLicenseSubBudget" data-group="purchase" onclick="switchLicenseSubTab('budget')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">💰 Ngân sách</button>
+    </div>
+
     <!-- Sub-tab: Tổ chức công ty -->
     <div id="licenseSubOrg" class="space-y-3">
       <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
@@ -1021,11 +1021,11 @@
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded border text-xs">
         <div>
           <label class="block font-semibold text-gray-600 mb-1">Lọc theo Kỳ mua</label>
-          <select id="regFilterRound" onchange="renderRegistrationsTable()" class="w-full border p-1.5 rounded bg-white"></select>
+          <select id="regFilterRound" onchange="resetPageAndRerender('registrations','renderRegistrationsTable')" class="w-full border p-1.5 rounded bg-white"></select>
         </div>
         <div>
           <label class="block font-semibold text-gray-600 mb-1">Lọc theo Trạng thái</label>
-          <select id="regFilterStatus" onchange="renderRegistrationsTable()" class="w-full border p-1.5 rounded bg-white">
+          <select id="regFilterStatus" onchange="resetPageAndRerender('registrations','renderRegistrationsTable')" class="w-full border p-1.5 rounded bg-white">
             <option value="">-- Tất cả --</option>
             <option value="PENDING">Chờ duyệt</option>
             <option value="APPROVED">Đã duyệt</option>
@@ -1055,11 +1055,16 @@
           <tbody id="registrationsTableBody"></tbody>
         </table>
       </div>
+      <div id="registrationsPaginationBox" class="flex flex-col sm:flex-row justify-between items-center gap-3 bg-gray-50 p-3 rounded border text-xs text-gray-700"></div>
     </div>
 
     <!-- Sub-tab: Phát hành đăng ký mua (Admin quản lý Kỳ mua) -->
     <div id="licenseSubRounds" class="hidden space-y-4">
-      <button onclick="openRoundModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Tạo kỳ mua mới</button>
+      <div class="flex flex-wrap items-center gap-2">
+        <button onclick="openRoundModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Tạo kỳ mua mới</button>
+        <label class="text-xs font-semibold text-gray-600 ml-2">Chọn kỳ:</label>
+        <select id="purchaseRoundJumpSelect" onchange="jumpToRound('purchase', this.value); this.value='';" class="border p-1.5 rounded bg-white text-xs"></select>
+      </div>
       <div id="roundsListContainer" class="space-y-3"></div>
 
       <div class="border-t pt-4">
@@ -1067,11 +1072,11 @@
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded border text-xs mb-2">
           <div>
             <label class="block font-semibold text-gray-600 mb-1">Lọc theo Kỳ mua</label>
-            <select id="adminRegFilterRound" onchange="renderAdminRegistrationsTable()" class="w-full border p-1.5 rounded bg-white"></select>
+            <select id="adminRegFilterRound" onchange="resetPageAndRerender('adminRegistrations','renderAdminRegistrationsTable')" class="w-full border p-1.5 rounded bg-white"></select>
           </div>
           <div>
             <label class="block font-semibold text-gray-600 mb-1">Lọc theo Trạng thái</label>
-            <select id="adminRegFilterStatus" onchange="renderAdminRegistrationsTable()" class="w-full border p-1.5 rounded bg-white">
+            <select id="adminRegFilterStatus" onchange="resetPageAndRerender('adminRegistrations','renderAdminRegistrationsTable')" class="w-full border p-1.5 rounded bg-white">
               <option value="PENDING">Chờ duyệt</option>
               <option value="APPROVED">Đã duyệt</option>
               <option value="ISSUED">Đã phát hành</option>
@@ -1098,6 +1103,7 @@
             <tbody id="adminRegistrationsTableBody"></tbody>
           </table>
         </div>
+        <div id="adminRegistrationsPaginationBox" class="flex flex-col sm:flex-row justify-between items-center gap-3 bg-gray-50 p-3 rounded border text-xs text-gray-700"></div>
       </div>
     </div>
 
@@ -1106,7 +1112,11 @@
       <div class="bg-amber-50 border border-amber-200 rounded p-2 text-[11px] text-amber-800">
         Module Ngân sách dùng để LẬP DỰ TRÙ trước khi mở Kỳ mua thật — độc lập hoàn toàn với "Phát hành đăng ký mua" ở trên. Số "Đang dùng" tính theo license ĐANG được gán cho nhân viên trong từng đơn vị trực thuộc (gồm cả đơn vị con bên dưới).
       </div>
-      <button onclick="openBudgetRoundModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Tạo kỳ ngân sách mới</button>
+      <div class="flex flex-wrap items-center gap-2">
+        <button onclick="openBudgetRoundModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Tạo kỳ ngân sách mới</button>
+        <label class="text-xs font-semibold text-gray-600 ml-2">Chọn kỳ:</label>
+        <select id="budgetRoundJumpSelect" onchange="jumpToRound('budget', this.value); this.value='';" class="border p-1.5 rounded bg-white text-xs"></select>
+      </div>
       <div id="budgetRoundsListContainer" class="space-y-3"></div>
 
       <div class="border-t pt-4">
@@ -1117,15 +1127,15 @@
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-gray-50 p-3 rounded border text-xs mb-2">
           <div>
             <label class="block font-semibold text-gray-600 mb-1">Lọc theo Kỳ ngân sách</label>
-            <select id="budgetRegFilterRound" onchange="renderBudgetRegistrationsTable()" class="w-full border p-1.5 rounded bg-white"></select>
+            <select id="budgetRegFilterRound" onchange="resetPageAndRerender('budgetRegistrations','renderBudgetRegistrationsTable')" class="w-full border p-1.5 rounded bg-white"></select>
           </div>
           <div>
             <label class="block font-semibold text-gray-600 mb-1">Lọc theo Công ty</label>
-            <select id="budgetRegFilterCompany" onchange="renderBudgetRegistrationsTable()" class="w-full border p-1.5 rounded bg-white"></select>
+            <select id="budgetRegFilterCompany" onchange="resetPageAndRerender('budgetRegistrations','renderBudgetRegistrationsTable')" class="w-full border p-1.5 rounded bg-white"></select>
           </div>
           <div>
             <label class="block font-semibold text-gray-600 mb-1">Lọc theo Trạng thái</label>
-            <select id="budgetRegFilterStatus" onchange="renderBudgetRegistrationsTable()" class="w-full border p-1.5 rounded bg-white">
+            <select id="budgetRegFilterStatus" onchange="resetPageAndRerender('budgetRegistrations','renderBudgetRegistrationsTable')" class="w-full border p-1.5 rounded bg-white">
               <option value="">-- Tất cả --</option>
               <option value="PENDING">Chờ duyệt</option>
               <option value="APPROVED">Đã duyệt</option>
@@ -1152,8 +1162,7 @@
             <tbody id="budgetRegistrationsTableBody"></tbody>
           </table>
         </div>
-      </div>
-    </div>
+        <div id="budgetRegistrationsPaginationBox" class="flex flex-col sm:flex-row justify-between items-center gap-3 bg-gray-50 p-3 rounded border text-xs text-gray-700"></div>
       </div>
     </div>
   </div>
@@ -2168,6 +2177,27 @@
     // phạm vi công ty/đơn vị, tải từ endpoint riêng chỉ trả về đúng phạm vi.
     const licensePortalDB = { scope: null, companies: [], orgUnits: [], softwareCatalog: [], purchaseRounds: [], purchaseRoundItems: [], purchaseRegistrations: [], budgetRounds: [], budgetRoundItems: [], budgetRegistrations: [], licenseUsage: [], loaded: false };
     let licenseExpandedNodes = new Set();
+    // Danh sách Kỳ mua/Kỳ ngân sách trước đây luôn bung hết bảng hạng mục của
+    // MỌI kỳ cùng lúc — với vài chục kỳ theo thời gian sử dụng trang sẽ dài
+    // hàng nghìn px. Theo đúng cơ chế Set thu/phóng đã dùng cho cây tổ chức
+    // (licenseExpandedNodes) — mặc định đóng, bấm vào từng kỳ mới xổ bảng.
+    let expandedPurchaseRounds = new Set();
+    let expandedBudgetRounds = new Set();
+    function toggleRoundExpand(kind, roundId) {
+      const set = kind === 'budget' ? expandedBudgetRounds : expandedPurchaseRounds;
+      if (set.has(roundId)) set.delete(roundId); else set.add(roundId);
+      if (kind === 'budget') renderBudgetRoundsList(); else renderRoundsList();
+    }
+    function jumpToRound(kind, roundId) {
+      if (!roundId) return;
+      const set = kind === 'budget' ? expandedBudgetRounds : expandedPurchaseRounds;
+      set.add(Number(roundId));
+      (kind === 'budget' ? renderBudgetRoundsList() : renderRoundsList());
+      setTimeout(() => {
+        const el = document.getElementById(`${kind}RoundCard_${roundId}`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 50);
+    }
 
     let currentUser = null;
     let currentPage = 1;
@@ -2926,9 +2956,9 @@
           <td class="border p-2">${statusBadge}</td>
           <td class="border p-2 text-center">
             <div class="inline-flex items-center gap-1">
-              <button onclick="openViewDocModal(${d.id})" class="text-xs bg-brand-600 text-white px-2.5 py-1 rounded font-semibold shadow-sm hover:bg-brand-700 transition-colors">👁️ Xem</button>
-              ${canApprove ? `<button onclick="approveDoc(${d.id})" class="text-xs bg-success-600 text-white px-2.5 py-1 rounded font-semibold shadow-sm hover:bg-success-700 transition-colors">✅ Duyệt</button>
-                              <button onclick="rejectDoc(${d.id})" class="text-xs bg-danger-600 text-white px-2.5 py-1 rounded font-semibold shadow-sm hover:bg-danger-700 transition-colors">↩️ Trả về</button>` : ''}
+              <button onclick="openViewDocModal(${d.id})" title="Xem" class="text-xs bg-brand-600 text-white w-7 h-7 rounded font-semibold shadow-sm hover:bg-brand-700 transition-colors">👁️</button>
+              ${canApprove ? `<button onclick="approveDoc(${d.id})" title="Duyệt" class="text-xs bg-success-600 text-white w-7 h-7 rounded font-semibold shadow-sm hover:bg-success-700 transition-colors">✅</button>
+                              <button onclick="rejectDoc(${d.id})" title="Trả về" class="text-xs bg-danger-600 text-white w-7 h-7 rounded font-semibold shadow-sm hover:bg-danger-700 transition-colors">↩️</button>` : ''}
               ${(() => {
                 const menuItems = [
                   !isChild ? `<button onclick="closeAllRowMenus(); openDocDetailModal('${escapeJsAttr(String(groupId))}')" class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">📋 Chi tiết</button>` : '',
@@ -2938,7 +2968,7 @@
                 if (!menuItems) return '';
                 const menuId = `rowMenu_${d.id}`;
                 return `
-                  <button onclick="toggleRowMenu(event, '${menuId}')" class="text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded font-semibold hover:bg-gray-300" title="Thêm thao tác">⋮</button>
+                  <button onclick="toggleRowMenu(event, '${menuId}')" class="text-xs bg-gray-200 text-gray-700 w-7 h-7 rounded font-semibold hover:bg-gray-300" title="Thêm thao tác">⋮</button>
                   <div id="${menuId}" class="row-action-menu hidden fixed w-36 bg-white border rounded shadow-lg z-[80] text-left overflow-hidden">${menuItems}</div>
                 `;
               })()}
@@ -4338,18 +4368,49 @@
       }
     }
 
+    // Nhóm cấp 1 (pill) ↔ mục con cấp 2 (nav-tab) — thay cho sidebar dọc cũ.
+    // Mỗi mục con chỉ thuộc đúng 1 nhóm; chuyển nhóm sẽ tự nhảy tới mục con
+    // đầu tiên của nhóm đó nếu mục đang xem không thuộc nhóm vừa chọn.
+    const LICENSE_SUB_GROUPS = {
+      catalog: ['org', 'emp', 'software'],
+      ops: ['batch', 'alloc', 'ad'],
+      purchase: ['purchase', 'rounds', 'budget']
+    };
+    let licenseCurrentSubTab = 'org';
+    function licenseGroupOf(subName) {
+      return Object.keys(LICENSE_SUB_GROUPS).find(g => LICENSE_SUB_GROUPS[g].includes(subName)) || 'catalog';
+    }
+    // Chỉ cập nhật giao diện (pill đang chọn + hàng mục con hiện đúng nhóm) —
+    // KHÔNG tự nhảy tab, để switchLicenseSubTab gọi lại an toàn mà không đệ quy.
+    function applyLicenseGroupUI(group) {
+      Object.keys(LICENSE_SUB_GROUPS).forEach(g => {
+        const btn = document.getElementById('btnLicenseGroup' + g.charAt(0).toUpperCase() + g.slice(1));
+        if (!btn) return;
+        btn.classList.toggle('bg-white', g === group);
+        btn.classList.toggle('shadow-sm', g === group);
+        btn.classList.toggle('text-gray-800', g === group);
+        btn.classList.toggle('text-gray-500', g !== group);
+      });
+      document.querySelectorAll('#licenseSubNavRow button[data-group]').forEach(btn => {
+        btn.classList.toggle('hidden', btn.dataset.group !== group);
+      });
+    }
+    function switchLicenseGroup(group) {
+      applyLicenseGroupUI(group);
+      if (licenseGroupOf(licenseCurrentSubTab) !== group) {
+        switchLicenseSubTab(LICENSE_SUB_GROUPS[group][0]);
+      }
+    }
     function switchLicenseSubTab(subName) {
       if (!currentUser || !currentUser.perms.admin) return;
+      licenseCurrentSubTab = subName;
+      applyLicenseGroupUI(licenseGroupOf(subName));
 
       const subs = { org: 'licenseSubOrg', emp: 'licenseSubEmp', software: 'licenseSubSoftware', batch: 'licenseSubBatch', alloc: 'licenseSubAlloc', ad: 'licenseSubAD', purchase: 'licenseSubPurchase', rounds: 'licenseSubRounds', budget: 'licenseSubBudget' };
       const btns = { org: 'btnLicenseSubOrg', emp: 'btnLicenseSubEmp', software: 'btnLicenseSubSoftware', batch: 'btnLicenseSubBatch', alloc: 'btnLicenseSubAlloc', ad: 'btnLicenseSubAD', purchase: 'btnLicenseSubPurchase', rounds: 'btnLicenseSubRounds', budget: 'btnLicenseSubBudget' };
       Object.keys(subs).forEach(key => {
         document.getElementById(subs[key]).classList.toggle('hidden', key !== subName);
-        const btn = document.getElementById(btns[key]);
-        btn.classList.toggle('bg-teal-50', key === subName);
-        btn.classList.toggle('text-teal-800', key === subName);
-        btn.classList.toggle('text-gray-600', key !== subName);
-        btn.classList.toggle('hover:bg-gray-100', key !== subName);
+        document.getElementById(btns[key]).classList.toggle('active', key === subName);
       });
 
       loadLicenseBootstrapData().then(() => {
@@ -5506,6 +5567,11 @@ function isPerpetualSoftware(softwareId) {
     // --- Phát hành đăng ký mua (Admin: quản lý Kỳ mua + duyệt đăng ký) ---
     function renderRoundsList() {
       const container = document.getElementById('roundsListContainer');
+      const jumpSelect = document.getElementById('purchaseRoundJumpSelect');
+      if (jumpSelect) {
+        jumpSelect.innerHTML = '<option value="">-- Nhảy tới kỳ --</option>' +
+          licenseDB.purchaseRounds.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('');
+      }
       if (licenseDB.purchaseRounds.length === 0) {
         container.innerHTML = `<div class="text-center text-gray-500 text-sm p-6 border rounded bg-gray-50">Chưa có kỳ mua nào — bấm "+ Tạo kỳ mua mới" để bắt đầu.</div>`;
         return;
@@ -5514,14 +5580,17 @@ function isPerpetualSoftware(softwareId) {
         const items = licenseDB.purchaseRoundItems.filter(i => i.roundId === r.id);
         const isOpen = r.status === 'OPEN';
         const scopeLabel = roundScopeLabel(r);
+        const isExpanded = expandedPurchaseRounds.has(r.id);
         return `
-          <div class="bg-white border rounded-lg shadow-sm overflow-hidden">
+          <div id="purchaseRoundCard_${r.id}" class="bg-white border rounded-lg shadow-sm overflow-hidden">
             <div class="flex justify-between items-center gap-2 px-4 py-3 bg-teal-50 border-b">
-              <div class="flex items-center gap-2 flex-wrap">
+              <div class="flex items-center gap-2 flex-wrap cursor-pointer" onclick="toggleRoundExpand('purchase', ${r.id})">
+                <span class="text-teal-700 font-bold w-3 inline-block">${isExpanded ? '▾' : '▸'}</span>
                 <h3 class="font-bold text-teal-900 text-sm">${escapeHtml(r.name)}</h3>
                 <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${isOpen ? 'text-green-700 bg-green-100' : 'text-gray-600 bg-gray-200'}">${isOpen ? 'Đang mở' : 'Đã đóng'}</span>
                 <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${r.roundType === 'NEW' ? 'text-purple-700 bg-purple-100' : 'text-blue-700 bg-blue-100'}">${r.roundType === 'NEW' ? 'Mua mới' : 'Gia hạn'}</span>
                 <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${scopeLabel ? 'text-indigo-700 bg-indigo-100' : 'text-gray-500 bg-gray-100'}">Phạm vi: ${scopeLabel || 'Không giới hạn'}</span>
+                <span class="text-[10px] text-gray-500">${items.length} phần mềm</span>
                 ${roundCompletionBadge(r, items, licenseDB.purchaseRegistrations, 'purchase')}
               </div>
               <div class="flex gap-1 text-xs">
@@ -5529,6 +5598,7 @@ function isPerpetualSoftware(softwareId) {
                 <button onclick="toggleRoundStatus(${r.id}, '${isOpen ? 'CLOSED' : 'OPEN'}')" class="px-2 py-1 rounded hover:bg-gray-100 text-gray-700">${isOpen ? '🔒 Đóng kỳ' : '🔓 Mở lại'}</button>
               </div>
             </div>
+            ${isExpanded ? `
             <div class="p-3">
               ${r.note ? `<p class="text-xs text-gray-500 mb-2">${escapeHtml(r.note)}</p>` : ''}
               ${items.length === 0 ? `<div class="text-xs text-gray-400">Chưa có phần mềm nào trong kỳ này.</div>` : `
@@ -5547,7 +5617,7 @@ function isPerpetualSoftware(softwareId) {
                   </tbody>
                 </table>
               `}
-            </div>
+            </div>` : ''}
           </div>
         `;
       }).join('');
@@ -5677,11 +5747,12 @@ function isPerpetualSoftware(softwareId) {
       const { scopeType, scopeId } = getScopePayload('round');
       if (scopeType && !scopeId) return showToast('Vui lòng chọn công ty/đơn vị cho phạm vi.', 'warning');
       try {
-        await apiFetch('/api/license/rounds', { method: 'POST', body: JSON.stringify({ name, note, items, budgetRoundId, scopeType, scopeId, roundType }) });
+        const created = await apiFetch('/api/license/rounds', { method: 'POST', body: JSON.stringify({ name, note, items, budgetRoundId, scopeType, scopeId, roundType }) });
         showToast(`Đã tạo kỳ mua "${name}"${items.length ? ` với ${items.length} phần mềm` : ''}.`, 'success');
         closeLicenseModal('roundModal');
         licenseDB.loaded = false;
         await loadLicenseBootstrapData();
+        if (created && created.id) expandedPurchaseRounds.add(created.id);
         renderRoundsList();
       } catch (err) {
         showToast(err.message, 'danger');
@@ -5776,27 +5847,35 @@ function isPerpetualSoftware(softwareId) {
       }
     }
     function populateAdminRegFilterSelects() {
-      document.getElementById('adminRegFilterRound').innerHTML = '<option value="">-- Tất cả kỳ mua --</option>' +
+      document.getElementById('adminRegFilterRound').innerHTML = '<option value="">-- Chọn kỳ mua --</option>' +
         licenseDB.purchaseRounds.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('');
     }
     function renderAdminRegistrationsTable() {
       const roundId = document.getElementById('adminRegFilterRound').value;
       const status = document.getElementById('adminRegFilterStatus').value;
       const tbody = document.getElementById('adminRegistrationsTableBody');
+      if (!roundId) {
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-gray-500 p-6">👆 Chọn 1 Kỳ mua ở trên để xem danh sách đăng ký.</td></tr>`;
+        renderPaginationBar('adminRegistrationsPaginationBox', 'adminRegistrations', 0, 'renderAdminRegistrationsTable', { itemLabel: 'đăng ký' });
+        return;
+      }
       let rows = licenseDB.purchaseRegistrations.slice();
       if (roundId) rows = rows.filter(r => r.roundId === Number(roundId));
       if (status) rows = rows.filter(r => r.status === status);
       if (rows.length === 0) {
         tbody.innerHTML = `<tr><td colspan="9" class="text-center text-gray-500 p-4">Không có đăng ký nào.</td></tr>`;
+        renderPaginationBar('adminRegistrationsPaginationBox', 'adminRegistrations', 0, 'renderAdminRegistrationsTable', { itemLabel: 'đăng ký' });
         return;
       }
-      tbody.innerHTML = rows.map((r, i) => {
+      const pageOffset = (getPaginationState('adminRegistrations').page - 1) * getPaginationState('adminRegistrations').pageSize;
+      const pageRows = paginateSlice('adminRegistrations', rows);
+      tbody.innerHTML = pageRows.map((r, i) => {
         const company = licenseDB.companies.find(x => x.id === r.companyId);
         const item = licenseDB.purchaseRoundItems.find(x => x.id === r.roundItemId);
         const software = item ? licenseDB.softwareCatalog.find(s => s.id === item.softwareId) : null;
         return `
           <tr class="hover:bg-gray-50">
-            <td class="border p-2">${i + 1}</td>
+            <td class="border p-2">${pageOffset + i + 1}</td>
             <td class="border p-2">${escapeHtml(company ? company.name : '—')}</td>
             <td class="border p-2">${escapeHtml(software ? software.name : '—')}</td>
             <td class="border p-2 text-center">${r.currentQuantity}</td>
@@ -5813,6 +5892,7 @@ function isPerpetualSoftware(softwareId) {
           </tr>
         `;
       }).join('');
+      renderPaginationBar('adminRegistrationsPaginationBox', 'adminRegistrations', rows.length, 'renderAdminRegistrationsTable', { itemLabel: 'đăng ký' });
     }
     async function approveRegistration(id) {
       const ok = await showConfirm({ title: 'Duyệt đăng ký', message: 'Duyệt đăng ký mua bản quyền này?', confirmText: 'Duyệt' });
@@ -5843,28 +5923,36 @@ function isPerpetualSoftware(softwareId) {
 
     // --- Đăng ký mua bản quyền (Công ty đăng ký nhu cầu) ---
     function populateRegistrationFilterSelects() {
-      document.getElementById('regFilterRound').innerHTML = '<option value="">-- Tất cả kỳ mua --</option>' +
+      document.getElementById('regFilterRound').innerHTML = '<option value="">-- Chọn kỳ mua --</option>' +
         licenseDB.purchaseRounds.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('');
     }
     function renderRegistrationsTable() {
       const roundId = document.getElementById('regFilterRound').value;
       const status = document.getElementById('regFilterStatus').value;
       const tbody = document.getElementById('registrationsTableBody');
+      if (!roundId) {
+        tbody.innerHTML = `<tr><td colspan="11" class="text-center text-gray-500 p-6">👆 Chọn 1 Kỳ mua ở trên để xem/đăng ký.</td></tr>`;
+        renderPaginationBar('registrationsPaginationBox', 'registrations', 0, 'renderRegistrationsTable', { itemLabel: 'đăng ký' });
+        return;
+      }
       let rows = licenseDB.purchaseRegistrations.slice();
       if (roundId) rows = rows.filter(r => r.roundId === Number(roundId));
       if (status) rows = rows.filter(r => r.status === status);
       if (rows.length === 0) {
         tbody.innerHTML = `<tr><td colspan="11" class="text-center text-gray-500 p-4">Chưa có đăng ký nào.</td></tr>`;
+        renderPaginationBar('registrationsPaginationBox', 'registrations', 0, 'renderRegistrationsTable', { itemLabel: 'đăng ký' });
         return;
       }
-      tbody.innerHTML = rows.map((r, i) => {
+      const pageOffset = (getPaginationState('registrations').page - 1) * getPaginationState('registrations').pageSize;
+      const pageRows = paginateSlice('registrations', rows);
+      tbody.innerHTML = pageRows.map((r, i) => {
         const round = licenseDB.purchaseRounds.find(x => x.id === r.roundId);
         const company = licenseDB.companies.find(x => x.id === r.companyId);
         const item = licenseDB.purchaseRoundItems.find(x => x.id === r.roundItemId);
         const software = item ? licenseDB.softwareCatalog.find(s => s.id === item.softwareId) : null;
         return `
           <tr class="hover:bg-gray-50">
-            <td class="border p-2">${i + 1}</td>
+            <td class="border p-2">${pageOffset + i + 1}</td>
             <td class="border p-2">${escapeHtml(round ? round.name : '—')}</td>
             <td class="border p-2">${escapeHtml(company ? company.name : '—')}</td>
             <td class="border p-2">${escapeHtml(software ? software.name : '—')}</td>
@@ -5878,6 +5966,7 @@ function isPerpetualSoftware(softwareId) {
           </tr>
         `;
       }).join('');
+      renderPaginationBar('registrationsPaginationBox', 'registrations', rows.length, 'renderRegistrationsTable', { itemLabel: 'đăng ký' });
     }
     // --- Bảng nhiều dòng phần mềm khi Đăng ký mua bản quyền ---
     // Tự động liệt kê sẵn phần mềm công ty đang dùng mà sắp/đã hết hạn (nằm
@@ -6049,6 +6138,11 @@ function isPerpetualSoftware(softwareId) {
     }
     function renderBudgetRoundsList() {
       const container = document.getElementById('budgetRoundsListContainer');
+      const jumpSelect = document.getElementById('budgetRoundJumpSelect');
+      if (jumpSelect) {
+        jumpSelect.innerHTML = '<option value="">-- Nhảy tới kỳ --</option>' +
+          licenseDB.budgetRounds.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('');
+      }
       if (licenseDB.budgetRounds.length === 0) {
         container.innerHTML = `<div class="text-center text-gray-500 text-sm p-6 border rounded bg-gray-50">Chưa có kỳ ngân sách nào — bấm "+ Tạo kỳ ngân sách mới" để bắt đầu.</div>`;
         return;
@@ -6057,13 +6151,16 @@ function isPerpetualSoftware(softwareId) {
         const items = licenseDB.budgetRoundItems.filter(i => i.roundId === r.id);
         const isOpen = r.status === 'OPEN';
         const scopeLabel = roundScopeLabel(r);
+        const isExpanded = expandedBudgetRounds.has(r.id);
         return `
-          <div class="bg-white border rounded-lg shadow-sm overflow-hidden">
+          <div id="budgetRoundCard_${r.id}" class="bg-white border rounded-lg shadow-sm overflow-hidden">
             <div class="flex justify-between items-center gap-2 px-4 py-3 bg-amber-50 border-b">
-              <div class="flex items-center gap-2 flex-wrap">
+              <div class="flex items-center gap-2 flex-wrap cursor-pointer" onclick="toggleRoundExpand('budget', ${r.id})">
+                <span class="text-amber-700 font-bold w-3 inline-block">${isExpanded ? '▾' : '▸'}</span>
                 <h3 class="font-bold text-amber-900 text-sm">${escapeHtml(r.name)}</h3>
                 <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${isOpen ? 'text-green-700 bg-green-100' : 'text-gray-600 bg-gray-200'}">${isOpen ? 'Đang mở' : 'Đã đóng'}</span>
                 <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${scopeLabel ? 'text-indigo-700 bg-indigo-100' : 'text-gray-500 bg-gray-100'}">Phạm vi: ${scopeLabel || 'Không giới hạn'}</span>
+                <span class="text-[10px] text-gray-500">${items.length} hạng mục</span>
                 ${roundCompletionBadge(r, items, licenseDB.budgetRegistrations, 'budget')}
               </div>
               <div class="flex gap-1 text-xs">
@@ -6071,6 +6168,7 @@ function isPerpetualSoftware(softwareId) {
                 <button onclick="toggleBudgetRoundStatus(${r.id}, '${isOpen ? 'CLOSED' : 'OPEN'}')" class="px-2 py-1 rounded hover:bg-gray-100 text-gray-700">${isOpen ? '🔒 Đóng kỳ' : '🔓 Mở lại'}</button>
               </div>
             </div>
+            ${isExpanded ? `
             <div class="p-3">
               ${r.note ? `<p class="text-xs text-gray-500 mb-2">${escapeHtml(r.note)}</p>` : ''}
               ${items.length === 0 ? `<div class="text-xs text-gray-400">Chưa có hạng mục nào trong kỳ này.</div>` : `
@@ -6092,7 +6190,7 @@ function isPerpetualSoftware(softwareId) {
                   </tbody>
                 </table>
               `}
-            </div>
+            </div>` : ''}
           </div>
         `;
       }).join('');
@@ -6178,11 +6276,12 @@ function isPerpetualSoftware(softwareId) {
       const { scopeType, scopeId } = getScopePayload('budgetRound');
       if (scopeType && !scopeId) return showToast('Vui lòng chọn công ty/đơn vị cho phạm vi.', 'warning');
       try {
-        await apiFetch('/api/license/budget-rounds', { method: 'POST', body: JSON.stringify({ name, note, items, scopeType, scopeId }) });
+        const created = await apiFetch('/api/license/budget-rounds', { method: 'POST', body: JSON.stringify({ name, note, items, scopeType, scopeId }) });
         showToast(`Đã tạo kỳ ngân sách "${name}"${items.length ? ` với ${items.length} hạng mục` : ''}.`, 'success');
         closeLicenseModal('budgetRoundModal');
         licenseDB.loaded = false;
         await loadLicenseBootstrapData();
+        if (created && created.id) expandedBudgetRounds.add(created.id);
         renderBudgetRoundsList();
       } catch (err) {
         showToast(err.message, 'danger');
@@ -6343,7 +6442,7 @@ function isPerpetualSoftware(softwareId) {
       }
     }
     function populateBudgetRegFilterSelects() {
-      document.getElementById('budgetRegFilterRound').innerHTML = '<option value="">-- Tất cả kỳ ngân sách --</option>' +
+      document.getElementById('budgetRegFilterRound').innerHTML = '<option value="">-- Chọn kỳ ngân sách --</option>' +
         licenseDB.budgetRounds.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('');
       document.getElementById('budgetRegFilterCompany').innerHTML = '<option value="">-- Tất cả công ty --</option>' +
         licenseDB.companies.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
@@ -6353,20 +6452,28 @@ function isPerpetualSoftware(softwareId) {
       const companyId = document.getElementById('budgetRegFilterCompany').value;
       const status = document.getElementById('budgetRegFilterStatus').value;
       const tbody = document.getElementById('budgetRegistrationsTableBody');
+      if (!roundId) {
+        tbody.innerHTML = `<tr><td colspan="10" class="text-center text-gray-500 p-6">👆 Chọn 1 Kỳ ngân sách ở trên để xem danh sách dự trù.</td></tr>`;
+        renderPaginationBar('budgetRegistrationsPaginationBox', 'budgetRegistrations', 0, 'renderBudgetRegistrationsTable', { itemLabel: 'dự trù' });
+        return;
+      }
       let rows = licenseDB.budgetRegistrations.slice();
       if (roundId) rows = rows.filter(r => r.roundId === Number(roundId));
       if (companyId) rows = rows.filter(r => (companyOfOrgUnit(r.orgUnitId) || {}).id === Number(companyId));
       if (status) rows = rows.filter(r => r.status === status);
       if (rows.length === 0) {
         tbody.innerHTML = `<tr><td colspan="10" class="text-center text-gray-500 p-4">Chưa có dự trù nào.</td></tr>`;
+        renderPaginationBar('budgetRegistrationsPaginationBox', 'budgetRegistrations', 0, 'renderBudgetRegistrationsTable', { itemLabel: 'dự trù' });
         return;
       }
-      tbody.innerHTML = rows.map((r, i) => {
+      const pageOffset = (getPaginationState('budgetRegistrations').page - 1) * getPaginationState('budgetRegistrations').pageSize;
+      const pageRows = paginateSlice('budgetRegistrations', rows);
+      tbody.innerHTML = pageRows.map((r, i) => {
         const item = licenseDB.budgetRoundItems.find(x => x.id === r.roundItemId);
         const company = companyOfOrgUnit(r.orgUnitId);
         return `
           <tr class="hover:bg-gray-50">
-            <td class="border p-2">${i + 1}</td>
+            <td class="border p-2">${pageOffset + i + 1}</td>
             <td class="border p-2">${escapeHtml(company ? company.name : '—')}</td>
             <td class="border p-2">${escapeHtml(orgUnitPath(r.orgUnitId))}</td>
             <td class="border p-2">${escapeHtml(item ? budgetItemLabel(item) : '—')}</td>
@@ -6384,6 +6491,7 @@ function isPerpetualSoftware(softwareId) {
           </tr>
         `;
       }).join('');
+      renderPaginationBar('budgetRegistrationsPaginationBox', 'budgetRegistrations', rows.length, 'renderBudgetRegistrationsTable', { itemLabel: 'dự trù' });
     }
     async function approveBudgetRegistration(id) {
       const ok = await showConfirm({ title: 'Duyệt dự trù', message: 'Duyệt dự trù ngân sách này?', confirmText: 'Duyệt' });
