@@ -62,6 +62,16 @@ input[type="date"] {
      cho phần nội dung) — phần còn lại của ứng dụng vẫn dùng font hệ thống. */
   --font-brand: "Spectral", Georgia, serif;
   --font-vietnam: "Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif;
+
+  /* Sidebar điều hướng chính (thay thanh menu ngang cũ) — nền tối nghiêng
+     sắc xanh brand, tách biệt hẳn với nền sáng trung tính của khu nội dung,
+     giúp phân vùng "điều hướng" và "nội dung" rõ ràng ngay từ ánh nhìn đầu. */
+  --color-sidebar-900: #101a30;
+  --color-sidebar-800: #16233f;
+  --color-sidebar-active: #1d2c4d;
+  --color-sidebar-text: #b9c2d6;
+  --color-sidebar-text-dim: #6d7896;
+  --color-sidebar-accent: #4f83ff;
 }
 
 @layer components {
@@ -140,5 +150,36 @@ input[type="date"] {
   @keyframes toast-out {
     from { opacity: 1; transform: translateX(0); }
     to { opacity: 0; transform: translateX(1rem); }
+  }
+
+  /* --- Sidebar điều hướng chính — thay thanh menu ngang trên cùng cũ. Mục
+     đang chọn dùng viền trái + nền sáng hơn (không dùng gạch chân như
+     .nav-tab vì nền tối, gạch chân khó nhìn hơn viền trái đặc). --- */
+  .sidebar-shell {
+    background: linear-gradient(180deg, var(--color-sidebar-900), var(--color-sidebar-800));
+  }
+  .sidebar-brand {
+    font-family: var(--font-brand);
+    font-weight: 700;
+    color: #fff;
+  }
+  .sidebar-link {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    color: var(--color-sidebar-text);
+    border-left: 3px solid transparent;
+    text-decoration: none;
+  }
+  .sidebar-link:hover { background-color: rgba(255, 255, 255, 0.06); color: #fff; }
+  .sidebar-link.active {
+    background-color: var(--color-sidebar-active);
+    color: #fff;
+    border-left-color: var(--color-sidebar-accent);
+    font-weight: 600;
+  }
+  .sidebar-foot {
+    color: var(--color-sidebar-text-dim);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
   }
 }
