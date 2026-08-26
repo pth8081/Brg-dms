@@ -24,6 +24,7 @@
     "ldapts": "^9.0.0",
     "multer": "^2.2.0",
     "mysql2": "^3.9.2",
+    "nodemailer": "^6.10.1",
     "pdf-lib": "^1.17.1"
   },
   "devDependencies": {

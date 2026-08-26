@@ -15,6 +15,7 @@ const { PDFDocument, rgb, degrees } = require('pdf-lib');
 const fontkit = require('@pdf-lib/fontkit');
 const multer = require('multer');
 const { Client: LdapClient } = require('ldapts');
+const nodemailer = require('nodemailer');
 
 const app = express();
 const isProd = process.env.NODE_ENV === 'production';
@@ -401,6 +402,159 @@ async function maybeRunScheduledAdSync() {
 setInterval(maybeRunScheduledAdSync, 60 * 60 * 1000);
 setTimeout(maybeRunScheduledAdSync, 10000);
 
+// --- Module Quản lý CNTT: cấu hình email SMTP thật + engine nhắc hết hạn ---
+// Đọc cấu hình SMTP thật (kể cả tài khoản/mật khẩu) — CHỈ dùng nội bộ server,
+// khác với bootstrap trả về client (phải che mật khẩu, xem route bên dưới).
+async function getEmailConfig() {
+    const [rows] = await pool.query("SELECT config_value FROM app_configs WHERE config_key = 'emailConfig'");
+    if (!rows[0]) return null;
+    return typeof rows[0].config_value === 'string' ? JSON.parse(rows[0].config_value) : rows[0].config_value;
+}
+
+function buildMailTransporter(emailConfig) {
+    return nodemailer.createTransport({
+        host: emailConfig.smtpHost,
+        port: Number(emailConfig.smtpPort) || 587,
+        secure: !!emailConfig.smtpSecure,
+        auth: (emailConfig.smtpUser && emailConfig.smtpPass) ? { user: emailConfig.smtpUser, pass: emailConfig.smtpPass } : undefined,
+        // Không để 1 SMTP không phản hồi (sai host/mạng chặn) làm treo request
+        // lâu — báo lỗi sớm để Admin biết cấu hình sai thay vì chờ vô thời hạn.
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 10000
+    });
+}
+
+// Gửi email THẬT qua SMTP đã cấu hình — dùng chung cho mọi nơi cần gửi email
+// thật trong hệ thống (hiện tại: nhắc hết hạn module CNTT). Luôn ghi audit
+// log kết quả (thành công/thất bại/bỏ qua) để Admin tra cứu trong Log Hệ Thống.
+async function sendRealEmail(to, subject, html) {
+    if (!to) return { skipped: true };
+    const emailConfig = await getEmailConfig();
+    if (!emailConfig || !emailConfig.enabled) {
+        await writeAuditLog({ module: 'IT_ASSETS', actionType: 'SEND_EMAIL_SKIPPED', status: 'FAILED', targetObject: to, description: `Email "${subject}" tới ${to} bị bỏ qua vì cấu hình SMTP đang tắt.` });
+        return { skipped: true };
+    }
+    try {
+        const transporter = buildMailTransporter(emailConfig);
+        await transporter.sendMail({ from: emailConfig.senderEmail || 'dms-noreply@company.com', to, subject, html });
+        await writeAuditLog({ module: 'IT_ASSETS', actionType: 'SEND_EMAIL_SUCCESS', status: 'SUCCESS', targetObject: to, description: `Đã gửi email "${subject}" tới ${to}.` });
+        return { success: true };
+    } catch (err) {
+        console.error(`❌ Lỗi gửi email tới ${to}:`, err.message);
+        await writeAuditLog({ module: 'IT_ASSETS', actionType: 'SEND_EMAIL_FAILED', status: 'FAILED', targetObject: to, description: `Gửi email "${subject}" tới ${to} thất bại: ${err.message}` });
+        return { success: false, error: err.message };
+    }
+}
+
+function escapeHtmlServer(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+async function getItReminderConfig() {
+    const [rows] = await pool.query("SELECT config_value FROM app_configs WHERE config_key = 'itReminderConfig'");
+    const raw = rows[0] ? (typeof rows[0].config_value === 'string' ? JSON.parse(rows[0].config_value) : rows[0].config_value) : {};
+    const days = Array.isArray(raw.daysBeforeList) ? raw.daysBeforeList.map(Number).filter(n => Number.isInteger(n) && n >= 1 && n <= 365) : [];
+    return {
+        enabled: raw.enabled !== false,
+        daysBeforeList: days.length ? [...new Set(days)].sort((a, b) => b - a) : [30, 15, 7]
+    };
+}
+
+// Quét toàn bộ đầu mục CNTT còn theo dõi (active=1), gửi email nhắc tới người
+// phụ trách + toàn bộ Admin khi hôm nay khớp đúng 1 trong các mốc đã cấu hình
+// (VD 30/15/7 ngày trước hạn) HOẶC đúng ngày hết hạn (mốc 0 — LUÔN kiểm tra,
+// không phụ thuộc cấu hình, để không bao giờ bỏ sót thông báo ngày hết hạn
+// thật sự). it_reminder_sent khoá theo (item, ngày hết hạn, mốc) để 1 mốc chỉ
+// gửi đúng 1 lần cho mỗi chu kỳ hạn — nếu đầu mục được gia hạn sang ngày hết
+// hạn mới, khoá đổi theo nên sẽ được nhắc lại từ đầu, đúng như mong đợi.
+async function runExpiryReminderCheck() {
+    const reminderConfig = await getItReminderConfig();
+    if (!reminderConfig.enabled) return { checked: 0, sent: 0, disabled: true };
+    const thresholds = [...new Set([...reminderConfig.daysBeforeList, 0])];
+
+    const [items] = await pool.query(
+        'SELECT i.*, c.name AS category_name FROM it_items i JOIN it_categories c ON c.id = i.category_id WHERE i.active = 1'
+    );
+    const [allUsers] = await pool.query('SELECT id, email, active, perms FROM users');
+    const adminEmails = allUsers
+        .filter(u => u.active && (typeof u.perms === 'string' ? JSON.parse(u.perms || '{}') : (u.perms || {})).admin)
+        .map(u => u.email).filter(Boolean);
+    const emailById = new Map(allUsers.map(u => [u.id, u.email]));
+
+    const todayStr = fmtDate(new Date());
+    let sentCount = 0;
+    for (const item of items) {
+        const expiryStr = fmtDate(item.expiry_date);
+        const daysLeft = Math.round((new Date(`${expiryStr}T00:00:00`) - new Date(`${todayStr}T00:00:00`)) / 86400000);
+        for (const daysBefore of thresholds) {
+            if (daysLeft !== daysBefore) continue;
+            const [existing] = await pool.query(
+                'SELECT id FROM it_reminder_sent WHERE item_id = ? AND expiry_date = ? AND days_before = ?',
+                [item.id, expiryStr, daysBefore]
+            );
+            if (existing[0]) continue;
+
+            const recipients = new Set(adminEmails);
+            if (item.owner_user_id && emailById.get(item.owner_user_id)) recipients.add(emailById.get(item.owner_user_id));
+            if (item.owner_email) recipients.add(item.owner_email);
+            const toList = [...recipients].filter(Boolean);
+
+            if (toList.length) {
+                const subject = daysBefore === 0
+                    ? `[DMS] "${item.name}" đã đến hạn hôm nay (${expiryStr})`
+                    : `[DMS] "${item.name}" sẽ hết hạn sau ${daysBefore} ngày (${expiryStr})`;
+                const html = `<p>Đầu mục <b>${escapeHtmlServer(item.name)}</b> (${escapeHtmlServer(item.category_name)})`
+                    + `${item.provider ? ` — nhà cung cấp <b>${escapeHtmlServer(item.provider)}</b>` : ''} `
+                    + `${daysBefore === 0 ? 'đã đến ngày hết hạn' : `sẽ hết hạn trong <b>${daysBefore} ngày</b> nữa`} `
+                    + `(ngày hết hạn: <b>${expiryStr}</b>).</p>`
+                    + `<p>Vui lòng kiểm tra và gia hạn kịp thời để tránh gián đoạn dịch vụ.</p>`;
+                for (const to of toList) {
+                    await sendRealEmail(to, subject, html);
+                }
+                sentCount++;
+            }
+            // Vẫn ghi nhận đã xử lý mốc này dù không có ai nhận (chưa gán người phụ
+            // trách và không có email Admin nào) — tránh quét lại y hệt mãi mãi.
+            await pool.query(
+                'INSERT INTO it_reminder_sent (item_id, expiry_date, days_before, sent_at) VALUES (?, ?, ?, ?)',
+                [item.id, expiryStr, daysBefore, new Date().toISOString()]
+            );
+        }
+    }
+    return { checked: items.length, sent: sentCount };
+}
+
+async function getItExpiryLastCheckAt() {
+    const [rows] = await pool.query("SELECT config_value FROM app_configs WHERE config_key = 'itExpiryLastCheckAt'");
+    if (!rows[0]) return 0;
+    const v = typeof rows[0].config_value === 'string' ? JSON.parse(rows[0].config_value) : rows[0].config_value;
+    return v && v.at ? new Date(v.at).getTime() : 0;
+}
+async function setItExpiryLastCheckAt() {
+    const payload = JSON.stringify({ at: new Date().toISOString() });
+    await pool.query(
+        'INSERT INTO app_configs (config_key, config_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE config_value = ?',
+        ['itExpiryLastCheckAt', payload, payload]
+    );
+}
+// Kiểm tra hạn CNTT theo lịch hàng ngày — cùng cơ chế với đồng bộ AD ở trên
+// (kiểm tra mỗi giờ xem đã quá 24h kể từ lần chạy gần nhất chưa), không cần
+// thêm hạ tầng cron riêng.
+async function maybeRunScheduledExpiryCheck() {
+    try {
+        const lastCheckAt = await getItExpiryLastCheckAt();
+        if (Date.now() - lastCheckAt < 24 * 60 * 60 * 1000) return;
+        const result = await runExpiryReminderCheck();
+        await setItExpiryLastCheckAt();
+        console.log(`🔔 Kiểm tra hạn CNTT theo lịch: ${result.checked} đầu mục, ${result.sent} email nhắc đã gửi.`);
+    } catch (e) {
+        console.error('❌ Lỗi kiểm tra hạn CNTT theo lịch:', e.message);
+    }
+}
+setInterval(maybeRunScheduledExpiryCheck, 60 * 60 * 1000);
+setTimeout(maybeRunScheduledExpiryCheck, 15000);
+
 // --- API AUTH ---
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
     try {
@@ -560,7 +714,23 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
             })),
             workflows: workflows.map(w => ({ ...w, steps: typeof w.steps === 'string' ? JSON.parse(w.steps || '[]') : w.steps })),
             deptWorkflows: configMap.deptWorkflows || {},
-            emailConfig: configMap.emailConfig || { enabled: true, smtpHost: 'smtp.gmail.com', smtpPort: 587, senderEmail: 'dms-noreply@company.com' },
+            emailConfig: (() => {
+                const raw = configMap.emailConfig
+                    ? (typeof configMap.emailConfig === 'string' ? JSON.parse(configMap.emailConfig) : configMap.emailConfig)
+                    : {};
+                return {
+                    enabled: raw.enabled !== false,
+                    smtpHost: raw.smtpHost || 'smtp.gmail.com',
+                    smtpPort: raw.smtpPort || 587,
+                    smtpSecure: raw.smtpSecure || false,
+                    senderEmail: raw.senderEmail || 'dms-noreply@company.com',
+                    smtpUser: raw.smtpUser || '',
+                    // Bảo mật: mật khẩu SMTP thật không bao giờ trả về cho client, chỉ
+                    // báo đã có cấu hình hay chưa — giống hệt mật khẩu tài khoản dịch
+                    // vụ AD ở ldapConfig bên dưới.
+                    smtpPass: raw.smtpPass ? '••••••••' : ''
+                };
+            })(),
             ldapConfig: (() => {
                 const raw = configMap.ldapConfig
                     ? (typeof configMap.ldapConfig === 'string' ? JSON.parse(configMap.ldapConfig) : configMap.ldapConfig)
@@ -1386,6 +1556,18 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                     data.servicePassword = existingCfg.servicePassword || '';
                 }
             }
+            // Mật khẩu SMTP thật cũng che ở bootstrap giống mật khẩu AD ở trên —
+            // nếu client không gửi mật khẩu mới (trống, hoặc gửi lại chuỗi che
+            // '••••••••' vì form không đổi) thì giữ nguyên mật khẩu cũ đã lưu.
+            if (table === 'emailConfig') {
+                const [existingCfgRows] = await pool.query("SELECT config_value FROM app_configs WHERE config_key = 'emailConfig'");
+                const existingCfg = existingCfgRows[0]
+                    ? (typeof existingCfgRows[0].config_value === 'string' ? JSON.parse(existingCfgRows[0].config_value) : existingCfgRows[0].config_value)
+                    : {};
+                if (!data.smtpPass || !String(data.smtpPass).trim() || data.smtpPass === '••••••••') {
+                    data.smtpPass = existingCfg.smtpPass || '';
+                }
+            }
             await pool.query(
                 'INSERT INTO app_configs (config_key, config_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE config_value = ?',
                 [table, JSON.stringify(data), JSON.stringify(data)]
@@ -1486,6 +1668,8 @@ function mapBudgetRound(r) { return { id: r.id, name: r.name, note: r.note, stat
 function mapBudgetRoundItem(i) { return { id: i.id, roundId: i.round_id, softwareId: i.software_id, itemType: i.item_type || 'SOFTWARE', itemName: i.item_name, capexOpex: i.capex_opex || 'OPEX', unitPrice: Number(i.unit_price) }; }
 function mapBudgetActual(a) { return { id: a.id, roundItemId: a.round_item_id, companyId: a.company_id, purchaseDate: fmtDate(a.purchase_date), vendor: a.vendor, quantity: Number(a.quantity), unitPrice: Number(a.unit_price), amount: Number(a.amount), note: a.note, createdBy: a.created_by, createdAt: a.created_at }; }
 function mapBudgetRegistration(r) { return { id: r.id, roundId: r.round_id, roundItemId: r.round_item_id, orgUnitId: r.org_unit_id, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity, unitPrice: Number(r.unit_price), totalAmount: Number(r.total_amount), status: r.status, note: r.note, createdAt: r.created_at, decidedBy: r.decided_by, decidedAt: r.decided_at }; }
+function mapItCategory(c) { return { id: c.id, name: c.name, active: !!c.active, sortOrder: c.sort_order }; }
+function mapItItem(i) { return { id: i.id, categoryId: i.category_id, name: i.name, provider: i.provider, description: i.description, startDate: fmtDate(i.start_date), expiryDate: fmtDate(i.expiry_date), cost: i.cost === null || i.cost === undefined ? null : Number(i.cost), ownerUserId: i.owner_user_id, ownerEmail: i.owner_email, active: !!i.active, createdBy: i.created_by, createdAt: i.created_at, updatedAt: i.updated_at }; }
 // Trả về [orgUnitId, ...toàn bộ id đơn vị con cháu] — dùng để tính số license
 // đang dùng cho 1 đơn vị trực thuộc (gồm cả nhân viên ở các đơn vị con bên
 // dưới), vd chọn "Khối Kinh doanh" thì tính luôn nhân viên ở "Phòng Bán hàng"
@@ -3382,6 +3566,218 @@ app.post('/api/license/employees/import', requireAuth, requireAdmin, async (req,
         res.json({ success: true, created, updated, errors });
     } catch (err) {
         console.error('❌ Lỗi nhập CSV nhân viên:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// ============================================================
+// MODULE QUẢN LÝ CNTT — theo dõi ngày hết hạn các dịch vụ/bản quyền do CNTT
+// quản lý (cước Internet, bản quyền Firewall, tên miền, SSL, email, phần mềm
+// hệ thống, phần mềm khác...) và tự động gửi email nhắc trước khi hết hạn.
+// Toàn bộ module chỉ Admin mới truy cập được (giống các mục Quản trị khác) —
+// người phụ trách 1 đầu mục không cần vào app, chỉ cần nhận được email nhắc.
+// ============================================================
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+app.get('/api/it/bootstrap', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const [categories] = await pool.query('SELECT * FROM it_categories ORDER BY sort_order, name');
+        const [items] = await pool.query('SELECT * FROM it_items ORDER BY expiry_date');
+        const reminderConfig = await getItReminderConfig();
+        const lastCheckAt = await getItExpiryLastCheckAt();
+        res.json({
+            categories: categories.map(mapItCategory),
+            items: items.map(mapItItem),
+            reminderConfig,
+            lastCheckAt: lastCheckAt || null
+        });
+    } catch (err) {
+        console.error('❌ Lỗi tải dữ liệu module Quản lý CNTT:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Danh mục loại dịch vụ/bản quyền (tự cấu hình được) ---
+app.post('/api/it/categories', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const name = String((req.body && req.body.name) || '').trim();
+        if (!name) return res.status(400).json({ error: 'Tên danh mục không được để trống.' });
+        const sortOrder = Number.isFinite(Number(req.body && req.body.sortOrder)) ? Number(req.body.sortOrder) : 0;
+        const [result] = await pool.query('INSERT INTO it_categories (name, active, sort_order) VALUES (?, TRUE, ?)', [name, sortOrder]);
+        await writeAuditLog({ module: 'IT_ASSETS', actionType: 'CREATE_IT_CATEGORY', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: name, description: `Thêm danh mục CNTT [${name}].` });
+        res.json({ success: true, id: result.insertId });
+    } catch (err) {
+        if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Tên danh mục đã tồn tại.' });
+        console.error('❌ Lỗi thêm danh mục CNTT:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+app.put('/api/it/categories/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const name = String((req.body && req.body.name) || '').trim();
+        if (!name) return res.status(400).json({ error: 'Tên danh mục không được để trống.' });
+        const sortOrder = Number.isFinite(Number(req.body && req.body.sortOrder)) ? Number(req.body.sortOrder) : 0;
+        const active = req.body && req.body.active !== undefined ? !!req.body.active : true;
+        const [result] = await pool.query('UPDATE it_categories SET name = ?, sort_order = ?, active = ? WHERE id = ?', [name, sortOrder, active, id]);
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Không tìm thấy danh mục.' });
+        await writeAuditLog({ module: 'IT_ASSETS', actionType: 'UPDATE_IT_CATEGORY', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: name, description: `Cập nhật danh mục CNTT [${name}].` });
+        res.json({ success: true });
+    } catch (err) {
+        if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Tên danh mục đã tồn tại.' });
+        console.error('❌ Lỗi cập nhật danh mục CNTT:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+app.delete('/api/it/categories/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query('SELECT name FROM it_categories WHERE id = ?', [id]);
+        if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy danh mục.' });
+        const [used] = await pool.query('SELECT COUNT(*) AS cnt FROM it_items WHERE category_id = ?', [id]);
+        if (used[0].cnt > 0) return res.status(400).json({ error: 'Không thể xóa — danh mục này vẫn còn đầu mục đang theo dõi. Hãy xóa/chuyển các đầu mục đó trước.' });
+        await pool.query('DELETE FROM it_categories WHERE id = ?', [id]);
+        await writeAuditLog({ module: 'IT_ASSETS', actionType: 'DELETE_IT_CATEGORY', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: rows[0].name, description: `Xóa danh mục CNTT [${rows[0].name}].` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi xóa danh mục CNTT:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Đầu mục theo dõi gia hạn ---
+async function validateItItemBody(body, { partial = false } = {}) {
+    const out = {};
+    if (!partial || body.name !== undefined) {
+        out.name = String((body && body.name) || '').trim();
+        if (!out.name) return { error: 'Tên đầu mục không được để trống.' };
+    }
+    if (!partial || body.categoryId !== undefined) {
+        const categoryId = Number(body && body.categoryId);
+        if (!Number.isInteger(categoryId) || categoryId <= 0) return { error: 'Vui lòng chọn Danh mục.' };
+        const [cat] = await pool.query('SELECT id FROM it_categories WHERE id = ?', [categoryId]);
+        if (!cat[0]) return { error: 'Danh mục không tồn tại.' };
+        out.categoryId = categoryId;
+    }
+    if (!partial || body.expiryDate !== undefined) {
+        if (!validDateStr(body && body.expiryDate)) return { error: 'Ngày hết hạn không hợp lệ.' };
+        out.expiryDate = body.expiryDate;
+    }
+    if (body && body.startDate !== undefined) {
+        if (body.startDate && !validDateStr(body.startDate)) return { error: 'Ngày bắt đầu không hợp lệ.' };
+        out.startDate = body.startDate || null;
+    }
+    if (body && body.provider !== undefined) out.provider = String(body.provider || '').trim() || null;
+    if (body && body.description !== undefined) out.description = String(body.description || '').trim() || null;
+    if (body && body.cost !== undefined) {
+        if (body.cost === null || body.cost === '') {
+            out.cost = null;
+        } else {
+            const cost = Number(body.cost);
+            if (!Number.isFinite(cost) || cost < 0) return { error: 'Chi phí không hợp lệ.' };
+            out.cost = cost;
+        }
+    }
+    if (body && body.ownerUserId !== undefined) {
+        if (body.ownerUserId === null || body.ownerUserId === '') {
+            out.ownerUserId = null;
+        } else {
+            const ownerUserId = Number(body.ownerUserId);
+            const [u] = await pool.query('SELECT id FROM users WHERE id = ?', [ownerUserId]);
+            if (!u[0]) return { error: 'Người phụ trách (tài khoản hệ thống) không tồn tại.' };
+            out.ownerUserId = ownerUserId;
+        }
+    }
+    if (body && body.ownerEmail !== undefined) {
+        const ownerEmail = String(body.ownerEmail || '').trim();
+        if (ownerEmail && !EMAIL_RE.test(ownerEmail)) return { error: 'Email người phụ trách không hợp lệ.' };
+        out.ownerEmail = ownerEmail || null;
+    }
+    if (body && body.active !== undefined) out.active = !!body.active;
+    return { value: out };
+}
+
+app.post('/api/it/items', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { error, value } = await validateItItemBody(req.body || {});
+        if (error) return res.status(400).json({ error });
+        const nowIso = new Date().toISOString();
+        const [result] = await pool.query(
+            `INSERT INTO it_items (category_id, name, provider, description, start_date, expiry_date, cost, owner_user_id, owner_email, active, created_by, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?, ?, ?)`,
+            [value.categoryId, value.name, value.provider || null, value.description || null, value.startDate || null, value.expiryDate, value.cost === undefined ? null : value.cost, value.ownerUserId === undefined ? null : value.ownerUserId, value.ownerEmail || null, req.user.username, nowIso, nowIso]
+        );
+        await writeAuditLog({ module: 'IT_ASSETS', actionType: 'CREATE_IT_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: value.name, description: `Thêm đầu mục CNTT [${value.name}], hạn ${value.expiryDate}.` });
+        res.json({ success: true, id: result.insertId });
+    } catch (err) {
+        console.error('❌ Lỗi thêm đầu mục CNTT:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+app.put('/api/it/items/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query('SELECT * FROM it_items WHERE id = ?', [id]);
+        if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy đầu mục.' });
+        const { error, value } = await validateItItemBody(req.body || {});
+        if (error) return res.status(400).json({ error });
+        await pool.query(
+            `UPDATE it_items SET category_id = ?, name = ?, provider = ?, description = ?, start_date = ?, expiry_date = ?, cost = ?, owner_user_id = ?, owner_email = ?, active = ?, updated_at = ? WHERE id = ?`,
+            [value.categoryId, value.name, value.provider || null, value.description || null, value.startDate || null, value.expiryDate, value.cost === undefined ? null : value.cost, value.ownerUserId === undefined ? null : value.ownerUserId, value.ownerEmail || null, value.active === undefined ? true : value.active, new Date().toISOString(), id]
+        );
+        await writeAuditLog({ module: 'IT_ASSETS', actionType: 'UPDATE_IT_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: value.name, description: `Cập nhật đầu mục CNTT [${value.name}], hạn ${value.expiryDate}.` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi cập nhật đầu mục CNTT:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+app.delete('/api/it/items/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query('SELECT name FROM it_items WHERE id = ?', [id]);
+        if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy đầu mục.' });
+        await pool.query('DELETE FROM it_reminder_sent WHERE item_id = ?', [id]);
+        await pool.query('DELETE FROM it_items WHERE id = ?', [id]);
+        await writeAuditLog({ module: 'IT_ASSETS', actionType: 'DELETE_IT_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: rows[0].name, description: `Xóa đầu mục CNTT [${rows[0].name}].` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi xóa đầu mục CNTT:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Cấu hình mốc nhắc hẹn (dùng chung cho toàn bộ đầu mục) ---
+app.put('/api/it/reminder-config', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const enabled = req.body && req.body.enabled !== undefined ? !!req.body.enabled : true;
+        const daysBeforeListRaw = Array.isArray(req.body && req.body.daysBeforeList) ? req.body.daysBeforeList : [];
+        const daysBeforeList = daysBeforeListRaw.map(Number);
+        if (!daysBeforeList.length || daysBeforeList.some(n => !Number.isInteger(n) || n < 1 || n > 365)) {
+            return res.status(400).json({ error: 'Danh sách mốc nhắc phải có ít nhất 1 mốc, mỗi mốc là số nguyên từ 1 đến 365 ngày.' });
+        }
+        const value = { enabled, daysBeforeList: [...new Set(daysBeforeList)].sort((a, b) => b - a) };
+        await pool.query(
+            'INSERT INTO app_configs (config_key, config_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE config_value = ?',
+            ['itReminderConfig', JSON.stringify(value), JSON.stringify(value)]
+        );
+        await writeAuditLog({ module: 'IT_ASSETS', actionType: 'UPDATE_IT_REMINDER_CONFIG', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: 'Cấu hình nhắc hẹn', description: `Cập nhật cấu hình nhắc hẹn CNTT: ${enabled ? 'bật' : 'tắt'}, mốc [${value.daysBeforeList.join(', ')}] ngày.` });
+        res.json({ success: true, reminderConfig: value });
+    } catch (err) {
+        console.error('❌ Lỗi cập nhật cấu hình nhắc hẹn CNTT:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Kích hoạt kiểm tra & gửi nhắc ngay (thủ công, giống nút "Đồng bộ AD ngay") ---
+app.post('/api/it/check-expiry-now', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const result = await runExpiryReminderCheck();
+        await setItExpiryLastCheckAt();
+        await writeAuditLog({ module: 'IT_ASSETS', actionType: 'CHECK_EXPIRY_NOW', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: 'Kiểm tra hạn CNTT', description: `Kiểm tra thủ công: ${result.checked} đầu mục, ${result.sent} email nhắc đã gửi.` });
+        res.json({ success: true, ...result });
+    } catch (err) {
+        console.error('❌ Lỗi kiểm tra hạn CNTT thủ công:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
