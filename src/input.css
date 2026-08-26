@@ -1,6 +1,15 @@
 @import "tailwindcss";
 @source "../public/**/*.html";
 
+/* Ô nhập ngày (input[type=date]) trước đây hay bị đặt "w-full" theo lưới
+   cha, nhưng bản thân control ngày của trình duyệt không cần rộng vậy —
+   để lại khoảng trắng thừa rất rõ. Đặt max-width chung ở đây (không nằm
+   trong @layer nào) để nó luôn thắng "w-full" (width:100%) mà không cần
+   sửa từng chỗ trong index.html — đã có 7+ vị trí lặp lại lỗi này. */
+input[type="date"] {
+  max-width: 160px;
+}
+
 /* --- Hệ thống thiết kế DMS: bảng màu & cỡ chữ nhất quán, thay cho việc mỗi
    module tự chọn màu rời rạc trước đây (indigo/emerald/amber/purple/slate/
    stone/rose không theo quy tắc). --- */
