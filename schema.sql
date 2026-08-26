@@ -549,6 +549,54 @@ CALL create_index_if_not_exists('lic_budget_actuals', 'idx_lic_budget_actuals_it
 CALL add_column_if_not_exists('lic_budget_actuals', 'company_id', 'BIGINT NULL DEFAULT NULL');
 CALL create_index_if_not_exists('lic_budget_actuals', 'idx_lic_budget_actuals_company', 'company_id');
 
+-- 16. Module Quản lý CNTT: theo dõi ngày hết hạn các dịch vụ/bản quyền do
+-- CNTT quản lý (cước Internet, bản quyền Firewall, tên miền, SSL, email,
+-- phần mềm hệ thống, phần mềm khác...) và tự động gửi email nhắc trước khi
+-- hết hạn theo cấu hình. Danh mục (it_categories) tự cấu hình được (không cố
+-- định cứng trong code), giống Phòng ban/Phân loại của module Tài liệu.
+CREATE TABLE IF NOT EXISTS it_categories (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) UNIQUE NOT NULL,
+    active TINYINT(1) NOT NULL DEFAULT 1,
+    sort_order INT NOT NULL DEFAULT 0
+);
+
+-- owner_user_id: người phụ trách là tài khoản hệ thống (tùy chọn) — dùng để
+-- lấy email gửi nhắc. owner_email: dự phòng khi người phụ trách KHÔNG có tài
+-- khoản trong hệ thống (vd nhà cung cấp bên ngoài) — nhập tay. Cả 2 đều tùy
+-- chọn; nếu bỏ trống cả 2 thì chỉ Admin nhận được email nhắc hết hạn.
+-- active=0: tạm ngừng theo dõi/nhắc hẹn mà không mất lịch sử (khác xóa hẳn).
+CREATE TABLE IF NOT EXISTS it_items (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    category_id INT NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    provider VARCHAR(255) NULL DEFAULT NULL,
+    description VARCHAR(1000) NULL DEFAULT NULL,
+    start_date DATE NULL DEFAULT NULL,
+    expiry_date DATE NOT NULL,
+    cost DECIMAL(18,2) NULL DEFAULT NULL,
+    owner_user_id BIGINT NULL DEFAULT NULL,
+    owner_email VARCHAR(255) NULL DEFAULT NULL,
+    active TINYINT(1) NOT NULL DEFAULT 1,
+    created_by VARCHAR(100) NULL DEFAULT NULL,
+    created_at VARCHAR(100),
+    updated_at VARCHAR(100)
+);
+CALL create_index_if_not_exists('it_items', 'idx_it_items_category', 'category_id');
+CALL create_index_if_not_exists('it_items', 'idx_it_items_expiry', 'expiry_date');
+
+-- Sổ ghi nhận đã gửi nhắc — khóa theo (item_id, expiry_date, days_before) để
+-- không gửi trùng trong 1 chu kỳ hạn; nếu đầu mục được gia hạn (expiry_date
+-- đổi sang ngày mới) thì tự động được nhắc lại từ đầu vì cặp khóa đổi theo.
+CREATE TABLE IF NOT EXISTS it_reminder_sent (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    item_id BIGINT NOT NULL,
+    expiry_date DATE NOT NULL,
+    days_before INT NOT NULL,
+    sent_at VARCHAR(100)
+);
+CALL create_unique_index_if_not_exists('it_reminder_sent', 'uq_it_reminder_sent', 'item_id, expiry_date, days_before');
+
 -- Dọn dẹp: xóa các thủ tục tạm sau khi dùng xong, không để lại trong CSDL thật.
 DROP PROCEDURE IF EXISTS create_index_if_not_exists;
 DROP PROCEDURE IF EXISTS create_unique_index_if_not_exists;
