@@ -1676,7 +1676,8 @@ function mapRound(r) { return { id: r.id, name: r.name, note: r.note, status: r.
 function mapRoundItem(i) { return { id: i.id, roundId: i.round_id, softwareId: i.software_id, unitPrice: Number(i.unit_price), expiryDate: fmtDate(i.expiry_date) }; }
 function mapRegistration(r) { return { id: r.id, roundId: r.round_id, roundItemId: r.round_item_id, companyId: r.company_id, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity, budgetQuantity: r.budget_quantity === null || r.budget_quantity === undefined ? null : Number(r.budget_quantity), unitPrice: Number(r.unit_price), totalAmount: Number(r.total_amount), expiryDate: fmtDate(r.expiry_date), status: r.status, note: r.note, createdAt: r.created_at, decidedBy: r.decided_by, decidedAt: r.decided_at, issuedBatchId: r.issued_batch_id, issuedQuantity: r.issued_quantity, issuedAt: r.issued_at }; }
 function mapBudgetRound(r) { return { id: r.id, name: r.name, note: r.note, status: r.status, createdAt: r.created_at, scopeType: r.scope_type, scopeId: r.scope_id }; }
-function mapBudgetRoundItem(i) { return { id: i.id, roundId: i.round_id, softwareId: i.software_id, itemType: i.item_type || 'SOFTWARE', itemName: i.item_name, capexOpex: i.capex_opex || 'OPEX', unitPrice: Number(i.unit_price) }; }
+function mapBudgetRoundItem(i) { return { id: i.id, roundId: i.round_id, softwareId: i.software_id, itemType: i.item_type || 'SOFTWARE', itemName: i.item_name, catalogItemId: i.catalog_item_id, capexOpex: i.capex_opex || 'OPEX', unitPrice: Number(i.unit_price) }; }
+function mapBudgetItemCatalog(c) { return { id: c.id, itemType: c.item_type, name: c.name, unit: c.unit, active: !!c.active }; }
 function mapBudgetActual(a) { return { id: a.id, roundItemId: a.round_item_id, companyId: a.company_id, purchaseDate: fmtDate(a.purchase_date), vendor: a.vendor, quantity: Number(a.quantity), unitPrice: Number(a.unit_price), amount: Number(a.amount), note: a.note, createdBy: a.created_by, createdAt: a.created_at }; }
 function mapBudgetRegistration(r) { return { id: r.id, roundId: r.round_id, roundItemId: r.round_item_id, orgUnitId: r.org_unit_id, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity, unitPrice: Number(r.unit_price), totalAmount: Number(r.total_amount), status: r.status, note: r.note, createdAt: r.created_at, decidedBy: r.decided_by, decidedAt: r.decided_at }; }
 function mapBulkAllocationRequest(r) { return { id: r.id, companyId: r.company_id, orgUnitId: r.org_unit_id, softwareId: r.software_id, issuedDate: fmtDate(r.issued_date), expiryDate: fmtDate(r.expiry_date), note: r.note, status: r.status, requestedBy: r.requested_by, requestedAt: r.requested_at, approvedBy: r.approved_by, approvedAt: r.approved_at, rejectReason: r.reject_reason }; }
@@ -1772,8 +1773,12 @@ async function resolveRoundScope(body) {
 
 // Chuẩn hóa + kiểm tra 1 hạng mục ngân sách (dùng chung cho tạo Kỳ ngân sách
 // kèm items[] và thêm hạng mục lẻ) — itemType/capexOpex BẮT BUỘC chọn, không
-// suy đoán mặc định; SOFTWARE cần softwareId hợp lệ trong danh mục, HARDWARE/
-// SERVICE/OTHER cần itemName (tên tự do, không liên kết danh mục nào).
+// suy đoán mặc định; SOFTWARE cần softwareId hợp lệ trong lic_software_catalog,
+// HARDWARE/SERVICE/OTHER cần catalogItemId hợp lệ trong lic_budget_item_catalog
+// (không còn cho nhập tên tự do — tránh dữ liệu rác/trùng lặp không đồng nhất).
+// Chỉ kiểm tra định dạng số ở đây; việc catalogItemId có TỒN TẠI, ĐÚNG LOẠI và
+// ĐANG ACTIVE hay không do nơi gọi tự truy vấn (khác nhau giữa tạo hàng loạt
+// và thêm lẻ 1 dòng nên không tiện gộp DB query vào hàm thuần này).
 function normalizeBudgetItem(raw, label) {
     const itemType = String((raw && raw.itemType) || '').trim().toUpperCase();
     if (!['SOFTWARE', 'HARDWARE', 'SERVICE', 'OTHER'].includes(itemType)) return { error: `${label}: vui lòng chọn Loại hạng mục.` };
@@ -1784,12 +1789,11 @@ function normalizeBudgetItem(raw, label) {
     if (itemType === 'SOFTWARE') {
         const softwareId = Number(raw && raw.softwareId);
         if (!softwareId) return { error: `${label}: vui lòng chọn Phần mềm.` };
-        return { itemType, capexOpex, unitPrice, softwareId, itemName: null };
+        return { itemType, capexOpex, unitPrice, softwareId, catalogItemId: null };
     }
-    const itemName = String((raw && raw.itemName) || '').trim();
-    if (!itemName) return { error: `${label}: vui lòng nhập tên hạng mục.` };
-    if (itemName.length > 255) return { error: `${label}: tên hạng mục quá dài (tối đa 255 ký tự).` };
-    return { itemType, capexOpex, unitPrice, softwareId: null, itemName };
+    const catalogItemId = Number(raw && raw.catalogItemId);
+    if (!catalogItemId) return { error: `${label}: vui lòng chọn hạng mục trong danh mục.` };
+    return { itemType, capexOpex, unitPrice, softwareId: null, catalogItemId };
 }
 
 app.get('/api/license/bootstrap', requireAuth, requireLicenseOrAdmin, async (req, res) => {
@@ -1808,6 +1812,7 @@ app.get('/api/license/bootstrap', requireAuth, requireLicenseOrAdmin, async (req
         const [budgetRoundItems] = await pool.query('SELECT * FROM lic_budget_round_items ORDER BY id');
         const [budgetRegistrations] = await pool.query('SELECT * FROM lic_budget_registrations ORDER BY id DESC');
         const [budgetActuals] = await pool.query('SELECT * FROM lic_budget_actuals ORDER BY purchase_date DESC, id DESC');
+        const [budgetItemCatalog] = await pool.query('SELECT * FROM lic_budget_item_catalog ORDER BY item_type, name');
         const [adAccounts] = await pool.query('SELECT * FROM ad_accounts ORDER BY username');
         const adLastSyncAt = await getAdLastSyncAt();
         const [bulkAllocRequests] = await pool.query('SELECT * FROM lic_bulk_allocation_requests ORDER BY id DESC');
@@ -1827,6 +1832,7 @@ app.get('/api/license/bootstrap', requireAuth, requireLicenseOrAdmin, async (req
             budgetRoundItems: budgetRoundItems.map(mapBudgetRoundItem),
             budgetRegistrations: budgetRegistrations.map(mapBudgetRegistration),
             budgetActuals: budgetActuals.map(mapBudgetActual),
+            budgetItemCatalog: budgetItemCatalog.map(mapBudgetItemCatalog),
             adAccounts: adAccounts.map(mapAdAccount),
             adLastSyncAt: adLastSyncAt || null,
             bulkAllocationRequests: bulkAllocRequests.map(mapBulkAllocationRequest),
@@ -1911,6 +1917,8 @@ app.get('/api/license/portal/bootstrap', requireAuth, async (req, res) => {
             ? (allCompanies.find(c => c.id === userScope.id)?.name || '—')
             : (allOrgUnits.find(u => u.id === userScope.id)?.name || '—');
 
+        const [budgetItemCatalog] = await pool.query('SELECT * FROM lic_budget_item_catalog ORDER BY item_type, name');
+
         res.json({
             scope: { type: userScope.type, id: userScope.id, label: scopeLabel },
             companies: allCompanies.filter(c => reachableCompanySet.has(c.id)).map(mapCompany),
@@ -1922,6 +1930,7 @@ app.get('/api/license/portal/bootstrap', requireAuth, async (req, res) => {
             budgetRounds: visibleBudgetRounds.map(mapBudgetRound),
             budgetRoundItems: visibleBudgetRoundItems.map(mapBudgetRoundItem),
             budgetRegistrations: visibleBudgetRegistrations.map(mapBudgetRegistration),
+            budgetItemCatalog: budgetItemCatalog.map(mapBudgetItemCatalog),
             licenseUsage
         });
     } catch (err) {
@@ -2382,6 +2391,61 @@ app.delete('/api/license/software/:id', requireAuth, requireLicenseOrAdmin, asyn
         res.json({ success: true });
     } catch (err) {
         console.error('❌ Lỗi xóa phần mềm:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Danh mục hạng mục Phần cứng/Dịch vụ/Khác (dùng để chọn khi thêm hạng
+// mục vào Kỳ ngân sách, thay cho nhập tên tự do dễ ra dữ liệu rác) ---
+app.post('/api/license/budget-item-catalog', requireAuth, requireLicenseOrAdmin, async (req, res) => {
+    try {
+        const itemType = String((req.body && req.body.itemType) || '').trim().toUpperCase();
+        if (!['HARDWARE', 'SERVICE', 'OTHER'].includes(itemType)) return res.status(400).json({ error: 'Loại hạng mục không hợp lệ.' });
+        const name = String((req.body && req.body.name) || '').trim();
+        if (!name) return res.status(400).json({ error: 'Tên hạng mục không được để trống.' });
+        if (name.length > 255) return res.status(400).json({ error: 'Tên hạng mục quá dài (tối đa 255 ký tự).' });
+        const unit = String((req.body && req.body.unit) || '').trim() || null;
+        const [result] = await pool.query('INSERT INTO lic_budget_item_catalog (item_type, name, unit, active) VALUES (?, ?, ?, 1)', [itemType, name, unit]);
+        await writeAuditLog({ module: 'LICENSE', actionType: 'CREATE_BUDGET_ITEM_CATALOG', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: name, description: `Thêm hạng mục [${name}] (${itemType}) vào danh mục ngân sách.` });
+        res.json({ success: true, id: result.insertId });
+    } catch (err) {
+        if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Hạng mục này đã có trong danh mục.' });
+        console.error('❌ Lỗi thêm hạng mục danh mục:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.put('/api/license/budget-item-catalog/:id', requireAuth, requireLicenseOrAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const name = String((req.body && req.body.name) || '').trim();
+        if (!name) return res.status(400).json({ error: 'Tên hạng mục không được để trống.' });
+        if (name.length > 255) return res.status(400).json({ error: 'Tên hạng mục quá dài (tối đa 255 ký tự).' });
+        const unit = String((req.body && req.body.unit) || '').trim() || null;
+        const active = req.body && req.body.active !== undefined ? !!req.body.active : true;
+        const [result] = await pool.query('UPDATE lic_budget_item_catalog SET name = ?, unit = ?, active = ? WHERE id = ?', [name, unit, active, id]);
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Không tìm thấy hạng mục.' });
+        await writeAuditLog({ module: 'LICENSE', actionType: 'UPDATE_BUDGET_ITEM_CATALOG', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: name, description: `Cập nhật hạng mục [${name}] trong danh mục ngân sách.` });
+        res.json({ success: true });
+    } catch (err) {
+        if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Hạng mục này đã có trong danh mục.' });
+        console.error('❌ Lỗi cập nhật hạng mục danh mục:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.delete('/api/license/budget-item-catalog/:id', requireAuth, requireLicenseOrAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query('SELECT name FROM lic_budget_item_catalog WHERE id = ?', [id]);
+        if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy hạng mục.' });
+        const [used] = await pool.query('SELECT COUNT(*) AS cnt FROM lic_budget_round_items WHERE catalog_item_id = ?', [id]);
+        if (used[0].cnt > 0) return res.status(400).json({ error: 'Không thể xóa — hạng mục này đang được dùng trong một Kỳ ngân sách. Có thể tắt "Đang dùng" thay vì xóa.' });
+        await pool.query('DELETE FROM lic_budget_item_catalog WHERE id = ?', [id]);
+        await writeAuditLog({ module: 'LICENSE', actionType: 'DELETE_BUDGET_ITEM_CATALOG', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: rows[0].name, description: `Xóa hạng mục [${rows[0].name}] khỏi danh mục ngân sách.` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi xóa hạng mục danh mục:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
@@ -3463,7 +3527,7 @@ app.post('/api/license/budget-rounds', requireAuth, requireLicenseOrAdmin, async
         for (let i = 0; i < items.length; i++) {
             const normalized = normalizeBudgetItem(items[i], `Dòng ${i + 1}`);
             if (normalized.error) return res.status(400).json({ error: normalized.error });
-            const dedupKey = normalized.itemType === 'SOFTWARE' ? `sw:${normalized.softwareId}` : `name:${normalized.itemType}:${normalized.itemName.toLowerCase()}`;
+            const dedupKey = normalized.itemType === 'SOFTWARE' ? `sw:${normalized.softwareId}` : `cat:${normalized.catalogItemId}`;
             if (dedupKeySet.has(dedupKey)) return res.status(400).json({ error: `Dòng ${i + 1}: hạng mục này đã được thêm ở dòng khác.` });
             dedupKeySet.add(dedupKey);
             normalizedItems.push(normalized);
@@ -3472,6 +3536,16 @@ app.post('/api/license/budget-rounds', requireAuth, requireLicenseOrAdmin, async
         if (softwareIds.length > 0) {
             const [softwareRows] = await pool.query(`SELECT id FROM lic_software_catalog WHERE id IN (${softwareIds.map(() => '?').join(',')})`, softwareIds);
             if (softwareRows.length !== new Set(softwareIds).size) return res.status(400).json({ error: 'Có phần mềm không tồn tại trong danh mục.' });
+        }
+        const catalogItemIds = normalizedItems.filter(it => it.itemType !== 'SOFTWARE').map(it => it.catalogItemId);
+        if (catalogItemIds.length > 0) {
+            const [catalogRows] = await pool.query(`SELECT id, item_type FROM lic_budget_item_catalog WHERE id IN (${catalogItemIds.map(() => '?').join(',')}) AND active = 1`, catalogItemIds);
+            const catalogTypeById = new Map(catalogRows.map(r => [r.id, r.item_type]));
+            for (const it of normalizedItems) {
+                if (it.itemType !== 'SOFTWARE' && catalogTypeById.get(it.catalogItemId) !== it.itemType) {
+                    return res.status(400).json({ error: 'Có hạng mục trong danh mục không hợp lệ hoặc không đúng loại đã chọn.' });
+                }
+            }
         }
 
         let roundId;
@@ -3483,8 +3557,8 @@ app.post('/api/license/budget-rounds', requireAuth, requireLicenseOrAdmin, async
             roundId = result.insertId;
             if (normalizedItems.length > 0) {
                 await pool.query(
-                    'INSERT INTO lic_budget_round_items (round_id, software_id, item_type, item_name, capex_opex, unit_price) VALUES ?',
-                    [normalizedItems.map(it => [roundId, it.softwareId, it.itemType, it.itemName, it.capexOpex, it.unitPrice])]
+                    'INSERT INTO lic_budget_round_items (round_id, software_id, item_type, item_name, catalog_item_id, capex_opex, unit_price) VALUES ?',
+                    [normalizedItems.map(it => [roundId, it.softwareId, it.itemType, null, it.catalogItemId, it.capexOpex, it.unitPrice])]
                 );
             }
         } catch (insertErr) {
@@ -3524,7 +3598,7 @@ app.post('/api/license/budget-rounds/:id/items', requireAuth, requireLicenseOrAd
         const [roundRows] = await pool.query('SELECT id, status FROM lic_budget_rounds WHERE id = ?', [id]);
         if (!roundRows[0]) return res.status(404).json({ error: 'Không tìm thấy kỳ ngân sách.' });
         if (roundRows[0].status !== 'OPEN') return res.status(400).json({ error: 'Kỳ ngân sách đã đóng, không thể thêm hạng mục.' });
-        let itemLabel = normalized.itemName;
+        let itemLabel;
         if (normalized.itemType === 'SOFTWARE') {
             const [softwareRows] = await pool.query('SELECT id, name FROM lic_software_catalog WHERE id = ?', [normalized.softwareId]);
             if (!softwareRows[0]) return res.status(400).json({ error: 'Phần mềm không tồn tại.' });
@@ -3532,13 +3606,16 @@ app.post('/api/license/budget-rounds/:id/items', requireAuth, requireLicenseOrAd
             const [dupRows] = await pool.query('SELECT id FROM lic_budget_round_items WHERE round_id = ? AND item_type = ? AND software_id = ?', [id, 'SOFTWARE', normalized.softwareId]);
             if (dupRows[0]) return res.status(400).json({ error: 'Phần mềm này đã có trong kỳ ngân sách.' });
         } else {
-            const [dupRows] = await pool.query('SELECT id FROM lic_budget_round_items WHERE round_id = ? AND item_type = ? AND item_name = ?', [id, normalized.itemType, normalized.itemName]);
+            const [catalogRows] = await pool.query('SELECT id, name, item_type FROM lic_budget_item_catalog WHERE id = ? AND active = 1', [normalized.catalogItemId]);
+            if (!catalogRows[0] || catalogRows[0].item_type !== normalized.itemType) return res.status(400).json({ error: 'Hạng mục trong danh mục không hợp lệ hoặc không đúng loại đã chọn.' });
+            itemLabel = catalogRows[0].name;
+            const [dupRows] = await pool.query('SELECT id FROM lic_budget_round_items WHERE round_id = ? AND item_type = ? AND catalog_item_id = ?', [id, normalized.itemType, normalized.catalogItemId]);
             if (dupRows[0]) return res.status(400).json({ error: 'Hạng mục này đã có trong kỳ ngân sách.' });
         }
 
         const [result] = await pool.query(
-            'INSERT INTO lic_budget_round_items (round_id, software_id, item_type, item_name, capex_opex, unit_price) VALUES (?, ?, ?, ?, ?, ?)',
-            [id, normalized.softwareId, normalized.itemType, normalized.itemName, normalized.capexOpex, normalized.unitPrice]
+            'INSERT INTO lic_budget_round_items (round_id, software_id, item_type, item_name, catalog_item_id, capex_opex, unit_price) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [id, normalized.softwareId, normalized.itemType, null, normalized.catalogItemId, normalized.capexOpex, normalized.unitPrice]
         );
         await writeAuditLog({ module: 'LICENSE', actionType: 'ADD_BUDGET_ROUND_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: itemLabel, description: `Thêm hạng mục [${itemLabel}] (${normalized.itemType}/${normalized.capexOpex}) vào kỳ ngân sách #${id}, đơn giá ${normalized.unitPrice}.` });
         res.json({ success: true, id: result.insertId });

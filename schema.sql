@@ -567,6 +567,27 @@ ALTER TABLE lic_budget_round_items MODIFY COLUMN software_id BIGINT NULL DEFAULT
 -- toàn chạy lại nhiều lần vì MODIFY COLUMN chỉ định nghĩa lại kiểu cột).
 ALTER TABLE lic_budget_round_items MODIFY COLUMN item_type ENUM('SOFTWARE','HARDWARE','SERVICE','OTHER') NOT NULL DEFAULT 'SOFTWARE';
 
+-- Danh mục hạng mục Phần cứng/Dịch vụ/Khác cho Kỳ ngân sách — tránh nhập tay
+-- tự do mỗi lần thêm hạng mục (dễ ra dữ liệu rác/không đồng nhất, VD "Máy chủ
+-- Dell" và "may chu dell" là 2 hạng mục khác nhau). Admin/Người quản lý
+-- License định nghĩa trước danh mục chuẩn, khi thêm hạng mục vào kỳ chỉ CHỌN
+-- từ danh mục — giống hệt cách Phần mềm liên kết lic_software_catalog qua
+-- software_id. active = 0 để ẩn khỏi danh sách chọn mà không mất lịch sử các
+-- kỳ ngân sách đã dùng hạng mục đó.
+CREATE TABLE IF NOT EXISTS lic_budget_item_catalog (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    item_type ENUM('HARDWARE','SERVICE','OTHER') NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    unit VARCHAR(50) NULL DEFAULT NULL,
+    active TINYINT(1) NOT NULL DEFAULT 1,
+    UNIQUE KEY uniq_budget_item_catalog_type_name (item_type, name)
+);
+-- catalog_item_id thay thế item_name tự do cho hạng mục HARDWARE/SERVICE/
+-- OTHER kể từ tính năng này (item_name vẫn giữ cột lại để không mất dữ liệu
+-- tên tự do đã nhập từ trước khi có danh mục — bản ghi mới sẽ để NULL).
+CALL add_column_if_not_exists('lic_budget_round_items', 'catalog_item_id', 'BIGINT NULL DEFAULT NULL');
+CALL create_index_if_not_exists('lic_budget_round_items', 'idx_lic_budget_round_items_catalog', 'catalog_item_id');
+
 -- Sổ ghi nhận mua thực tế (nhiều dòng theo thời gian) cho từng hạng mục ngân
 -- sách — ĐỘC LẬP với lic_budget_registrations (dự trù theo đơn vị): "Kế
 -- hoạch" = tổng dự trù đã duyệt của hạng mục, "Thực tế" = tổng các dòng ở

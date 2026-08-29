@@ -828,6 +828,7 @@
       <button id="btnLicenseSubOrg" onclick="switchLicenseSubTab('org')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🏢 Tổ chức công ty</button>
       <button id="btnLicenseSubEmp" onclick="switchLicenseSubTab('emp')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">👤 Nhân viên</button>
       <button id="btnLicenseSubSoftware" onclick="switchLicenseSubTab('software')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">💽 Phần mềm</button>
+      <button id="btnLicenseSubItemCatalog" onclick="switchLicenseSubTab('itemCatalog')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🗄️ Danh mục HC/DV/Khác</button>
       <button id="btnLicenseSubBatch" onclick="switchLicenseSubTab('batch')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📜 Phát hành license</button>
       <button id="btnLicenseSubAlloc" onclick="switchLicenseSubTab('alloc')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📦 Phân bổ</button>
       <button id="btnLicenseSubAD" onclick="switchLicenseSubTab('ad')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🗂️ Tài khoản AD</button>
@@ -913,6 +914,38 @@
             </tr>
           </thead>
           <tbody id="softwareTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Sub-tab: Danh mục hạng mục Phần cứng/Dịch vụ/Khác (dùng khi thêm hạng
+         mục vào Kỳ ngân sách — chọn từ đây thay vì gõ tay tự do để tránh dữ
+         liệu rác/không đồng nhất). -->
+    <div id="licenseSubItemCatalog" class="hidden space-y-3">
+      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+        <div class="flex flex-wrap gap-2 text-xs items-center">
+          <button onclick="openBudgetItemCatalogModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition">+ Thêm hạng mục</button>
+          <select id="itemCatalogFilterType" onchange="renderBudgetItemCatalogTable()" class="border p-1.5 rounded bg-white">
+            <option value="">-- Tất cả loại --</option>
+            <option value="HARDWARE">Phần cứng</option>
+            <option value="SERVICE">Dịch vụ</option>
+            <option value="OTHER">Khác</option>
+          </select>
+        </div>
+        <span class="text-[11px] text-gray-500">Danh mục chuẩn dùng khi thêm hạng mục vào Kỳ ngân sách — tránh gõ tay tự do gây trùng lặp/không đồng nhất.</span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full border-collapse border bg-white text-xs max-w-2xl">
+          <thead>
+            <tr class="bg-gray-100 text-left">
+              <th class="border p-2">Tên hạng mục</th>
+              <th class="border p-2">Loại</th>
+              <th class="border p-2">Đơn vị tính</th>
+              <th class="border p-2 text-center">Đang dùng</th>
+              <th class="border p-2 text-center whitespace-nowrap">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody id="budgetItemCatalogTableBody"></tbody>
         </table>
       </div>
     </div>
@@ -2227,8 +2260,11 @@
         <select id="budgetRoundItemSoftware" class="w-full border p-2 rounded text-sm bg-white"></select>
       </div>
       <div id="budgetRoundItemNameWrap" class="hidden">
-        <label class="block text-xs font-semibold text-gray-600 mb-1">Tên hạng mục</label>
-        <input id="budgetRoundItemName" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Máy chủ Dell R750">
+        <label class="block text-xs font-semibold text-gray-600 mb-1 flex justify-between items-center">
+          <span>Hạng mục (từ danh mục)</span>
+          <button type="button" onclick="openBudgetItemCatalogModal()" class="text-brand-600 hover:underline font-normal normal-case">+ Thêm mới vào danh mục</button>
+        </label>
+        <select id="budgetRoundItemCatalog" class="w-full border p-2 rounded text-sm bg-white"></select>
       </div>
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn giá dự kiến (VNĐ)</label>
@@ -2245,6 +2281,37 @@
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" onclick="closeLicenseModal('budgetRoundItemModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
         <button type="button" onclick="saveBudgetRoundItem()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Thêm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Thêm/Sửa hạng mục vào Danh mục HC/DV/Khác -->
+  <div id="budgetItemCatalogModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[70] p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-sm w-full p-5 space-y-4">
+      <h3 id="budgetItemCatalogModalTitle" class="font-bold text-gray-900 text-base">Thêm hạng mục vào danh mục</h3>
+      <input type="hidden" id="budgetItemCatalogId">
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Loại</label>
+        <select id="budgetItemCatalogType" class="w-full border p-2 rounded text-sm bg-white">
+          <option value="HARDWARE">Phần cứng</option>
+          <option value="SERVICE">Dịch vụ</option>
+          <option value="OTHER">Khác</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Tên hạng mục</label>
+        <input id="budgetItemCatalogName" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Máy chủ Dell R750">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn vị tính (tùy chọn)</label>
+        <input id="budgetItemCatalogUnit" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Cái, Tháng, Gói">
+      </div>
+      <label id="budgetItemCatalogActiveWrap" class="hidden flex items-center gap-2 text-xs font-semibold text-gray-600">
+        <input id="budgetItemCatalogActive" type="checkbox" class="rounded"> Đang dùng (bỏ chọn để ẩn khỏi danh sách chọn, không xóa lịch sử)
+      </label>
+      <div class="flex justify-end gap-2 pt-1">
+        <button type="button" onclick="closeLicenseModal('budgetItemCatalogModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" onclick="saveBudgetItemCatalog()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
       </div>
     </div>
   </div>
@@ -2452,10 +2519,10 @@
 
     // Dữ liệu module Quản Lý Bản Quyền — độc lập với DB ở trên, tải riêng khi
     // admin mở module (không tải kèm bootstrap chính vì chỉ admin dùng tới).
-    const licenseDB = { companies: [], orgUnits: [], employees: [], softwareCatalog: [], licenseBatches: [], licenseCodes: [], licenseCodeAssignments: [], purchaseRounds: [], purchaseRoundItems: [], purchaseRegistrations: [], budgetRounds: [], budgetRoundItems: [], budgetRegistrations: [], budgetActuals: [], adAccounts: [], adLastSyncAt: null, bulkAllocationRequests: [], bulkAllocationItems: [], loaded: false };
+    const licenseDB = { companies: [], orgUnits: [], employees: [], softwareCatalog: [], licenseBatches: [], licenseCodes: [], licenseCodeAssignments: [], purchaseRounds: [], purchaseRoundItems: [], purchaseRegistrations: [], budgetRounds: [], budgetRoundItems: [], budgetRegistrations: [], budgetActuals: [], budgetItemCatalog: [], adAccounts: [], adLastSyncAt: null, bulkAllocationRequests: [], bulkAllocationItems: [], loaded: false };
     // Dữ liệu Cổng tự phục vụ (Ngân sách + Kỳ mua) — dành cho tài khoản có
     // phạm vi công ty/đơn vị, tải từ endpoint riêng chỉ trả về đúng phạm vi.
-    const licensePortalDB = { scope: null, companies: [], orgUnits: [], softwareCatalog: [], purchaseRounds: [], purchaseRoundItems: [], purchaseRegistrations: [], budgetRounds: [], budgetRoundItems: [], budgetRegistrations: [], licenseUsage: [], loaded: false };
+    const licensePortalDB = { scope: null, companies: [], orgUnits: [], softwareCatalog: [], purchaseRounds: [], purchaseRoundItems: [], purchaseRegistrations: [], budgetRounds: [], budgetRoundItems: [], budgetRegistrations: [], budgetItemCatalog: [], licenseUsage: [], loaded: false };
     let licenseExpandedNodes = new Set();
     // Danh sách Kỳ mua/Kỳ ngân sách trước đây luôn bung hết bảng hạng mục của
     // MỌI kỳ cùng lúc — với vài chục kỳ theo thời gian sử dụng trang sẽ dài
@@ -4756,6 +4823,7 @@
       licenseDB.budgetRoundItems = data.budgetRoundItems || [];
       licenseDB.budgetRegistrations = data.budgetRegistrations || [];
       licenseDB.budgetActuals = data.budgetActuals || [];
+      licenseDB.budgetItemCatalog = data.budgetItemCatalog || [];
       licenseDB.bulkAllocationRequests = data.bulkAllocationRequests || [];
       licenseDB.bulkAllocationItems = data.bulkAllocationItems || [];
       licenseDB.loaded = true;
@@ -4775,8 +4843,8 @@
     function switchLicenseSubTab(subName) {
       if (!currentUser || !(currentUser.perms.admin || currentUser.perms.licenseManager)) return;
 
-      const subs = { org: 'licenseSubOrg', emp: 'licenseSubEmp', software: 'licenseSubSoftware', batch: 'licenseSubBatch', alloc: 'licenseSubAlloc', ad: 'licenseSubAD', purchase: 'licenseSubPurchase', rounds: 'licenseSubRounds', budget: 'licenseSubBudget' };
-      const btns = { org: 'btnLicenseSubOrg', emp: 'btnLicenseSubEmp', software: 'btnLicenseSubSoftware', batch: 'btnLicenseSubBatch', alloc: 'btnLicenseSubAlloc', ad: 'btnLicenseSubAD', purchase: 'btnLicenseSubPurchase', rounds: 'btnLicenseSubRounds', budget: 'btnLicenseSubBudget' };
+      const subs = { org: 'licenseSubOrg', emp: 'licenseSubEmp', software: 'licenseSubSoftware', itemCatalog: 'licenseSubItemCatalog', batch: 'licenseSubBatch', alloc: 'licenseSubAlloc', ad: 'licenseSubAD', purchase: 'licenseSubPurchase', rounds: 'licenseSubRounds', budget: 'licenseSubBudget' };
+      const btns = { org: 'btnLicenseSubOrg', emp: 'btnLicenseSubEmp', software: 'btnLicenseSubSoftware', itemCatalog: 'btnLicenseSubItemCatalog', batch: 'btnLicenseSubBatch', alloc: 'btnLicenseSubAlloc', ad: 'btnLicenseSubAD', purchase: 'btnLicenseSubPurchase', rounds: 'btnLicenseSubRounds', budget: 'btnLicenseSubBudget' };
       Object.keys(subs).forEach(key => {
         document.getElementById(subs[key]).classList.toggle('hidden', key !== subName);
         document.getElementById(btns[key]).classList.toggle('active', key === subName);
@@ -4786,6 +4854,7 @@
         if (subName === 'org') renderCompanyList();
         if (subName === 'emp') { populateCompanyFilterSelects(); renderLicenseEmployees(); }
         if (subName === 'software') renderSoftwareTable();
+        if (subName === 'itemCatalog') renderBudgetItemCatalogTable();
         if (subName === 'batch') renderBatchTable();
         if (subName === 'alloc') { populateAllocFilterSelects(); renderAllocTable(); renderBulkAllocRequestsTable(); }
         if (subName === 'ad') { renderAdAccountsTable(); }
@@ -6726,6 +6795,13 @@ function isPerpetualSoftware(softwareId) {
         const sw = licenseDB.softwareCatalog.find(s => s.id === item.softwareId) || (typeof licensePortalDB !== 'undefined' && licensePortalDB.softwareCatalog.find(s => s.id === item.softwareId));
         return sw ? sw.name : '—';
       }
+      // Hạng mục mới (từ khi có Danh mục HC/DV/Khác) tra theo catalogItemId;
+      // hạng mục cũ nhập tên tự do trước tính năng này vẫn còn item_name, giữ
+      // lại để không mất dữ liệu hiển thị.
+      if (item.catalogItemId) {
+        const cat = licenseDB.budgetItemCatalog.find(c => c.id === item.catalogItemId) || (typeof licensePortalDB !== 'undefined' && licensePortalDB.budgetItemCatalog.find(c => c.id === item.catalogItemId));
+        if (cat) return cat.name;
+      }
       return item.itemName || '—';
     }
     function budgetItemTypeBadge(item) {
@@ -6737,6 +6813,88 @@ function isPerpetualSoftware(softwareId) {
       if (!capexOpex) return '<span class="text-[10px] text-gray-400">—</span>';
       const colors = { CAPEX: 'text-sky-700 bg-sky-50', OPEX: 'text-rose-700 bg-rose-50' };
       return `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${colors[capexOpex] || 'text-gray-600 bg-gray-100'}">${capexOpex}</span>`;
+    }
+
+    // --- Danh mục hạng mục Phần cứng/Dịch vụ/Khác (chọn khi thêm hạng mục
+    // vào Kỳ ngân sách, thay cho gõ tay tự do) ---
+    function renderBudgetItemCatalogTable() {
+      const tbody = document.getElementById('budgetItemCatalogTableBody');
+      const filterType = document.getElementById('itemCatalogFilterType').value;
+      const rows = licenseDB.budgetItemCatalog.filter(c => !filterType || c.itemType === filterType);
+      if (rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" class="text-center text-gray-400 p-4">Chưa có hạng mục nào trong danh mục — bấm "+ Thêm hạng mục" để bắt đầu.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = rows.map(c => `
+        <tr class="${c.active ? '' : 'opacity-50'}">
+          <td class="border p-2">${escapeHtml(c.name)}</td>
+          <td class="border p-2">${BUDGET_ITEM_TYPE_LABELS[c.itemType] || c.itemType}</td>
+          <td class="border p-2">${escapeHtml(c.unit || '—')}</td>
+          <td class="border p-2 text-center">${c.active ? '✅' : '—'}</td>
+          <td class="border p-2 text-center whitespace-nowrap">
+            <button onclick="openBudgetItemCatalogModal(${c.id})" class="px-1.5 py-0.5 rounded hover:bg-brand-100 text-brand-700">✏️ Sửa</button>
+            <button onclick="deleteBudgetItemCatalog(${c.id}, '${escapeJsAttr(c.name)}')" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600">🗑️ Xóa</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+    function openBudgetItemCatalogModal(id) {
+      const item = id ? licenseDB.budgetItemCatalog.find(c => c.id === id) : null;
+      document.getElementById('budgetItemCatalogModalTitle').textContent = item ? 'Sửa hạng mục trong danh mục' : 'Thêm hạng mục vào danh mục';
+      document.getElementById('budgetItemCatalogId').value = item ? item.id : '';
+      const typeSelect = document.getElementById('budgetItemCatalogType');
+      typeSelect.value = item ? item.itemType : (document.getElementById('itemCatalogFilterType').value || 'HARDWARE');
+      typeSelect.disabled = !!item; // không cho đổi Loại sau khi tạo — tránh lệch dữ liệu với các kỳ ngân sách đã dùng hạng mục này
+      document.getElementById('budgetItemCatalogName').value = item ? item.name : '';
+      document.getElementById('budgetItemCatalogUnit').value = item ? (item.unit || '') : '';
+      document.getElementById('budgetItemCatalogActiveWrap').classList.toggle('hidden', !item);
+      document.getElementById('budgetItemCatalogActive').checked = item ? item.active : true;
+      openLicenseModal('budgetItemCatalogModal');
+    }
+    async function saveBudgetItemCatalog() {
+      const id = document.getElementById('budgetItemCatalogId').value;
+      const itemType = document.getElementById('budgetItemCatalogType').value;
+      const name = document.getElementById('budgetItemCatalogName').value.trim();
+      const unit = document.getElementById('budgetItemCatalogUnit').value.trim();
+      const active = document.getElementById('budgetItemCatalogActive').checked;
+      if (!name) return showToast('Vui lòng nhập Tên hạng mục.', 'warning');
+      try {
+        let newId = null;
+        if (id) {
+          await apiFetch(`/api/license/budget-item-catalog/${id}`, { method: 'PUT', body: JSON.stringify({ name, unit, active }) });
+          showToast('Đã cập nhật hạng mục trong danh mục.', 'success');
+        } else {
+          const created = await apiFetch('/api/license/budget-item-catalog', { method: 'POST', body: JSON.stringify({ itemType, name, unit }) });
+          newId = created && created.id;
+          showToast('Đã thêm hạng mục vào danh mục.', 'success');
+        }
+        closeLicenseModal('budgetItemCatalogModal');
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        renderBudgetItemCatalogTable();
+        // Nếu đang mở dở modal Thêm hạng mục vào Kỳ ngân sách (bấm "+ Thêm mới
+        // vào danh mục" ngay trong đó) thì làm mới dropdown và chọn luôn hạng
+        // mục vừa tạo, khỏi phải đóng mở lại modal thêm lần nữa.
+        const roundItemModal = document.getElementById('budgetRoundItemModal');
+        if (roundItemModal && !roundItemModal.classList.contains('hidden')) {
+          populateBudgetRoundItemCatalogSelect(document.getElementById('budgetRoundItemType').value, newId);
+        }
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+    async function deleteBudgetItemCatalog(id, name) {
+      const ok = await showConfirm({ title: 'Xóa hạng mục', message: `Xóa hẳn "${name}" khỏi danh mục? Chỉ xóa được nếu chưa có Kỳ ngân sách nào dùng hạng mục này — nếu đã dùng, hãy sửa và bỏ chọn "Đang dùng" thay vì xóa.`, danger: true, confirmText: 'Xóa' });
+      if (!ok) return;
+      try {
+        await apiFetch(`/api/license/budget-item-catalog/${id}`, { method: 'DELETE' });
+        showToast(`Đã xóa "${name}" khỏi danh mục.`, 'success');
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        renderBudgetItemCatalogTable();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
     }
     function renderBudgetRoundsList() {
       const container = document.getElementById('budgetRoundsListContainer');
@@ -6813,6 +6971,8 @@ function isPerpetualSoftware(softwareId) {
       tbody.innerHTML = budgetRoundCreateRows.map(row => {
         const usedElsewhere = new Set(budgetRoundCreateRows.filter(r => r.id !== row.id && r.itemType === 'SOFTWARE').map(r => r.softwareId));
         const options = licenseDB.softwareCatalog.filter(s => s.id === row.softwareId || !usedElsewhere.has(s.id));
+        const usedCatalogElsewhere = new Set(budgetRoundCreateRows.filter(r => r.id !== row.id && r.itemType === row.itemType && r.itemType !== 'SOFTWARE').map(r => r.catalogItemId));
+        const catalogOptions = licenseDB.budgetItemCatalog.filter(c => c.itemType === row.itemType && (c.id === row.catalogItemId || c.active) && !usedCatalogElsewhere.has(c.id));
         return `
           <tr>
             <td class="border p-1.5">
@@ -6825,7 +6985,11 @@ function isPerpetualSoftware(softwareId) {
                 ? `<select onchange="updateBudgetRoundCreateRow(${row.id}, 'softwareId', Number(this.value))" class="w-full border p-1 rounded text-xs bg-white">
                     ${options.map(s => `<option value="${s.id}" ${s.id === row.softwareId ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('')}
                   </select>`
-                : `<input type="text" value="${escapeHtml(row.itemName || '')}" oninput="updateBudgetRoundCreateRow(${row.id}, 'itemName', this.value)" placeholder="VD: Máy chủ Dell R750" class="w-full border p-1 rounded text-xs">`}
+                : catalogOptions.length
+                  ? `<select onchange="updateBudgetRoundCreateRow(${row.id}, 'catalogItemId', Number(this.value))" class="w-full border p-1 rounded text-xs bg-white">
+                      ${catalogOptions.map(c => `<option value="${c.id}" ${c.id === row.catalogItemId ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
+                    </select>`
+                  : `<span class="text-[11px] text-amber-600">Chưa có trong danh mục — vào tab "Danh mục HC/DV/Khác" để thêm trước.</span>`}
             </td>
             <td class="border p-1.5">
               <input type="number" min="0" step="1000" value="${row.unitPrice}" oninput="updateBudgetRoundCreateRow(${row.id}, 'unitPrice', Number(this.value))" class="w-full border p-1 rounded text-xs">
@@ -6857,7 +7021,7 @@ function isPerpetualSoftware(softwareId) {
     function addBudgetRoundCreateRow() {
       const usedIds = new Set(budgetRoundCreateRows.filter(r => r.itemType === 'SOFTWARE').map(r => r.softwareId));
       const next = licenseDB.softwareCatalog.find(s => !usedIds.has(s.id));
-      budgetRoundCreateRows.push({ id: budgetRoundCreateRowSeq++, itemType: 'SOFTWARE', softwareId: next ? next.id : null, itemName: '', unitPrice: 0, capexOpex: '' });
+      budgetRoundCreateRows.push({ id: budgetRoundCreateRowSeq++, itemType: 'SOFTWARE', softwareId: next ? next.id : null, catalogItemId: null, unitPrice: 0, capexOpex: '' });
       renderBudgetRoundCreateRows();
     }
     function openBudgetRoundModal() {
@@ -6874,8 +7038,8 @@ function isPerpetualSoftware(softwareId) {
       if (!name) return showToast('Vui lòng nhập Tên kỳ ngân sách.', 'warning');
       if (budgetRoundCreateRows.some(r => r.unitPrice < 0)) return showToast('Đơn giá không hợp lệ.', 'warning');
       if (budgetRoundCreateRows.some(r => !r.capexOpex)) return showToast('Vui lòng chọn CAPEX/OPEX cho mọi hạng mục.', 'warning');
-      if (budgetRoundCreateRows.some(r => r.itemType === 'SOFTWARE' ? !r.softwareId : !String(r.itemName || '').trim())) return showToast('Vui lòng chọn Phần mềm hoặc nhập tên hạng mục cho mọi dòng.', 'warning');
-      const items = budgetRoundCreateRows.map(r => ({ itemType: r.itemType, softwareId: r.softwareId, itemName: r.itemName, capexOpex: r.capexOpex, unitPrice: r.unitPrice }));
+      if (budgetRoundCreateRows.some(r => r.itemType === 'SOFTWARE' ? !r.softwareId : !r.catalogItemId)) return showToast('Vui lòng chọn Phần mềm hoặc chọn hạng mục trong danh mục cho mọi dòng.', 'warning');
+      const items = budgetRoundCreateRows.map(r => ({ itemType: r.itemType, softwareId: r.softwareId, catalogItemId: r.catalogItemId, capexOpex: r.capexOpex, unitPrice: r.unitPrice }));
       const { scopeType, scopeId } = getScopePayload('budgetRound');
       if (scopeType && !scopeId) return showToast('Vui lòng chọn công ty/đơn vị cho phạm vi.', 'warning');
       try {
@@ -6914,10 +7078,19 @@ function isPerpetualSoftware(softwareId) {
         showToast(err.message, 'danger');
       }
     }
+    function populateBudgetRoundItemCatalogSelect(itemType, selectedId) {
+      const select = document.getElementById('budgetRoundItemCatalog');
+      const options = licenseDB.budgetItemCatalog.filter(c => c.itemType === itemType && (c.active || c.id === selectedId));
+      select.innerHTML = options.length
+        ? options.map(c => `<option value="${c.id}" ${c.id === selectedId ? 'selected' : ''}>${escapeHtml(c.name)}${c.unit ? ` (${escapeHtml(c.unit)})` : ''}</option>`).join('')
+        : '<option value="">-- Chưa có hạng mục, bấm "+ Thêm mới vào danh mục" --</option>';
+    }
     function onBudgetRoundItemTypeChange() {
-      const isSoftware = document.getElementById('budgetRoundItemType').value === 'SOFTWARE';
+      const itemType = document.getElementById('budgetRoundItemType').value;
+      const isSoftware = itemType === 'SOFTWARE';
       document.getElementById('budgetRoundItemSoftwareWrap').classList.toggle('hidden', !isSoftware);
       document.getElementById('budgetRoundItemNameWrap').classList.toggle('hidden', isSoftware);
+      if (!isSoftware) populateBudgetRoundItemCatalogSelect(itemType);
     }
     function openBudgetRoundItemModal(roundId) {
       document.getElementById('budgetRoundItemRoundId').value = roundId;
@@ -6927,7 +7100,6 @@ function isPerpetualSoftware(softwareId) {
       document.getElementById('budgetRoundItemSoftware').innerHTML = options.length
         ? options.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')
         : '<option value="">-- Không còn phần mềm nào để thêm --</option>';
-      document.getElementById('budgetRoundItemName').value = '';
       document.getElementById('budgetRoundItemUnitPrice').value = '';
       document.getElementById('budgetRoundItemCapexOpex').value = '';
       onBudgetRoundItemTypeChange();
@@ -6937,15 +7109,15 @@ function isPerpetualSoftware(softwareId) {
       const roundId = Number(document.getElementById('budgetRoundItemRoundId').value);
       const itemType = document.getElementById('budgetRoundItemType').value;
       const softwareId = Number(document.getElementById('budgetRoundItemSoftware').value);
-      const itemName = document.getElementById('budgetRoundItemName').value.trim();
+      const catalogItemId = Number(document.getElementById('budgetRoundItemCatalog').value);
       const unitPrice = Number(document.getElementById('budgetRoundItemUnitPrice').value);
       const capexOpex = document.getElementById('budgetRoundItemCapexOpex').value;
       if (itemType === 'SOFTWARE' && !softwareId) return showToast('Vui lòng chọn Phần mềm.', 'warning');
-      if (itemType !== 'SOFTWARE' && !itemName) return showToast('Vui lòng nhập tên hạng mục.', 'warning');
+      if (itemType !== 'SOFTWARE' && !catalogItemId) return showToast('Vui lòng chọn hạng mục trong danh mục.', 'warning');
       if (!Number.isFinite(unitPrice) || unitPrice < 0) return showToast('Đơn giá không hợp lệ.', 'warning');
       if (!capexOpex) return showToast('Vui lòng chọn CAPEX/OPEX.', 'warning');
       try {
-        await apiFetch(`/api/license/budget-rounds/${roundId}/items`, { method: 'POST', body: JSON.stringify({ itemType, softwareId, itemName, unitPrice, capexOpex }) });
+        await apiFetch(`/api/license/budget-rounds/${roundId}/items`, { method: 'POST', body: JSON.stringify({ itemType, softwareId, catalogItemId, unitPrice, capexOpex }) });
         showToast('Đã thêm hạng mục vào kỳ ngân sách.', 'success');
         closeLicenseModal('budgetRoundItemModal');
         licenseDB.loaded = false;
@@ -7380,6 +7552,7 @@ function isPerpetualSoftware(softwareId) {
       licensePortalDB.budgetRounds = data.budgetRounds || [];
       licensePortalDB.budgetRoundItems = data.budgetRoundItems || [];
       licensePortalDB.budgetRegistrations = data.budgetRegistrations || [];
+      licensePortalDB.budgetItemCatalog = data.budgetItemCatalog || [];
       licensePortalDB.licenseUsage = data.licenseUsage || [];
       licensePortalDB.loaded = true;
       document.getElementById('portalScopeLabel').textContent = data.scope ? data.scope.label : '—';
