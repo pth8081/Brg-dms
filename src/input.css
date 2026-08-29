@@ -171,6 +171,16 @@ input[type="date"] {
     border-left: 3px solid transparent;
     text-decoration: none;
   }
+  /* Cột icon rộng cố định — icon emoji vốn không đều nhau về bề ngang (🏠 hẹp
+     hơn 🖥️ chẳng hạn), nếu để icon+chữ trôi tự do trong 1 dòng text thì chữ
+     của từng mục sẽ không thẳng hàng nhau, nhìn lộn xộn. Cố định bề ngang cột
+     icon để toàn bộ nhãn chữ bên cạnh luôn bắt đầu tại cùng 1 vị trí. */
+  .sidebar-link-icon {
+    display: inline-flex;
+    justify-content: center;
+    width: 1.35rem;
+    flex-shrink: 0;
+  }
   .sidebar-link:hover { background-color: rgba(255, 255, 255, 0.06); color: #fff; }
   .sidebar-link.active {
     background-color: var(--color-sidebar-active);

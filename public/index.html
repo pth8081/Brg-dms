@@ -161,13 +161,13 @@
          vào 1 cột dọc cố định bên trái (xem CLAUDE.md phần lịch sử UI/UX). -->
     <nav id="appSidebar" class="sidebar-shell w-56 shrink-0 flex flex-col gap-0.5 px-3 py-5 md:sticky md:top-0 md:h-screen md:overflow-y-auto">
       <div class="sidebar-brand text-base px-2 pb-4">DMS</div>
-      <button id="btnHomeTab" onclick="switchTab('home')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md">🏠 Trang chủ</button>
-      <button id="btnDocTab" onclick="switchTab('doc')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md">📂 Quản lý tài liệu</button>
-      <button id="btnLicenseTab" onclick="switchTab('license')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md">🔑 Quản lý Bản quyền</button>
-      <button id="btnLicensePortalTab" onclick="switchTab('licensePortal')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md">💰 Ngân sách &amp; Kỳ mua</button>
-      <button id="btnReportsTab" onclick="switchTab('reports')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md">📊 Báo cáo</button>
-      <button id="btnItAssetsTab" onclick="switchTab('itAssets')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md">🖥️ Quản lý CNTT</button>
-      <button id="btnAdminTab" onclick="switchTab('admin')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md">⚙️ Quản trị &amp; Phân quyền</button>
+      <button id="btnHomeTab" onclick="switchTab('home')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">🏠</span><span>Trang chủ</span></button>
+      <button id="btnDocTab" onclick="switchTab('doc')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">📂</span><span>Quản lý tài liệu</span></button>
+      <button id="btnLicenseTab" onclick="switchTab('license')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">🔑</span><span>Quản lý Bản quyền</span></button>
+      <button id="btnLicensePortalTab" onclick="switchTab('licensePortal')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">💰</span><span>Ngân sách &amp; Kỳ mua</span></button>
+      <button id="btnReportsTab" onclick="switchTab('reports')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">📊</span><span>Báo cáo</span></button>
+      <button id="btnItAssetsTab" onclick="switchTab('itAssets')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">🖥️</span><span>Quản lý CNTT</span></button>
+      <button id="btnAdminTab" onclick="switchTab('admin')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">🛡️</span><span>Hệ thống</span></button>
 
       <div id="userHeader" class="sidebar-foot hidden mt-auto pt-3 px-2">
         <div class="cursor-pointer group" onclick="openProfileModal()" title="Bấm để cập nhật thông tin cá nhân & đổi mật khẩu">
@@ -1477,7 +1477,7 @@
         <p id="itCfgLastCheckLabel" class="text-[11px] text-gray-500"></p>
       </div>
       <div class="bg-blue-50 border border-blue-200 rounded p-3 text-xs text-blue-800">
-        💡 Để gửi được email thật, vào <b>Quản trị &amp; Phân quyền → Cấu hình Email</b> và nhập đủ SMTP Host/Port/Tài khoản/Mật khẩu, rồi bật "Kích hoạt gửi Email".
+        💡 Để gửi được email thật, vào <b>Hệ thống → Cấu hình Email</b> và nhập đủ SMTP Host/Port/Tài khoản/Mật khẩu, rồi bật "Kích hoạt gửi Email".
       </div>
     </div>
   </div>
@@ -5481,7 +5481,7 @@ function isPerpetualSoftware(softwareId) {
       });
 
       if (licenseDB.adAccounts.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" class="text-center text-gray-500 p-4">Chưa có dữ liệu tài khoản AD — bấm "Đồng bộ ngay" để tải (cần bật đồng bộ AD trong mục Quản trị trước).</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center text-gray-500 p-4">Chưa có dữ liệu tài khoản AD — bấm "Đồng bộ ngay" để tải (cần bật đồng bộ AD trong mục Hệ thống trước).</td></tr>`;
         renderPaginationBar('adAccountsPaginationBox', 'adAccounts', 0, 'renderAdAccountsTable', { itemLabel: 'tài khoản' });
         return;
       }
