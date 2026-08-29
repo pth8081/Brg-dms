@@ -404,6 +404,49 @@ CALL create_index_if_not_exists('lic_purchase_registrations', 'idx_lic_reg_round
 CALL create_index_if_not_exists('lic_purchase_registrations', 'idx_lic_reg_company', 'company_id');
 ALTER TABLE lic_purchase_registrations MODIFY COLUMN expiry_date DATE NULL DEFAULT NULL;
 
+-- 9b. Cấp phát hàng loạt từ file (đích danh từng nhân viên) — khác Kỳ mua ở
+-- trên (vốn theo SỐ LƯỢNG cho 1 phạm vi): đây đi thẳng theo danh sách nhân sự
+-- import từ Excel, cần duyệt trước khi hệ thống TỰ phát hành mã còn thiếu +
+-- gán luôn cho từng người (atomic khi duyệt) — org_unit_id NULL nghĩa là áp
+-- dụng cho toàn công ty (mẫu "Theo Công ty"), có giá trị là theo 1 đơn vị cụ
+-- thể (mẫu "Theo Khối/Phòng/Ban", vẫn luôn đi kèm company_id để biết rõ công
+-- ty). approved_by khác requested_by (chặn tự duyệt, kiểm tra ở server).
+CREATE TABLE IF NOT EXISTS lic_bulk_allocation_requests (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    company_id BIGINT NOT NULL,
+    org_unit_id BIGINT NULL DEFAULT NULL,
+    software_id BIGINT NOT NULL,
+    issued_date DATE NOT NULL,
+    expiry_date DATE NULL DEFAULT NULL,
+    note VARCHAR(500) NULL DEFAULT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    requested_by VARCHAR(100) NOT NULL,
+    requested_at VARCHAR(100) NOT NULL,
+    approved_by VARCHAR(100) NULL DEFAULT NULL,
+    approved_at VARCHAR(100) NULL DEFAULT NULL,
+    reject_reason VARCHAR(500) NULL DEFAULT NULL
+);
+CALL create_index_if_not_exists('lic_bulk_allocation_requests', 'idx_lic_bulk_req_company', 'company_id');
+CALL create_index_if_not_exists('lic_bulk_allocation_requests', 'idx_lic_bulk_req_status', 'status');
+
+-- employee_id NULL = nhân viên chưa tồn tại, sẽ tạo mới khi duyệt (dùng
+-- employee_code/full_name/dept_label/email của dòng này). conflict_type ghi
+-- lại lý do cảnh báo lúc xem trước (đã lưu cứng, không tính lại lúc duyệt, để
+-- tránh lệch với những gì admin đã thấy và quyết định lúc gửi yêu cầu).
+CREATE TABLE IF NOT EXISTS lic_bulk_allocation_items (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    request_id BIGINT NOT NULL,
+    employee_code VARCHAR(50) NOT NULL,
+    full_name VARCHAR(255) NOT NULL,
+    dept_label VARCHAR(255) NULL DEFAULT NULL,
+    org_unit_id BIGINT NULL DEFAULT NULL,
+    email VARCHAR(255) NULL DEFAULT NULL,
+    employee_id BIGINT NULL DEFAULT NULL,
+    conflict_type VARCHAR(20) NULL DEFAULT NULL,
+    resolution VARCHAR(20) NULL DEFAULT NULL
+);
+CALL create_index_if_not_exists('lic_bulk_allocation_items', 'idx_lic_bulk_item_request', 'request_id');
+
 -- 10. Module Ngân sách — ĐỘC LẬP hoàn toàn với Kỳ mua bản quyền ở trên (không
 -- liên kết dữ liệu, không tự sinh Kỳ mua). Dùng để LẬP DỰ TRÙ ngân sách theo
 -- kỳ (vd năm/quý) TRƯỚC khi mở Kỳ mua thật: Admin tạo Kỳ ngân sách + hạng mục
