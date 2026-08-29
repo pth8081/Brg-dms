@@ -587,6 +587,9 @@ CREATE TABLE IF NOT EXISTS lic_budget_item_catalog (
 -- tên tự do đã nhập từ trước khi có danh mục — bản ghi mới sẽ để NULL).
 CALL add_column_if_not_exists('lic_budget_round_items', 'catalog_item_id', 'BIGINT NULL DEFAULT NULL');
 CALL create_index_if_not_exists('lic_budget_round_items', 'idx_lic_budget_round_items_catalog', 'catalog_item_id');
+-- Mô tả tùy chọn cho từng hạng mục ngân sách (VD: lý do mua, cấu hình chi
+-- tiết, ghi chú nội bộ) — không ảnh hưởng logic tính toán, chỉ hiển thị.
+CALL add_column_if_not_exists('lic_budget_round_items', 'description', 'VARCHAR(500) NULL DEFAULT NULL');
 
 -- Sổ ghi nhận mua thực tế (nhiều dòng theo thời gian) cho từng hạng mục ngân
 -- sách — ĐỘC LẬP với lic_budget_registrations (dự trù theo đơn vị): "Kế

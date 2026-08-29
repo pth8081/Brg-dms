@@ -1676,7 +1676,7 @@ function mapRound(r) { return { id: r.id, name: r.name, note: r.note, status: r.
 function mapRoundItem(i) { return { id: i.id, roundId: i.round_id, softwareId: i.software_id, unitPrice: Number(i.unit_price), expiryDate: fmtDate(i.expiry_date) }; }
 function mapRegistration(r) { return { id: r.id, roundId: r.round_id, roundItemId: r.round_item_id, companyId: r.company_id, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity, budgetQuantity: r.budget_quantity === null || r.budget_quantity === undefined ? null : Number(r.budget_quantity), unitPrice: Number(r.unit_price), totalAmount: Number(r.total_amount), expiryDate: fmtDate(r.expiry_date), status: r.status, note: r.note, createdAt: r.created_at, decidedBy: r.decided_by, decidedAt: r.decided_at, issuedBatchId: r.issued_batch_id, issuedQuantity: r.issued_quantity, issuedAt: r.issued_at }; }
 function mapBudgetRound(r) { return { id: r.id, name: r.name, note: r.note, status: r.status, createdAt: r.created_at, scopeType: r.scope_type, scopeId: r.scope_id }; }
-function mapBudgetRoundItem(i) { return { id: i.id, roundId: i.round_id, softwareId: i.software_id, itemType: i.item_type || 'SOFTWARE', itemName: i.item_name, catalogItemId: i.catalog_item_id, capexOpex: i.capex_opex || 'OPEX', unitPrice: Number(i.unit_price) }; }
+function mapBudgetRoundItem(i) { return { id: i.id, roundId: i.round_id, softwareId: i.software_id, itemType: i.item_type || 'SOFTWARE', itemName: i.item_name, catalogItemId: i.catalog_item_id, capexOpex: i.capex_opex || 'OPEX', unitPrice: Number(i.unit_price), description: i.description }; }
 function mapBudgetItemCatalog(c) { return { id: c.id, itemType: c.item_type, name: c.name, unit: c.unit, active: !!c.active }; }
 function mapBudgetActual(a) { return { id: a.id, roundItemId: a.round_item_id, companyId: a.company_id, purchaseDate: fmtDate(a.purchase_date), vendor: a.vendor, quantity: Number(a.quantity), unitPrice: Number(a.unit_price), amount: Number(a.amount), note: a.note, createdBy: a.created_by, createdAt: a.created_at }; }
 function mapBudgetRegistration(r) { return { id: r.id, roundId: r.round_id, roundItemId: r.round_item_id, orgUnitId: r.org_unit_id, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity, unitPrice: Number(r.unit_price), totalAmount: Number(r.total_amount), status: r.status, note: r.note, createdAt: r.created_at, decidedBy: r.decided_by, decidedAt: r.decided_at }; }
@@ -1786,14 +1786,17 @@ function normalizeBudgetItem(raw, label) {
     if (!['CAPEX', 'OPEX'].includes(capexOpex)) return { error: `${label}: vui lòng chọn CAPEX hoặc OPEX.` };
     const unitPrice = Number(raw && raw.unitPrice);
     if (!Number.isFinite(unitPrice) || unitPrice < 0) return { error: `${label}: Đơn giá không hợp lệ.` };
+    const descriptionRaw = String((raw && raw.description) || '').trim();
+    if (descriptionRaw.length > 500) return { error: `${label}: Mô tả quá dài (tối đa 500 ký tự).` };
+    const description = descriptionRaw || null;
     if (itemType === 'SOFTWARE') {
         const softwareId = Number(raw && raw.softwareId);
         if (!softwareId) return { error: `${label}: vui lòng chọn Phần mềm.` };
-        return { itemType, capexOpex, unitPrice, softwareId, catalogItemId: null };
+        return { itemType, capexOpex, unitPrice, softwareId, catalogItemId: null, description };
     }
     const catalogItemId = Number(raw && raw.catalogItemId);
     if (!catalogItemId) return { error: `${label}: vui lòng chọn hạng mục trong danh mục.` };
-    return { itemType, capexOpex, unitPrice, softwareId: null, catalogItemId };
+    return { itemType, capexOpex, unitPrice, softwareId: null, catalogItemId, description };
 }
 
 app.get('/api/license/bootstrap', requireAuth, requireLicenseOrAdmin, async (req, res) => {
@@ -3557,8 +3560,8 @@ app.post('/api/license/budget-rounds', requireAuth, requireLicenseOrAdmin, async
             roundId = result.insertId;
             if (normalizedItems.length > 0) {
                 await pool.query(
-                    'INSERT INTO lic_budget_round_items (round_id, software_id, item_type, item_name, catalog_item_id, capex_opex, unit_price) VALUES ?',
-                    [normalizedItems.map(it => [roundId, it.softwareId, it.itemType, null, it.catalogItemId, it.capexOpex, it.unitPrice])]
+                    'INSERT INTO lic_budget_round_items (round_id, software_id, item_type, item_name, catalog_item_id, capex_opex, unit_price, description) VALUES ?',
+                    [normalizedItems.map(it => [roundId, it.softwareId, it.itemType, null, it.catalogItemId, it.capexOpex, it.unitPrice, it.description])]
                 );
             }
         } catch (insertErr) {
@@ -3614,8 +3617,8 @@ app.post('/api/license/budget-rounds/:id/items', requireAuth, requireLicenseOrAd
         }
 
         const [result] = await pool.query(
-            'INSERT INTO lic_budget_round_items (round_id, software_id, item_type, item_name, catalog_item_id, capex_opex, unit_price) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [id, normalized.softwareId, normalized.itemType, null, normalized.catalogItemId, normalized.capexOpex, normalized.unitPrice]
+            'INSERT INTO lic_budget_round_items (round_id, software_id, item_type, item_name, catalog_item_id, capex_opex, unit_price, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [id, normalized.softwareId, normalized.itemType, null, normalized.catalogItemId, normalized.capexOpex, normalized.unitPrice, normalized.description]
         );
         await writeAuditLog({ module: 'LICENSE', actionType: 'ADD_BUDGET_ROUND_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: itemLabel, description: `Thêm hạng mục [${itemLabel}] (${normalized.itemType}/${normalized.capexOpex}) vào kỳ ngân sách #${id}, đơn giá ${normalized.unitPrice}.` });
         res.json({ success: true, id: result.insertId });
