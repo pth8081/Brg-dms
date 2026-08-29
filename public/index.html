@@ -2219,6 +2219,7 @@
           <option value="SOFTWARE">Phần mềm</option>
           <option value="HARDWARE">Phần cứng</option>
           <option value="SERVICE">Dịch vụ</option>
+          <option value="OTHER">Khác</option>
         </select>
       </div>
       <div id="budgetRoundItemSoftwareWrap">
@@ -6729,7 +6730,7 @@ function isPerpetualSoftware(softwareId) {
     }
     function budgetItemTypeBadge(item) {
       const label = BUDGET_ITEM_TYPE_LABELS[item.itemType || 'SOFTWARE'] || 'Phần mềm';
-      const colors = { SOFTWARE: 'text-brand-700 bg-brand-50', HARDWARE: 'text-orange-700 bg-orange-50', SERVICE: 'text-purple-700 bg-purple-50' };
+      const colors = { SOFTWARE: 'text-brand-700 bg-brand-50', HARDWARE: 'text-orange-700 bg-orange-50', SERVICE: 'text-purple-700 bg-purple-50', OTHER: 'text-slate-700 bg-slate-100' };
       return `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${colors[item.itemType] || colors.SOFTWARE}">${label}</span>`;
     }
     function capexOpexBadge(capexOpex) {
@@ -6799,7 +6800,7 @@ function isPerpetualSoftware(softwareId) {
     }
     let budgetRoundCreateRows = [];
     let budgetRoundCreateRowSeq = 1;
-    const BUDGET_ITEM_TYPE_LABELS = { SOFTWARE: 'Phần mềm', HARDWARE: 'Phần cứng', SERVICE: 'Dịch vụ' };
+    const BUDGET_ITEM_TYPE_LABELS = { SOFTWARE: 'Phần mềm', HARDWARE: 'Phần cứng', SERVICE: 'Dịch vụ', OTHER: 'Khác' };
     function renderBudgetRoundCreateRows() {
       const tbody = document.getElementById('budgetRoundCreateItemsBody');
       const hint = document.getElementById('budgetRoundCreateItemsHint');

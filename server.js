@@ -1773,10 +1773,10 @@ async function resolveRoundScope(body) {
 // Chuẩn hóa + kiểm tra 1 hạng mục ngân sách (dùng chung cho tạo Kỳ ngân sách
 // kèm items[] và thêm hạng mục lẻ) — itemType/capexOpex BẮT BUỘC chọn, không
 // suy đoán mặc định; SOFTWARE cần softwareId hợp lệ trong danh mục, HARDWARE/
-// SERVICE cần itemName (tên tự do, không liên kết danh mục nào).
+// SERVICE/OTHER cần itemName (tên tự do, không liên kết danh mục nào).
 function normalizeBudgetItem(raw, label) {
     const itemType = String((raw && raw.itemType) || '').trim().toUpperCase();
-    if (!['SOFTWARE', 'HARDWARE', 'SERVICE'].includes(itemType)) return { error: `${label}: vui lòng chọn Loại hạng mục.` };
+    if (!['SOFTWARE', 'HARDWARE', 'SERVICE', 'OTHER'].includes(itemType)) return { error: `${label}: vui lòng chọn Loại hạng mục.` };
     const capexOpex = String((raw && raw.capexOpex) || '').trim().toUpperCase();
     if (!['CAPEX', 'OPEX'].includes(capexOpex)) return { error: `${label}: vui lòng chọn CAPEX hoặc OPEX.` };
     const unitPrice = Number(raw && raw.unitPrice);

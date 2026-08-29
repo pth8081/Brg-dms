@@ -552,16 +552,20 @@ CALL create_index_if_not_exists('lic_license_batches', 'idx_lic_license_batches_
 
 -- 14. Kỳ ngân sách mở rộng: hạng mục không còn giới hạn chỉ Phần mềm — thêm
 -- item_type ('SOFTWARE' giữ nguyên hành vi cũ liên kết lic_software_catalog,
--- 'HARDWARE'/'SERVICE' nhập tên tự do qua item_name, không liên kết danh mục
--- nào — vì phần cứng/dịch vụ không có "SL đang dùng" tự động như license).
+-- 'HARDWARE'/'SERVICE'/'OTHER' nhập tên tự do qua item_name, không liên kết
+-- danh mục nào — vì phần cứng/dịch vụ/loại khác không có "SL đang dùng" tự
+-- động như license).
 -- capex_opex BẮT BUỘC chọn khi tạo hạng mục (không tự gợi ý theo license_type
 -- hay bất kỳ suy đoán nào) — dùng để gộp báo cáo CAPEX/OPEX sau này. Dữ liệu
 -- hạng mục cũ trước tính năng này mặc định SOFTWARE/OPEX (không hồi tố phân
 -- loại — Admin có thể sửa lại thủ công nếu cần).
-CALL add_column_if_not_exists('lic_budget_round_items', 'item_type', "ENUM('SOFTWARE','HARDWARE','SERVICE') NOT NULL DEFAULT 'SOFTWARE'");
+CALL add_column_if_not_exists('lic_budget_round_items', 'item_type', "ENUM('SOFTWARE','HARDWARE','SERVICE','OTHER') NOT NULL DEFAULT 'SOFTWARE'");
 CALL add_column_if_not_exists('lic_budget_round_items', 'item_name', 'VARCHAR(255) NULL DEFAULT NULL');
 CALL add_column_if_not_exists('lic_budget_round_items', 'capex_opex', "ENUM('CAPEX','OPEX') NOT NULL DEFAULT 'OPEX'");
 ALTER TABLE lic_budget_round_items MODIFY COLUMN software_id BIGINT NULL DEFAULT NULL;
+-- Thêm 'OTHER' vào ENUM item_type cho DB đã tồn tại từ trước (idempotent — an
+-- toàn chạy lại nhiều lần vì MODIFY COLUMN chỉ định nghĩa lại kiểu cột).
+ALTER TABLE lic_budget_round_items MODIFY COLUMN item_type ENUM('SOFTWARE','HARDWARE','SERVICE','OTHER') NOT NULL DEFAULT 'SOFTWARE';
 
 -- Sổ ghi nhận mua thực tế (nhiều dòng theo thời gian) cho từng hạng mục ngân
 -- sách — ĐỘC LẬP với lic_budget_registrations (dự trù theo đơn vị): "Kế
