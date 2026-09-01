@@ -403,6 +403,9 @@ CREATE TABLE IF NOT EXISTS lic_purchase_registrations (
 CALL create_index_if_not_exists('lic_purchase_registrations', 'idx_lic_reg_round', 'round_id');
 CALL create_index_if_not_exists('lic_purchase_registrations', 'idx_lic_reg_company', 'company_id');
 ALTER TABLE lic_purchase_registrations MODIFY COLUMN expiry_date DATE NULL DEFAULT NULL;
+-- Người tạo đăng ký — dùng để chặn tự duyệt đăng ký của chính mình (server
+-- kiểm tra created_by === người đang duyệt), giống lic_bulk_allocation_requests.
+CALL add_column_if_not_exists('lic_purchase_registrations', 'created_by', 'VARCHAR(100) NULL DEFAULT NULL');
 
 -- 9b. Cấp phát hàng loạt từ file (đích danh từng nhân viên) — khác Kỳ mua ở
 -- trên (vốn theo SỐ LƯỢNG cho 1 phạm vi): đây đi thẳng theo danh sách nhân sự
@@ -489,6 +492,9 @@ CREATE TABLE IF NOT EXISTS lic_budget_registrations (
 );
 CALL create_index_if_not_exists('lic_budget_registrations', 'idx_lic_budget_reg_round', 'round_id');
 CALL create_index_if_not_exists('lic_budget_registrations', 'idx_lic_budget_reg_orgunit', 'org_unit_id');
+-- Người tạo dự trù — dùng để chặn tự duyệt dự trù của chính mình (server
+-- kiểm tra created_by === người đang duyệt), giống lic_bulk_allocation_requests.
+CALL add_column_if_not_exists('lic_budget_registrations', 'created_by', 'VARCHAR(100) NULL DEFAULT NULL');
 
 -- Snapshot tài khoản Active Directory lấy qua đồng bộ LDAP định kỳ — dùng để
 -- đối chiếu với nhân viên đang giữ license (khớp theo email) ở tab Phân bổ.

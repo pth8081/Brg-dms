@@ -2809,11 +2809,14 @@
       });
     }
 
-    // Bộ đếm tăng dần để đảm bảo ID log luôn duy nhất kể cả khi gọi nhiều lần
-    // trong cùng 1 mili-giây (VD: upload nhiều file cùng lúc). Không dùng
-    // Date.now() + Math.random() vì cột id là BIGINT — giá trị thập phân bị
-    // làm tròn, nhiều log tạo cùng lúc dễ bị trùng ID -> lỗi "Duplicate entry".
+    // Bộ đếm tăng dần chỉ dùng cho ID hiển thị TẠM ở danh sách local (server
+    // tự sinh ID thật khi ghi vào DB, không dùng ID này) — tránh 2 dòng vừa
+    // thêm cùng mili-giây bị React-key/loop trùng key khi render ngay lập tức.
     let logIdSeq = 0;
+    // Ghi 1 dòng log MỚI — gửi đúng nội dung dòng đó lên server (POST /api/logs),
+    // KHÔNG gửi lại toàn bộ DB.systemLogs như trước (cơ chế cũ suy luận "xoá"
+    // từ so sánh mảng, phá huỷ log thật mỗi khi bảng vượt quá 300 dòng vì
+    // client chỉ giữ 300 log gần nhất — xem ghi chú tại route /api/logs).
     function logSystemAction(module, actionType, description, status = 'SUCCESS', target = '') {
       const logEntry = {
         id: Date.now() * 1000 + (logIdSeq++ % 1000),
@@ -2830,7 +2833,7 @@
 
       DB.systemLogs.unshift(logEntry);
       if (DB.systemLogs.length > 300) DB.systemLogs.pop();
-      syncStorage('system_logs');
+      apiFetch('/api/logs', { method: 'POST', body: JSON.stringify({ module, actionType, description, status, targetObject: target }) }).catch(() => {});
     }
 
     function sendNotificationEmail(recipientEmail, recipientName, subject, messageBody) {
@@ -4734,10 +4737,14 @@
         danger: true, confirmText: 'Xóa Tất Cả', requiredText: 'XÓA'
       });
       if (!ok) return;
-      DB.systemLogs = [];
-      syncStorage('system_logs');
-      showToast('Đã xóa toàn bộ log nhật ký hệ thống.', 'success');
-      renderSystemLogs();
+      try {
+        await apiFetch('/api/logs', { method: 'DELETE' });
+        DB.systemLogs = [];
+        showToast('Đã xóa toàn bộ log nhật ký hệ thống.', 'success');
+        renderSystemLogs();
+      } catch (e) {
+        showToast(e.message, 'danger');
+      }
     }
 
     function exportSystemLogsXlsx() {
@@ -6549,6 +6556,8 @@ function isPerpetualSoftware(softwareId) {
         const company = licenseDB.companies.find(x => x.id === r.companyId);
         const item = licenseDB.purchaseRoundItems.find(x => x.id === r.roundItemId);
         const software = item ? licenseDB.softwareCatalog.find(s => s.id === item.softwareId) : null;
+        const isRequester = currentUser && r.createdBy && r.createdBy === currentUser.username;
+        const canDecide = r.status === 'PENDING' && !isRequester;
         return `
           <tr class="hover:bg-gray-50">
             <td class="border p-2">${pageOffset + i + 1}</td>
@@ -6558,9 +6567,9 @@ function isPerpetualSoftware(softwareId) {
             <td class="border p-2 text-center">${budgetQuantityCell(r)}</td>
             <td class="border p-2 text-center font-semibold">${r.requestedQuantity}</td>
             <td class="border p-2 text-right font-semibold">${formatMoney(r.totalAmount)}</td>
-            <td class="border p-2 text-center">${purchaseStatusBadge(r.status)}</td>
+            <td class="border p-2 text-center">${purchaseStatusBadge(r.status)}${r.status === 'PENDING' && isRequester ? '<br><span class="text-[10px] text-gray-400">Chờ người khác duyệt</span>' : ''}</td>
             <td class="border p-2 text-center">
-              ${r.status === 'PENDING' ? `
+              ${canDecide ? `
                 <button onclick="approveRegistration(${r.id})" class="px-1.5 py-0.5 rounded hover:bg-success-50 text-success-700 text-[11px] font-semibold whitespace-nowrap">Duyệt</button>
                 <button onclick="rejectRegistration(${r.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600 text-[11px] font-semibold whitespace-nowrap">Từ chối</button>
               ` : '—'}
@@ -7269,6 +7278,8 @@ function isPerpetualSoftware(softwareId) {
       tbody.innerHTML = pageRows.map((r, i) => {
         const item = licenseDB.budgetRoundItems.find(x => x.id === r.roundItemId);
         const company = companyOfOrgUnit(r.orgUnitId);
+        const isRequester = currentUser && r.createdBy && r.createdBy === currentUser.username;
+        const canDecide = r.status === 'PENDING' && !isRequester;
         return `
           <tr class="hover:bg-gray-50">
             <td class="border p-2">${pageOffset + i + 1}</td>
@@ -7279,9 +7290,9 @@ function isPerpetualSoftware(softwareId) {
             <td class="border p-2 text-center font-semibold">${r.requestedQuantity}</td>
             <td class="border p-2 text-right">${formatMoney(r.unitPrice)}</td>
             <td class="border p-2 text-right font-semibold">${formatMoney(r.totalAmount)}</td>
-            <td class="border p-2 text-center">${budgetStatusBadge(r.status)}</td>
+            <td class="border p-2 text-center">${budgetStatusBadge(r.status)}${r.status === 'PENDING' && isRequester ? '<br><span class="text-[10px] text-gray-400">Chờ người khác duyệt</span>' : ''}</td>
             <td class="border p-2 text-center">
-              ${r.status === 'PENDING' ? `
+              ${canDecide ? `
                 <button onclick="approveBudgetRegistration(${r.id})" class="px-1.5 py-0.5 rounded hover:bg-success-50 text-success-700 text-[11px] font-semibold whitespace-nowrap">Duyệt</button>
                 <button onclick="rejectBudgetRegistration(${r.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600 text-[11px] font-semibold whitespace-nowrap">Từ chối</button>
               ` : '—'}
