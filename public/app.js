@@ -34,6 +34,13 @@
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 50);
     }
+    // Chọn 1 Kỳ trong dropdown "nhảy nhanh" rồi tự đưa dropdown về rỗng ngay
+    // (không giữ lại lựa chọn hiển thị) — dùng LIVE_EL vì cần đọc this.value
+    // RỒI reset lại this.value ngay sau đó, không thể tách 2 bước qua data-args.
+    function jumpToRoundAndReset(kind, el) {
+      jumpToRound(kind, el.value);
+      el.value = '';
+    }
 
     let currentUser = null;
     let currentPage = 1;
@@ -70,12 +77,12 @@
       if (state.page > totalPages) state.page = totalPages;
       let buttons = '';
       for (let i = 1; i <= totalPages; i++) {
-        buttons += `<button onclick="paginationGoToPage('${key}', ${i}, '${rerenderFnName}')" class="px-2.5 py-1 text-xs rounded font-bold ${i === state.page ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">${i}</button>`;
+        buttons += `<button ${dc('paginationGoToPage', key, i, rerenderFnName)} class="px-2.5 py-1 text-xs rounded font-bold ${i === state.page ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">${i}</button>`;
       }
       bar.innerHTML = `
         <div class="flex items-center gap-2">
           <span>Hiển thị</span>
-          <select onchange="paginationChangeSize('${key}', this.value, '${rerenderFnName}')" class="border p-1 rounded bg-white font-semibold">
+          <select ${dchg('paginationChangeSize', key, LIVE_VALUE, rerenderFnName)} class="border p-1 rounded bg-white font-semibold">
             ${pageSizeOptions.map(n => `<option value="${n}" ${n === state.pageSize ? 'selected' : ''}>${n}</option>`).join('')}
           </select>
           <span>${escapeHtml(itemLabel)} / trang.</span>
@@ -187,6 +194,76 @@
         .replace(/\r/g, '\\r');
       return escapeHtml(jsEscaped);
     }
+
+    // --- ĐIỀU PHỐI SỰ KIỆN (thay cho onclick=/onchange=/oninput=/onsubmit= nội
+    // tuyến) ---
+    // CSP không cho phép chạy JS nội tuyến (kể cả thuộc tính sự kiện onclick=...)
+    // trừ khi mở 'unsafe-inline' — mở thì mất tác dụng phòng thủ. Thay vào đó:
+    // mỗi phần tử tương tác mang data-evt-click/change/input/submit="tenHàm" +
+    // data-args='[...]' (JSON, đã escapeHtml khi ghi ra HTML) — CHỈ 4 listener ở
+    // document (1 cho mỗi loại sự kiện), dùng event delegation đọc lại đúng
+    // hàm + tham số rồi gọi, giữ nguyên hành vi cũ.
+    //
+    // Một số handler cũ cần đọc giá trị SỐNG tại thời điểm sự kiện (this.value,
+    // this.checked, event...) — KHÔNG thể tính sẵn lúc render vì lúc đó người
+    // dùng chưa tương tác. Với các trường hợp này, truyền vào 1 trong các "biến
+    // sống" LIVE_* bên dưới thay vì giá trị thật — data-args chỉ lưu marker JSON
+    // {__live__: '...'}, bộ điều phối thay bằng giá trị thật của phần tử/sự kiện
+    // NGAY TRƯỚC khi gọi hàm đích.
+    const LIVE_VALUE = { __live__: 'value' };           // this.value
+    const LIVE_VALUE_NUM = { __live__: 'valueNum' };    // Number(this.value)
+    const LIVE_CHECKED = { __live__: 'checked' };       // this.checked
+    function LIVE_CHECKED_IF(whenTrue, whenFalse) { return { __live__: 'checkedIf', t: whenTrue, f: whenFalse }; } // this.checked ? a : b
+    const LIVE_EL = { __live__: 'el' };                 // this (chính phần tử)
+    const LIVE_EVENT = { __live__: 'event' };            // event
+
+    function resolveLiveArgs(args, el, e) {
+      return args.map(a => {
+        if (a === null || typeof a !== 'object' || !('__live__' in a)) return a;
+        switch (a.__live__) {
+          case 'value': return el.value;
+          case 'valueNum': return Number(el.value);
+          case 'checked': return el.checked;
+          case 'checkedIf': return el.checked ? a.t : a.f;
+          case 'el': return el;
+          case 'event': return e;
+          default: return a;
+        }
+      });
+    }
+
+    // dc/dchg/din/dsub: gọi bên trong template literal render (vd trong chuỗi
+    // HTML) để sinh ra cặp thuộc tính data-evt-*="tenHàm" data-args='[...]' —
+    // dùng thay cho việc viết tay onclick="tenHàm(...)". Tham số truyền vào là
+    // GIÁ TRỊ THẬT (số/chuỗi/LIVE_*), không phải chuỗi mã nguồn, nên không cần
+    // tự escape thủ công như escapeJsAttr() trước đây — JSON.stringify tự lo.
+    function dEvt(evtType, fnName, ...args) {
+      const json = JSON.stringify(args);
+      return `data-evt-${evtType}="${fnName}" data-args='${escapeHtml(json)}'`;
+    }
+    function dc(fnName, ...args) { return dEvt('click', fnName, ...args); }
+    function dchg(fnName, ...args) { return dEvt('change', fnName, ...args); }
+    function din(fnName, ...args) { return dEvt('input', fnName, ...args); }
+    function dsub(fnName, ...args) { return dEvt('submit', fnName, ...args); }
+
+    function dispatchDelegatedEvent(evtType, e) {
+      const el = e.target.closest(`[data-evt-${evtType}]`);
+      if (!el) return;
+      const fnName = el.getAttribute(`data-evt-${evtType}`);
+      const fn = window[fnName];
+      if (typeof fn !== 'function') { console.error('Không tìm thấy hàm xử lý sự kiện:', fnName); return; }
+      let args = [];
+      const raw = el.getAttribute('data-args');
+      if (raw) {
+        try { args = JSON.parse(raw); } catch (parseErr) { console.error('data-args không hợp lệ cho', fnName, ':', raw); return; }
+      }
+      if (evtType === 'submit') e.preventDefault();
+      fn.apply(el, resolveLiveArgs(args, el, e));
+    }
+    document.addEventListener('click', e => dispatchDelegatedEvent('click', e));
+    document.addEventListener('change', e => dispatchDelegatedEvent('change', e));
+    document.addEventListener('input', e => dispatchDelegatedEvent('input', e));
+    document.addEventListener('submit', e => dispatchDelegatedEvent('submit', e));
 
     // --- THÔNG BÁO (Toast) — thay cho alert() mặc định trình duyệt: không chặn
     // thao tác, tự ẩn sau vài giây, phân biệt rõ mức độ (thành công/lỗi/cảnh báo). ---
@@ -517,6 +594,14 @@
       }
 
       window.__homeCardActions = cards.map(c => c.action);
+      // window.__homeCardActions lưu THẲNG các hàm (đóng gói theo closure của
+      // renderHomeSection), không phải tên hàm toàn cục — không lấy bằng
+      // window[fnName] của bộ điều phối thông thường được, nên có 1 hàm cầu
+      // nối riêng gọi lại đúng closure theo chỉ số.
+      window.invokeHomeCardAction = function (idx) {
+        const f = window.__homeCardActions[idx];
+        if (typeof f === 'function') f();
+      };
       const toneClasses = {
         brand: { border: 'border-l-brand-600', bg: 'bg-brand-100', text: 'text-brand-600' },
         amber: { border: 'border-l-amber-500', bg: 'bg-amber-100', text: 'text-amber-600' },
@@ -532,7 +617,7 @@
           ${cards.map((c, i) => {
             const t = toneClasses[c.tone];
             return `
-            <div onclick="window.__homeCardActions[${i}]()" class="bg-white border rounded-lg p-4 shadow-sm border-l-4 ${t.border} flex justify-between items-center cursor-pointer transition-all hover:scale-[1.02]">
+            <div ${dc('invokeHomeCardAction', i)} class="bg-white border rounded-lg p-4 shadow-sm border-l-4 ${t.border} flex justify-between items-center cursor-pointer transition-all hover:scale-[1.02]">
               <div>
                 <p class="text-xs text-gray-500 uppercase font-bold">${escapeHtml(c.label)}</p>
                 <h3 class="text-2xl font-bold text-gray-800">${c.value}</h3>
@@ -873,7 +958,7 @@
       const isExpanded = groupId && expandedGroups.has(groupId);
 
       const expandToggle = hasVersions
-        ? `<button onclick="toggleVersionGroup('${escapeJsAttr(String(groupId))}')" class="text-gray-500 hover:text-gray-800 font-bold mr-1 w-3 inline-block" title="Xem các phiên bản trước">${isExpanded ? '▾' : '▸'}</button>`
+        ? `<button ${dc('toggleVersionGroup', `${escapeJsAttr(String(groupId))}`)} class="text-gray-500 hover:text-gray-800 font-bold mr-1 w-3 inline-block" title="Xem các phiên bản trước">${isExpanded ? '▾' : '▸'}</button>`
         : '';
       const versionBadge = hasVersions
         ? `<span class="ml-1 bg-slate-200 text-slate-700 text-[10px] font-bold px-1.5 py-0.5 rounded align-middle" title="${groupSize} phiên bản">🕒 v${d.versionNo || 1}</span>`
@@ -881,7 +966,7 @@
 
       const isAdmin = !!(currentUser && currentUser.perms && currentUser.perms.admin);
       const selectCell = isAdmin
-        ? `<td class="border p-2 text-center">${!isChild ? `<input type="checkbox" class="docSelectCheckbox" value="${escapeJsAttr(String(groupId || d.docGroupId || d.id))}" onchange="onDocSelectChange()">` : ''}</td>`
+        ? `<td class="border p-2 text-center">${!isChild ? `<input type="checkbox" class="docSelectCheckbox" value="${escapeJsAttr(String(groupId || d.docGroupId || d.id))}" ${dchg('onDocSelectChange')}>` : ''}</td>`
         : '';
 
       return `
@@ -900,19 +985,19 @@
           <td class="border p-2">${statusBadge}</td>
           <td class="border p-2 text-center">
             <div class="inline-flex items-center gap-1">
-              <button onclick="openViewDocModal(${d.id})" title="Xem" class="text-xs bg-brand-600 text-white w-7 h-7 rounded font-semibold shadow-sm hover:bg-brand-700 transition-colors">👁️</button>
-              ${canApprove ? `<button onclick="approveDoc(${d.id})" title="Duyệt" class="text-xs bg-success-600 text-white w-7 h-7 rounded font-semibold shadow-sm hover:bg-success-700 transition-colors">✅</button>
-                              <button onclick="rejectDoc(${d.id})" title="Trả về" class="text-xs bg-danger-600 text-white w-7 h-7 rounded font-semibold shadow-sm hover:bg-danger-700 transition-colors">↩️</button>` : ''}
+              <button ${dc('openViewDocModal', d.id)} title="Xem" class="text-xs bg-brand-600 text-white w-7 h-7 rounded font-semibold shadow-sm hover:bg-brand-700 transition-colors">👁️</button>
+              ${canApprove ? `<button ${dc('approveDoc', d.id)} title="Duyệt" class="text-xs bg-success-600 text-white w-7 h-7 rounded font-semibold shadow-sm hover:bg-success-700 transition-colors">✅</button>
+                              <button ${dc('rejectDoc', d.id)} title="Trả về" class="text-xs bg-danger-600 text-white w-7 h-7 rounded font-semibold shadow-sm hover:bg-danger-700 transition-colors">↩️</button>` : ''}
               ${(() => {
                 const menuItems = [
-                  !isChild ? `<button onclick="closeAllRowMenus(); openDocDetailModal('${escapeJsAttr(String(groupId))}')" class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">📋 Chi tiết</button>` : '',
-                  canDownload ? `<button onclick="closeAllRowMenus(); downloadDoc(${d.id})" class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">⬇️ Tải</button>` : '',
-                  isAdmin && !isChild ? `<button onclick="closeAllRowMenus(); deleteDocGroup('${escapeJsAttr(String(groupId || d.docGroupId || d.id))}', '${escapeJsAttr(d.code)}')" class="block w-full text-left px-3 py-2 text-xs text-danger-700 hover:bg-danger-50">🗑️ Xóa</button>` : ''
+                  !isChild ? `<button ${dc('openDocDetailModalFromMenu', String(groupId))} class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">📋 Chi tiết</button>` : '',
+                  canDownload ? `<button ${dc('downloadDocFromMenu', d.id)} class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">⬇️ Tải</button>` : '',
+                  isAdmin && !isChild ? `<button ${dc('deleteDocGroupFromMenu', String(groupId || d.docGroupId || d.id), d.code)} class="block w-full text-left px-3 py-2 text-xs text-danger-700 hover:bg-danger-50">🗑️ Xóa</button>` : ''
                 ].filter(Boolean).join('');
                 if (!menuItems) return '';
                 const menuId = `rowMenu_${d.id}`;
                 return `
-                  <button onclick="toggleRowMenu(event, '${menuId}')" class="text-xs bg-gray-200 text-gray-700 w-7 h-7 rounded font-semibold hover:bg-gray-300" title="Thêm thao tác">⋮</button>
+                  <button ${dc('toggleRowMenu', LIVE_EVENT, menuId)} class="text-xs bg-gray-200 text-gray-700 w-7 h-7 rounded font-semibold hover:bg-gray-300" title="Thêm thao tác">⋮</button>
                   <div id="${menuId}" class="row-action-menu hidden fixed w-36 bg-white border rounded shadow-lg z-[80] text-left overflow-hidden">${menuItems}</div>
                 `;
               })()}
@@ -932,6 +1017,11 @@
     function closeAllRowMenus() {
       document.querySelectorAll('.row-action-menu').forEach(m => m.classList.add('hidden'));
     }
+    // 3 hàm cầu nối cho menu "⋮" — đóng menu đang mở TRƯỚC khi thực hiện thao
+    // tác chính, gộp 2 hành động cũ vốn nối bằng ";" trong 1 onclick= duy nhất.
+    function openDocDetailModalFromMenu(groupId) { closeAllRowMenus(); openDocDetailModal(groupId); }
+    function downloadDocFromMenu(id) { closeAllRowMenus(); downloadDoc(id); }
+    function deleteDocGroupFromMenu(groupId, code) { closeAllRowMenus(); deleteDocGroup(groupId, code); }
 
     function toggleRowMenu(e, menuId) {
       e.stopPropagation();
@@ -1070,7 +1160,7 @@
       btnsContainer.innerHTML = '';
 
       for (let i = 1; i <= totalPages; i++) {
-        btnsContainer.innerHTML += `<button onclick="goToPage(${i})" class="px-2.5 py-1 text-xs rounded font-bold ${i === currentPage ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">${i}</button>`;
+        btnsContainer.innerHTML += `<button ${dc('goToPage', i)} class="px-2.5 py-1 text-xs rounded font-bold ${i === currentPage ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">${i}</button>`;
       }
     }
 
@@ -1274,15 +1364,15 @@
         const latest = versions[0];
         return `
           <tr class="hover:bg-gray-50">
-            <td class="border p-2 text-center"><input type="checkbox" class="trashSelectCheckbox" value="${escapeJsAttr(gid)}" onchange="onTrashSelectChange()"></td>
+            <td class="border p-2 text-center"><input type="checkbox" class="trashSelectCheckbox" value="${escapeJsAttr(gid)}" ${dchg('onTrashSelectChange')}></td>
             <td class="border p-2 font-mono font-bold text-xs">${escapeHtml(latest.code)}${versions.length > 1 ? ` <span class="text-gray-400">(${versions.length} phiên bản)</span>` : ''}</td>
             <td class="border p-2">${escapeHtml(latest.title)}</td>
             <td class="border p-2">${escapeHtml(latest.dept)}</td>
             <td class="border p-2">${escapeHtml(latest.deletedBy || '')}</td>
             <td class="border p-2">${latest.deletedAt ? new Date(latest.deletedAt).toLocaleString('vi-VN') : ''}</td>
             <td class="border p-2 text-center space-x-1">
-              <button onclick="restoreTrashGroup('${escapeJsAttr(gid)}', '${escapeJsAttr(latest.code)}')" class="text-xs btn-success px-2 py-0.5 rounded font-bold">Khôi Phục</button>
-              <button onclick="purgeTrashGroup('${escapeJsAttr(gid)}', '${escapeJsAttr(latest.code)}')" class="text-xs bg-red-700 text-white px-2 py-0.5 rounded font-bold">Xóa Vĩnh Viễn</button>
+              <button ${dc('restoreTrashGroup', `${escapeJsAttr(gid)}`, `${escapeJsAttr(latest.code)}`)} class="text-xs btn-success px-2 py-0.5 rounded font-bold">Khôi Phục</button>
+              <button ${dc('purgeTrashGroup', `${escapeJsAttr(gid)}`, `${escapeJsAttr(latest.code)}`)} class="text-xs bg-red-700 text-white px-2 py-0.5 rounded font-bold">Xóa Vĩnh Viễn</button>
             </td>
           </tr>
         `;
@@ -1412,8 +1502,8 @@
             <p class="text-xs text-gray-700"><b>Tóm tắt:</b> ${escapeHtml(v.summary)}</p>
             <div class="border-t pt-1.5 space-y-1">${historyHtml}</div>
             <div class="flex gap-1.5 pt-1">
-              <button onclick="openViewDocModal(${v.id})" class="text-xs bg-blue-600 text-white px-2 py-1 rounded font-semibold hover:bg-blue-700">Xem</button>
-              ${canDownload ? `<button onclick="downloadDoc(${v.id})" class="text-xs btn-secondary px-2 py-1 rounded font-semibold">Tải</button>` : ''}
+              <button ${dc('openViewDocModal', v.id)} class="text-xs bg-blue-600 text-white px-2 py-1 rounded font-semibold hover:bg-blue-700">Xem</button>
+              ${canDownload ? `<button ${dc('downloadDoc', v.id)} class="text-xs btn-secondary px-2 py-1 rounded font-semibold">Tải</button>` : ''}
             </div>
           </div>
         `;
@@ -1449,10 +1539,10 @@
               <h4 class="font-bold text-emerald-900 text-sm">🏬 Phòng Ban: ${escapeHtml(dept)}</h4>
               <div class="flex items-center gap-2">
                 <label class="text-xs font-semibold text-gray-600">Mẫu Quy Trình:</label>
-                <select id="wfSelect_${escapeHtml(dept)}" onchange="onDeptWfSelectChange('${escapeJsAttr(dept)}')" class="border p-1 rounded text-xs bg-white font-bold">
+                <select id="wfSelect_${escapeHtml(dept)}" ${dchg('onDeptWfSelectChange', `${escapeJsAttr(dept)}`)} class="border p-1 rounded text-xs bg-white font-bold">
                   ${wfOptions}
                 </select>
-                <button onclick="saveDeptWorkflow('${escapeJsAttr(dept)}')" class="btn-primary text-xs px-3 py-1 rounded font-bold">Lưu Gán Quy Trình</button>
+                <button ${dc('saveDeptWorkflow', `${escapeJsAttr(dept)}`)} class="btn-primary text-xs px-3 py-1 rounded font-bold">Lưu Gán Quy Trình</button>
               </div>
             </div>
             <div id="approverSteps_${escapeHtml(dept)}" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
@@ -1547,8 +1637,8 @@
           <td class="border p-2 font-bold text-center">${w.steps ? w.steps.length : 0} bước</td>
           <td class="border p-2">${w.steps ? w.steps.map(s => `<span class="bg-slate-100 text-slate-800 text-[11px] px-2 py-0.5 rounded border mr-1">Bước ${s.order}: ${escapeHtml(s.name)}</span>`).join('') : ''}</td>
           <td class="border p-2 text-center space-x-1">
-            <button onclick="editWorkflowTemplate('${escapeJsAttr(w.id)}')" class="bg-blue-600 text-white px-2 py-0.5 rounded font-bold">Sửa</button>
-            <button onclick="deleteWorkflowTemplate('${escapeJsAttr(w.id)}')" class="bg-red-600 text-white px-2 py-0.5 rounded font-bold">Xóa</button>
+            <button ${dc('editWorkflowTemplate', w.id)} class="bg-blue-600 text-white px-2 py-0.5 rounded font-bold">Sửa</button>
+            <button ${dc('deleteWorkflowTemplate', w.id)} class="bg-red-600 text-white px-2 py-0.5 rounded font-bold">Xóa</button>
           </td>
         </tr>
       `).join('');
@@ -1564,7 +1654,7 @@
       row.innerHTML = `
         <span class="font-bold text-xs text-gray-500 w-16">Bước ${stepCount}:</span>
         <input placeholder="Tên bước (VD: Trưởng phòng)" value="${escapeHtml(name)}" class="step-name-input border p-1 rounded text-xs flex-1" required>
-        <button type="button" onclick="this.parentElement.remove(); reorderStepRows();" class="text-xs text-red-600 font-bold hover:underline">Xóa</button>
+        <button type="button" ${dc('removeStepRowAndReorder', LIVE_EL)} class="text-xs text-red-600 font-bold hover:underline">Xóa</button>
       `;
       container.appendChild(row);
     }
@@ -1574,6 +1664,12 @@
       Array.from(container.children).forEach((row, idx) => {
         row.querySelector('span').innerText = `Bước ${idx + 1}:`;
       });
+    }
+    // Nút "Xóa" trên mỗi dòng bước phê duyệt — el (LIVE_EL) chính là nút vừa
+    // bấm, .parentElement là dòng .step-row chứa nó.
+    function removeStepRowAndReorder(el) {
+      el.parentElement.remove();
+      reorderStepRows();
     }
 
     function saveWorkflowTemplate(e) {
@@ -1651,8 +1747,8 @@
         <li class="p-2 flex justify-between items-center hover:bg-gray-50">
           <span>${escapeHtml(d.name)} <span class="text-gray-400 font-mono">(${escapeHtml(d.abbr)})</span></span>
           <span class="space-x-2">
-            <button onclick="editDept(${d.id})" class="text-xs text-blue-600 font-bold hover:underline">Sửa</button>
-            <button onclick="deleteDept('${escapeJsAttr(d.name)}')" class="text-xs text-red-600 font-bold hover:underline">Xóa</button>
+            <button ${dc('editDept', d.id)} class="text-xs text-blue-600 font-bold hover:underline">Sửa</button>
+            <button ${dc('deleteDept', `${escapeJsAttr(d.name)}`)} class="text-xs text-red-600 font-bold hover:underline">Xóa</button>
           </span>
         </li>
       `).join('');
@@ -1710,8 +1806,8 @@
         <li class="p-2 flex justify-between items-center hover:bg-gray-50">
           <span>${escapeHtml(c.name)} <span class="text-gray-400 font-mono">(${escapeHtml(c.abbr)})</span></span>
           <span class="space-x-2">
-            <button onclick="editCat(${c.id})" class="text-xs text-blue-600 font-bold hover:underline">Sửa</button>
-            <button onclick="deleteCat('${escapeJsAttr(c.name)}')" class="text-xs text-red-600 font-bold hover:underline">Xóa</button>
+            <button ${dc('editCat', c.id)} class="text-xs text-blue-600 font-bold hover:underline">Sửa</button>
+            <button ${dc('deleteCat', `${escapeJsAttr(c.name)}`)} class="text-xs text-red-600 font-bold hover:underline">Xóa</button>
           </span>
         </li>
       `).join('');
@@ -1855,7 +1951,7 @@
           <td class="border p-2 font-semibold">${escapeHtml(u.name)}</td>
           <td class="border p-2">${escapeHtml(u.dept)}</td>
           <td class="border p-2 text-center">
-            <button onclick="removePendingUser(${idx})" class="bg-red-600 text-white px-2 py-0.5 rounded font-bold">Xóa</button>
+            <button ${dc('removePendingUser', idx)} class="bg-red-600 text-white px-2 py-0.5 rounded font-bold">Xóa</button>
           </td>
         </tr>
       `).join('');
@@ -2027,9 +2123,9 @@
             <td class="border p-2">${permTags || '<span class="text-gray-400">Quyền cơ bản</span>'}</td>
             <td class="border p-2 text-center">${statusBadge}</td>
             <td class="border p-2 text-center space-x-1 whitespace-nowrap">
-              <button onclick="editUser(${u.id})" class="bg-blue-600 text-white px-2 py-0.5 rounded font-bold">Sửa</button>
-              <button onclick="toggleUserActive(${u.id})" class="${isActive ? 'bg-amber-600' : 'bg-emerald-600'} text-white px-2 py-0.5 rounded font-bold">${isActive ? 'Khóa' : 'Kích hoạt'}</button>
-              <button onclick="deleteUser(${u.id})" class="bg-red-600 text-white px-2 py-0.5 rounded font-bold">Xóa</button>
+              <button ${dc('editUser', u.id)} class="bg-blue-600 text-white px-2 py-0.5 rounded font-bold">Sửa</button>
+              <button ${dc('toggleUserActive', u.id)} class="${isActive ? 'bg-amber-600' : 'bg-emerald-600'} text-white px-2 py-0.5 rounded font-bold">${isActive ? 'Khóa' : 'Kích hoạt'}</button>
+              <button ${dc('deleteUser', u.id)} class="bg-red-600 text-white px-2 py-0.5 rounded font-bold">Xóa</button>
             </td>
           </tr>
         `;
@@ -2393,9 +2489,9 @@
               <span class="text-[10px] font-bold text-teal-700 bg-teal-100 px-2 py-0.5 rounded">${escapeHtml(c.code)}</span>
             </div>
             <div class="flex gap-1 text-xs">
-              <button onclick="openOrgUnitModal(${c.id}, null)" class="px-2 py-1 rounded hover:bg-brand-100 font-semibold text-brand-700">+ Thêm đơn vị</button>
-              <button onclick="openCompanyModal(${c.id})" class="px-2 py-1 rounded hover:bg-brand-100 text-brand-700">✏️ Sửa</button>
-              <button onclick="deleteCompany(${c.id})" class="px-2 py-1 rounded hover:bg-red-100 text-red-600">🗑️</button>
+              <button ${dc('openOrgUnitModal', c.id, null)} class="px-2 py-1 rounded hover:bg-brand-100 font-semibold text-brand-700">+ Thêm đơn vị</button>
+              <button ${dc('openCompanyModal', c.id)} class="px-2 py-1 rounded hover:bg-brand-100 text-brand-700">✏️ Sửa</button>
+              <button ${dc('deleteCompany', c.id)} class="px-2 py-1 rounded hover:bg-red-100 text-red-600">🗑️</button>
             </div>
           </div>
           <div class="p-3">${renderOrgChildren(c.id, null)}</div>
@@ -2416,14 +2512,14 @@
         return `
           <div>
             <div class="flex items-center gap-2 py-1.5 px-1 rounded hover:bg-gray-50 group">
-              <button onclick="toggleLicenseNode(${u.id})" class="w-4 text-gray-400 text-[10px] ${hasChildren ? '' : 'invisible'}">${expanded ? '▾' : '▸'}</button>
+              <button ${dc('toggleLicenseNode', u.id)} class="w-4 text-gray-400 text-[10px] ${hasChildren ? '' : 'invisible'}">${expanded ? '▾' : '▸'}</button>
               <span class="text-[10px] font-bold text-gray-600 bg-gray-100 border px-1.5 py-0.5 rounded-full">${escapeHtml(u.level)}</span>
               <span class="text-xs font-semibold flex-1">${escapeHtml(u.name)}</span>
               <span class="text-[11px] text-gray-400">${empCount > 0 ? empCount + ' nhân viên' : ''}</span>
               <div class="flex gap-1 opacity-0 group-hover:opacity-100 text-[11px]">
-                <button onclick="openOrgUnitModal(${companyId}, ${u.id})" class="px-1.5 py-0.5 rounded hover:bg-brand-100 text-brand-700 font-semibold">+ Con</button>
-                <button onclick="openOrgUnitModal(${companyId}, ${u.parentId ?? 'null'}, ${u.id})" class="px-1.5 py-0.5 rounded hover:bg-gray-200">✏️</button>
-                <button onclick="deleteOrgUnit(${u.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600">🗑️</button>
+                <button ${dc('openOrgUnitModal', companyId, u.id)} class="px-1.5 py-0.5 rounded hover:bg-brand-100 text-brand-700 font-semibold">+ Con</button>
+                <button ${dc('openOrgUnitModal', companyId, u.parentId ?? 'null', u.id)} class="px-1.5 py-0.5 rounded hover:bg-gray-200">✏️</button>
+                <button ${dc('deleteOrgUnit', u.id)} class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600">🗑️</button>
               </div>
             </div>
             <div class="ml-5 pl-2 border-l border-dashed ${expanded ? '' : 'hidden'}">${renderOrgChildren(companyId, u.id)}</div>
@@ -2549,6 +2645,13 @@
       document.getElementById('empFilterOrgUnit').innerHTML = '<option value="">-- Tất cả đơn vị --</option>' +
         units.map(u => `<option value="${u.id}">${escapeHtml(orgUnitPath(u.id))}</option>`).join('');
     }
+    // Khi đổi bộ lọc Công ty: nạp lại danh sách Đơn vị trực thuộc rồi mới lọc
+    // trang lại theo Công ty mới chọn — gộp 2 hành động cũ vốn nối bằng ";"
+    // trong 1 onchange= duy nhất.
+    function onEmpFilterCompanyChangeAndRerender() {
+      onEmpFilterCompanyChange();
+      resetPageAndRerender('licenseEmp', 'renderLicenseEmployees');
+    }
     function populateOrgUnitSelectFor(companySelectId, orgSelectId) {
       const companyId = document.getElementById(companySelectId).value;
       const units = companyId ? licenseDB.orgUnits.filter(u => u.companyId === Number(companyId)) : [];
@@ -2590,8 +2693,8 @@
               <td class="border p-2">${escapeHtml(company ? company.name : '—')}</td>
               <td class="border p-2">${escapeHtml(e.email || '')}</td>
               <td class="border p-2 text-center">
-                <button onclick="openEmployeeModal(${e.id})" class="px-1.5 py-0.5 rounded hover:bg-gray-200">✏️</button>
-                <button onclick="deleteEmployee(${e.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600">🗑️</button>
+                <button ${dc('openEmployeeModal', e.id)} class="px-1.5 py-0.5 rounded hover:bg-gray-200">✏️</button>
+                <button ${dc('deleteEmployee', e.id)} class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600">🗑️</button>
               </td>
             </tr>
           `;
@@ -2679,8 +2782,8 @@
           <td class="border p-2 text-center text-gray-600">${s.maxAssignees}</td>
           <td class="border p-2 text-center">${s.allowCrossCompanyShare ? '✅' : '—'}</td>
           <td class="border p-2 text-center">
-            <button onclick="openSoftwareModal(${s.id})" class="px-1.5 py-0.5 rounded hover:bg-gray-200">✏️</button>
-            <button onclick="deleteSoftware(${s.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600">🗑️</button>
+            <button ${dc('openSoftwareModal', s.id)} class="px-1.5 py-0.5 rounded hover:bg-gray-200">✏️</button>
+            <button ${dc('deleteSoftware', s.id)} class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600">🗑️</button>
           </td>
         </tr>
       `).join('');
@@ -2909,7 +3012,7 @@ function isPerpetualSoftware(softwareId) {
             <td class="border p-2 text-center">${b.codesGenerated > 0 ? '+' + b.codesGenerated : '0'}</td>
             <td class="border p-2">${b.issuedDate}</td>
             <td class="border p-2">${expiryLabel(b.expiryDate)}</td>
-            <td class="border p-2 text-center"><button onclick="deleteBatch(${b.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600">🗑️</button></td>
+            <td class="border p-2 text-center"><button ${dc('deleteBatch', b.id)} class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600">🗑️</button></td>
           </tr>
         `;
       }).join('');
@@ -2987,7 +3090,7 @@ function isPerpetualSoftware(softwareId) {
             <td class="border p-2 whitespace-nowrap">${r.assignment.assignedAt}</td>
             <td class="border p-2 whitespace-nowrap">${expiryLabel(r.code.expiryDate)}</td>
             <td class="border p-2 text-center">${statusHtml}</td>
-            <td class="border p-2 text-center"><button onclick="revokeAllocation(${r.code.id}, ${r.emp.id})" class="btn-danger-ghost px-1.5 py-0.5 rounded text-[11px] font-semibold whitespace-nowrap">Thu hồi</button></td>
+            <td class="border p-2 text-center"><button ${dc('revokeAllocation', r.code.id, r.emp.id)} class="btn-danger-ghost px-1.5 py-0.5 rounded text-[11px] font-semibold whitespace-nowrap">Thu hồi</button></td>
           </tr>
         `;
       }).join('');
@@ -3382,17 +3485,17 @@ function isPerpetualSoftware(softwareId) {
 
         let actionHtml = '';
         if (it.conflictType === 'ALREADY_LICENSED') {
-          actionHtml = `<label class="flex items-center gap-1 text-[11px]"><input type="checkbox" ${it.resolution === 'ALLOCATE_ANYWAY' ? 'checked' : ''} onchange="bafUpdateResolution(${it.rowKey}, this.checked ? 'ALLOCATE_ANYWAY' : 'SKIP')"> Vẫn cấp thêm</label>`;
+          actionHtml = `<label class="flex items-center gap-1 text-[11px]"><input type="checkbox" ${it.resolution === 'ALLOCATE_ANYWAY' ? 'checked' : ''} ${dchg('bafUpdateResolution', it.rowKey, LIVE_CHECKED_IF('ALLOCATE_ANYWAY', 'SKIP'))}> Vẫn cấp thêm</label>`;
         } else if (it.conflictType === 'INFO_MISMATCH') {
-          actionHtml = `<select onchange="bafUpdateResolution(${it.rowKey}, this.value)" class="border p-1 rounded text-[11px]">
+          actionHtml = `<select ${dchg('bafUpdateResolution', it.rowKey, LIVE_VALUE)} class="border p-1 rounded text-[11px]">
             <option value="USE_EXISTING" ${it.resolution === 'USE_EXISTING' ? 'selected' : ''}>Giữ hồ sơ cũ</option>
             <option value="UPDATE_INFO" ${it.resolution === 'UPDATE_INFO' ? 'selected' : ''}>Cập nhật theo file</option>
           </select>`;
         }
         if (!it.employeeId) {
-          actionHtml += `<select onchange="bafUpdateOrgUnit(${it.rowKey}, Number(this.value))" class="border p-1 rounded text-[11px] mt-1 block">${bafOrgUnitOptionsHtml(companyId, it.orgUnitId)}</select>`;
+          actionHtml += `<select ${dchg('bafUpdateOrgUnit', it.rowKey, LIVE_VALUE_NUM)} class="border p-1 rounded text-[11px] mt-1 block">${bafOrgUnitOptionsHtml(companyId, it.orgUnitId)}</select>`;
         }
-        actionHtml += `<button type="button" onclick="bafRemoveRow(${it.rowKey})" class="text-red-500 hover:text-red-700 text-[11px] block mt-1">🗑️ Bỏ dòng</button>`;
+        actionHtml += `<button type="button" ${dc('bafRemoveRow', it.rowKey)} class="text-red-500 hover:text-red-700 text-[11px] block mt-1">🗑️ Bỏ dòng</button>`;
 
         return `
           <tr class="${it.resolution === 'SKIP' ? 'opacity-40' : ''}">
@@ -3482,7 +3585,7 @@ function isPerpetualSoftware(softwareId) {
             <td class="border p-2">${escapeHtml(r.requestedBy)}</td>
             <td class="border p-2">${bulkAllocRequestStatusBadge(r.status)}${r.status === 'PENDING' && isRequester ? '<br><span class="text-[10px] text-gray-400">Chờ người khác duyệt</span>' : ''}</td>
             <td class="border p-2 text-center whitespace-nowrap">
-              ${canDecide ? `<button onclick="approveBulkAllocRequest(${r.id})" class="text-green-700 hover:underline mr-2">Duyệt</button><button onclick="rejectBulkAllocRequest(${r.id})" class="text-red-600 hover:underline">Từ chối</button>` : (r.rejectReason ? `<span class="text-gray-500 text-[11px]" title="${escapeHtml(r.rejectReason)}">Lý do từ chối</span>` : '—')}
+              ${canDecide ? `<button ${dc('approveBulkAllocRequest', r.id)} class="text-green-700 hover:underline mr-2">Duyệt</button><button ${dc('rejectBulkAllocRequest', r.id)} class="text-red-600 hover:underline">Từ chối</button>` : (r.rejectReason ? `<span class="text-gray-500 text-[11px]" title="${escapeHtml(r.rejectReason)}">Lý do từ chối</span>` : '—')}
             </td>
           </tr>
         `;
@@ -3584,13 +3687,13 @@ function isPerpetualSoftware(softwareId) {
         return `
           <tr>
             <td class="border p-1.5">
-              <select onchange="updateAllocCreateRow(${row.id}, 'softwareId', Number(this.value))" class="w-full border p-1 rounded text-xs bg-white">
+              <select ${dchg('updateAllocCreateRow', row.id, 'softwareId', LIVE_VALUE_NUM)} class="w-full border p-1 rounded text-xs bg-white">
                 <option value="">-- Chọn phần mềm --</option>
                 ${licenseDB.softwareCatalog.map(s => `<option value="${s.id}" ${s.id === row.softwareId ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('')}
               </select>
             </td>
             <td class="border p-1.5">
-              <select onchange="updateAllocCreateRow(${row.id}, 'codeId', Number(this.value))" class="w-full border p-1 rounded text-xs bg-white" ${row.softwareId ? '' : 'disabled'}>
+              <select ${dchg('updateAllocCreateRow', row.id, 'codeId', LIVE_VALUE_NUM)} class="w-full border p-1 rounded text-xs bg-white" ${row.softwareId ? '' : 'disabled'}>
                 <option value="">${row.softwareId ? '-- Chọn mã --' : '-- Chọn phần mềm trước --'}</option>
                 ${codes.map(c => {
                   const company = licenseDB.companies.find(x => x.id === c.companyId);
@@ -3599,16 +3702,16 @@ function isPerpetualSoftware(softwareId) {
               </select>
             </td>
             <td class="border p-1.5">
-              <select onchange="updateAllocCreateRow(${row.id}, 'employeeId', Number(this.value))" class="w-full border p-1 rounded text-xs bg-white">
+              <select ${dchg('updateAllocCreateRow', row.id, 'employeeId', LIVE_VALUE_NUM)} class="w-full border p-1 rounded text-xs bg-white">
                 <option value="">-- Chọn nhân viên --</option>
                 ${licenseDB.employees.map(e => `<option value="${e.id}" ${e.id === row.employeeId ? 'selected' : ''}>${escapeHtml(employeeLabel(e))}</option>`).join('')}
               </select>
             </td>
             <td class="border p-1.5">
-              <input type="date" value="${row.issuedDate}" onchange="updateAllocCreateRow(${row.id}, 'issuedDate', this.value)" class="w-full border p-1 rounded text-xs">
+              <input type="date" value="${row.issuedDate}" ${dchg('updateAllocCreateRow', row.id, 'issuedDate', LIVE_VALUE)} class="w-full border p-1 rounded text-xs">
             </td>
             <td class="border p-1.5 text-center">
-              <button type="button" onclick="removeAllocCreateRow(${row.id})" class="text-red-500 hover:text-red-700">🗑️</button>
+              <button type="button" ${dc('removeAllocCreateRow', row.id)} class="text-red-500 hover:text-red-700">🗑️</button>
             </td>
           </tr>
         `;
@@ -3737,7 +3840,7 @@ function isPerpetualSoftware(softwareId) {
         return `
           <div id="purchaseRoundCard_${r.id}" class="bg-white border rounded-lg shadow-sm overflow-hidden">
             <div class="flex justify-between items-center gap-2 px-4 py-3 bg-teal-50 border-b">
-              <div class="flex items-center gap-2 flex-wrap cursor-pointer" onclick="toggleRoundExpand('purchase', ${r.id})">
+              <div class="flex items-center gap-2 flex-wrap cursor-pointer" ${dc('toggleRoundExpand', 'purchase', r.id)}>
                 <span class="text-teal-700 font-bold w-3 inline-block">${isExpanded ? '▾' : '▸'}</span>
                 <h3 class="font-bold text-teal-900 text-sm">${escapeHtml(r.name)}</h3>
                 <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${isOpen ? 'text-green-700 bg-green-100' : 'text-gray-600 bg-gray-200'}">${isOpen ? 'Đang mở' : 'Đã đóng'}</span>
@@ -3747,9 +3850,9 @@ function isPerpetualSoftware(softwareId) {
                 ${roundCompletionBadge(r, items, licenseDB.purchaseRegistrations, 'purchase')}
               </div>
               <div class="flex gap-1 text-xs">
-                ${isOpen ? `<button onclick="openRoundItemModal(${r.id})" class="px-2 py-1 rounded hover:bg-brand-100 font-semibold text-brand-700">+ Thêm phần mềm</button>` : ''}
-                <button onclick="toggleRoundStatus(${r.id}, '${isOpen ? 'CLOSED' : 'OPEN'}')" class="px-2 py-1 rounded hover:bg-gray-100 text-gray-700">${isOpen ? '🔒 Đóng kỳ' : '🔓 Mở lại'}</button>
-                <button onclick="deleteRound(${r.id}, '${escapeJsAttr(r.name)}')" class="px-2 py-1 rounded hover:bg-danger-100 text-danger-700" title="Xóa cả kỳ mua này (chỉ xóa được khi chưa có đăng ký)">🗑️ Xóa kỳ</button>
+                ${isOpen ? `<button ${dc('openRoundItemModal', r.id)} class="px-2 py-1 rounded hover:bg-brand-100 font-semibold text-brand-700">+ Thêm phần mềm</button>` : ''}
+                <button ${dc('toggleRoundStatus', r.id, `${isOpen ? 'CLOSED' : 'OPEN'}`)} class="px-2 py-1 rounded hover:bg-gray-100 text-gray-700">${isOpen ? '🔒 Đóng kỳ' : '🔓 Mở lại'}</button>
+                <button ${dc('deleteRound', r.id, `${escapeJsAttr(r.name)}`)} class="px-2 py-1 rounded hover:bg-danger-100 text-danger-700" title="Xóa cả kỳ mua này (chỉ xóa được khi chưa có đăng ký)">🗑️ Xóa kỳ</button>
               </div>
             </div>
             ${isExpanded ? `
@@ -3765,7 +3868,7 @@ function isPerpetualSoftware(softwareId) {
                         <td class="border p-1.5">${escapeHtml(sw ? sw.name : '—')}</td>
                         <td class="border p-1.5 text-right">${formatMoney(i.unitPrice)}</td>
                         ${r.roundType === 'NEW' ? '' : `<td class="border p-1.5">${expiryLabel(i.expiryDate)}</td>`}
-                        <td class="border p-1.5 text-center"><button onclick="deleteRoundItem(${r.id}, ${i.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600">🗑️</button></td>
+                        <td class="border p-1.5 text-center"><button ${dc('deleteRoundItem', r.id, i.id)} class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600">🗑️</button></td>
                       </tr>`;
                     }).join('')}
                   </tbody>
@@ -3804,20 +3907,20 @@ function isPerpetualSoftware(softwareId) {
         return `
           <tr>
             <td class="border p-1.5">
-              <select onchange="updateRoundCreateRow(${row.id}, 'softwareId', Number(this.value))" class="w-full border p-1 rounded text-xs bg-white">
+              <select ${dchg('updateRoundCreateRow', row.id, 'softwareId', LIVE_VALUE_NUM)} class="w-full border p-1 rounded text-xs bg-white">
                 ${options.map(s => `<option value="${s.id}" ${s.id === row.softwareId ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('')}
               </select>
             </td>
             <td class="border p-1.5">
-              <input type="number" min="0" step="1000" value="${row.unitPrice}" oninput="updateRoundCreateRow(${row.id}, 'unitPrice', Number(this.value))" class="w-full border p-1 rounded text-xs">
+              <input type="number" min="0" step="1000" value="${row.unitPrice}" ${din('updateRoundCreateRow', row.id, 'unitPrice', LIVE_VALUE_NUM)} class="w-full border p-1 rounded text-xs">
             </td>
             ${isNew ? '' : `<td class="border p-1.5">
               ${perpetual
                 ? `<span class="text-green-700 font-semibold text-xs">Vĩnh viễn</span>`
-                : `<input type="date" value="${row.expiryDate || ''}" onchange="updateRoundCreateRow(${row.id}, 'expiryDate', this.value)" class="w-full border p-1 rounded text-xs">`}
+                : `<input type="date" value="${row.expiryDate || ''}" ${dchg('updateRoundCreateRow', row.id, 'expiryDate', LIVE_VALUE)} class="w-full border p-1 rounded text-xs">`}
             </td>`}
             <td class="border p-1.5 text-center">
-              <button type="button" onclick="removeRoundCreateRow(${row.id})" class="text-red-500 hover:text-red-700">🗑️</button>
+              <button type="button" ${dc('removeRoundCreateRow', row.id)} class="text-red-500 hover:text-red-700">🗑️</button>
             </td>
           </tr>
         `;
@@ -4054,8 +4157,8 @@ function isPerpetualSoftware(softwareId) {
             <td class="border p-2 text-center">${purchaseStatusBadge(r.status)}${r.status === 'PENDING' && isRequester ? '<br><span class="text-[10px] text-gray-400">Chờ người khác duyệt</span>' : ''}</td>
             <td class="border p-2 text-center">
               ${canDecide ? `
-                <button onclick="approveRegistration(${r.id})" class="px-1.5 py-0.5 rounded hover:bg-success-50 text-success-700 text-[11px] font-semibold whitespace-nowrap">Duyệt</button>
-                <button onclick="rejectRegistration(${r.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600 text-[11px] font-semibold whitespace-nowrap">Từ chối</button>
+                <button ${dc('approveRegistration', r.id)} class="px-1.5 py-0.5 rounded hover:bg-success-50 text-success-700 text-[11px] font-semibold whitespace-nowrap">Duyệt</button>
+                <button ${dc('rejectRegistration', r.id)} class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600 text-[11px] font-semibold whitespace-nowrap">Từ chối</button>
               ` : '—'}
             </td>
           </tr>
@@ -4210,7 +4313,7 @@ function isPerpetualSoftware(softwareId) {
           return `
             <tr>
               <td class="border p-1.5">
-                <select onchange="updateRegRow(${row.id}, 'roundItemId', Number(this.value))" class="w-full border p-1 rounded text-xs bg-white">
+                <select ${dchg('updateRegRow', row.id, 'roundItemId', LIVE_VALUE_NUM)} class="w-full border p-1 rounded text-xs bg-white">
                   ${options.map(it => {
                     const s = licenseDB.softwareCatalog.find(x => x.id === it.softwareId);
                     return `<option value="${it.id}" ${it.id === row.roundItemId ? 'selected' : ''}>${escapeHtml(s ? s.name : '—')}</option>`;
@@ -4220,10 +4323,10 @@ function isPerpetualSoftware(softwareId) {
               </td>
               ${isNew ? '' : `<td class="border p-1.5">${(item && companyId) ? regExpiryBadge(companyId, item.softwareId) : '<span class="text-gray-400">—</span>'}</td>`}
               <td class="border p-1.5 text-center text-gray-500">${used}</td>
-              <td class="border p-1.5"><input type="number" min="1" value="${row.quantity}" oninput="updateRegRow(${row.id}, 'quantity', Number(this.value))" class="w-full border p-1 rounded text-xs"></td>
+              <td class="border p-1.5"><input type="number" min="1" value="${row.quantity}" ${din('updateRegRow', row.id, 'quantity', LIVE_VALUE_NUM)} class="w-full border p-1 rounded text-xs"></td>
               ${isNew ? '' : `<td class="border p-1.5 text-gray-500">${item ? expiryLabel(item.expiryDate) : '—'}</td>`}
               <td class="border p-1.5 text-right font-semibold">${formatMoney(total)}</td>
-              <td class="border p-1.5 text-center"><button type="button" onclick="removeRegRow(${row.id})" class="text-red-500 hover:text-red-700">🗑️</button></td>
+              <td class="border p-1.5 text-center"><button type="button" ${dc('removeRegRow', row.id)} class="text-red-500 hover:text-red-700">🗑️</button></td>
             </tr>
           `;
         }).join('');
@@ -4330,8 +4433,8 @@ function isPerpetualSoftware(softwareId) {
           <td class="border p-2">${escapeHtml(c.unit || '—')}</td>
           <td class="border p-2 text-center">${c.active ? '✅' : '—'}</td>
           <td class="border p-2 text-center whitespace-nowrap">
-            <button onclick="openBudgetItemCatalogModal(${c.id})" class="px-1.5 py-0.5 rounded hover:bg-brand-100 text-brand-700">✏️ Sửa</button>
-            <button onclick="deleteBudgetItemCatalog(${c.id}, '${escapeJsAttr(c.name)}')" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600">🗑️ Xóa</button>
+            <button ${dc('openBudgetItemCatalogModal', c.id)} class="px-1.5 py-0.5 rounded hover:bg-brand-100 text-brand-700">✏️ Sửa</button>
+            <button ${dc('deleteBudgetItemCatalog', c.id, `${escapeJsAttr(c.name)}`)} class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600">🗑️ Xóa</button>
           </td>
         </tr>
       `).join('');
@@ -4413,7 +4516,7 @@ function isPerpetualSoftware(softwareId) {
         return `
           <div id="budgetRoundCard_${r.id}" class="bg-white border rounded-lg shadow-sm overflow-hidden">
             <div class="flex justify-between items-center gap-2 px-4 py-3 bg-amber-50 border-b">
-              <div class="flex items-center gap-2 flex-wrap cursor-pointer" onclick="toggleRoundExpand('budget', ${r.id})">
+              <div class="flex items-center gap-2 flex-wrap cursor-pointer" ${dc('toggleRoundExpand', 'budget', r.id)}>
                 <span class="text-amber-700 font-bold w-3 inline-block">${isExpanded ? '▾' : '▸'}</span>
                 <h3 class="font-bold text-amber-900 text-sm">${escapeHtml(r.name)}</h3>
                 <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${isOpen ? 'text-green-700 bg-green-100' : 'text-gray-600 bg-gray-200'}">${isOpen ? 'Đang mở' : 'Đã đóng'}</span>
@@ -4422,9 +4525,9 @@ function isPerpetualSoftware(softwareId) {
                 ${roundCompletionBadge(r, items, licenseDB.budgetRegistrations, 'budget')}
               </div>
               <div class="flex gap-1 text-xs">
-                ${isOpen ? `<button onclick="openBudgetRoundItemModal(${r.id})" class="px-2 py-1 rounded hover:bg-brand-100 font-semibold text-brand-700">+ Thêm hạng mục</button>` : ''}
-                <button onclick="toggleBudgetRoundStatus(${r.id}, '${isOpen ? 'CLOSED' : 'OPEN'}')" class="px-2 py-1 rounded hover:bg-gray-100 text-gray-700">${isOpen ? '🔒 Đóng kỳ' : '🔓 Mở lại'}</button>
-                <button onclick="deleteBudgetRound(${r.id}, '${escapeJsAttr(r.name)}')" class="px-2 py-1 rounded hover:bg-danger-100 text-danger-700" title="Xóa cả kỳ ngân sách này (chỉ xóa được khi chưa có dự trù)">🗑️ Xóa kỳ</button>
+                ${isOpen ? `<button ${dc('openBudgetRoundItemModal', r.id)} class="px-2 py-1 rounded hover:bg-brand-100 font-semibold text-brand-700">+ Thêm hạng mục</button>` : ''}
+                <button ${dc('toggleBudgetRoundStatus', r.id, `${isOpen ? 'CLOSED' : 'OPEN'}`)} class="px-2 py-1 rounded hover:bg-gray-100 text-gray-700">${isOpen ? '🔒 Đóng kỳ' : '🔓 Mở lại'}</button>
+                <button ${dc('deleteBudgetRound', r.id, `${escapeJsAttr(r.name)}`)} class="px-2 py-1 rounded hover:bg-danger-100 text-danger-700" title="Xóa cả kỳ ngân sách này (chỉ xóa được khi chưa có dự trù)">🗑️ Xóa kỳ</button>
               </div>
             </div>
             ${isExpanded ? `
@@ -4441,8 +4544,8 @@ function isPerpetualSoftware(softwareId) {
                         <td class="border p-1.5">${capexOpexBadge(i.capexOpex)}</td>
                         <td class="border p-1.5 text-right">${formatMoney(i.unitPrice)}</td>
                         <td class="border p-1.5 text-center whitespace-nowrap">
-                          <button onclick="openBudgetActualsModal(${i.id})" class="px-1.5 py-0.5 rounded hover:bg-teal-100 text-teal-700" title="Nhập mua thực tế">💰</button>
-                          <button onclick="deleteBudgetRoundItem(${r.id}, ${i.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600">🗑️</button>
+                          <button ${dc('openBudgetActualsModal', i.id)} class="px-1.5 py-0.5 rounded hover:bg-teal-100 text-teal-700" title="Nhập mua thực tế">💰</button>
+                          <button ${dc('deleteBudgetRoundItem', r.id, i.id)} class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600">🗑️</button>
                         </td>
                       </tr>`;
                     }).join('')}
@@ -4474,36 +4577,36 @@ function isPerpetualSoftware(softwareId) {
         return `
           <tr>
             <td class="border p-1.5">
-              <select onchange="updateBudgetRoundCreateRow(${row.id}, 'itemType', this.value)" class="w-full border p-1 rounded text-xs bg-white">
+              <select ${dchg('updateBudgetRoundCreateRow', row.id, 'itemType', LIVE_VALUE)} class="w-full border p-1 rounded text-xs bg-white">
                 ${Object.entries(BUDGET_ITEM_TYPE_LABELS).map(([v, l]) => `<option value="${v}" ${v === row.itemType ? 'selected' : ''}>${l}</option>`).join('')}
               </select>
             </td>
             <td class="border p-1.5">
               ${row.itemType === 'SOFTWARE'
-                ? `<select onchange="updateBudgetRoundCreateRow(${row.id}, 'softwareId', Number(this.value))" class="w-full border p-1 rounded text-xs bg-white">
+                ? `<select ${dchg('updateBudgetRoundCreateRow', row.id, 'softwareId', LIVE_VALUE_NUM)} class="w-full border p-1 rounded text-xs bg-white">
                     ${options.map(s => `<option value="${s.id}" ${s.id === row.softwareId ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('')}
                   </select>`
                 : catalogOptions.length
-                  ? `<select onchange="updateBudgetRoundCreateRow(${row.id}, 'catalogItemId', Number(this.value))" class="w-full border p-1 rounded text-xs bg-white">
+                  ? `<select ${dchg('updateBudgetRoundCreateRow', row.id, 'catalogItemId', LIVE_VALUE_NUM)} class="w-full border p-1 rounded text-xs bg-white">
                       ${catalogOptions.map(c => `<option value="${c.id}" ${c.id === row.catalogItemId ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
                     </select>`
                   : `<span class="text-[11px] text-amber-600">Chưa có trong danh mục — vào tab "Danh mục HC/DV/Khác" để thêm trước.</span>`}
             </td>
             <td class="border p-1.5">
-              <input type="number" min="0" step="1000" value="${row.unitPrice}" oninput="updateBudgetRoundCreateRow(${row.id}, 'unitPrice', Number(this.value))" class="w-full border p-1 rounded text-xs">
+              <input type="number" min="0" step="1000" value="${row.unitPrice}" ${din('updateBudgetRoundCreateRow', row.id, 'unitPrice', LIVE_VALUE_NUM)} class="w-full border p-1 rounded text-xs">
             </td>
             <td class="border p-1.5">
-              <select onchange="updateBudgetRoundCreateRow(${row.id}, 'capexOpex', this.value)" class="w-full border p-1 rounded text-xs bg-white ${!row.capexOpex ? 'border-amber-400' : ''}">
+              <select ${dchg('updateBudgetRoundCreateRow', row.id, 'capexOpex', LIVE_VALUE)} class="w-full border p-1 rounded text-xs bg-white ${!row.capexOpex ? 'border-amber-400' : ''}">
                 <option value="" ${!row.capexOpex ? 'selected' : ''}>-- Chọn --</option>
                 <option value="CAPEX" ${row.capexOpex === 'CAPEX' ? 'selected' : ''}>CAPEX</option>
                 <option value="OPEX" ${row.capexOpex === 'OPEX' ? 'selected' : ''}>OPEX</option>
               </select>
             </td>
             <td class="border p-1.5">
-              <input type="text" value="${escapeHtml(row.description || '')}" maxlength="500" oninput="updateBudgetRoundCreateRow(${row.id}, 'description', this.value)" placeholder="Tùy chọn" class="w-full border p-1 rounded text-xs">
+              <input type="text" value="${escapeHtml(row.description || '')}" maxlength="500" ${din('updateBudgetRoundCreateRow', row.id, 'description', LIVE_VALUE)} placeholder="Tùy chọn" class="w-full border p-1 rounded text-xs">
             </td>
             <td class="border p-1.5 text-center">
-              <button type="button" onclick="removeBudgetRoundCreateRow(${row.id})" class="text-red-500 hover:text-red-700">🗑️</button>
+              <button type="button" ${dc('removeBudgetRoundCreateRow', row.id)} class="text-red-500 hover:text-red-700">🗑️</button>
             </td>
           </tr>
         `;
@@ -4688,7 +4791,7 @@ function isPerpetualSoftware(softwareId) {
               <td class="border p-1.5 text-right">${formatMoney(a.unitPrice)}</td>
               <td class="border p-1.5 text-right font-semibold">${formatMoney(a.amount)}</td>
               <td class="border p-1.5">${escapeHtml(a.note || '')}</td>
-              <td class="border p-1.5 text-center"><button onclick="deleteBudgetActual(${a.id})" class="text-red-500 hover:text-red-700">🗑️</button></td>
+              <td class="border p-1.5 text-center"><button ${dc('deleteBudgetActual', a.id)} class="text-red-500 hover:text-red-700">🗑️</button></td>
             </tr>
           `;
           }).join('');
@@ -4777,8 +4880,8 @@ function isPerpetualSoftware(softwareId) {
             <td class="border p-2 text-center">${budgetStatusBadge(r.status)}${r.status === 'PENDING' && isRequester ? '<br><span class="text-[10px] text-gray-400">Chờ người khác duyệt</span>' : ''}</td>
             <td class="border p-2 text-center">
               ${canDecide ? `
-                <button onclick="approveBudgetRegistration(${r.id})" class="px-1.5 py-0.5 rounded hover:bg-success-50 text-success-700 text-[11px] font-semibold whitespace-nowrap">Duyệt</button>
-                <button onclick="rejectBudgetRegistration(${r.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600 text-[11px] font-semibold whitespace-nowrap">Từ chối</button>
+                <button ${dc('approveBudgetRegistration', r.id)} class="px-1.5 py-0.5 rounded hover:bg-success-50 text-success-700 text-[11px] font-semibold whitespace-nowrap">Duyệt</button>
+                <button ${dc('rejectBudgetRegistration', r.id)} class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600 text-[11px] font-semibold whitespace-nowrap">Từ chối</button>
               ` : '—'}
             </td>
           </tr>
@@ -4847,14 +4950,14 @@ function isPerpetualSoftware(softwareId) {
           return `
             <tr>
               <td class="border p-1.5">
-                <select onchange="updateBudgetRegRow(${row.id}, 'roundItemId', Number(this.value))" class="w-full border p-1 rounded text-xs bg-white">
+                <select ${dchg('updateBudgetRegRow', row.id, 'roundItemId', LIVE_VALUE_NUM)} class="w-full border p-1 rounded text-xs bg-white">
                   ${options.map(it => `<option value="${it.id}" ${it.id === row.roundItemId ? 'selected' : ''}>${escapeHtml(budgetItemLabel(it))}</option>`).join('')}
                 </select>
               </td>
               <td class="border p-1.5 text-center text-gray-500">${used}</td>
-              <td class="border p-1.5"><input type="number" min="1" value="${row.quantity}" oninput="updateBudgetRegRow(${row.id}, 'quantity', Number(this.value))" class="w-full border p-1 rounded text-xs"></td>
+              <td class="border p-1.5"><input type="number" min="1" value="${row.quantity}" ${din('updateBudgetRegRow', row.id, 'quantity', LIVE_VALUE_NUM)} class="w-full border p-1 rounded text-xs"></td>
               <td class="border p-1.5 text-right font-semibold">${formatMoney(total)}</td>
-              <td class="border p-1.5 text-center"><button type="button" onclick="removeBudgetRegRow(${row.id})" class="text-red-500 hover:text-red-700">🗑️</button></td>
+              <td class="border p-1.5 text-center"><button type="button" ${dc('removeBudgetRegRow', row.id)} class="text-red-500 hover:text-red-700">🗑️</button></td>
             </tr>
           `;
         }).join('');
@@ -5203,12 +5306,12 @@ function isPerpetualSoftware(softwareId) {
             return `
               <tr>
                 <td class="border p-1.5">
-                  <select onchange="updatePortalBudgetRegRow(${row.id}, 'roundItemId', Number(this.value))" class="w-full border p-1 rounded text-xs bg-white">
+                  <select ${dchg('updatePortalBudgetRegRow', row.id, 'roundItemId', LIVE_VALUE_NUM)} class="w-full border p-1 rounded text-xs bg-white">
                     ${options.map(it => `<option value="${it.id}" ${it.id === row.roundItemId ? 'selected' : ''}>${escapeHtml(budgetItemLabel(it))}</option>`).join('')}
                   </select>
                 </td>
-                <td class="border p-1.5"><input type="number" min="1" value="${row.quantity}" oninput="updatePortalBudgetRegRow(${row.id}, 'quantity', Number(this.value))" class="w-full border p-1 rounded text-xs"></td>
-                <td class="border p-1.5 text-center"><button type="button" onclick="removePortalBudgetRegRow(${row.id})" class="text-red-500 hover:text-red-700">🗑️</button></td>
+                <td class="border p-1.5"><input type="number" min="1" value="${row.quantity}" ${din('updatePortalBudgetRegRow', row.id, 'quantity', LIVE_VALUE_NUM)} class="w-full border p-1 rounded text-xs"></td>
+                <td class="border p-1.5 text-center"><button type="button" ${dc('removePortalBudgetRegRow', row.id)} class="text-red-500 hover:text-red-700">🗑️</button></td>
               </tr>
             `;
           }).join('');
@@ -5289,7 +5392,7 @@ function isPerpetualSoftware(softwareId) {
             return `
               <tr>
                 <td class="border p-1.5">
-                  <select onchange="updatePortalPurchaseRegRow(${row.id}, 'roundItemId', Number(this.value))" class="w-full border p-1 rounded text-xs bg-white">
+                  <select ${dchg('updatePortalPurchaseRegRow', row.id, 'roundItemId', LIVE_VALUE_NUM)} class="w-full border p-1 rounded text-xs bg-white">
                     ${options.map(it => {
                       const s = licensePortalDB.softwareCatalog.find(x => x.id === it.softwareId);
                       return `<option value="${it.id}" ${it.id === row.roundItemId ? 'selected' : ''}>${escapeHtml(s ? s.name : '—')}</option>`;
@@ -5297,9 +5400,9 @@ function isPerpetualSoftware(softwareId) {
                   </select>
                 </td>
                 <td class="border p-1.5 text-center text-gray-500">${used}</td>
-                <td class="border p-1.5"><input type="number" min="1" value="${row.quantity}" oninput="updatePortalPurchaseRegRow(${row.id}, 'quantity', Number(this.value))" class="w-full border p-1 rounded text-xs"></td>
+                <td class="border p-1.5"><input type="number" min="1" value="${row.quantity}" ${din('updatePortalPurchaseRegRow', row.id, 'quantity', LIVE_VALUE_NUM)} class="w-full border p-1 rounded text-xs"></td>
                 <td class="border p-1.5 text-right font-semibold">${formatMoney(total)}</td>
-                <td class="border p-1.5 text-center"><button type="button" onclick="removePortalPurchaseRegRow(${row.id})" class="text-red-500 hover:text-red-700">🗑️</button></td>
+                <td class="border p-1.5 text-center"><button type="button" ${dc('removePortalPurchaseRegRow', row.id)} class="text-red-500 hover:text-red-700">🗑️</button></td>
               </tr>
             `;
           }).join('');
@@ -5694,8 +5797,8 @@ function isPerpetualSoftware(softwareId) {
           <td class="border p-2">${itOwnerLabel(i)}</td>
           <td class="border p-2 text-right whitespace-nowrap">${i.cost === null ? '—' : formatMoney(i.cost)}</td>
           <td class="border p-2 text-center whitespace-nowrap">
-            <button onclick="openItItemModal(${i.id})" class="px-1.5 py-0.5 rounded hover:bg-brand-100 text-brand-700" title="Sửa">✏️</button>
-            <button onclick="deleteItItem(${i.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600" title="Xóa">🗑️</button>
+            <button ${dc('openItItemModal', i.id)} class="px-1.5 py-0.5 rounded hover:bg-brand-100 text-brand-700" title="Sửa">✏️</button>
+            <button ${dc('deleteItItem', i.id)} class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600" title="Xóa">🗑️</button>
           </td>
         </tr>
       `;
@@ -5783,8 +5886,8 @@ function isPerpetualSoftware(softwareId) {
           <td class="border p-2 text-center">${cnt}</td>
           <td class="border p-2 text-center">${c.active ? '<span class="text-[10px] font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Đang dùng</span>' : '<span class="text-[10px] font-bold text-gray-600 bg-gray-200 px-2 py-0.5 rounded-full">Ngừng dùng</span>'}</td>
           <td class="border p-2 text-center whitespace-nowrap">
-            <button onclick="openItCategoryModal(${c.id})" class="px-1.5 py-0.5 rounded hover:bg-brand-100 text-brand-700" title="Sửa">✏️</button>
-            <button onclick="deleteItCategory(${c.id})" class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600" title="Xóa">🗑️</button>
+            <button ${dc('openItCategoryModal', c.id)} class="px-1.5 py-0.5 rounded hover:bg-brand-100 text-brand-700" title="Sửa">✏️</button>
+            <button ${dc('deleteItCategory', c.id)} class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600" title="Xóa">🗑️</button>
           </td>
         </tr>
       `;

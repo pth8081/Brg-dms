@@ -124,7 +124,7 @@
           <h2 class="font-brand font-semibold text-2xl md:text-3xl text-gray-900 mb-2">Đăng nhập hệ thống</h2>
           <p class="text-[15px] text-gray-500 leading-relaxed mb-8">Nhập tên đăng nhập và mật khẩu được Quản trị viên cấp cho bạn.</p>
 
-          <form onsubmit="login(event)" novalidate>
+          <form data-evt-submit="login" data-args='[{"__live__":"event"}]' novalidate>
             <div class="mb-4">
               <label for="txtUser" class="block text-[13px] font-semibold text-gray-800 mb-1.5">Tên đăng nhập</label>
               <input id="txtUser" type="text" placeholder="vd: nguyen.van.a" autocomplete="username" class="w-full text-[15px] text-gray-900 bg-paper-100 border-[1.5px] border-paper-200 rounded-lg px-3.5 py-3 transition-colors focus:outline-none focus:border-brand-600 focus:ring-4 focus:ring-brand-600/20 focus:bg-paper-50">
@@ -133,12 +133,12 @@
               <label for="txtPass" class="block text-[13px] font-semibold text-gray-800 mb-1.5">Mật khẩu</label>
               <div class="relative">
                 <input id="txtPass" type="password" placeholder="Nhập mật khẩu..." autocomplete="current-password" class="w-full text-[15px] text-gray-900 bg-paper-100 border-[1.5px] border-paper-200 rounded-lg px-3.5 py-3 pr-16 transition-colors focus:outline-none focus:border-brand-600 focus:ring-4 focus:ring-brand-600/20 focus:bg-paper-50">
-                <button type="button" onclick="toggleLoginPasswordVisibility()" id="btnTogglePass" class="absolute right-1.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-gray-500 px-2.5 py-1.5 rounded-md hover:text-brand-600 hover:bg-paper-200">Hiện</button>
+                <button type="button" data-evt-click="toggleLoginPasswordVisibility" data-args='[]' id="btnTogglePass" class="absolute right-1.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-gray-500 px-2.5 py-1.5 rounded-md hover:text-brand-600 hover:bg-paper-200">Hiện</button>
               </div>
             </div>
 
             <div class="flex justify-end mb-6 text-[13px]">
-              <button type="button" onclick="showForgotPasswordNotice()" class="text-brand-600 font-semibold hover:underline">Quên mật khẩu?</button>
+              <button type="button" data-evt-click="showForgotPasswordNotice" data-args='[]' class="text-brand-600 font-semibold hover:underline">Quên mật khẩu?</button>
             </div>
 
             <button type="submit" id="btnLoginSubmit" class="w-full flex items-center justify-center gap-2 bg-brand-600 text-white font-bold text-[15px] rounded-lg py-3.5 hover:bg-brand-700 transition-colors">
@@ -161,20 +161,20 @@
          vào 1 cột dọc cố định bên trái (xem CLAUDE.md phần lịch sử UI/UX). -->
     <nav id="appSidebar" class="sidebar-shell w-56 shrink-0 flex flex-col gap-0.5 px-3 py-5 md:sticky md:top-0 md:h-screen md:overflow-y-auto">
       <div class="sidebar-brand text-base px-2 pb-4">DMS</div>
-      <button id="btnHomeTab" onclick="switchTab('home')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">🏠</span><span>Trang chủ</span></button>
-      <button id="btnDocTab" onclick="switchTab('doc')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">📂</span><span>Quản lý tài liệu</span></button>
-      <button id="btnLicenseTab" onclick="switchTab('license')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">🔑</span><span>Quản lý Bản quyền</span></button>
-      <button id="btnLicensePortalTab" onclick="switchTab('licensePortal')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">💰</span><span>Ngân sách &amp; Kỳ mua</span></button>
-      <button id="btnReportsTab" onclick="switchTab('reports')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">📊</span><span>Báo cáo</span></button>
-      <button id="btnItAssetsTab" onclick="switchTab('itAssets')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">🖥️</span><span>Quản lý CNTT</span></button>
-      <button id="btnAdminTab" onclick="switchTab('admin')" class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">🛡️</span><span>Hệ thống</span></button>
+      <button id="btnHomeTab" data-evt-click="switchTab" data-args='["home"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">🏠</span><span>Trang chủ</span></button>
+      <button id="btnDocTab" data-evt-click="switchTab" data-args='["doc"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">📂</span><span>Quản lý tài liệu</span></button>
+      <button id="btnLicenseTab" data-evt-click="switchTab" data-args='["license"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">🔑</span><span>Quản lý Bản quyền</span></button>
+      <button id="btnLicensePortalTab" data-evt-click="switchTab" data-args='["licensePortal"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">💰</span><span>Ngân sách &amp; Kỳ mua</span></button>
+      <button id="btnReportsTab" data-evt-click="switchTab" data-args='["reports"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">📊</span><span>Báo cáo</span></button>
+      <button id="btnItAssetsTab" data-evt-click="switchTab" data-args='["itAssets"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">🖥️</span><span>Quản lý CNTT</span></button>
+      <button id="btnAdminTab" data-evt-click="switchTab" data-args='["admin"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">🛡️</span><span>Hệ thống</span></button>
 
       <div id="userHeader" class="sidebar-foot hidden mt-auto pt-3 px-2">
-        <div class="cursor-pointer group" onclick="openProfileModal()" title="Bấm để cập nhật thông tin cá nhân & đổi mật khẩu">
+        <div class="cursor-pointer group" data-evt-click="openProfileModal" data-args='[]' title="Bấm để cập nhật thông tin cá nhân & đổi mật khẩu">
           <span id="userInfo" class="font-bold text-white block text-sm group-hover:underline"></span>
           <span id="userPhoneInfo" class="text-xs block mt-0.5"></span>
         </div>
-        <button onclick="logout()" class="text-xs text-red-300 hover:text-red-200 font-semibold mt-2">Đăng xuất</button>
+        <button data-evt-click="logout" data-args='[]' class="text-xs text-red-300 hover:text-red-200 font-semibold mt-2">Đăng xuất</button>
       </div>
     </nav>
 
@@ -192,28 +192,28 @@
       <!-- Màn hình 2: Tab Quản Lý Tài Liệu -->
       <div id="docSection" class="hidden space-y-6">
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div id="card-ALL" onclick="filterByCard('')" class="dash-card bg-white border rounded-lg p-4 shadow-sm border-l-4 border-l-blue-500 flex justify-between items-center cursor-pointer transition-all hover:scale-[1.02]">
+        <div id="card-ALL" data-evt-click="filterByCard" data-args='[""]' class="dash-card bg-white border rounded-lg p-4 shadow-sm border-l-4 border-l-blue-500 flex justify-between items-center cursor-pointer transition-all hover:scale-[1.02]">
           <div>
             <p class="text-xs text-gray-500 uppercase font-bold">Tổng Tài Liệu</p>
             <h3 id="dashTotal" class="text-2xl font-bold text-gray-800">0</h3>
           </div>
           <div class="bg-blue-100 p-3 rounded-full text-blue-600">📊</div>
         </div>
-        <div id="card-APPROVED" onclick="filterByCard('APPROVED')" class="dash-card bg-white border rounded-lg p-4 shadow-sm border-l-4 border-l-green-500 flex justify-between items-center cursor-pointer transition-all hover:scale-[1.02]">
+        <div id="card-APPROVED" data-evt-click="filterByCard" data-args='["APPROVED"]' class="dash-card bg-white border rounded-lg p-4 shadow-sm border-l-4 border-l-green-500 flex justify-between items-center cursor-pointer transition-all hover:scale-[1.02]">
           <div>
             <p class="text-xs text-gray-500 uppercase font-bold">Đã Phê Duyệt</p>
             <h3 id="dashApproved" class="text-2xl font-bold text-green-600">0</h3>
           </div>
           <div class="bg-green-100 p-3 rounded-full text-green-600">✅</div>
         </div>
-        <div id="card-PENDING" onclick="filterByCard('PENDING')" class="dash-card bg-white border rounded-lg p-4 shadow-sm border-l-4 border-l-yellow-500 flex justify-between items-center cursor-pointer transition-all hover:scale-[1.02]">
+        <div id="card-PENDING" data-evt-click="filterByCard" data-args='["PENDING"]' class="dash-card bg-white border rounded-lg p-4 shadow-sm border-l-4 border-l-yellow-500 flex justify-between items-center cursor-pointer transition-all hover:scale-[1.02]">
           <div>
             <p class="text-xs text-gray-500 uppercase font-bold">Đang Chờ Duyệt</p>
             <h3 id="dashPending" class="text-2xl font-bold text-yellow-600">0</h3>
           </div>
           <div class="bg-yellow-100 p-3 rounded-full text-yellow-600">⏳</div>
         </div>
-        <div id="card-REJECTED" onclick="filterByCard('REJECTED')" class="dash-card bg-white border rounded-lg p-4 shadow-sm border-l-4 border-l-red-500 flex justify-between items-center cursor-pointer transition-all hover:scale-[1.02]">
+        <div id="card-REJECTED" data-evt-click="filterByCard" data-args='["REJECTED"]' class="dash-card bg-white border rounded-lg p-4 shadow-sm border-l-4 border-l-red-500 flex justify-between items-center cursor-pointer transition-all hover:scale-[1.02]">
           <div>
             <p class="text-xs text-gray-500 uppercase font-bold">Từ Chối / Trả Về</p>
             <h3 id="dashRejected" class="text-2xl font-bold text-red-600">0</h3>
@@ -230,7 +230,7 @@
 
         <div class="mb-3">
           <label class="block text-xs font-semibold text-blue-900 mb-1">Chế độ</label>
-          <select id="docMode" onchange="onDocModeChange()" class="border p-2 rounded text-sm bg-white w-full md:w-72">
+          <select id="docMode" data-evt-change="onDocModeChange" data-args='[]' class="border p-2 rounded text-sm bg-white w-full md:w-72">
             <option value="new">🆕 Nhập mới</option>
             <option value="update">🔄 Cập nhật phiên bản tài liệu đã có</option>
           </select>
@@ -238,7 +238,7 @@
 
         <div id="updateTargetBox" class="hidden mb-3">
           <label class="block text-xs font-semibold text-blue-900 mb-1">Chọn tài liệu cần cập nhật</label>
-          <select id="selUpdateTarget" onchange="onUpdateTargetChange()" class="border p-2 rounded text-sm bg-white w-full" required>
+          <select id="selUpdateTarget" data-evt-change="onUpdateTargetChange" data-args='[]' class="border p-2 rounded text-sm bg-white w-full" required>
             <option value="">-- Chọn tài liệu --</option>
           </select>
           <p class="text-[11px] text-blue-700 mt-1">Phòng ban, Phân loại, Tên tài liệu sẽ tự lấy theo tài liệu gốc. Chỉ hiện các tài liệu không còn phiên bản nào đang chờ duyệt.</p>
@@ -246,11 +246,11 @@
 
         <p id="multiHint" class="text-[11px] text-blue-700 mb-3">💡 Chọn nhiều file PDF cùng lúc (chỉ áp dụng khi Nhập mới): mỗi file thành 1 tài liệu riêng, mã tài liệu và tiêu đề tự sinh theo tên file.</p>
 
-        <form id="docForm" onsubmit="uploadDoc(event)" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <form id="docForm" data-evt-submit="uploadDoc" data-args='[{"__live__":"event"}]' class="grid grid-cols-1 md:grid-cols-3 gap-3">
           <input id="docTitle" placeholder="Tên / Tiêu đề tài liệu" class="border p-2 rounded text-sm" required>
           <select id="selDept" class="border p-2 rounded text-sm" required><option value="">-- Chọn Phòng Ban Trình --</option></select>
           <select id="selCat" class="border p-2 rounded text-sm" required><option value="">-- Chọn Phân Loại --</option></select>
-          <input id="docFile" type="file" accept=".pdf,application/pdf" multiple onchange="onDocFileChange()" class="md:col-span-3 border p-1 bg-white rounded text-sm" required>
+          <input id="docFile" type="file" accept=".pdf,application/pdf" multiple data-evt-change="onDocFileChange" data-args='[]' class="md:col-span-3 border p-1 bg-white rounded text-sm" required>
 
           <textarea id="docSummary" placeholder="Tóm tắt / Trích yếu nội dung tài liệu... (dùng chung cho tất cả file đã chọn)" class="md:col-span-3 border p-2 rounded text-sm h-16" required></textarea>
 
@@ -265,13 +265,13 @@
         <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
           <div>
             <label class="block text-xs font-semibold text-gray-600 mb-1">Phòng Ban</label>
-            <select id="filterDept" onchange="onFilterChange()" class="w-full border p-2 rounded text-sm bg-white">
+            <select id="filterDept" data-evt-change="onFilterChange" data-args='[]' class="w-full border p-2 rounded text-sm bg-white">
               <option value="">-- Tất cả phòng ban --</option>
             </select>
           </div>
           <div>
             <label class="block text-xs font-semibold text-gray-600 mb-1">Trạng Thái</label>
-            <select id="filterStatus" onchange="onFilterChange()" class="w-full border p-2 rounded text-sm bg-white">
+            <select id="filterStatus" data-evt-change="onFilterChange" data-args='[]' class="w-full border p-2 rounded text-sm bg-white">
               <option value="">-- Tất cả trạng thái --</option>
               <option value="APPROVED">Đã Phê Duyệt</option>
               <option value="PENDING">Đang Chờ Duyệt</option>
@@ -280,15 +280,15 @@
           </div>
           <div>
             <label class="block text-xs font-semibold text-gray-600 mb-1">Từ Ngày</label>
-            <input id="filterFromDate" type="date" onchange="onFilterChange()" class="w-full border p-2 rounded text-sm bg-white">
+            <input id="filterFromDate" type="date" data-evt-change="onFilterChange" data-args='[]' class="w-full border p-2 rounded text-sm bg-white">
           </div>
           <div>
             <label class="block text-xs font-semibold text-gray-600 mb-1">Đến Ngày</label>
-            <input id="filterToDate" type="date" onchange="onFilterChange()" class="w-full border p-2 rounded text-sm bg-white">
+            <input id="filterToDate" type="date" data-evt-change="onFilterChange" data-args='[]' class="w-full border p-2 rounded text-sm bg-white">
           </div>
           <div>
             <label class="block text-xs font-semibold text-gray-600 mb-1">Từ Khóa</label>
-            <input id="filterKeyword" oninput="onFilterChange()" placeholder="Mã, Tiêu đề, Nội dung..." class="w-full border p-2 rounded text-sm">
+            <input id="filterKeyword" data-evt-input="onFilterChange" data-args='[]' placeholder="Mã, Tiêu đề, Nội dung..." class="w-full border p-2 rounded text-sm">
           </div>
         </div>
       </div>
@@ -296,13 +296,13 @@
       <div>
         <div class="flex justify-between items-center mb-3 flex-wrap gap-2">
           <h3 class="font-bold text-gray-800">Danh Sách Tài Liệu Trong Hệ Thống</h3>
-          <button id="btnBulkDeleteDocs" onclick="bulkDeleteSelectedDocs()" class="hidden text-xs bg-red-600 text-white px-3 py-1.5 rounded font-bold hover:bg-red-700">🗑️ Xóa Đã Chọn (<span id="bulkDeleteCount">0</span>)</button>
+          <button id="btnBulkDeleteDocs" data-evt-click="bulkDeleteSelectedDocs" data-args='[]' class="hidden text-xs bg-red-600 text-white px-3 py-1.5 rounded font-bold hover:bg-red-700">🗑️ Xóa Đã Chọn (<span id="bulkDeleteCount">0</span>)</button>
         </div>
         <div class="overflow-x-auto">
           <table class="w-full border-collapse border text-sm bg-white">
             <thead>
               <tr class="bg-gray-200 text-left text-gray-700">
-                <th id="thDocSelectAll" class="hidden border p-2 text-center"><input type="checkbox" onchange="toggleSelectAllDocs(this.checked)"></th>
+                <th id="thDocSelectAll" class="hidden border p-2 text-center"><input type="checkbox" data-evt-change="toggleSelectAllDocs" data-args='[{"__live__":"checked"}]'></th>
                 <th class="border p-2">Mã Doc</th>
                 <th class="border p-2">Tên & Trích Yếu Nội Dung</th>
                 <th class="border p-2">Phòng Ban</th>
@@ -318,7 +318,7 @@
         <div id="paginationBox" class="mt-4 flex flex-col sm:flex-row justify-between items-center gap-3 bg-gray-50 p-3 rounded border text-xs text-gray-700">
           <div class="flex items-center gap-2">
             <span>Hiển thị</span>
-            <select id="pageSizeSelect" onchange="changePageSize(this.value)" class="border p-1 rounded bg-white font-semibold">
+            <select id="pageSizeSelect" data-evt-change="changePageSize" data-args='[{"__live__":"value"}]' class="border p-1 rounded bg-white font-semibold">
               <option value="5" selected>5</option>
               <option value="10">10</option>
               <option value="20">20</option>
@@ -334,10 +334,10 @@
     <!-- Màn hình 3: Tab Quản Trị Hệ Thống, Phân Quyền, Quy Trình & Log (gộp chung 1 module) -->
     <div id="adminSection" class="hidden space-y-6">
       <div class="flex gap-2 border-b pb-2 flex-wrap">
-        <button id="btnAdminSubUsers" onclick="switchAdminSubTab('users')" class="text-xs px-3 py-1.5 rounded font-semibold">👤 Người Dùng & Phân Quyền</button>
-        <button id="btnAdminSubWorkflow" onclick="switchAdminSubTab('workflow')" class="text-xs px-3 py-1.5 rounded font-semibold">🔄 Quy Trình & Luồng Duyệt</button>
-        <button id="btnAdminSubLog" onclick="switchAdminSubTab('log')" class="text-xs px-3 py-1.5 rounded font-semibold">📊 Log Hệ Thống</button>
-        <button id="btnAdminSubTrash" onclick="switchAdminSubTab('trash')" class="text-xs px-3 py-1.5 rounded font-semibold">🗑️ Thùng Rác</button>
+        <button id="btnAdminSubUsers" data-evt-click="switchAdminSubTab" data-args='["users"]' class="text-xs px-3 py-1.5 rounded font-semibold">👤 Người Dùng & Phân Quyền</button>
+        <button id="btnAdminSubWorkflow" data-evt-click="switchAdminSubTab" data-args='["workflow"]' class="text-xs px-3 py-1.5 rounded font-semibold">🔄 Quy Trình & Luồng Duyệt</button>
+        <button id="btnAdminSubLog" data-evt-click="switchAdminSubTab" data-args='["log"]' class="text-xs px-3 py-1.5 rounded font-semibold">📊 Log Hệ Thống</button>
+        <button id="btnAdminSubTrash" data-evt-click="switchAdminSubTab" data-args='["trash"]' class="text-xs px-3 py-1.5 rounded font-semibold">🗑️ Thùng Rác</button>
       </div>
 
       <!-- Sub-tab: Người Dùng & Phân Quyền -->
@@ -345,7 +345,7 @@
       <div class="bg-amber-50 p-4 rounded border border-amber-300 space-y-3">
         <h3 class="font-bold text-amber-900 text-sm flex items-center gap-1">✉️ Cấu Hình Server Email Thông Báo (SMTP Server)</h3>
         
-        <form onsubmit="saveEmailConfig(event)" class="grid grid-cols-1 md:grid-cols-4 gap-3 bg-white p-3 rounded border text-xs">
+        <form data-evt-submit="saveEmailConfig" data-args='[{"__live__":"event"}]' class="grid grid-cols-1 md:grid-cols-4 gap-3 bg-white p-3 rounded border text-xs">
           <div>
             <label class="block font-semibold text-gray-600 mb-1">Trạng Thái Mail</label>
             <select id="cfgEmailEnabled" class="w-full border p-1.5 rounded bg-white font-bold text-green-700">
@@ -390,7 +390,7 @@
       <div class="bg-sky-50 p-4 rounded border border-sky-300 space-y-3">
         <h3 class="font-bold text-sky-900 text-sm flex items-center gap-1">🔑 Cấu Hình Đăng Nhập LDAP / Active Directory</h3>
 
-        <form onsubmit="saveLdapConfig(event)" class="grid grid-cols-1 md:grid-cols-4 gap-3 bg-white p-3 rounded border text-xs">
+        <form data-evt-submit="saveLdapConfig" data-args='[{"__live__":"event"}]' class="grid grid-cols-1 md:grid-cols-4 gap-3 bg-white p-3 rounded border text-xs">
           <div>
             <label class="block font-semibold text-gray-600 mb-1">Trạng Thái LDAP</label>
             <select id="cfgLdapEnabled" class="w-full border p-1.5 rounded bg-white font-bold text-green-700">
@@ -427,7 +427,7 @@
         </form>
 
         <h3 class="font-bold text-sky-900 text-sm flex items-center gap-1 pt-2">🗂️ Đồng Bộ Tài Khoản AD (module Tài khoản AD)</h3>
-        <form onsubmit="saveAdSyncConfig(event)" class="grid grid-cols-1 md:grid-cols-4 gap-3 bg-white p-3 rounded border text-xs">
+        <form data-evt-submit="saveAdSyncConfig" data-args='[{"__live__":"event"}]' class="grid grid-cols-1 md:grid-cols-4 gap-3 bg-white p-3 rounded border text-xs">
           <div>
             <label class="block font-semibold text-gray-600 mb-1">Đồng Bộ AD</label>
             <select id="cfgAdSyncEnabled" class="w-full border p-1.5 rounded bg-white font-bold">
@@ -466,11 +466,11 @@
         <div class="bg-indigo-50 p-4 rounded border border-indigo-200 space-y-3">
           <h3 class="font-bold text-indigo-900 text-sm flex items-center gap-1">🏢 Quản Lý Phòng Ban</h3>
           <p class="text-[11px] text-indigo-700">Viết tắt dùng để tự sinh mã tài liệu (VD: IT, NS...), chỉ chữ/số không dấu, tối đa 10 ký tự.</p>
-          <form onsubmit="saveDept(event)" class="flex gap-2">
+          <form data-evt-submit="saveDept" data-args='[{"__live__":"event"}]' class="flex gap-2">
             <input id="editDeptId" type="hidden">
             <input id="txtDeptName" placeholder="Tên phòng ban mới..." class="border p-1.5 rounded text-xs flex-1" required>
             <input id="txtDeptAbbr" placeholder="Viết tắt (VD: IT)" maxlength="10" class="border p-1.5 rounded text-xs w-24" required>
-            <button id="btnCancelDept" type="button" onclick="resetDeptForm()" class="hidden bg-gray-400 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-gray-500">Hủy</button>
+            <button id="btnCancelDept" type="button" data-evt-click="resetDeptForm" data-args='[]' class="hidden bg-gray-400 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-gray-500">Hủy</button>
             <button id="btnSaveDept" type="submit" class="btn-primary px-3 py-1.5 rounded text-xs font-bold">Thêm</button>
           </form>
           <div class="max-h-36 overflow-y-auto bg-white rounded border">
@@ -481,11 +481,11 @@
         <div class="bg-emerald-50 p-4 rounded border border-emerald-200 space-y-3">
           <h3 class="font-bold text-emerald-900 text-sm flex items-center gap-1">🏷️ Quản Lý Phân Loại Tài Liệu</h3>
           <p class="text-[11px] text-emerald-700">Viết tắt dùng để tự sinh mã tài liệu (VD: HD, BC...), chỉ chữ/số không dấu, tối đa 10 ký tự.</p>
-          <form onsubmit="saveCat(event)" class="flex gap-2">
+          <form data-evt-submit="saveCat" data-args='[{"__live__":"event"}]' class="flex gap-2">
             <input id="editCatId" type="hidden">
             <input id="txtCatName" placeholder="Tên loại tài liệu mới..." class="border p-1.5 rounded text-xs flex-1" required>
             <input id="txtCatAbbr" placeholder="Viết tắt (VD: HD)" maxlength="10" class="border p-1.5 rounded text-xs w-24" required>
-            <button id="btnCancelCat" type="button" onclick="resetCatForm()" class="hidden bg-gray-400 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-gray-500">Hủy</button>
+            <button id="btnCancelCat" type="button" data-evt-click="resetCatForm" data-args='[]' class="hidden bg-gray-400 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-gray-500">Hủy</button>
             <button id="btnSaveCat" type="submit" class="btn-primary px-3 py-1.5 rounded text-xs font-bold">Thêm</button>
           </form>
           <div class="max-h-36 overflow-y-auto bg-white rounded border">
@@ -498,7 +498,7 @@
       <div class="bg-slate-50 p-4 rounded border border-slate-300 space-y-4">
         <h3 class="font-bold text-base text-gray-800">Tài Khoản Người Dùng & Phân Quyền Chi Tiết theo Phòng Ban</h3>
 
-        <form onsubmit="saveUser(event)" class="space-y-4">
+        <form data-evt-submit="saveUser" data-args='[{"__live__":"event"}]' class="space-y-4">
           <input id="editUserId" type="hidden">
           
           <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3 bg-white p-3 rounded border">
@@ -545,7 +545,7 @@
               <div class="flex justify-between items-center border-b pb-1">
                 <h4 class="font-bold text-blue-800 text-xs">2. Upload / Trình Ký</h4>
                 <label class="flex items-center gap-1 font-bold text-blue-700 cursor-pointer text-[11px]">
-                  <input type="checkbox" id="pUploadAll" onchange="toggleScopeGroup('pUploadAll', 'pUploadDept')"> ALL
+                  <input type="checkbox" id="pUploadAll" data-evt-change="toggleScopeGroup" data-args='["pUploadAll","pUploadDept"]'> ALL
                 </label>
               </div>
               <div id="pUploadDeptContainer" class="space-y-1 pl-1 max-h-36 overflow-y-auto"></div>
@@ -555,7 +555,7 @@
               <div class="flex justify-between items-center border-b pb-1">
                 <h4 class="font-bold text-amber-800 text-xs">3. Xem Bản Nháp</h4>
                 <label class="flex items-center gap-1 font-bold text-amber-700 cursor-pointer text-[11px]">
-                  <input type="checkbox" id="pViewDraftAll" onchange="toggleScopeGroup('pViewDraftAll', 'pViewDraftDept')"> ALL
+                  <input type="checkbox" id="pViewDraftAll" data-evt-change="toggleScopeGroup" data-args='["pViewDraftAll","pViewDraftDept"]'> ALL
                 </label>
               </div>
               <div id="pViewDraftDeptContainer" class="space-y-1 pl-1 max-h-36 overflow-y-auto"></div>
@@ -565,7 +565,7 @@
               <div class="flex justify-between items-center border-b pb-1">
                 <h4 class="font-bold text-emerald-800 text-xs">4. Xem Đã Duyệt</h4>
                 <label class="flex items-center gap-1 font-bold text-emerald-700 cursor-pointer text-[11px]">
-                  <input type="checkbox" id="pViewApprovedAll" onchange="toggleScopeGroup('pViewApprovedAll', 'pViewApprovedDept')"> ALL
+                  <input type="checkbox" id="pViewApprovedAll" data-evt-change="toggleScopeGroup" data-args='["pViewApprovedAll","pViewApprovedDept"]'> ALL
                 </label>
               </div>
               <div id="pViewApprovedDeptContainer" class="space-y-1 pl-1 max-h-36 overflow-y-auto"></div>
@@ -575,7 +575,7 @@
               <div class="flex justify-between items-center border-b pb-1">
                 <h4 class="font-bold text-rose-800 text-xs">5. Quyền Tải File</h4>
                 <label class="flex items-center gap-1 font-bold text-rose-700 cursor-pointer text-[11px]">
-                  <input type="checkbox" id="pDownloadAll" onchange="toggleScopeGroup('pDownloadAll', 'pDownloadDept')"> ALL
+                  <input type="checkbox" id="pDownloadAll" data-evt-change="toggleScopeGroup" data-args='["pDownloadAll","pDownloadDept"]'> ALL
                 </label>
               </div>
               <div id="pDownloadDeptContainer" class="space-y-1 pl-1 max-h-36 overflow-y-auto"></div>
@@ -585,7 +585,7 @@
           <div class="bg-white p-3 rounded border space-y-2 text-xs">
             <h4 class="font-bold text-teal-800 border-b pb-1 text-xs">6. Phạm vi tự phục vụ Bản quyền (Ngân sách + Kỳ mua)</h4>
             <p class="text-[11px] text-gray-500">Nếu gán phạm vi, tài khoản này (không phải Admin) sẽ đăng nhập thẳng vào Cổng tự phục vụ để tự lập dự trù ngân sách / đăng ký mua trong đúng phạm vi được gán, ở các Kỳ Admin đã tạo và gán phạm vi khớp.</p>
-            <select id="userScopeType" onchange="onScopeTypeChange('user')" class="w-full border p-1.5 rounded text-xs bg-white mb-2">
+            <select id="userScopeType" data-evt-change="onScopeTypeChange" data-args='["user"]' class="w-full border p-1.5 rounded text-xs bg-white mb-2">
               <option value="">-- Không có phạm vi (tài khoản thường) --</option>
               <option value="COMPANY">Toàn bộ 1 Công ty</option>
               <option value="ORG_UNIT">1 Khối/Phòng/Ban thuộc Công ty</option>
@@ -594,13 +594,13 @@
               <select id="userScopeCompanyId" class="w-full border p-1.5 rounded text-xs bg-white"></select>
             </div>
             <div id="userScopeOrgUnitWrap" class="hidden grid grid-cols-2 gap-2">
-              <select id="userScopeOrgUnitCompanyId" onchange="onScopeOrgUnitCompanyChange('user')" class="w-full border p-1.5 rounded text-xs bg-white"></select>
+              <select id="userScopeOrgUnitCompanyId" data-evt-change="onScopeOrgUnitCompanyChange" data-args='["user"]' class="w-full border p-1.5 rounded text-xs bg-white"></select>
               <select id="userScopeOrgUnitId" class="w-full border p-1.5 rounded text-xs bg-white"></select>
             </div>
           </div>
 
           <div class="flex justify-end gap-2 pt-2">
-            <button type="button" onclick="resetUserForm()" class="bg-gray-400 text-white px-4 py-1.5 rounded text-xs font-bold">Hủy</button>
+            <button type="button" data-evt-click="resetUserForm" data-args='[]' class="bg-gray-400 text-white px-4 py-1.5 rounded text-xs font-bold">Hủy</button>
             <button id="btnSaveUser" type="submit" class="btn-primary px-6 py-1.5 rounded text-xs font-bold">+ Thêm Vào Danh Sách</button>
           </div>
         </form>
@@ -608,7 +608,7 @@
         <div id="pendingUsersBox" class="hidden bg-purple-50 border border-purple-300 rounded p-3 space-y-2">
           <div class="flex justify-between items-center">
             <h4 class="font-bold text-sm text-purple-900">📝 User Đang Chờ Lưu (<span id="pendingUsersCount">0</span>)</h4>
-            <button onclick="saveAllPendingUsers()" class="btn-primary text-xs px-4 py-1.5 rounded font-bold">💾 Lưu Tất Cả</button>
+            <button data-evt-click="saveAllPendingUsers" data-args='[]' class="btn-primary text-xs px-4 py-1.5 rounded font-bold">💾 Lưu Tất Cả</button>
           </div>
           <div class="overflow-x-auto bg-white rounded border">
             <table class="w-full text-xs text-left">
@@ -628,10 +628,10 @@
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 my-3 border-t pt-3">
           <h4 class="font-bold text-sm text-gray-800">Danh Sách Tài Khoản & Quyền Hạn</h4>
           <div class="flex flex-wrap gap-2 text-xs">
-            <button type="button" onclick="downloadUserTemplate()" class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition">📄 Tải File Excel Mẫu</button>
-            <button type="button" onclick="exportUsersXlsx()" class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition">📤 Xuất Excel</button>
+            <button type="button" data-evt-click="downloadUserTemplate" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition">📄 Tải File Excel Mẫu</button>
+            <button type="button" data-evt-click="exportUsersXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition">📤 Xuất Excel</button>
             <label class="btn-secondary px-2.5 py-1.5 rounded font-semibold cursor-pointer transition">
-              📥 Nhập Excel <input type="file" accept=".xlsx" onchange="importUsersXlsx(event)" class="hidden">
+              📥 Nhập Excel <input type="file" accept=".xlsx" data-evt-change="importUsersXlsx" data-args='[{"__live__":"event"}]' class="hidden">
             </label>
           </div>
         </div>
@@ -667,7 +667,7 @@
               </h3>
               <p class="text-xs text-emerald-800">Gán quy trình phê duyệt tài liệu riêng cho từng phòng ban và thiết lập tài khoản người phê duyệt chi tiết. Có thể chỉnh nhiều phòng ban rồi lưu 1 lần, hoặc lưu riêng từng phòng.</p>
             </div>
-            <button onclick="saveAllDeptWorkflows()" class="shrink-0 btn-primary text-xs px-4 py-2 rounded font-bold">💾 Lưu Tất Cả Cấu Hình</button>
+            <button data-evt-click="saveAllDeptWorkflows" data-args='[]' class="shrink-0 btn-primary text-xs px-4 py-2 rounded font-bold">💾 Lưu Tất Cả Cấu Hình</button>
           </div>
           <div id="deptWorkflowConfigContainer" class="space-y-4"></div>
         </div>
@@ -675,7 +675,7 @@
         <div class="bg-slate-50 p-4 rounded border space-y-4">
           <h3 class="font-bold text-slate-800 text-base">🛠️ Định Nghĩa Mẫu Quy Trình (Workflow Templates)</h3>
 
-          <form onsubmit="saveWorkflowTemplate(event)" class="bg-white p-3 rounded border space-y-3">
+          <form data-evt-submit="saveWorkflowTemplate" data-args='[{"__live__":"event"}]' class="bg-white p-3 rounded border space-y-3">
             <input id="editingWfCode" type="hidden">
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -692,11 +692,11 @@
             <div>
               <label class="block text-xs font-bold text-gray-700 mb-2">Thứ Tự Các Bước Duyệt (Tối đa 5 bước):</label>
               <div id="stepBuilderContainer" class="space-y-2"></div>
-              <button type="button" onclick="addStepRow()" class="mt-2 text-xs bg-gray-200 text-gray-800 px-2 py-1 rounded font-semibold hover:bg-gray-300">+ Thêm Bước Duyệt</button>
+              <button type="button" data-evt-click="addStepRow" data-args='[]' class="mt-2 text-xs bg-gray-200 text-gray-800 px-2 py-1 rounded font-semibold hover:bg-gray-300">+ Thêm Bước Duyệt</button>
             </div>
 
             <div class="flex justify-end gap-2">
-              <button id="btnCancelWf" type="button" onclick="resetWorkflowForm()" class="hidden bg-gray-400 text-white text-xs px-3 py-1.5 rounded font-bold">Hủy</button>
+              <button id="btnCancelWf" type="button" data-evt-click="resetWorkflowForm" data-args='[]' class="hidden bg-gray-400 text-white text-xs px-3 py-1.5 rounded font-bold">Hủy</button>
               <button id="btnSaveWf" type="submit" class="btn-primary text-xs px-4 py-1.5 rounded font-bold">Lưu Mẫu Quy Trình</button>
             </div>
           </form>
@@ -728,15 +728,15 @@
               <p class="text-xs text-stone-800">Giám sát và truy xuất nhật ký thao tác người dùng, gửi email, phân quyền và cấu hình hệ thống.</p>
             </div>
             <div class="flex gap-2">
-              <button onclick="clearSystemLogs()" class="text-xs bg-red-600 text-white px-3 py-1.5 rounded font-bold hover:bg-red-700">🗑️ Xóa Log</button>
-              <button onclick="exportSystemLogsXlsx()" class="btn-secondary text-xs px-3 py-1.5 rounded font-bold">📥 Xuất Log Excel</button>
+              <button data-evt-click="clearSystemLogs" data-args='[]' class="text-xs bg-red-600 text-white px-3 py-1.5 rounded font-bold hover:bg-red-700">🗑️ Xóa Log</button>
+              <button data-evt-click="exportSystemLogsXlsx" data-args='[]' class="btn-secondary text-xs px-3 py-1.5 rounded font-bold">📥 Xuất Log Excel</button>
             </div>
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-4 gap-3 bg-white p-3 rounded border text-xs">
             <div>
               <label class="block font-semibold text-gray-600 mb-1">Lọc Theo Phân Hệ</label>
-              <select id="filterLogModule" onchange="resetPageAndRerender('systemLogs','renderSystemLogs')" class="w-full border p-1.5 rounded bg-white font-semibold">
+              <select id="filterLogModule" data-evt-change="resetPageAndRerender" data-args='["systemLogs","renderSystemLogs"]' class="w-full border p-1.5 rounded bg-white font-semibold">
                 <option value="">-- Tất cả phân hệ --</option>
                 <option value="EMAIL">Log Gửi Email (EMAIL)</option>
                 <option value="CONFIG">Log Cấu Hình Hệ Thống (CONFIG)</option>
@@ -747,7 +747,7 @@
             </div>
             <div>
               <label class="block font-semibold text-gray-600 mb-1">Lọc Trạng Thái</label>
-              <select id="filterLogStatus" onchange="resetPageAndRerender('systemLogs','renderSystemLogs')" class="w-full border p-1.5 rounded bg-white font-semibold">
+              <select id="filterLogStatus" data-evt-change="resetPageAndRerender" data-args='["systemLogs","renderSystemLogs"]' class="w-full border p-1.5 rounded bg-white font-semibold">
                 <option value="">-- Tất cả trạng thái --</option>
                 <option value="SUCCESS">Thành công (SUCCESS)</option>
                 <option value="FAILED">Thất bại (FAILED)</option>
@@ -755,10 +755,10 @@
             </div>
             <div>
               <label class="block font-semibold text-gray-600 mb-1">Tìm Kiếm</label>
-              <input id="filterLogKeyword" oninput="resetPageAndRerender('systemLogs','renderSystemLogs')" placeholder="Username, IP, hành động..." class="w-full border p-1.5 rounded">
+              <input id="filterLogKeyword" data-evt-input="resetPageAndRerender" data-args='["systemLogs","renderSystemLogs"]' placeholder="Username, IP, hành động..." class="w-full border p-1.5 rounded">
             </div>
             <div class="flex items-end">
-              <button onclick="resetLogFilters()" class="w-full bg-gray-200 text-gray-700 p-1.5 rounded font-bold hover:bg-gray-300">Đặt Lại Bộ Lọc</button>
+              <button data-evt-click="resetLogFilters" data-args='[]' class="w-full bg-gray-200 text-gray-700 p-1.5 rounded font-bold hover:bg-gray-300">Đặt Lại Bộ Lọc</button>
             </div>
           </div>
         </div>
@@ -792,8 +792,8 @@
               <p class="text-xs text-red-800">Tài liệu đã xóa được giữ ở đây, có thể khôi phục lại hoặc xóa vĩnh viễn (không thể hoàn tác).</p>
             </div>
             <div class="flex gap-2">
-              <button id="btnTrashRestore" onclick="bulkRestoreTrash()" class="hidden text-xs btn-success px-3 py-1.5 rounded font-bold">♻️ Khôi Phục Đã Chọn (<span id="trashRestoreCount">0</span>)</button>
-              <button id="btnTrashPurge" onclick="bulkPurgeTrash()" class="hidden text-xs bg-red-700 text-white px-3 py-1.5 rounded font-bold hover:bg-red-800">🔥 Xóa Vĩnh Viễn Đã Chọn (<span id="trashPurgeCount">0</span>)</button>
+              <button id="btnTrashRestore" data-evt-click="bulkRestoreTrash" data-args='[]' class="hidden text-xs btn-success px-3 py-1.5 rounded font-bold">♻️ Khôi Phục Đã Chọn (<span id="trashRestoreCount">0</span>)</button>
+              <button id="btnTrashPurge" data-evt-click="bulkPurgeTrash" data-args='[]' class="hidden text-xs bg-red-700 text-white px-3 py-1.5 rounded font-bold hover:bg-red-800">🔥 Xóa Vĩnh Viễn Đã Chọn (<span id="trashPurgeCount">0</span>)</button>
             </div>
           </div>
         </div>
@@ -802,7 +802,7 @@
           <table class="w-full border-collapse text-xs">
             <thead>
               <tr class="bg-gray-100 text-left text-gray-700">
-                <th class="border p-2 text-center"><input type="checkbox" onchange="toggleSelectAllTrash(this.checked)"></th>
+                <th class="border p-2 text-center"><input type="checkbox" data-evt-change="toggleSelectAllTrash" data-args='[{"__live__":"checked"}]'></th>
                 <th class="border p-2">Mã Doc</th>
                 <th class="border p-2">Tiêu Đề</th>
                 <th class="border p-2">Phòng Ban</th>
@@ -825,26 +825,26 @@
          trước đây (Danh mục/Vận hành/Mua sắm & Ngân sách + tab con), vốn bị
          phản hồi là rối vì phải bấm 2 lần mới tới đúng mục. -->
     <div id="licenseSubNavRow" class="flex gap-1 border-b border-gray-200 flex-wrap">
-      <button id="btnLicenseSubOrg" onclick="switchLicenseSubTab('org')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🏢 Tổ chức công ty</button>
-      <button id="btnLicenseSubEmp" onclick="switchLicenseSubTab('emp')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">👤 Nhân viên</button>
-      <button id="btnLicenseSubSoftware" onclick="switchLicenseSubTab('software')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">💽 Phần mềm</button>
-      <button id="btnLicenseSubItemCatalog" onclick="switchLicenseSubTab('itemCatalog')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🗄️ Danh mục HC/DV/Khác</button>
-      <button id="btnLicenseSubBatch" onclick="switchLicenseSubTab('batch')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📜 Phát hành license</button>
-      <button id="btnLicenseSubAlloc" onclick="switchLicenseSubTab('alloc')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📦 Phân bổ</button>
-      <button id="btnLicenseSubAD" onclick="switchLicenseSubTab('ad')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🗂️ Tài khoản AD</button>
-      <button id="btnLicenseSubPurchase" onclick="switchLicenseSubTab('purchase')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🛒 Đăng ký mua bản quyền</button>
-      <button id="btnLicenseSubRounds" onclick="switchLicenseSubTab('rounds')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📋 Phát hành đăng ký mua</button>
-      <button id="btnLicenseSubBudget" onclick="switchLicenseSubTab('budget')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">💰 Ngân sách</button>
+      <button id="btnLicenseSubOrg" data-evt-click="switchLicenseSubTab" data-args='["org"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🏢 Tổ chức công ty</button>
+      <button id="btnLicenseSubEmp" data-evt-click="switchLicenseSubTab" data-args='["emp"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">👤 Nhân viên</button>
+      <button id="btnLicenseSubSoftware" data-evt-click="switchLicenseSubTab" data-args='["software"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">💽 Phần mềm</button>
+      <button id="btnLicenseSubItemCatalog" data-evt-click="switchLicenseSubTab" data-args='["itemCatalog"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🗄️ Danh mục HC/DV/Khác</button>
+      <button id="btnLicenseSubBatch" data-evt-click="switchLicenseSubTab" data-args='["batch"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📜 Phát hành license</button>
+      <button id="btnLicenseSubAlloc" data-evt-click="switchLicenseSubTab" data-args='["alloc"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📦 Phân bổ</button>
+      <button id="btnLicenseSubAD" data-evt-click="switchLicenseSubTab" data-args='["ad"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🗂️ Tài khoản AD</button>
+      <button id="btnLicenseSubPurchase" data-evt-click="switchLicenseSubTab" data-args='["purchase"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🛒 Đăng ký mua bản quyền</button>
+      <button id="btnLicenseSubRounds" data-evt-click="switchLicenseSubTab" data-args='["rounds"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📋 Phát hành đăng ký mua</button>
+      <button id="btnLicenseSubBudget" data-evt-click="switchLicenseSubTab" data-args='["budget"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">💰 Ngân sách</button>
     </div>
 
     <!-- Sub-tab: Tổ chức công ty -->
     <div id="licenseSubOrg" class="space-y-3">
       <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
         <div class="flex flex-wrap gap-2 text-xs">
-          <button onclick="openCompanyModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition">+ Thêm công ty</button>
-          <button onclick="downloadOrgUnitTemplate()" class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition">📄 Tải File Excel Mẫu</button>
+          <button data-evt-click="openCompanyModal" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition">+ Thêm công ty</button>
+          <button data-evt-click="downloadOrgUnitTemplate" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition">📄 Tải File Excel Mẫu</button>
           <label class="btn-secondary px-2.5 py-1.5 rounded font-semibold cursor-pointer transition">
-            📥 Nhập Excel <input type="file" accept=".xlsx" onchange="importOrgUnitsXlsx(event)" class="hidden">
+            📥 Nhập Excel <input type="file" accept=".xlsx" data-evt-change="importOrgUnitsXlsx" data-args='[{"__live__":"event"}]' class="hidden">
           </label>
         </div>
         <span class="text-[11px] text-gray-500">Bấm "+ Con" trong từng đơn vị để thêm bất kỳ cấp nào — không giới hạn số cấp.</span>
@@ -857,23 +857,23 @@
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-gray-50 p-3 rounded border text-xs">
         <div>
           <label class="block font-semibold text-gray-600 mb-1">Công ty</label>
-          <select id="empFilterCompany" onchange="onEmpFilterCompanyChange(); resetPageAndRerender('licenseEmp','renderLicenseEmployees')" class="w-full border p-1.5 rounded bg-white"></select>
+          <select id="empFilterCompany" data-evt-change="onEmpFilterCompanyChangeAndRerender" data-args="[]" class="w-full border p-1.5 rounded bg-white"></select>
         </div>
         <div>
           <label class="block font-semibold text-gray-600 mb-1">Đơn vị</label>
-          <select id="empFilterOrgUnit" onchange="resetPageAndRerender('licenseEmp','renderLicenseEmployees')" class="w-full border p-1.5 rounded bg-white"></select>
+          <select id="empFilterOrgUnit" data-evt-change="resetPageAndRerender" data-args='["licenseEmp","renderLicenseEmployees"]' class="w-full border p-1.5 rounded bg-white"></select>
         </div>
         <div>
           <label class="block font-semibold text-gray-600 mb-1">Tìm kiếm</label>
-          <input id="empFilterSearch" type="text" oninput="resetPageAndRerender('licenseEmp','renderLicenseEmployees')" placeholder="Tên, mã NV, email..." class="w-full border p-1.5 rounded">
+          <input id="empFilterSearch" type="text" data-evt-input="resetPageAndRerender" data-args='["licenseEmp","renderLicenseEmployees"]' placeholder="Tên, mã NV, email..." class="w-full border p-1.5 rounded">
         </div>
       </div>
       <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
         <div class="flex flex-wrap gap-2 text-xs">
-          <button onclick="openEmployeeModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition">+ Thêm nhân viên</button>
-          <button onclick="downloadEmployeeTemplate()" class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition">📄 Tải File Excel Mẫu</button>
+          <button data-evt-click="openEmployeeModal" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition">+ Thêm nhân viên</button>
+          <button data-evt-click="downloadEmployeeTemplate" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition">📄 Tải File Excel Mẫu</button>
           <label class="btn-secondary px-2.5 py-1.5 rounded font-semibold cursor-pointer transition">
-            📥 Nhập Excel <input type="file" accept=".xlsx" onchange="importEmployeesXlsx(event)" class="hidden">
+            📥 Nhập Excel <input type="file" accept=".xlsx" data-evt-change="importEmployeesXlsx" data-args='[{"__live__":"event"}]' class="hidden">
           </label>
         </div>
         <span id="empCountHint" class="text-[11px] text-gray-500"></span>
@@ -899,7 +899,7 @@
 
     <!-- Sub-tab: Danh mục phần mềm -->
     <div id="licenseSubSoftware" class="hidden space-y-3">
-      <button onclick="openSoftwareModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Thêm phần mềm</button>
+      <button data-evt-click="openSoftwareModal" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Thêm phần mềm</button>
       <div class="overflow-x-auto">
         <table class="w-full border-collapse border bg-white text-xs max-w-3xl">
           <thead>
@@ -924,8 +924,8 @@
     <div id="licenseSubItemCatalog" class="hidden space-y-3">
       <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
         <div class="flex flex-wrap gap-2 text-xs items-center">
-          <button onclick="openBudgetItemCatalogModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition">+ Thêm hạng mục</button>
-          <select id="itemCatalogFilterType" onchange="renderBudgetItemCatalogTable()" class="border p-1.5 rounded bg-white">
+          <button data-evt-click="openBudgetItemCatalogModal" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition">+ Thêm hạng mục</button>
+          <select id="itemCatalogFilterType" data-evt-change="renderBudgetItemCatalogTable" data-args='[]' class="border p-1.5 rounded bg-white">
             <option value="">-- Tất cả loại --</option>
             <option value="HARDWARE">Phần cứng</option>
             <option value="SERVICE">Dịch vụ</option>
@@ -953,7 +953,7 @@
     <!-- Sub-tab: Phát hành license -->
     <div id="licenseSubBatch" class="hidden space-y-3">
       <div class="flex justify-between items-center gap-2">
-        <button onclick="openBatchModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Phát hành license</button>
+        <button data-evt-click="openBatchModal" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Phát hành license</button>
         <span class="text-[11px] text-gray-500">Phát hành gắn với 1 đăng ký mua đã duyệt. Kỳ Gia hạn: nhập <b>tổng số lượng mong muốn</b>, hệ thống chỉ sinh thêm phần chênh lệch và gia hạn mã cũ. Kỳ Mua mới: nhập <b>số lượng mua thêm</b>, sinh thẳng mã mới vào kho.</span>
       </div>
       <div class="overflow-x-auto">
@@ -981,23 +981,23 @@
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-gray-50 p-3 rounded border text-xs">
         <div>
           <label class="block font-semibold text-gray-600 mb-1">Công ty</label>
-          <select id="allocFilterCompany" onchange="resetPageAndRerender('allocTable','renderAllocTable')" class="w-full border p-1.5 rounded bg-white"></select>
+          <select id="allocFilterCompany" data-evt-change="resetPageAndRerender" data-args='["allocTable","renderAllocTable"]' class="w-full border p-1.5 rounded bg-white"></select>
         </div>
         <div>
           <label class="block font-semibold text-gray-600 mb-1">Phần mềm</label>
-          <select id="allocFilterSoftware" onchange="resetPageAndRerender('allocTable','renderAllocTable')" class="w-full border p-1.5 rounded bg-white"></select>
+          <select id="allocFilterSoftware" data-evt-change="resetPageAndRerender" data-args='["allocTable","renderAllocTable"]' class="w-full border p-1.5 rounded bg-white"></select>
         </div>
         <div>
           <label class="block font-semibold text-gray-600 mb-1">Tìm kiếm</label>
-          <input id="allocFilterSearch" type="text" oninput="resetPageAndRerender('allocTable','renderAllocTable')" placeholder="Tên nhân viên, mã license..." class="w-full border p-1.5 rounded">
+          <input id="allocFilterSearch" type="text" data-evt-input="resetPageAndRerender" data-args='["allocTable","renderAllocTable"]' placeholder="Tên nhân viên, mã license..." class="w-full border p-1.5 rounded">
         </div>
       </div>
       <div class="flex flex-wrap gap-2">
-        <button onclick="openAllocModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Thêm phân bổ</button>
-        <button onclick="openBulkAllocateModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">📋 Cấp phát hàng loạt theo nhân sự</button>
-        <button onclick="openBulkAllocFileModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">📁 Cấp phát hàng loạt từ file</button>
-        <button onclick="openAutoAllocateModal()" class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">🔄 Gia hạn/Thu hồi hàng loạt</button>
-        <button onclick="openControlReportModal()" class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">🔍 Kiểm soát</button>
+        <button data-evt-click="openAllocModal" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Thêm phân bổ</button>
+        <button data-evt-click="openBulkAllocateModal" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">📋 Cấp phát hàng loạt theo nhân sự</button>
+        <button data-evt-click="openBulkAllocFileModal" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">📁 Cấp phát hàng loạt từ file</button>
+        <button data-evt-click="openAutoAllocateModal" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">🔄 Gia hạn/Thu hồi hàng loạt</button>
+        <button data-evt-click="openControlReportModal" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">🔍 Kiểm soát</button>
       </div>
 
       <!-- Danh sách Yêu cầu cấp phát hàng loạt (từ file) — chờ duyệt/đã xử lý -->
@@ -1045,17 +1045,17 @@
     <!-- Sub-tab: Tài khoản AD -->
     <div id="licenseSubAD" class="hidden space-y-3">
       <div class="flex items-center gap-2 flex-wrap">
-        <button onclick="syncAdAccountsNow()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">🔄 Đồng bộ ngay</button>
+        <button data-evt-click="syncAdAccountsNow" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">🔄 Đồng bộ ngay</button>
         <span id="adLastSyncLabel" class="text-xs text-gray-500"></span>
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-4 gap-2 bg-gray-50 p-3 rounded border text-xs">
         <div>
           <label class="block font-semibold text-gray-600 mb-1">Tìm kiếm</label>
-          <input id="adFilterSearch" type="text" oninput="resetPageAndRerender('adAccounts','renderAdAccountsTable')" placeholder="Tài khoản, họ và tên..." class="w-full border p-1.5 rounded">
+          <input id="adFilterSearch" type="text" data-evt-input="resetPageAndRerender" data-args='["adAccounts","renderAdAccountsTable"]' placeholder="Tài khoản, họ và tên..." class="w-full border p-1.5 rounded">
         </div>
         <div>
           <label class="block font-semibold text-gray-600 mb-1">Tình trạng</label>
-          <select id="adFilterStatus" onchange="resetPageAndRerender('adAccounts','renderAdAccountsTable')" class="w-full border p-1.5 rounded bg-white">
+          <select id="adFilterStatus" data-evt-change="resetPageAndRerender" data-args='["adAccounts","renderAdAccountsTable"]' class="w-full border p-1.5 rounded bg-white">
             <option value="">-- Tất cả --</option>
             <option value="active">Active</option>
             <option value="disabled">Disable</option>
@@ -1063,11 +1063,11 @@
         </div>
         <div>
           <label class="block font-semibold text-gray-600 mb-1">Công ty</label>
-          <select id="adFilterCompany" onchange="resetPageAndRerender('adAccounts','renderAdAccountsTable')" class="w-full border p-1.5 rounded bg-white"></select>
+          <select id="adFilterCompany" data-evt-change="resetPageAndRerender" data-args='["adAccounts","renderAdAccountsTable"]' class="w-full border p-1.5 rounded bg-white"></select>
         </div>
         <div>
           <label class="block font-semibold text-gray-600 mb-1">Khối phòng ban</label>
-          <select id="adFilterOrgUnit" onchange="resetPageAndRerender('adAccounts','renderAdAccountsTable')" class="w-full border p-1.5 rounded bg-white"></select>
+          <select id="adFilterOrgUnit" data-evt-change="resetPageAndRerender" data-args='["adAccounts","renderAdAccountsTable"]' class="w-full border p-1.5 rounded bg-white"></select>
         </div>
       </div>
       <div class="overflow-x-auto">
@@ -1094,11 +1094,11 @@
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded border text-xs">
         <div>
           <label class="block font-semibold text-gray-600 mb-1">Lọc theo Kỳ mua</label>
-          <select id="regFilterRound" onchange="resetPageAndRerender('registrations','renderRegistrationsTable')" class="w-full border p-1.5 rounded bg-white"></select>
+          <select id="regFilterRound" data-evt-change="resetPageAndRerender" data-args='["registrations","renderRegistrationsTable"]' class="w-full border p-1.5 rounded bg-white"></select>
         </div>
         <div>
           <label class="block font-semibold text-gray-600 mb-1">Lọc theo Trạng thái</label>
-          <select id="regFilterStatus" onchange="resetPageAndRerender('registrations','renderRegistrationsTable')" class="w-full border p-1.5 rounded bg-white">
+          <select id="regFilterStatus" data-evt-change="resetPageAndRerender" data-args='["registrations","renderRegistrationsTable"]' class="w-full border p-1.5 rounded bg-white">
             <option value="">-- Tất cả --</option>
             <option value="PENDING">Chờ duyệt</option>
             <option value="APPROVED">Đã duyệt</option>
@@ -1107,7 +1107,7 @@
           </select>
         </div>
       </div>
-      <button onclick="openRegistrationModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Đăng ký mua</button>
+      <button data-evt-click="openRegistrationModal" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Đăng ký mua</button>
       <div class="overflow-x-auto">
         <table class="w-full border-collapse border bg-white text-xs">
           <thead>
@@ -1134,9 +1134,9 @@
     <!-- Sub-tab: Phát hành đăng ký mua (Admin quản lý Kỳ mua) -->
     <div id="licenseSubRounds" class="hidden space-y-4">
       <div class="flex flex-wrap items-center gap-2">
-        <button onclick="openRoundModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Tạo kỳ mua mới</button>
+        <button data-evt-click="openRoundModal" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Tạo kỳ mua mới</button>
         <label class="text-xs font-semibold text-gray-600 ml-2">Chọn kỳ:</label>
-        <select id="purchaseRoundJumpSelect" onchange="jumpToRound('purchase', this.value); this.value='';" class="border p-1.5 rounded bg-white text-xs"></select>
+        <select id="purchaseRoundJumpSelect" data-evt-change="jumpToRoundAndReset" data-args='["purchase", {"__live__":"el"}]' class="border p-1.5 rounded bg-white text-xs"></select>
       </div>
       <div id="roundsListContainer" class="space-y-3"></div>
 
@@ -1145,11 +1145,11 @@
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded border text-xs mb-2">
           <div>
             <label class="block font-semibold text-gray-600 mb-1">Lọc theo Kỳ mua</label>
-            <select id="adminRegFilterRound" onchange="resetPageAndRerender('adminRegistrations','renderAdminRegistrationsTable')" class="w-full border p-1.5 rounded bg-white"></select>
+            <select id="adminRegFilterRound" data-evt-change="resetPageAndRerender" data-args='["adminRegistrations","renderAdminRegistrationsTable"]' class="w-full border p-1.5 rounded bg-white"></select>
           </div>
           <div>
             <label class="block font-semibold text-gray-600 mb-1">Lọc theo Trạng thái</label>
-            <select id="adminRegFilterStatus" onchange="resetPageAndRerender('adminRegistrations','renderAdminRegistrationsTable')" class="w-full border p-1.5 rounded bg-white">
+            <select id="adminRegFilterStatus" data-evt-change="resetPageAndRerender" data-args='["adminRegistrations","renderAdminRegistrationsTable"]' class="w-full border p-1.5 rounded bg-white">
               <option value="PENDING">Chờ duyệt</option>
               <option value="APPROVED">Đã duyệt</option>
               <option value="ISSUED">Đã phát hành</option>
@@ -1186,29 +1186,29 @@
         Module Ngân sách dùng để LẬP DỰ TRÙ trước khi mở Kỳ mua thật — độc lập hoàn toàn với "Phát hành đăng ký mua" ở trên. Số "Đang dùng" tính theo license ĐANG được gán cho nhân viên trong từng đơn vị trực thuộc (gồm cả đơn vị con bên dưới).
       </div>
       <div class="flex flex-wrap items-center gap-2">
-        <button onclick="openBudgetRoundModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Tạo kỳ ngân sách mới</button>
+        <button data-evt-click="openBudgetRoundModal" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Tạo kỳ ngân sách mới</button>
         <label class="text-xs font-semibold text-gray-600 ml-2">Chọn kỳ:</label>
-        <select id="budgetRoundJumpSelect" onchange="jumpToRound('budget', this.value); this.value='';" class="border p-1.5 rounded bg-white text-xs"></select>
+        <select id="budgetRoundJumpSelect" data-evt-change="jumpToRoundAndReset" data-args='["budget", {"__live__":"el"}]' class="border p-1.5 rounded bg-white text-xs"></select>
       </div>
       <div id="budgetRoundsListContainer" class="space-y-3"></div>
 
       <div class="border-t pt-4">
         <div class="flex justify-between items-center mb-2">
           <h3 class="font-bold text-gray-800 text-sm">Dự trù ngân sách theo đơn vị</h3>
-          <button onclick="openBudgetRegistrationModal()" class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Lập dự trù</button>
+          <button data-evt-click="openBudgetRegistrationModal" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Lập dự trù</button>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-gray-50 p-3 rounded border text-xs mb-2">
           <div>
             <label class="block font-semibold text-gray-600 mb-1">Lọc theo Kỳ ngân sách</label>
-            <select id="budgetRegFilterRound" onchange="resetPageAndRerender('budgetRegistrations','renderBudgetRegistrationsTable')" class="w-full border p-1.5 rounded bg-white"></select>
+            <select id="budgetRegFilterRound" data-evt-change="resetPageAndRerender" data-args='["budgetRegistrations","renderBudgetRegistrationsTable"]' class="w-full border p-1.5 rounded bg-white"></select>
           </div>
           <div>
             <label class="block font-semibold text-gray-600 mb-1">Lọc theo Công ty</label>
-            <select id="budgetRegFilterCompany" onchange="resetPageAndRerender('budgetRegistrations','renderBudgetRegistrationsTable')" class="w-full border p-1.5 rounded bg-white"></select>
+            <select id="budgetRegFilterCompany" data-evt-change="resetPageAndRerender" data-args='["budgetRegistrations","renderBudgetRegistrationsTable"]' class="w-full border p-1.5 rounded bg-white"></select>
           </div>
           <div>
             <label class="block font-semibold text-gray-600 mb-1">Lọc theo Trạng thái</label>
-            <select id="budgetRegFilterStatus" onchange="resetPageAndRerender('budgetRegistrations','renderBudgetRegistrationsTable')" class="w-full border p-1.5 rounded bg-white">
+            <select id="budgetRegFilterStatus" data-evt-change="resetPageAndRerender" data-args='["budgetRegistrations","renderBudgetRegistrationsTable"]' class="w-full border p-1.5 rounded bg-white">
               <option value="">-- Tất cả --</option>
               <option value="PENDING">Chờ duyệt</option>
               <option value="APPROVED">Đã duyệt</option>
@@ -1243,8 +1243,8 @@
   <!-- Màn hình 5: Module Báo cáo — tổng hợp số liệu theo phân hệ nghiệp vụ -->
   <div id="reportsSection" class="hidden space-y-5">
     <div class="inline-flex bg-gray-100 border border-gray-200 rounded-lg p-1 gap-1">
-      <button id="btnReportsSubDoc" onclick="switchReportsSubsystem('doc')" class="text-xs px-3.5 py-1.5 rounded-md font-semibold">📂 Tài liệu</button>
-      <button id="btnReportsSubLicense" onclick="switchReportsSubsystem('license')" class="text-xs px-3.5 py-1.5 rounded-md font-semibold">🔑 Bản quyền</button>
+      <button id="btnReportsSubDoc" data-evt-click="switchReportsSubsystem" data-args='["doc"]' class="text-xs px-3.5 py-1.5 rounded-md font-semibold">📂 Tài liệu</button>
+      <button id="btnReportsSubLicense" data-evt-click="switchReportsSubsystem" data-args='["license"]' class="text-xs px-3.5 py-1.5 rounded-md font-semibold">🔑 Bản quyền</button>
     </div>
 
     <!-- ===== Báo cáo Tài liệu ===== -->
@@ -1365,14 +1365,14 @@
       <h2 class="text-lg font-bold text-gray-900">💰 Ngân sách &amp; Kỳ mua</h2>
       <p class="text-xs text-gray-500">Phạm vi của bạn: <span id="portalScopeLabel" class="font-semibold text-teal-700"></span></p>
       <div class="flex gap-2 mt-3 border-b">
-        <button id="btnPortalSubBudget" onclick="switchPortalSubTab('budget')" class="px-3 py-2 text-xs font-bold border-b-2 border-teal-600 text-teal-700">Ngân sách dự trù</button>
-        <button id="btnPortalSubPurchase" onclick="switchPortalSubTab('purchase')" class="px-3 py-2 text-xs font-bold border-b-2 border-transparent text-gray-500">Kỳ mua đăng ký</button>
+        <button id="btnPortalSubBudget" data-evt-click="switchPortalSubTab" data-args='["budget"]' class="px-3 py-2 text-xs font-bold border-b-2 border-teal-600 text-teal-700">Ngân sách dự trù</button>
+        <button id="btnPortalSubPurchase" data-evt-click="switchPortalSubTab" data-args='["purchase"]' class="px-3 py-2 text-xs font-bold border-b-2 border-transparent text-gray-500">Kỳ mua đăng ký</button>
       </div>
     </div>
 
     <div id="portalSubBudget" class="space-y-4">
       <div class="flex justify-end">
-        <button type="button" onclick="openPortalBudgetRegModal()" class="btn-primary px-3 py-1.5 rounded text-xs font-bold">+ Lập dự trù</button>
+        <button type="button" data-evt-click="openPortalBudgetRegModal" data-args='[]' class="btn-primary px-3 py-1.5 rounded text-xs font-bold">+ Lập dự trù</button>
       </div>
       <div id="portalBudgetRoundsContainer" class="space-y-3"></div>
       <div class="bg-white border rounded-xl p-4 shadow-sm">
@@ -1396,7 +1396,7 @@
 
     <div id="portalSubPurchase" class="hidden space-y-4">
       <div class="flex justify-end">
-        <button type="button" onclick="openPortalPurchaseRegModal()" class="btn-primary px-3 py-1.5 rounded text-xs font-bold">+ Đăng ký mua</button>
+        <button type="button" data-evt-click="openPortalPurchaseRegModal" data-args='[]' class="btn-primary px-3 py-1.5 rounded text-xs font-bold">+ Đăng ký mua</button>
       </div>
       <div id="portalPurchaseRoundsContainer" class="space-y-3"></div>
       <div class="bg-white border rounded-xl p-4 shadow-sm">
@@ -1422,27 +1422,27 @@
   <!-- MODULE: Quản lý CNTT (theo dõi hạn dịch vụ/bản quyền + nhắc email tự động) -->
   <div id="itAssetsSection" class="hidden space-y-4">
     <div class="flex gap-1 border-b border-gray-200 flex-wrap">
-      <button id="btnItSubItems" onclick="switchItAssetsSubTab('items')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🖥️ Đầu mục theo dõi</button>
-      <button id="btnItSubCategories" onclick="switchItAssetsSubTab('categories')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📁 Danh mục</button>
-      <button id="btnItSubConfig" onclick="switchItAssetsSubTab('config')" class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">⏰ Cấu hình nhắc hẹn</button>
+      <button id="btnItSubItems" data-evt-click="switchItAssetsSubTab" data-args='["items"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🖥️ Đầu mục theo dõi</button>
+      <button id="btnItSubCategories" data-evt-click="switchItAssetsSubTab" data-args='["categories"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📁 Danh mục</button>
+      <button id="btnItSubConfig" data-evt-click="switchItAssetsSubTab" data-args='["config"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">⏰ Cấu hình nhắc hẹn</button>
     </div>
 
     <!-- Sub-tab: Đầu mục theo dõi -->
     <div id="itSubItems" class="space-y-3">
       <div class="flex flex-wrap justify-between items-center gap-2">
         <h2 class="text-lg font-bold text-gray-800">Đầu mục theo dõi gia hạn</h2>
-        <button onclick="openItItemModal()" class="btn-primary px-4 py-2 rounded text-sm font-bold">+ Thêm đầu mục</button>
+        <button data-evt-click="openItItemModal" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">+ Thêm đầu mục</button>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-4 gap-2 bg-gray-50 p-3 rounded border">
-        <input id="itFilterSearch" type="text" placeholder="🔍 Tìm theo tên..." oninput="resetPageAndRerender('itItems','renderItItemsTable')" class="border p-1.5 rounded text-sm">
-        <select id="itFilterCategory" onchange="resetPageAndRerender('itItems','renderItItemsTable')" class="border p-1.5 rounded bg-white text-sm"></select>
-        <select id="itFilterStatus" onchange="resetPageAndRerender('itItems','renderItItemsTable')" class="border p-1.5 rounded bg-white text-sm">
+        <input id="itFilterSearch" type="text" placeholder="🔍 Tìm theo tên..." data-evt-input="resetPageAndRerender" data-args='["itItems","renderItItemsTable"]' class="border p-1.5 rounded text-sm">
+        <select id="itFilterCategory" data-evt-change="resetPageAndRerender" data-args='["itItems","renderItItemsTable"]' class="border p-1.5 rounded bg-white text-sm"></select>
+        <select id="itFilterStatus" data-evt-change="resetPageAndRerender" data-args='["itItems","renderItItemsTable"]' class="border p-1.5 rounded bg-white text-sm">
           <option value="">-- Tất cả trạng thái --</option>
           <option value="OK">Còn hạn</option>
           <option value="SOON">Sắp hết hạn</option>
           <option value="EXPIRED">Đã hết hạn</option>
         </select>
-        <select id="itFilterActive" onchange="resetPageAndRerender('itItems','renderItItemsTable')" class="border p-1.5 rounded bg-white text-sm">
+        <select id="itFilterActive" data-evt-change="resetPageAndRerender" data-args='["itItems","renderItItemsTable"]' class="border p-1.5 rounded bg-white text-sm">
           <option value="1">Đang theo dõi</option>
           <option value="0">Đã tạm ngừng</option>
           <option value="">-- Tất cả --</option>
@@ -1473,7 +1473,7 @@
     <div id="itSubCategories" class="hidden space-y-3">
       <div class="flex flex-wrap justify-between items-center gap-2">
         <h2 class="text-lg font-bold text-gray-800">Danh mục loại dịch vụ/bản quyền</h2>
-        <button onclick="openItCategoryModal()" class="btn-primary px-4 py-2 rounded text-sm font-bold">+ Thêm danh mục</button>
+        <button data-evt-click="openItCategoryModal" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">+ Thêm danh mục</button>
       </div>
       <div class="overflow-x-auto border rounded">
         <table class="w-full text-xs border-collapse">
@@ -1504,8 +1504,8 @@
           <p class="text-[11px] text-gray-500 mt-1">Hệ thống luôn tự nhắc thêm vào đúng ngày hết hạn, không phụ thuộc cấu hình này.</p>
         </div>
         <div class="flex gap-2 pt-1">
-          <button onclick="saveItReminderConfig()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu cấu hình</button>
-          <button onclick="runItCheckExpiryNow()" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">🔔 Kiểm tra &amp; gửi nhắc ngay</button>
+          <button data-evt-click="saveItReminderConfig" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu cấu hình</button>
+          <button data-evt-click="runItCheckExpiryNow" data-args='[]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">🔔 Kiểm tra &amp; gửi nhắc ngay</button>
         </div>
         <p id="itCfgLastCheckLabel" class="text-[11px] text-gray-500"></p>
       </div>
@@ -1573,8 +1573,8 @@
         </label>
       </div>
       <div class="flex justify-end gap-2 pt-1">
-        <button type="button" onclick="closeLicenseModal('itItemModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveItItem()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["itItemModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveItItem" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
       </div>
     </div>
   </div>
@@ -1592,8 +1592,8 @@
         <input id="itCategoryActive" type="checkbox" class="w-4 h-4" checked> Đang sử dụng
       </label>
       <div class="flex justify-end gap-2 pt-1">
-        <button type="button" onclick="closeLicenseModal('itCategoryModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveItCategory()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["itCategoryModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveItCategory" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
       </div>
     </div>
   </div>
@@ -1605,11 +1605,11 @@
       <div class="grid grid-cols-2 gap-3">
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Kỳ ngân sách</label>
-          <select id="portalBudgetRegRound" onchange="onPortalBudgetRegChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
+          <select id="portalBudgetRegRound" data-evt-change="onPortalBudgetRegChange" data-args='[]' class="w-full border p-2 rounded text-sm bg-white"></select>
         </div>
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn vị</label>
-          <select id="portalBudgetRegOrgUnit" onchange="onPortalBudgetRegChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
+          <select id="portalBudgetRegOrgUnit" data-evt-change="onPortalBudgetRegChange" data-args='[]' class="w-full border p-2 rounded text-sm bg-white"></select>
         </div>
       </div>
       <div>
@@ -1627,7 +1627,7 @@
           </table>
         </div>
         <div class="flex justify-between items-center mt-2">
-          <button type="button" onclick="addPortalBudgetRegRow()" class="text-xs font-semibold text-brand-700 bg-brand-50 border border-dashed border-brand-600 rounded px-2.5 py-1.5 hover:bg-brand-100">+ Thêm dòng</button>
+          <button type="button" data-evt-click="addPortalBudgetRegRow" data-args='[]' class="text-xs font-semibold text-brand-700 bg-brand-50 border border-dashed border-brand-600 rounded px-2.5 py-1.5 hover:bg-brand-100">+ Thêm dòng</button>
         </div>
       </div>
       <div>
@@ -1635,8 +1635,8 @@
         <input id="portalBudgetRegNote" type="text" class="w-full border p-2 rounded text-sm">
       </div>
       <div class="flex justify-end gap-2 pt-1">
-        <button type="button" onclick="closeLicenseModal('portalBudgetRegModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="savePortalBudgetRegistration()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Gửi dự trù</button>
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["portalBudgetRegModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="savePortalBudgetRegistration" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Gửi dự trù</button>
       </div>
     </div>
   </div>
@@ -1647,7 +1647,7 @@
       <h3 class="font-bold text-gray-900 text-base">Đăng ký mua bản quyền</h3>
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Kỳ mua</label>
-        <select id="portalPurchaseRegRound" onchange="onPortalPurchaseRegChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
+        <select id="portalPurchaseRegRound" data-evt-change="onPortalPurchaseRegChange" data-args='[]' class="w-full border p-2 rounded text-sm bg-white"></select>
       </div>
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Danh sách phần mềm đăng ký</label>
@@ -1666,7 +1666,7 @@
           </table>
         </div>
         <div class="flex justify-between items-center mt-2">
-          <button type="button" onclick="addPortalPurchaseRegRow()" class="text-xs font-semibold text-brand-700 bg-brand-50 border border-dashed border-brand-600 rounded px-2.5 py-1.5 hover:bg-brand-100">+ Thêm dòng</button>
+          <button type="button" data-evt-click="addPortalPurchaseRegRow" data-args='[]' class="text-xs font-semibold text-brand-700 bg-brand-50 border border-dashed border-brand-600 rounded px-2.5 py-1.5 hover:bg-brand-100">+ Thêm dòng</button>
           <span class="text-xs text-gray-600">Tổng cộng <strong id="portalPurchaseRegTotal" class="text-teal-700">0 ₫</strong></span>
         </div>
       </div>
@@ -1675,8 +1675,8 @@
         <input id="portalPurchaseRegNote" type="text" class="w-full border p-2 rounded text-sm">
       </div>
       <div class="flex justify-end gap-2 pt-1">
-        <button type="button" onclick="closeLicenseModal('portalPurchaseRegModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="savePortalPurchaseRegistration()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Gửi đăng ký</button>
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["portalPurchaseRegModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="savePortalPurchaseRegistration" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Gửi đăng ký</button>
       </div>
     </div>
   </div>
@@ -1695,8 +1695,8 @@
         <input id="companyCode" type="text" maxlength="20" class="w-full border p-2 rounded text-sm" placeholder="VD: SV">
       </div>
       <div class="flex justify-end gap-2 pt-1">
-        <button type="button" onclick="closeLicenseModal('companyModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveCompany()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["companyModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveCompany" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
       </div>
     </div>
   </div>
@@ -1720,8 +1720,8 @@
         <input id="orgUnitLevel" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Khối / Ban / Phòng...">
       </div>
       <div class="flex justify-end gap-2 pt-1">
-        <button type="button" onclick="closeLicenseModal('orgUnitModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveOrgUnit()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["orgUnitModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveOrgUnit" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
       </div>
     </div>
   </div>
@@ -1741,7 +1741,7 @@
       </div>
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Công ty</label>
-        <select id="employeeCompany" onchange="populateOrgUnitSelectFor('employeeCompany', 'employeeOrgUnit')" class="w-full border p-2 rounded text-sm bg-white"></select>
+        <select id="employeeCompany" data-evt-change="populateOrgUnitSelectFor" data-args='["employeeCompany","employeeOrgUnit"]' class="w-full border p-2 rounded text-sm bg-white"></select>
       </div>
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn vị</label>
@@ -1756,8 +1756,8 @@
         <input id="employeeEmail" type="email" class="w-full border p-2 rounded text-sm" placeholder="vd@congty.vn">
       </div>
       <div class="flex justify-end gap-2 pt-1">
-        <button type="button" onclick="closeLicenseModal('employeeModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveEmployee()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["employeeModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveEmployee" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
       </div>
     </div>
   </div>
@@ -1798,8 +1798,8 @@
         <label for="softwareAllowCrossCompany" class="text-xs font-semibold text-gray-600">Cho phép dùng chung mã license này giữa các công ty khác nhau</label>
       </div>
       <div class="flex justify-end gap-2 pt-1">
-        <button type="button" onclick="closeLicenseModal('softwareModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveSoftware()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["softwareModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveSoftware" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
       </div>
     </div>
   </div>
@@ -1810,7 +1810,7 @@
       <h3 class="font-bold text-gray-900 text-base">Phát hành license</h3>
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Đăng ký mua đã duyệt</label>
-        <select id="batchRegistration" onchange="onBatchRegistrationChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
+        <select id="batchRegistration" data-evt-change="onBatchRegistrationChange" data-args='[]' class="w-full border p-2 rounded text-sm bg-white"></select>
         <p class="text-[11px] text-gray-500 mt-1">Chỉ hiện các đăng ký đã duyệt và chưa phát hành. Phải có Kỳ mua + đăng ký được duyệt trước mới phát hành được.</p>
       </div>
       <div id="batchRegistrationInfo" class="bg-teal-50 border border-teal-200 rounded p-2 text-[11px] text-teal-900 space-y-0.5 hidden">
@@ -1839,8 +1839,8 @@
         <input id="batchNote" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Theo hợp đồng số...">
       </div>
       <div class="flex justify-end gap-2 pt-1">
-        <button type="button" onclick="closeLicenseModal('batchModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveBatch()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Phát hành</button>
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["batchModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveBatch" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Phát hành</button>
       </div>
     </div>
   </div>
@@ -1864,10 +1864,10 @@
           <tbody id="allocCreateRowsBody"></tbody>
         </table>
       </div>
-      <button type="button" onclick="addAllocCreateRow()" class="text-xs font-semibold text-brand-700 hover:underline">+ Thêm dòng</button>
+      <button type="button" data-evt-click="addAllocCreateRow" data-args='[]' class="text-xs font-semibold text-brand-700 hover:underline">+ Thêm dòng</button>
       <div class="flex justify-end gap-2 pt-1 border-t">
-        <button type="button" onclick="closeLicenseModal('allocModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveAllocation()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Cấp phát</button>
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["allocModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveAllocation" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Cấp phát</button>
       </div>
     </div>
   </div>
@@ -1879,7 +1879,7 @@
       <p class="text-xs text-gray-500">Chọn công ty để xem lại các nhân viên đang giữ mã license ĐÃ HẾT HẠN. Với mỗi dòng: để trống (mặc định) sẽ gia hạn thẳng đúng mã đó lên ngày hết hạn của lần phát hành gần nhất; tích "Bỏ khỏi DS phân bổ" nếu xác nhận nhân viên đã nghỉ / không dùng phần mềm nữa (sẽ thu hồi mã). Lưu ý: đây KHÔNG phải chức năng cấp license mới — muốn cấp cho nhân viên chưa có license, dùng nút "Cấp phát hàng loạt theo nhân sự".</p>
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Công ty</label>
-        <select id="autoAllocCompany" onchange="renderAutoAllocateRows()" class="w-full border p-2 rounded text-sm bg-white"></select>
+        <select id="autoAllocCompany" data-evt-change="renderAutoAllocateRows" data-args='[]' class="w-full border p-2 rounded text-sm bg-white"></select>
       </div>
       <div class="overflow-x-auto">
         <table class="w-full border-collapse border bg-white text-xs">
@@ -1897,8 +1897,8 @@
         </table>
       </div>
       <div class="flex justify-end gap-2 pt-1">
-        <button type="button" onclick="closeLicenseModal('autoAllocateModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveAutoAllocate()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Xử lý</button>
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["autoAllocateModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveAutoAllocate" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Xử lý</button>
       </div>
     </div>
   </div>
@@ -1912,15 +1912,15 @@
       <div class="grid grid-cols-1 gap-3">
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Công ty</label>
-          <select id="bulkAllocCompany" onchange="onBulkAllocScopeChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
+          <select id="bulkAllocCompany" data-evt-change="onBulkAllocScopeChange" data-args='[]' class="w-full border p-2 rounded text-sm bg-white"></select>
         </div>
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Phần mềm</label>
-          <select id="bulkAllocSoftware" onchange="onBulkAllocScopeChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
+          <select id="bulkAllocSoftware" data-evt-change="onBulkAllocScopeChange" data-args='[]' class="w-full border p-2 rounded text-sm bg-white"></select>
         </div>
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn vị trực thuộc (tùy chọn)</label>
-          <select id="bulkAllocOrgUnit" onchange="onBulkAllocScopeChange()" class="w-full border p-2 rounded text-sm bg-white">
+          <select id="bulkAllocOrgUnit" data-evt-change="onBulkAllocScopeChange" data-args='[]' class="w-full border p-2 rounded text-sm bg-white">
             <option value="">-- Toàn bộ công ty --</option>
           </select>
         </div>
@@ -1931,8 +1931,8 @@
       </div>
       <div id="bulkAllocPreview" class="text-xs bg-gray-50 border rounded p-3"></div>
       <div class="flex justify-end gap-2 pt-1">
-        <button type="button" onclick="closeLicenseModal('bulkAllocateModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveBulkAllocate()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Xác nhận cấp phát</button>
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["bulkAllocateModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveBulkAllocate" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Xác nhận cấp phát</button>
       </div>
     </div>
   </div>
@@ -1946,11 +1946,11 @@
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Công ty</label>
-          <select id="bafCompany" onchange="onBulkAllocFileScopeChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
+          <select id="bafCompany" data-evt-change="onBulkAllocFileScopeChange" data-args='[]' class="w-full border p-2 rounded text-sm bg-white"></select>
         </div>
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Phần mềm</label>
-          <select id="bafSoftware" onchange="onBulkAllocFileScopeChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
+          <select id="bafSoftware" data-evt-change="onBulkAllocFileScopeChange" data-args='[]' class="w-full border p-2 rounded text-sm bg-white"></select>
         </div>
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày cấp</label>
@@ -1967,19 +1967,19 @@
       <div class="border-t pt-3">
         <label class="block text-xs font-semibold text-gray-600 mb-1">Hình thức nhập</label>
         <div class="flex gap-4 text-xs mb-2">
-          <label class="flex items-center gap-1.5 cursor-pointer"><input type="radio" name="bafMode" value="COMPANY" checked onchange="onBulkAllocFileModeChange()"> Theo Công ty (mọi người cùng 1 đơn vị)</label>
-          <label class="flex items-center gap-1.5 cursor-pointer"><input type="radio" name="bafMode" value="ORG_UNIT" onchange="onBulkAllocFileModeChange()"> Theo Khối/Phòng/Ban (mỗi người 1 đơn vị khác nhau)</label>
+          <label class="flex items-center gap-1.5 cursor-pointer"><input type="radio" name="bafMode" value="COMPANY" checked data-evt-change="onBulkAllocFileModeChange" data-args='[]'> Theo Công ty (mọi người cùng 1 đơn vị)</label>
+          <label class="flex items-center gap-1.5 cursor-pointer"><input type="radio" name="bafMode" value="ORG_UNIT" data-evt-change="onBulkAllocFileModeChange" data-args='[]'> Theo Khối/Phòng/Ban (mỗi người 1 đơn vị khác nhau)</label>
         </div>
         <div id="bafDefaultOrgUnitWrap">
           <label class="block text-xs font-semibold text-gray-600 mb-1" id="bafDefaultOrgUnitLabel">Đơn vị (áp dụng cho mọi nhân viên mới trong file)</label>
           <select id="bafOrgUnit" class="w-full border p-2 rounded text-sm bg-white"></select>
         </div>
         <div class="flex flex-wrap gap-2 mt-3">
-          <button type="button" onclick="downloadBulkAllocTemplateCompany()" class="btn-secondary px-3 py-1.5 rounded text-xs font-semibold">⬇️ Tải mẫu Theo Công ty</button>
-          <button type="button" onclick="downloadBulkAllocTemplateOrgUnit()" class="btn-secondary px-3 py-1.5 rounded text-xs font-semibold">⬇️ Tải mẫu Theo Khối/Phòng/Ban</button>
+          <button type="button" data-evt-click="downloadBulkAllocTemplateCompany" data-args='[]' class="btn-secondary px-3 py-1.5 rounded text-xs font-semibold">⬇️ Tải mẫu Theo Công ty</button>
+          <button type="button" data-evt-click="downloadBulkAllocTemplateOrgUnit" data-args='[]' class="btn-secondary px-3 py-1.5 rounded text-xs font-semibold">⬇️ Tải mẫu Theo Khối/Phòng/Ban</button>
           <label class="btn-primary px-3 py-1.5 rounded text-xs font-semibold cursor-pointer">
             📤 Tải file lên
-            <input type="file" accept=".xlsx" onchange="handleBulkAllocFileUpload(event)" class="hidden">
+            <input type="file" accept=".xlsx" data-evt-change="handleBulkAllocFileUpload" data-args='[{"__live__":"event"}]' class="hidden">
           </label>
         </div>
       </div>
@@ -2004,8 +2004,8 @@
       </div>
 
       <div class="flex justify-end gap-2 pt-1 border-t">
-        <button type="button" onclick="closeLicenseModal('bulkAllocFileModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="submitBulkAllocFileRequest()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Gửi yêu cầu chờ duyệt</button>
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["bulkAllocFileModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="submitBulkAllocFileRequest" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Gửi yêu cầu chờ duyệt</button>
       </div>
     </div>
   </div>
@@ -2031,7 +2031,7 @@
         </table>
       </div>
       <div class="flex justify-end gap-2 pt-1">
-        <button type="button" onclick="closeLicenseModal('controlReportModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Đóng</button>
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["controlReportModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Đóng</button>
       </div>
     </div>
   </div>
@@ -2052,7 +2052,7 @@
       </div>
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Loại kỳ mua</label>
-        <select id="roundType" onchange="onRoundTypeChange()" class="w-full border p-2 rounded text-sm bg-white">
+        <select id="roundType" data-evt-change="onRoundTypeChange" data-args='[]' class="w-full border p-2 rounded text-sm bg-white">
           <option value="RENEWAL">Gia hạn — đối chiếu số lượng đang dùng, hạn áp dụng chung cho cả kỳ</option>
           <option value="NEW">Mua mới — chỉ cần số lượng mua thêm, hạn nhập lúc Phát hành</option>
         </select>
@@ -2066,7 +2066,7 @@
       </div>
       <div class="border-t pt-3">
         <label class="block text-xs font-semibold text-gray-600 mb-1">Phạm vi (công ty/đơn vị được tự đăng ký mua)</label>
-        <select id="roundScopeType" onchange="onScopeTypeChange('round')" class="w-full border p-2 rounded text-sm bg-white mb-2">
+        <select id="roundScopeType" data-evt-change="onScopeTypeChange" data-args='["round"]' class="w-full border p-2 rounded text-sm bg-white mb-2">
           <option value="">-- Không giới hạn phạm vi (chỉ Admin thao tác, như trước) --</option>
           <option value="COMPANY">Toàn bộ 1 Công ty</option>
           <option value="ORG_UNIT">1 Khối/Phòng/Ban thuộc Công ty</option>
@@ -2075,7 +2075,7 @@
           <select id="roundScopeCompanyId" class="w-full border p-2 rounded text-sm bg-white"></select>
         </div>
         <div id="roundScopeOrgUnitWrap" class="hidden grid grid-cols-2 gap-2">
-          <select id="roundScopeOrgUnitCompanyId" onchange="onScopeOrgUnitCompanyChange('round')" class="w-full border p-2 rounded text-sm bg-white"></select>
+          <select id="roundScopeOrgUnitCompanyId" data-evt-change="onScopeOrgUnitCompanyChange" data-args='["round"]' class="w-full border p-2 rounded text-sm bg-white"></select>
           <select id="roundScopeOrgUnitId" class="w-full border p-2 rounded text-sm bg-white"></select>
         </div>
         <p class="text-[11px] text-gray-500 mt-1">Chỉ tài khoản đơn vị có phạm vi khớp mới tự đăng ký mua trong kỳ này được (qua Cổng tự phục vụ). Để trống thì chỉ Admin thao tác được, như thiết kế cũ.</p>
@@ -2096,13 +2096,13 @@
           </table>
         </div>
         <div class="flex justify-between items-center mt-2">
-          <button type="button" onclick="addRoundCreateRow()" class="text-xs font-semibold text-brand-700 bg-brand-50 border border-dashed border-brand-600 rounded px-2.5 py-1.5 hover:bg-brand-100">+ Thêm dòng</button>
+          <button type="button" data-evt-click="addRoundCreateRow" data-args='[]' class="text-xs font-semibold text-brand-700 bg-brand-50 border border-dashed border-brand-600 rounded px-2.5 py-1.5 hover:bg-brand-100">+ Thêm dòng</button>
           <span id="roundCreateItemsHint" class="text-[11px] text-gray-500"></span>
         </div>
       </div>
       <div class="flex justify-end gap-2 pt-1">
-        <button type="button" onclick="closeLicenseModal('roundModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveRound()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Tạo kỳ mua</button>
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["roundModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveRound" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Tạo kỳ mua</button>
       </div>
     </div>
   </div>
@@ -2114,7 +2114,7 @@
       <input type="hidden" id="roundItemRoundId">
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Phần mềm <span id="roundItemLicenseTypeBadge"></span></label>
-        <select id="roundItemSoftware" onchange="onRoundItemSoftwareChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
+        <select id="roundItemSoftware" data-evt-change="onRoundItemSoftwareChange" data-args='[]' class="w-full border p-2 rounded text-sm bg-white"></select>
       </div>
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn giá (VNĐ)</label>
@@ -2126,8 +2126,8 @@
         <p id="roundItemDurationHint" class="text-[11px] text-gray-500 mt-1"></p>
       </div>
       <div class="flex justify-end gap-2 pt-1">
-        <button type="button" onclick="closeLicenseModal('roundItemModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveRoundItem()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Thêm</button>
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["roundItemModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveRoundItem" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Thêm</button>
       </div>
     </div>
   </div>
@@ -2139,11 +2139,11 @@
       <div class="grid grid-cols-2 gap-3">
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Kỳ mua</label>
-          <select id="regRound" onchange="onRegRoundOrCompanyChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
+          <select id="regRound" data-evt-change="onRegRoundOrCompanyChange" data-args='[]' class="w-full border p-2 rounded text-sm bg-white"></select>
         </div>
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Công ty</label>
-          <select id="regCompany" onchange="onRegRoundOrCompanyChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
+          <select id="regCompany" data-evt-change="onRegRoundOrCompanyChange" data-args='[]' class="w-full border p-2 rounded text-sm bg-white"></select>
         </div>
       </div>
       <div class="bg-teal-50 border border-teal-200 rounded p-2 text-[11px] text-teal-800">
@@ -2168,7 +2168,7 @@
           </table>
         </div>
         <div class="flex justify-between items-center mt-2">
-          <button type="button" onclick="addRegRow()" class="text-xs font-semibold text-brand-700 bg-brand-50 border border-dashed border-brand-600 rounded px-2.5 py-1.5 hover:bg-brand-100">+ Thêm dòng</button>
+          <button type="button" data-evt-click="addRegRow" data-args='[]' class="text-xs font-semibold text-brand-700 bg-brand-50 border border-dashed border-brand-600 rounded px-2.5 py-1.5 hover:bg-brand-100">+ Thêm dòng</button>
           <span class="text-xs text-gray-600">Tổng cộng <strong id="regTotal" class="text-teal-700">0 ₫</strong></span>
         </div>
       </div>
@@ -2177,8 +2177,8 @@
         <input id="regNote" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Do tăng nhân sự quý này">
       </div>
       <div class="flex justify-end gap-2 pt-1">
-        <button type="button" onclick="closeLicenseModal('registrationModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveRegistration()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Gửi đăng ký</button>
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["registrationModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveRegistration" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Gửi đăng ký</button>
       </div>
     </div>
   </div>
@@ -2199,7 +2199,7 @@
       </div>
       <div class="border-t pt-3">
         <label class="block text-xs font-semibold text-gray-600 mb-1">Phạm vi (công ty/đơn vị được tự dự trù)</label>
-        <select id="budgetRoundScopeType" onchange="onScopeTypeChange('budgetRound')" class="w-full border p-2 rounded text-sm bg-white mb-2">
+        <select id="budgetRoundScopeType" data-evt-change="onScopeTypeChange" data-args='["budgetRound"]' class="w-full border p-2 rounded text-sm bg-white mb-2">
           <option value="">-- Không giới hạn phạm vi (chỉ Admin thao tác, như trước) --</option>
           <option value="COMPANY">Toàn bộ 1 Công ty</option>
           <option value="ORG_UNIT">1 Khối/Phòng/Ban thuộc Công ty</option>
@@ -2208,7 +2208,7 @@
           <select id="budgetRoundScopeCompanyId" class="w-full border p-2 rounded text-sm bg-white"></select>
         </div>
         <div id="budgetRoundScopeOrgUnitWrap" class="hidden grid grid-cols-2 gap-2">
-          <select id="budgetRoundScopeOrgUnitCompanyId" onchange="onScopeOrgUnitCompanyChange('budgetRound')" class="w-full border p-2 rounded text-sm bg-white"></select>
+          <select id="budgetRoundScopeOrgUnitCompanyId" data-evt-change="onScopeOrgUnitCompanyChange" data-args='["budgetRound"]' class="w-full border p-2 rounded text-sm bg-white"></select>
           <select id="budgetRoundScopeOrgUnitId" class="w-full border p-2 rounded text-sm bg-white"></select>
         </div>
         <p class="text-[11px] text-gray-500 mt-1">Chỉ tài khoản đơn vị có phạm vi khớp mới tự lập dự trù trong kỳ này được (qua Cổng tự phục vụ). Để trống thì chỉ Admin thao tác được, như thiết kế cũ.</p>
@@ -2231,13 +2231,13 @@
           </table>
         </div>
         <div class="flex justify-between items-center mt-2">
-          <button type="button" onclick="addBudgetRoundCreateRow()" class="text-xs font-semibold text-brand-700 bg-brand-50 border border-dashed border-brand-600 rounded px-2.5 py-1.5 hover:bg-brand-100">+ Thêm dòng</button>
+          <button type="button" data-evt-click="addBudgetRoundCreateRow" data-args='[]' class="text-xs font-semibold text-brand-700 bg-brand-50 border border-dashed border-brand-600 rounded px-2.5 py-1.5 hover:bg-brand-100">+ Thêm dòng</button>
           <span id="budgetRoundCreateItemsHint" class="text-[11px] text-gray-500"></span>
         </div>
       </div>
       <div class="flex justify-end gap-2 pt-1">
-        <button type="button" onclick="closeLicenseModal('budgetRoundModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveBudgetRound()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Tạo kỳ ngân sách</button>
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["budgetRoundModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveBudgetRound" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Tạo kỳ ngân sách</button>
       </div>
     </div>
   </div>
@@ -2249,7 +2249,7 @@
       <input type="hidden" id="budgetRoundItemRoundId">
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Loại hạng mục</label>
-        <select id="budgetRoundItemType" onchange="onBudgetRoundItemTypeChange()" class="w-full border p-2 rounded text-sm bg-white">
+        <select id="budgetRoundItemType" data-evt-change="onBudgetRoundItemTypeChange" data-args='[]' class="w-full border p-2 rounded text-sm bg-white">
           <option value="SOFTWARE">Phần mềm</option>
           <option value="HARDWARE">Phần cứng</option>
           <option value="SERVICE">Dịch vụ</option>
@@ -2263,7 +2263,7 @@
       <div id="budgetRoundItemNameWrap" class="hidden">
         <label class="block text-xs font-semibold text-gray-600 mb-1 flex justify-between items-center">
           <span>Hạng mục (từ danh mục)</span>
-          <button type="button" onclick="openBudgetItemCatalogModal()" class="text-brand-600 hover:underline font-normal normal-case">+ Thêm mới vào danh mục</button>
+          <button type="button" data-evt-click="openBudgetItemCatalogModal" data-args='[]' class="text-brand-600 hover:underline font-normal normal-case">+ Thêm mới vào danh mục</button>
         </label>
         <select id="budgetRoundItemCatalog" class="w-full border p-2 rounded text-sm bg-white"></select>
       </div>
@@ -2284,8 +2284,8 @@
         <textarea id="budgetRoundItemDescription" rows="2" maxlength="500" class="w-full border p-2 rounded text-sm" placeholder="VD: Nâng cấp cấu hình phục vụ dự án X"></textarea>
       </div>
       <div class="flex justify-end gap-2 pt-1">
-        <button type="button" onclick="closeLicenseModal('budgetRoundItemModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveBudgetRoundItem()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Thêm</button>
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["budgetRoundItemModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveBudgetRoundItem" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Thêm</button>
       </div>
     </div>
   </div>
@@ -2315,8 +2315,8 @@
         <input id="budgetItemCatalogActive" type="checkbox" class="rounded"> Đang dùng (bỏ chọn để ẩn khỏi danh sách chọn, không xóa lịch sử)
       </label>
       <div class="flex justify-end gap-2 pt-1">
-        <button type="button" onclick="closeLicenseModal('budgetItemCatalogModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveBudgetItemCatalog()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["budgetItemCatalogModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveBudgetItemCatalog" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
       </div>
     </div>
   </div>
@@ -2370,11 +2370,11 @@
           <input id="budgetActualNote" type="text" placeholder="Ghi chú (tùy chọn)" class="border p-2 rounded text-sm">
         </div>
         <div class="flex justify-end mt-2">
-          <button type="button" onclick="addBudgetActual()" class="btn-primary px-4 py-1.5 rounded text-sm font-bold">+ Ghi nhận</button>
+          <button type="button" data-evt-click="addBudgetActual" data-args='[]' class="btn-primary px-4 py-1.5 rounded text-sm font-bold">+ Ghi nhận</button>
         </div>
       </div>
       <div class="flex justify-end gap-2 pt-1">
-        <button type="button" onclick="closeLicenseModal('budgetActualsModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Đóng</button>
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["budgetActualsModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Đóng</button>
       </div>
     </div>
   </div>
@@ -2386,11 +2386,11 @@
       <div class="grid grid-cols-2 gap-3">
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Kỳ ngân sách</label>
-          <select id="budgetRegRound" onchange="onBudgetRegRoundOrUnitChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
+          <select id="budgetRegRound" data-evt-change="onBudgetRegRoundOrUnitChange" data-args='[]' class="w-full border p-2 rounded text-sm bg-white"></select>
         </div>
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn vị trực thuộc</label>
-          <select id="budgetRegOrgUnit" onchange="onBudgetRegRoundOrUnitChange()" class="w-full border p-2 rounded text-sm bg-white"></select>
+          <select id="budgetRegOrgUnit" data-evt-change="onBudgetRegRoundOrUnitChange" data-args='[]' class="w-full border p-2 rounded text-sm bg-white"></select>
         </div>
       </div>
       <div class="bg-amber-50 border border-amber-200 rounded p-2 text-[11px] text-amber-800">
@@ -2413,7 +2413,7 @@
           </table>
         </div>
         <div class="flex justify-between items-center mt-2">
-          <button type="button" onclick="addBudgetRegRow()" class="text-xs font-semibold text-brand-700 bg-brand-50 border border-dashed border-brand-600 rounded px-2.5 py-1.5 hover:bg-brand-100">+ Thêm dòng</button>
+          <button type="button" data-evt-click="addBudgetRegRow" data-args='[]' class="text-xs font-semibold text-brand-700 bg-brand-50 border border-dashed border-brand-600 rounded px-2.5 py-1.5 hover:bg-brand-100">+ Thêm dòng</button>
           <span class="text-xs text-gray-600">Tổng cộng <strong id="budgetRegTotal" class="text-amber-700">0 ₫</strong></span>
         </div>
       </div>
@@ -2422,8 +2422,8 @@
         <input id="budgetRegNote" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Dự kiến tăng nhân sự phòng này">
       </div>
       <div class="flex justify-end gap-2 pt-1">
-        <button type="button" onclick="closeLicenseModal('budgetRegistrationModal')" class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" onclick="saveBudgetRegistration()" class="btn-primary px-4 py-2 rounded text-sm font-bold">Gửi dự trù</button>
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["budgetRegistrationModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveBudgetRegistration" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Gửi dự trù</button>
       </div>
     </div>
   </div>
@@ -2436,7 +2436,7 @@
           <h3 id="viewModalTitle" class="font-bold text-base flex items-center gap-2">📄 Xem Tài Liệu Nội Bộ</h3>
           <p id="viewModalSub" class="text-xs text-gray-300"></p>
         </div>
-        <button onclick="closeViewDocModal()" class="text-gray-300 hover:text-white font-bold text-xl px-2">✕</button>
+        <button data-evt-click="closeViewDocModal" data-args='[]' class="text-gray-300 hover:text-white font-bold text-xl px-2">✕</button>
       </div>
       <div class="bg-amber-100 text-amber-900 px-4 py-2 text-xs font-semibold flex items-center justify-between border-b border-amber-200 select-none">
         <span>🔒 Chế độ xem an toàn (Chỉ xem trực tiếp trên ứng dụng)</span>
@@ -2445,7 +2445,7 @@
       <div class="p-4 overflow-y-auto flex-1 bg-gray-100 flex flex-col items-center justify-center" id="viewModalContent" oncontextmenu="return false;"></div>
       <div class="p-3 bg-gray-50 border-t flex justify-between items-center text-xs">
         <span id="viewModalFooterInfo" class="text-gray-500 italic"></span>
-        <button onclick="closeViewDocModal()" class="bg-gray-600 text-white px-5 py-1.5 rounded font-bold hover:bg-gray-700">Đóng</button>
+        <button data-evt-click="closeViewDocModal" data-args='[]' class="bg-gray-600 text-white px-5 py-1.5 rounded font-bold hover:bg-gray-700">Đóng</button>
       </div>
     </div>
   </div>
@@ -2458,11 +2458,11 @@
           <h3 id="docDetailTitle" class="font-bold text-base flex items-center gap-2">📋 Chi Tiết Tài Liệu & Lịch Sử Phiên Bản</h3>
           <p id="docDetailSub" class="text-xs text-slate-300"></p>
         </div>
-        <button onclick="closeDocDetailModal()" class="text-slate-300 hover:text-white font-bold text-xl px-2">✕</button>
+        <button data-evt-click="closeDocDetailModal" data-args='[]' class="text-slate-300 hover:text-white font-bold text-xl px-2">✕</button>
       </div>
       <div class="p-4 overflow-y-auto flex-1 bg-gray-50 space-y-3" id="docDetailContent"></div>
       <div class="p-3 bg-gray-50 border-t flex justify-end">
-        <button onclick="closeDocDetailModal()" class="bg-gray-600 text-white px-5 py-1.5 rounded font-bold hover:bg-gray-700">Đóng</button>
+        <button data-evt-click="closeDocDetailModal" data-args='[]' class="bg-gray-600 text-white px-5 py-1.5 rounded font-bold hover:bg-gray-700">Đóng</button>
       </div>
     </div>
   </div>
@@ -2472,10 +2472,10 @@
     <div class="bg-white p-6 rounded-lg shadow-xl max-w-md w-full space-y-4">
       <div class="flex justify-between items-center border-b pb-3">
         <h3 class="font-bold text-gray-800 text-base">⚙️ Cập Nhật Thông Tin Cá Nhân</h3>
-        <button onclick="closeProfileModal()" class="text-gray-500 font-bold hover:text-gray-700 text-lg">✕</button>
+        <button data-evt-click="closeProfileModal" data-args='[]' class="text-gray-500 font-bold hover:text-gray-700 text-lg">✕</button>
       </div>
 
-      <form onsubmit="savePersonalProfile(event)" class="space-y-3 text-xs">
+      <form data-evt-submit="savePersonalProfile" data-args='[{"__live__":"event"}]' class="space-y-3 text-xs">
         <div>
           <label class="block font-semibold text-gray-600 mb-1">Tên đăng nhập</label>
           <input id="pfUsername" type="text" disabled class="w-full border p-2 rounded bg-gray-100 font-bold">
@@ -2506,7 +2506,7 @@
         </div>
 
         <div class="flex justify-end gap-2 pt-2">
-          <button type="button" onclick="closeProfileModal()" class="bg-gray-400 text-white px-4 py-2 rounded font-bold">Hủy</button>
+          <button type="button" data-evt-click="closeProfileModal" data-args='[]' class="bg-gray-400 text-white px-4 py-2 rounded font-bold">Hủy</button>
           <button type="submit" class="bg-blue-600 text-white px-5 py-2 rounded font-bold hover:bg-blue-700">Lưu Thay Đổi</button>
         </div>
       </form>
