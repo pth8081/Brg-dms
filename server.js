@@ -35,20 +35,21 @@ if (process.env.TRUST_PROXY === 'true') {
 }
 
 // --- BẢO MẬT: HTTP Security Headers ---
-// CSP nới lỏng cho script-src/style-src 'unsafe-inline' vì frontend hiện dùng
-// onclick= inline và <script>/<style> nội tuyến (chưa tách file riêng).
-// LƯU Ý QUAN TRỌNG: script-src-attr là directive RIÊNG (CSP Level 3) áp dụng
-// cho thuộc tính sự kiện inline (onclick=, onchange=...), TÁCH BIỆT với
-// script-src. Helmet mặc định set script-src-attr: 'none' nếu không khai báo
-// rõ, và giá trị đó SẼ GHI ĐÈ 'unsafe-inline' trong script-src đối với riêng
-// onclick/onchange — làm toàn bộ nút bấm trong app ngừng hoạt động dù
-// script-src đã cho phép 'unsafe-inline'. Phải khai báo scriptSrcAttr riêng.
+// Toàn bộ JS đã tách ra file riêng (public/app.js, nạp qua <script src>) và
+// 315 thuộc tính onclick=/onchange=/oninput=/onsubmit= nội tuyến đã chuyển
+// sang cơ chế điều phối sự kiện (data-evt-*, xem app.js) — nên script-src và
+// script-src-attr KHÔNG còn cần 'unsafe-inline': mọi <script> tiêm được qua
+// lỗ XSS (nếu có) hoặc thuộc tính onclick= tiêm được đều bị CSP chặn thẳng,
+// không cần dựa hoàn toàn vào lớp escape ở tầng ứng dụng nữa.
+// style-src VẪN giữ 'unsafe-inline' — còn 8 chỗ style="..." nội tuyến thuần
+// CSS (không có mã JS chạy được), rủi ro thấp hơn hẳn script-src nên chấp
+// nhận giữ lại thay vì viết lại code sinh biểu đồ SVG đang hoạt động tốt.
 app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
-            scriptSrc: ["'self'", "https://cdn.tailwindcss.com", "'unsafe-inline'"],
-            scriptSrcAttr: ["'unsafe-inline'"],
+            scriptSrc: ["'self'", "https://cdn.tailwindcss.com"],
+            scriptSrcAttr: ["'none'"],
             // Font trang đăng nhập (Spectral, Be Vietnam Pro) tải từ Google Fonts —
             // styleSrc cho stylesheet @font-face, fontSrc riêng cho file font nhị phân.
             styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
