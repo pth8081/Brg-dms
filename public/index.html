@@ -998,6 +998,7 @@
         <button data-evt-click="openBulkAllocFileModal" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">📁 Cấp phát hàng loạt từ file</button>
         <button data-evt-click="openAutoAllocateModal" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">🔄 Gia hạn/Thu hồi hàng loạt</button>
         <button data-evt-click="openControlReportModal" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">🔍 Kiểm soát</button>
+        <button id="btnBulkRevokeAlloc" data-evt-click="bulkRevokeSelectedAllocations" data-args='[]' class="hidden text-xs bg-red-600 text-white px-3 py-1.5 rounded font-bold hover:bg-red-700">🗑️ Thu hồi đã chọn (<span id="bulkRevokeAllocCount">0</span>)</button>
       </div>
 
       <!-- Danh sách Yêu cầu cấp phát hàng loạt (từ file) — chờ duyệt/đã xử lý -->
@@ -1023,6 +1024,7 @@
         <table class="w-full border-collapse border bg-white text-xs">
           <thead>
             <tr class="bg-gray-100 text-left">
+              <th id="thAllocSelectAll" class="border p-2 text-center"><input type="checkbox" data-evt-change="toggleSelectAllAlloc" data-args='[{"__live__":"checked"}]'></th>
               <th class="border p-2 w-10">STT</th>
               <th class="border p-2">Công ty</th>
               <th class="border p-2">Đơn vị</th>

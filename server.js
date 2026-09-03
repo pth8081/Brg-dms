@@ -2806,6 +2806,53 @@ app.post('/api/license/codes/:id/unassign', requireAuth, requireLicenseOrAdmin, 
     }
 });
 
+// Thu hồi NHIỀU lượt phân bổ cùng lúc (chọn nhiều dòng ở bảng Phân bổ rồi bấm
+// "Thu hồi đã chọn") — 1 request duy nhất thay vì gọi lặp lại endpoint đơn lẻ
+// ở trên cho từng dòng, cùng quy ước với các API xóa/khôi phục hàng loạt khác
+// (Tài liệu, Thùng rác): 1 dòng audit log gộp, dòng nào không còn tồn tại
+// (đã bị thu hồi từ trước bởi người khác) thì bỏ qua thay vì báo lỗi cả loạt.
+app.post('/api/license/codes/unassign-bulk', requireAuth, requireLicenseOrAdmin, async (req, res) => {
+    try {
+        const items = Array.isArray(req.body && req.body.items) ? req.body.items : [];
+        if (items.length === 0) return res.status(400).json({ error: 'Chưa chọn lượt phân bổ nào để thu hồi.' });
+        if (items.length > 500) return res.status(400).json({ error: 'Số lượng thu hồi trong 1 lần không được vượt quá 500.' });
+
+        const pairs = [];
+        for (let i = 0; i < items.length; i++) {
+            const codeId = Number(items[i] && items[i].codeId);
+            const employeeId = Number(items[i] && items[i].employeeId);
+            if (!codeId || !employeeId) return res.status(400).json({ error: `Dòng ${i + 1}: thiếu mã license hoặc nhân viên.` });
+            pairs.push([codeId, employeeId]);
+        }
+
+        const placeholders = pairs.map(() => '(a.code_id = ? AND a.employee_id = ?)').join(' OR ');
+        const flatParams = pairs.flat();
+        const [rows] = await pool.query(
+            `SELECT a.code_id, a.employee_id, c.code, e.full_name FROM lic_license_code_assignments a
+             JOIN lic_license_codes c ON c.id = a.code_id
+             JOIN lic_employees e ON e.id = a.employee_id
+             WHERE ${placeholders}`,
+            flatParams
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Không tìm thấy lượt phân bổ nào để thu hồi (có thể đã bị thu hồi trước đó).' });
+
+        await pool.query(`DELETE a FROM lic_license_code_assignments a WHERE ${placeholders}`, flatParams);
+
+        const codes = [...new Set(rows.map(r => r.code))];
+        const names = [...new Set(rows.map(r => r.full_name))];
+        await writeAuditLog({
+            module: 'LICENSE', actionType: 'UNASSIGN_CODE_BULK', status: 'SUCCESS',
+            username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: codes.join(', '),
+            description: `Thu hồi hàng loạt ${rows.length} lượt phân bổ (${codes.length} mã, ${names.length} nhân viên): ${names.join(', ')}.`
+        });
+
+        res.json({ success: true, revokedCount: rows.length, skippedCount: pairs.length - rows.length });
+    } catch (err) {
+        console.error('❌ Lỗi thu hồi hàng loạt license:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
 // --- Gia hạn/Thu hồi hàng loạt: xử lý hàng loạt nhân viên đang giữ mã ĐÃ HẾT
 // HẠN (thường phát sinh khi 1 lần phát hành mua ít hơn số mã đang có — xem
 // POST /api/license/batches). Với mỗi dòng Admin xác nhận: RENEW = gia hạn
@@ -3036,6 +3083,11 @@ app.post('/api/license/bulk-allocation-requests', requireAuth, requireLicenseOrA
             const [unitRows] = await pool.query('SELECT id FROM lic_org_units WHERE id = ? AND company_id = ?', [orgUnitId, companyId]);
             if (!unitRows[0]) return res.status(400).json({ error: 'Đơn vị mặc định không thuộc công ty đã chọn.' });
         }
+        // Toàn bộ đơn vị thuộc ĐÚNG công ty đã chọn — dùng để chặn từng dòng
+        // orgUnitId gửi từ client (không chỉ đơn vị mặc định) trỏ sang đơn vị
+        // của công ty KHÁC, tránh nhân viên công ty A bị gán nhầm vào công ty B.
+        const [companyOrgUnitRows] = await pool.query('SELECT id FROM lic_org_units WHERE company_id = ?', [companyId]);
+        const companyOrgUnitIdSet = new Set(companyOrgUnitRows.map(r => r.id));
 
         const isPerpetual = softwareRows[0].license_type === 'PERPETUAL';
         let expiryDate = null;
@@ -3058,6 +3110,9 @@ app.post('/api/license/bulk-allocation-requests', requireAuth, requireLicenseOrA
             const itemOrgUnitId = raw && raw.orgUnitId ? Number(raw.orgUnitId) : (orgUnitId || null);
             if (!employeeId && !itemOrgUnitId) {
                 return res.status(400).json({ error: `Dòng [${employeeCode}] là nhân viên mới nhưng chưa xác định được đơn vị — chọn Đơn vị mặc định hoặc điền cột Đơn vị trong file.` });
+            }
+            if (itemOrgUnitId && !companyOrgUnitIdSet.has(itemOrgUnitId)) {
+                return res.status(400).json({ error: `Dòng [${employeeCode}]: đơn vị được chọn không thuộc công ty [${companyRows[0].name}] — kiểm tra lại tên đơn vị trong file.` });
             }
             cleanItems.push({
                 employeeCode, fullName,
@@ -3149,6 +3204,13 @@ app.post('/api/license/bulk-allocation-requests/:id/approve', requireAuth, requi
                 throw new BulkAllocApprovalError(409, 'Yêu cầu vừa được xử lý bởi người khác, vui lòng tải lại trang.');
             }
 
+            // Toàn bộ đơn vị thuộc ĐÚNG công ty của yêu cầu này — chặn item.org_unit_id
+            // (dữ liệu client gửi lúc tạo yêu cầu) trỏ sang đơn vị của công ty KHÁC,
+            // dù request đã qua bước tạo có validate tương tự (đây là an toàn cuối
+            // cùng ngay lúc DUYỆT — dữ liệu lúc tạo có thể đã cũ hoặc bị sửa DB).
+            const [companyOrgUnitRowsForApprove] = await conn.query('SELECT id FROM lic_org_units WHERE company_id = ?', [preRows[0].company_id]);
+            const companyOrgUnitIdSetForApprove = new Set(companyOrgUnitRowsForApprove.map(r => r.id));
+
             // Tạo nhân viên mới cho các dòng chưa khớp employee_id, hoặc cập
             // nhật hồ sơ nếu admin đã chọn "Cập nhật theo file" lúc xem trước.
             const employeeIdByItemId = new Map();
@@ -3156,6 +3218,9 @@ app.post('/api/license/bulk-allocation-requests/:id/approve', requireAuth, requi
                 let employeeId = item.employee_id;
                 if (employeeId) {
                     if (item.resolution === 'UPDATE_INFO') {
+                        if (item.org_unit_id && !companyOrgUnitIdSetForApprove.has(item.org_unit_id)) {
+                            throw new BulkAllocApprovalError(400, `Dòng [${item.employee_code}]: đơn vị không thuộc công ty [${company.name}] của yêu cầu này.`);
+                        }
                         if (item.org_unit_id) {
                             await conn.query('UPDATE lic_employees SET full_name = ?, email = ?, org_unit_id = ? WHERE id = ?', [item.full_name, item.email, item.org_unit_id, employeeId]);
                         } else {
@@ -3164,8 +3229,9 @@ app.post('/api/license/bulk-allocation-requests/:id/approve', requireAuth, requi
                     }
                 } else {
                     if (!item.org_unit_id) throw new BulkAllocApprovalError(400, `Dòng [${item.employee_code}] là nhân viên mới nhưng thiếu đơn vị, không thể tạo.`);
-                    const [unitRows] = await conn.query('SELECT id FROM lic_org_units WHERE id = ?', [item.org_unit_id]);
-                    if (!unitRows[0]) throw new BulkAllocApprovalError(400, `Đơn vị của dòng [${item.employee_code}] không còn tồn tại.`);
+                    if (!companyOrgUnitIdSetForApprove.has(item.org_unit_id)) {
+                        throw new BulkAllocApprovalError(400, `Dòng [${item.employee_code}]: đơn vị không thuộc công ty [${company.name}] của yêu cầu này — không thể tạo nhân viên.`);
+                    }
                     const [insertEmp] = await conn.query(
                         'INSERT INTO lic_employees (org_unit_id, full_name, title, employee_code, email, active) VALUES (?, ?, NULL, ?, ?, TRUE)',
                         [item.org_unit_id, item.full_name, item.employee_code, item.email]
