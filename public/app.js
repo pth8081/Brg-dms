@@ -3030,6 +3030,9 @@ function isPerpetualSoftware(softwareId) {
       document.getElementById('allocFilterSoftware').innerHTML = '<option value="">-- Tất cả phần mềm --</option>' +
         licenseDB.softwareCatalog.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
     }
+    let selectedAllocKeys = new Set();
+    function allocKey(codeId, employeeId) { return `${codeId}:${employeeId}`; }
+
     function renderAllocTable() {
       const companyId = document.getElementById('allocFilterCompany').value;
       const softwareId = document.getElementById('allocFilterSoftware').value;
@@ -3057,8 +3060,9 @@ function isPerpetualSoftware(softwareId) {
       if (search) rows = rows.filter(r => `${r.emp.fullName} ${r.code.code}`.toLowerCase().includes(search));
 
       if (rows.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="11" class="text-center text-gray-500 p-4">Chưa có phân bổ nào.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="12" class="text-center text-gray-500 p-4">Chưa có phân bổ nào.</td></tr>`;
         renderPaginationBar('allocTablePaginationBox', 'allocTable', 0, 'renderAllocTable', { itemLabel: 'lượt phân bổ' });
+        updateBulkRevokeAllocButton();
         return;
       }
       const pageOffset = (getPaginationState('allocTable').page - 1) * getPaginationState('allocTable').pageSize;
@@ -3078,8 +3082,10 @@ function isPerpetualSoftware(softwareId) {
         }
         const maxAssignees = r.software ? codeMaxAssignees(r.software.id) : 1;
         const usedCount = codeAssignments(r.code.id).length;
+        const key = allocKey(r.code.id, r.emp.id);
         return `
           <tr class="hover:bg-gray-50">
+            <td class="border p-2 text-center"><input type="checkbox" class="allocSelectCheckbox" value="${escapeJsAttr(key)}" ${selectedAllocKeys.has(key) ? 'checked' : ''} ${dchg('onAllocSelectChange')}></td>
             <td class="border p-2">${pageOffset + i + 1}</td>
             <td class="border p-2">${escapeHtml(r.company ? r.company.name : '—')}</td>
             <td class="border p-2">${escapeHtml(orgUnitPath(r.emp.orgUnitId))}</td>
@@ -3095,6 +3101,63 @@ function isPerpetualSoftware(softwareId) {
         `;
       }).join('');
       renderPaginationBar('allocTablePaginationBox', 'allocTable', rows.length, 'renderAllocTable', { itemLabel: 'lượt phân bổ' });
+
+      // Chỉ giữ lại lựa chọn của các dòng vẫn còn hiển thị (đổi trang/lọc thì bỏ chọn dòng không còn thấy)
+      const visibleKeys = new Set(pageRows.map(r => allocKey(r.code.id, r.emp.id)));
+      selectedAllocKeys.forEach(k => { if (!visibleKeys.has(k)) selectedAllocKeys.delete(k); });
+      const allChecked = pageRows.length > 0 && pageRows.every(r => selectedAllocKeys.has(allocKey(r.code.id, r.emp.id)));
+      const selectAllTh = document.getElementById('thAllocSelectAll');
+      if (selectAllTh) { const box = selectAllTh.querySelector('input'); if (box) box.checked = allChecked; }
+      updateBulkRevokeAllocButton();
+    }
+
+    function onAllocSelectChange() {
+      selectedAllocKeys.clear();
+      const boxes = document.querySelectorAll('.allocSelectCheckbox');
+      boxes.forEach(cb => { if (cb.checked) selectedAllocKeys.add(cb.value); });
+      const selectAllTh = document.getElementById('thAllocSelectAll');
+      if (selectAllTh) { const box = selectAllTh.querySelector('input'); if (box) box.checked = boxes.length > 0 && selectedAllocKeys.size === boxes.length; }
+      updateBulkRevokeAllocButton();
+    }
+
+    function toggleSelectAllAlloc(checked) {
+      document.querySelectorAll('.allocSelectCheckbox').forEach(cb => { cb.checked = checked; });
+      onAllocSelectChange();
+    }
+
+    function updateBulkRevokeAllocButton() {
+      const btn = document.getElementById('btnBulkRevokeAlloc');
+      if (!btn) return;
+      btn.classList.toggle('hidden', selectedAllocKeys.size === 0);
+      const countEl = document.getElementById('bulkRevokeAllocCount');
+      if (countEl) countEl.innerText = selectedAllocKeys.size;
+    }
+
+    async function bulkRevokeSelectedAllocations() {
+      const keys = Array.from(selectedAllocKeys);
+      if (keys.length === 0) return;
+      const items = keys.map(k => { const [codeId, employeeId] = k.split(':').map(Number); return { codeId, employeeId }; });
+
+      const ok = await showConfirm({
+        title: 'Thu hồi nhiều lượt phân bổ',
+        message: keys.length > 10
+          ? `Bạn sắp thu hồi ${keys.length} lượt phân bổ cùng lúc. Các slot sẽ trống lại, có thể phân bổ cho người khác.`
+          : `Thu hồi ${keys.length} lượt phân bổ đã chọn? Các slot sẽ trống lại, có thể phân bổ cho người khác.`,
+        danger: true, confirmText: 'Thu hồi',
+        requiredText: keys.length > 10 ? 'THU HOI' : null
+      });
+      if (!ok) return;
+
+      try {
+        const result = await apiFetch('/api/license/codes/unassign-bulk', { method: 'POST', body: JSON.stringify({ items }) });
+        showToast(`Đã thu hồi ${result.revokedCount} lượt phân bổ.`, 'success');
+        selectedAllocKeys.clear();
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        renderAllocTable();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
     }
     async function revokeAllocation(codeId, employeeId) {
       const c = licenseDB.licenseCodes.find(x => x.id === codeId);
@@ -3432,9 +3495,10 @@ function isPerpetualSoftware(softwareId) {
           const email = (r.email || '').trim() || null;
           const deptLabel = mode === 'ORG_UNIT' ? (r.don_vi || '').trim() || null : null;
           let orgUnitId = null;
+          let deptMismatch = false;
           if (mode === 'ORG_UNIT' && deptLabel) {
             const match = licenseDB.orgUnits.find(u => companyOrgUnitIds.has(u.id) && u.name.trim().toLowerCase() === deptLabel.toLowerCase());
-            if (match) orgUnitId = match.id;
+            if (match) orgUnitId = match.id; else deptMismatch = true;
           }
           const companyMismatch = mode === 'ORG_UNIT' && r.ma_cong_ty && company && r.ma_cong_ty.trim().toLowerCase() !== company.code.toLowerCase() && r.ma_cong_ty.trim().toLowerCase() !== company.name.toLowerCase();
 
@@ -3446,9 +3510,14 @@ function isPerpetualSoftware(softwareId) {
             if (already.has(existing.id)) { conflictType = 'ALREADY_LICENSED'; resolution = 'SKIP'; }
             else if (infoMismatch) { conflictType = 'INFO_MISMATCH'; resolution = 'USE_EXISTING'; }
           }
+          // Tên công ty/đơn vị trong file không khớp hệ thống — CHẶN CỨNG bất kể
+          // nhân viên mới hay đã tồn tại, không có lựa chọn "tự chọn tay" thay
+          // thế, tránh cấp/gán nhầm sang công ty/phòng ban khác chỉ vì gõ sai
+          // tên trong file. Phải sửa lại tên trong file rồi tải lại, hoặc bỏ dòng.
+          if (companyMismatch || deptMismatch) { conflictType = 'NAME_MISMATCH'; resolution = 'BLOCKED'; }
           return {
             rowKey: bafRowSeq++, employeeCode, fullName, deptLabel, orgUnitId, email,
-            employeeId, conflictType, resolution, companyMismatch
+            employeeId, conflictType, resolution, companyMismatch, deptMismatch
           };
         });
         document.getElementById('bafPreviewWrap').classList.remove('hidden');
@@ -3473,18 +3542,32 @@ function isPerpetualSoftware(softwareId) {
       const newCount = bafPreviewItems.filter(it => !it.employeeId).length;
       const alreadyCount = bafPreviewItems.filter(it => it.conflictType === 'ALREADY_LICENSED').length;
       const mismatchCount = bafPreviewItems.filter(it => it.conflictType === 'INFO_MISMATCH').length;
+      const nameMismatchCount = bafPreviewItems.filter(it => it.conflictType === 'NAME_MISMATCH').length;
       document.getElementById('bafPreviewSummary').textContent =
-        `${bafPreviewItems.length} dòng — ${newCount} nhân viên mới, ${alreadyCount} đã có license này (mặc định bỏ qua), ${mismatchCount} lệch thông tin hồ sơ.`;
+        `${bafPreviewItems.length} dòng — ${newCount} nhân viên mới, ${alreadyCount} đã có license này (mặc định bỏ qua), ${mismatchCount} lệch thông tin hồ sơ` +
+        (nameMismatchCount > 0 ? `, ${nameMismatchCount} SAI TÊN CÔNG TY/ĐƠN VỊ (phải sửa file hoặc bỏ dòng trước khi gửi).` : '.');
+
+      const companyOrgUnitNames = licenseDB.orgUnits.filter(u => u.companyId === companyId).map(u => orgUnitPath(u.id));
 
       tbody.innerHTML = bafPreviewItems.map(it => {
         let statusHtml = '<span class="text-green-700">Hợp lệ</span>';
         if (!it.employeeId) statusHtml = '<span class="text-blue-700 font-semibold">Nhân viên mới</span>';
         if (it.conflictType === 'ALREADY_LICENSED') statusHtml = '<span class="text-amber-700 font-semibold">⚠️ Đã có license này</span>';
         if (it.conflictType === 'INFO_MISMATCH') statusHtml = '<span class="text-amber-700 font-semibold">⚠️ Lệch hồ sơ</span>';
-        if (it.companyMismatch) statusHtml += '<br><span class="text-danger-700 font-semibold">⚠️ Mã công ty trong file khác công ty đã chọn</span>';
+        if (it.conflictType === 'NAME_MISMATCH') {
+          const reasons = [];
+          if (it.companyMismatch) reasons.push('mã/tên công ty trong file khác công ty đã chọn');
+          if (it.deptMismatch) reasons.push(`tên đơn vị "${escapeHtml(it.deptLabel || '')}" không khớp đơn vị nào của công ty này`);
+          statusHtml = `<span class="text-danger-700 font-bold">⛔ SAI TÊN — bị chặn cấp phát</span>` +
+            `<br><span class="text-danger-600 text-[11px]">${reasons.join('; ')}. Sửa lại đúng tên trong file rồi tải lại, hoặc bỏ dòng.</span>` +
+            (companyOrgUnitNames.length ? `<br><span class="text-gray-500 text-[11px]">Tên đơn vị hợp lệ: ${companyOrgUnitNames.map(n => escapeHtml(n)).join(', ')}</span>` : '');
+        }
 
         let actionHtml = '';
-        if (it.conflictType === 'ALREADY_LICENSED') {
+        if (it.conflictType === 'NAME_MISMATCH') {
+          // Không cho tự chọn tay đơn vị thay thế — bắt buộc sửa đúng tên trong
+          // file để tránh cấp/gán nhầm sang công ty/phòng ban khác.
+        } else if (it.conflictType === 'ALREADY_LICENSED') {
           actionHtml = `<label class="flex items-center gap-1 text-[11px]"><input type="checkbox" ${it.resolution === 'ALLOCATE_ANYWAY' ? 'checked' : ''} ${dchg('bafUpdateResolution', it.rowKey, LIVE_CHECKED_IF('ALLOCATE_ANYWAY', 'SKIP'))}> Vẫn cấp thêm</label>`;
         } else if (it.conflictType === 'INFO_MISMATCH') {
           actionHtml = `<select ${dchg('bafUpdateResolution', it.rowKey, LIVE_VALUE)} class="border p-1 rounded text-[11px]">
@@ -3492,13 +3575,13 @@ function isPerpetualSoftware(softwareId) {
             <option value="UPDATE_INFO" ${it.resolution === 'UPDATE_INFO' ? 'selected' : ''}>Cập nhật theo file</option>
           </select>`;
         }
-        if (!it.employeeId) {
+        if (!it.employeeId && it.conflictType !== 'NAME_MISMATCH') {
           actionHtml += `<select ${dchg('bafUpdateOrgUnit', it.rowKey, LIVE_VALUE_NUM)} class="border p-1 rounded text-[11px] mt-1 block">${bafOrgUnitOptionsHtml(companyId, it.orgUnitId)}</select>`;
         }
         actionHtml += `<button type="button" ${dc('bafRemoveRow', it.rowKey)} class="text-red-500 hover:text-red-700 text-[11px] block mt-1">🗑️ Bỏ dòng</button>`;
 
         return `
-          <tr class="${it.resolution === 'SKIP' ? 'opacity-40' : ''}">
+          <tr class="${it.resolution === 'SKIP' ? 'opacity-40' : ''} ${it.conflictType === 'NAME_MISMATCH' ? 'bg-danger-50' : ''}">
             <td class="border p-1.5 font-mono">${escapeHtml(it.employeeCode)}</td>
             <td class="border p-1.5">${escapeHtml(it.fullName)}</td>
             <td class="border p-1.5">${it.orgUnitId ? escapeHtml(orgUnitPath(it.orgUnitId)) : (it.deptLabel ? escapeHtml(it.deptLabel) + ' (chưa khớp)' : '—')}</td>
@@ -3511,12 +3594,12 @@ function isPerpetualSoftware(softwareId) {
     }
     function bafUpdateResolution(rowKey, value) {
       const it = bafPreviewItems.find(x => x.rowKey === rowKey);
-      if (it) it.resolution = value;
+      if (it && it.conflictType !== 'NAME_MISMATCH') it.resolution = value;
       renderBulkAllocFilePreview();
     }
     function bafUpdateOrgUnit(rowKey, orgUnitId) {
       const it = bafPreviewItems.find(x => x.rowKey === rowKey);
-      if (it) it.orgUnitId = orgUnitId || null;
+      if (it && it.conflictType !== 'NAME_MISMATCH') it.orgUnitId = orgUnitId || null;
       renderBulkAllocFilePreview();
     }
     function bafRemoveRow(rowKey) {
@@ -3533,6 +3616,10 @@ function isPerpetualSoftware(softwareId) {
       if (!softwareId) return showToast('Vui lòng chọn Phần mềm.', 'warning');
       if (!issuedDate) return showToast('Vui lòng chọn Ngày cấp.', 'warning');
       if (!isPerpetualSoftware(softwareId) && !expiryDate) return showToast('Vui lòng chọn Ngày hết hạn.', 'warning');
+      const nameMismatchRows = bafPreviewItems.filter(it => it.conflictType === 'NAME_MISMATCH');
+      if (nameMismatchRows.length > 0) {
+        return showToast(`Còn ${nameMismatchRows.length} dòng sai tên công ty/đơn vị (mã: ${nameMismatchRows.map(it => it.employeeCode).join(', ')}) — sửa lại đúng tên trong file rồi tải lại, hoặc bỏ dòng, trước khi gửi.`, 'danger');
+      }
       const activeItems = bafPreviewItems.filter(it => it.resolution !== 'SKIP');
       if (activeItems.length === 0) return showToast('Không còn dòng nào để gửi — hãy tải file lên trước.', 'warning');
       const missingOrgUnit = activeItems.find(it => !it.employeeId && !it.orgUnitId && !defaultOrgUnitId);
