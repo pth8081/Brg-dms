@@ -6,7 +6,8 @@
   "scripts": {
     "build:css": "tailwindcss -i ./src/input.css -o ./public/style.css --minify",
     "build:vendor": "cp node_modules/exceljs/dist/exceljs.min.js public/vendor/exceljs.min.js",
-    "prestart": "npm run build:css && npm run build:vendor",
+    "build:js": "terser public/app.js -c -m --comments false -o public/app.min.js --source-map \"url='app.min.js.map'\"",
+    "prestart": "npm run build:css && npm run build:vendor && npm run build:js",
     "start": "node server.js",
     "migrate:legacy-files": "node migrate-legacy-files-to-disk.js",
     "migrate:legacy-files:dry-run": "node migrate-legacy-files-to-disk.js --dry-run"
@@ -31,6 +32,7 @@
   "devDependencies": {
     "@tailwindcss/cli": "^4.3.3",
     "exceljs": "^4.4.0",
-    "tailwindcss": "^4.3.3"
+    "tailwindcss": "^4.3.3",
+    "terser": "^5.51.2"
   }
 }
