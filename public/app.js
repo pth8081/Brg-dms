@@ -3452,7 +3452,7 @@ function isPerpetualSoftware(softwareId) {
       const mode = document.querySelector('input[name="bafMode"]:checked').value;
       document.getElementById('bafDefaultOrgUnitLabel').textContent = mode === 'COMPANY'
         ? 'Đơn vị (áp dụng cho mọi nhân viên mới trong file)'
-        : 'Đơn vị mặc định (dùng khi không khớp được cột "Đơn vị" trong file)';
+        : 'Đơn vị (bắt buộc chọn trước — mọi dòng trong file phải ghi đúng tên đơn vị này, ghi tên đơn vị khác dù có thật cũng bị chặn)';
     }
     function openBulkAllocFileModal() {
       document.getElementById('bafCompany').innerHTML = licenseDB.companies.length
@@ -3476,14 +3476,17 @@ function isPerpetualSoftware(softwareId) {
       if (!file) return;
       const companyId = Number(document.getElementById('bafCompany').value) || null;
       const softwareId = Number(document.getElementById('bafSoftware').value) || null;
+      const defaultOrgUnitId = Number(document.getElementById('bafOrgUnit').value) || null;
       const mode = document.querySelector('input[name="bafMode"]:checked').value;
       if (!companyId) { showToast('Vui lòng chọn Công ty trước.', 'warning'); e.target.value = ''; return; }
       if (!softwareId) { showToast('Vui lòng chọn Phần mềm trước.', 'warning'); e.target.value = ''; return; }
+      if (mode === 'ORG_UNIT' && !defaultOrgUnitId) { showToast('Vui lòng chọn Đơn vị trước khi tải file lên — mọi dòng trong file phải khớp đúng đơn vị này.', 'warning'); e.target.value = ''; return; }
       try {
         const headerKeys = mode === 'COMPANY' ? ['ma_nv', 'ho_ten', 'email'] : ['ma_nv', 'ho_ten', 'ma_cong_ty', 'don_vi', 'email'];
         const rows = await readXlsxRows(file, headerKeys);
         const company = licenseDB.companies.find(c => c.id === companyId);
         const companyOrgUnitIds = new Set(licenseDB.orgUnits.filter(u => u.companyId === companyId).map(u => u.id));
+        const selectedOrgUnit = mode === 'ORG_UNIT' ? licenseDB.orgUnits.find(u => u.id === defaultOrgUnitId) : null;
         const already = new Set(
           licenseDB.licenseCodeAssignments
             .filter(a => { const c = licenseDB.licenseCodes.find(x => x.id === a.codeId); return c && c.softwareId === softwareId; })
@@ -3496,9 +3499,13 @@ function isPerpetualSoftware(softwareId) {
           const deptLabel = mode === 'ORG_UNIT' ? (r.don_vi || '').trim() || null : null;
           let orgUnitId = null;
           let deptMismatch = false;
+          // Đơn vị trong file PHẢI khớp đúng đơn vị đã chọn ở trên (không còn
+          // chấp nhận bất kỳ đơn vị có thật nào khác của công ty) — tránh admin
+          // định cấp cho đơn vị X nhưng file lại lẫn người của đơn vị Y mà
+          // không hay biết, do đơn vị Y tình cờ cũng có thật trong hệ thống.
           if (mode === 'ORG_UNIT' && deptLabel) {
-            const match = licenseDB.orgUnits.find(u => companyOrgUnitIds.has(u.id) && u.name.trim().toLowerCase() === deptLabel.toLowerCase());
-            if (match) orgUnitId = match.id; else deptMismatch = true;
+            const matchesSelected = selectedOrgUnit && selectedOrgUnit.name.trim().toLowerCase() === deptLabel.toLowerCase();
+            if (matchesSelected) orgUnitId = selectedOrgUnit.id; else deptMismatch = true;
           }
           const companyMismatch = mode === 'ORG_UNIT' && r.ma_cong_ty && company && r.ma_cong_ty.trim().toLowerCase() !== company.code.toLowerCase() && r.ma_cong_ty.trim().toLowerCase() !== company.name.toLowerCase();
 
@@ -3533,6 +3540,7 @@ function isPerpetualSoftware(softwareId) {
     }
     function renderBulkAllocFilePreview() {
       const companyId = Number(document.getElementById('bafCompany').value) || null;
+      const mode = document.querySelector('input[name="bafMode"]:checked').value;
       const tbody = document.getElementById('bafPreviewRowsBody');
       if (bafPreviewItems.length === 0) {
         tbody.innerHTML = `<tr><td colspan="6" class="text-center text-gray-400 p-3">Không có dòng hợp lệ nào trong file.</td></tr>`;
@@ -3547,7 +3555,9 @@ function isPerpetualSoftware(softwareId) {
         `${bafPreviewItems.length} dòng — ${newCount} nhân viên mới, ${alreadyCount} đã có license này (mặc định bỏ qua), ${mismatchCount} lệch thông tin hồ sơ` +
         (nameMismatchCount > 0 ? `, ${nameMismatchCount} SAI TÊN CÔNG TY/ĐƠN VỊ (phải sửa file hoặc bỏ dòng trước khi gửi).` : '.');
 
-      const companyOrgUnitNames = licenseDB.orgUnits.filter(u => u.companyId === companyId).map(u => orgUnitPath(u.id));
+      const selectedOrgUnitId = mode === 'ORG_UNIT' ? (Number(document.getElementById('bafOrgUnit').value) || null) : null;
+      const selectedOrgUnitObj = selectedOrgUnitId ? licenseDB.orgUnits.find(u => u.id === selectedOrgUnitId) : null;
+      const selectedOrgUnitName = selectedOrgUnitObj ? orgUnitPath(selectedOrgUnitObj.id) : null;
 
       tbody.innerHTML = bafPreviewItems.map(it => {
         let statusHtml = '<span class="text-green-700">Hợp lệ</span>';
@@ -3557,10 +3567,10 @@ function isPerpetualSoftware(softwareId) {
         if (it.conflictType === 'NAME_MISMATCH') {
           const reasons = [];
           if (it.companyMismatch) reasons.push('mã/tên công ty trong file khác công ty đã chọn');
-          if (it.deptMismatch) reasons.push(`tên đơn vị "${escapeHtml(it.deptLabel || '')}" không khớp đơn vị nào của công ty này`);
+          if (it.deptMismatch) reasons.push(`tên đơn vị "${escapeHtml(it.deptLabel || '')}" không khớp đơn vị đã chọn`);
           statusHtml = `<span class="text-danger-700 font-bold">⛔ SAI TÊN — bị chặn cấp phát</span>` +
             `<br><span class="text-danger-600 text-[11px]">${reasons.join('; ')}. Sửa lại đúng tên trong file rồi tải lại, hoặc bỏ dòng.</span>` +
-            (companyOrgUnitNames.length ? `<br><span class="text-gray-500 text-[11px]">Tên đơn vị hợp lệ: ${companyOrgUnitNames.map(n => escapeHtml(n)).join(', ')}</span>` : '');
+            (it.deptMismatch && selectedOrgUnitName ? `<br><span class="text-gray-500 text-[11px]">Đơn vị đã chọn: ${escapeHtml(selectedOrgUnitName)} — mọi dòng phải ghi đúng tên này.</span>` : '');
         }
 
         let actionHtml = '';
@@ -3575,7 +3585,11 @@ function isPerpetualSoftware(softwareId) {
             <option value="UPDATE_INFO" ${it.resolution === 'UPDATE_INFO' ? 'selected' : ''}>Cập nhật theo file</option>
           </select>`;
         }
-        if (!it.employeeId && it.conflictType !== 'NAME_MISMATCH') {
+        // Ô tự chọn tay đơn vị chỉ còn ý nghĩa ở chế độ "Theo Công ty" (không có
+        // cột đơn vị trong file). Ở "Theo Khối/Phòng/Ban", đơn vị đã bị khoá
+        // cứng theo lựa chọn ở trên — cho tự chọn tay ở đây sẽ lách được luật
+        // "phải khớp đúng đơn vị đã chọn" vừa thêm.
+        if (!it.employeeId && it.conflictType !== 'NAME_MISMATCH' && mode === 'COMPANY') {
           actionHtml += `<select ${dchg('bafUpdateOrgUnit', it.rowKey, LIVE_VALUE_NUM)} class="border p-1 rounded text-[11px] mt-1 block">${bafOrgUnitOptionsHtml(companyId, it.orgUnitId)}</select>`;
         }
         actionHtml += `<button type="button" ${dc('bafRemoveRow', it.rowKey)} class="text-red-500 hover:text-red-700 text-[11px] block mt-1">🗑️ Bỏ dòng</button>`;
