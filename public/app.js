@@ -2251,7 +2251,7 @@
       const file = e.target.files[0];
       if (!file) return;
       try {
-        const rows = await readXlsxRows(file, ['username', 'pass', 'name', 'email', 'phone', 'dept']);
+        const rows = await readXlsxRows(file, ['username', 'pass', 'name', 'email', 'phone', 'dept'], ['username', 'password', 'fullName', 'email', 'phone', 'dept']);
         let count = 0;
         rows.forEach(r => {
           if (!r.username) return;
@@ -5169,7 +5169,7 @@ function isPerpetualSoftware(softwareId) {
       }
       return String(v).trim();
     }
-    async function readXlsxRows(file, headerKeys) {
+    async function readXlsxRows(file, headerKeys, headerLabels) {
       const buf = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = (evt) => resolve(evt.target.result);
@@ -5181,6 +5181,26 @@ function isPerpetualSoftware(softwareId) {
       const ws = wb.worksheets[0];
       const rows = [];
       if (!ws) return rows;
+
+      // Đối chiếu ĐÚNG tên + số lượng + thứ tự cột tiêu đề với mẫu file mong
+      // đợi trước khi đọc dữ liệu. Trước đây đọc thẳng theo VỊ TRÍ cột, không
+      // soi dòng tiêu đề — nên file sai định dạng (thiếu/thừa cột, VD lỡ tải
+      // nhầm mẫu "Theo Khối/Phòng/Ban" 5 cột lên khi đang ở chế độ "Theo Công
+      // ty" chỉ cần 3 cột) vẫn bị đọc lệch cột trong im lặng, dẫn tới gán
+      // nhầm dữ liệu (mã công ty lọt vào cột email...) mà không báo lỗi gì.
+      const labels = headerLabels || headerKeys;
+      const headerRow = ws.getRow(1);
+      const actualHeaders = [];
+      for (let i = 1; i <= Math.max(headerRow.cellCount, labels.length); i++) {
+        actualHeaders.push(xlsxCellToText(headerRow.getCell(i).value));
+      }
+      while (actualHeaders.length && !actualHeaders[actualHeaders.length - 1]) actualHeaders.pop();
+      const norm = s => String(s || '').trim().toLowerCase();
+      const headerOk = actualHeaders.length === labels.length && labels.every((lb, idx) => norm(actualHeaders[idx]) === norm(lb));
+      if (!headerOk) {
+        throw new Error(`File không đúng định dạng mẫu — cần đúng ${labels.length} cột theo đúng thứ tự: ${labels.join(', ')}. File bạn tải lên có cột: ${actualHeaders.join(', ') || '(trống)'}. Vui lòng tải đúng mẫu, không thêm/bớt/đổi thứ tự cột.`);
+      }
+
       ws.eachRow((row, rowNumber) => {
         if (rowNumber === 1) return; // bỏ qua dòng tiêu đề
         const values = row.values.slice(1); // row.values của ExcelJS có index[0] rỗng
