@@ -2,6 +2,7 @@ require('dotenv').config();
 
 const crypto = require('crypto');
 const express = require('express');
+const compression = require('compression');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -33,6 +34,12 @@ const MAX_PDF_SIZE_BYTES = MAX_PDF_SIZE_MB * 1024 * 1024;
 if (process.env.TRUST_PROXY === 'true') {
     app.set('trust proxy', 1);
 }
+
+// --- HIỆU NĂNG: nén response (gzip/brotli theo Accept-Encoding của client) ---
+// Đặt sớm nhất trong chuỗi middleware để áp dụng cho mọi response phía sau
+// (JSON API lẫn file tĩnh qua express.static) — giảm băng thông đáng kể cho
+// các response lớn (bootstrap data, danh sách nhiều dòng, app.js/index.html).
+app.use(compression());
 
 // --- BẢO MẬT: HTTP Security Headers ---
 // Toàn bộ JS đã tách ra file riêng (public/app.js, nạp qua <script src>) và
