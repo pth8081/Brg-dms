@@ -1,0 +1,54 @@
+# Systemd unit cho DMS Production.
+#
+# Cài đặt (1 lần):
+#   sudo cp deploy/dms-prod.service /etc/systemd/system/dms-prod.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable dms-prod   # tự khởi động cùng máy chủ
+#   sudo systemctl start dms-prod
+#
+# Xem log: sudo journalctl -u dms-prod -f
+# Xem trạng thái: sudo systemctl status dms-prod
+#
+# Sửa 2 đường dẫn dưới đây (WorkingDirectory, ReadWritePaths) nếu bạn
+# triển khai ứng dụng ở thư mục khác /opt/dms-prod — xem DEPLOYMENT.md.
+
+[Unit]
+Description=DMS Production - He thong Quan ly Tai lieu
+Documentation=https://github.com/pth8081/dms-prod/blob/main/DEPLOYMENT.md
+After=network.target mariadb.service mysql.service
+Wants=mariadb.service
+
+[Service]
+Type=simple
+User=dms
+Group=dms
+WorkingDirectory=/opt/dms-prod
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+
+# --- Bảo mật (hardening) ---
+# Tài khoản dms không có quyền sudo/đăng nhập; các dòng dưới thu hẹp thêm
+# quyền hạn của TIẾN TRÌNH này ngay cả khi tài khoản dms có bị lợi dụng.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# Thư mục DUY NHẤT tiến trình được phép ghi — phải khớp UPLOAD_DIR trong .env.
+ReadWritePaths=/opt/dms-prod/uploads
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+UMask=0027
+
+# --- Log: đẩy thẳng vào journal, xem bằng journalctl ---
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dms-prod
+
+[Install]
+WantedBy=multi-user.target

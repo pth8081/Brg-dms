@@ -1,5 +1,43 @@
 require('dotenv').config();
 
+// --- CLUSTER: chạy nhiều worker (đa lõi CPU) trên cùng 1 máy ---
+// Bật bằng biến môi trường WEB_CONCURRENCY (số nguyên > 1). Mặc định
+// (không đặt, hoặc đặt = 1) chạy 1 tiến trình duy nhất như trước giờ —
+// không đổi hành vi mặc định, tránh phá vỡ các môi trường đang chạy.
+//
+// Tiến trình CHÍNH (primary) vẫn load toàn bộ file này như các worker
+// (không return sớm) — chỉ KHÔNG tự app.listen() ở cuối file — để có thể
+// tự chạy tác vụ định kỳ (đồng bộ AD, nhắc hạn CNTT) ngay tại chính nó.
+// Sở dĩ KHÔNG gán việc này cho "worker #1" như một bản nháp trước đó: ID
+// worker do cluster cấp tăng dần vĩnh viễn, worker #1 chết (crash) sẽ được
+// thay bằng worker mang ID mới (VD #4) — không ai còn giữ ID #1 nữa, tác
+// vụ định kỳ sẽ NGỪNG CHẠY HẲN cho tới khi restart toàn bộ tiến trình.
+// Tiến trình CHÍNH thì khác: luôn là đúng 1 tiến trình duy nhất suốt vòng
+// đời ứng dụng (không tự hồi sinh theo kiểu worker), nên gán trách nhiệm
+// này cho primary là an toàn và ổn định ở mọi thời điểm.
+const cluster = require('cluster');
+const WEB_CONCURRENCY = parseInt(process.env.WEB_CONCURRENCY, 10) || 1;
+const isClusterMode = WEB_CONCURRENCY > 1;
+if (isClusterMode && cluster.isPrimary) {
+    console.log(`🧵 Tiến trình chính (PID ${process.pid}) đang khởi động ${WEB_CONCURRENCY} worker...`);
+    for (let i = 0; i < WEB_CONCURRENCY; i++) cluster.fork();
+    cluster.on('exit', (worker, code, signal) => {
+        console.error(`⚠️  Worker PID ${worker.process.pid} đã thoát (mã lỗi ${code}, tín hiệu ${signal}) — khởi động lại worker thay thế.`);
+        cluster.fork();
+    });
+}
+// Nếu chạy bằng PM2 ở chế độ cluster riêng của PM2 (`pm2 start ... -i N`,
+// KHÔNG dùng WEB_CONCURRENCY ở trên), PM2 tự đóng vai trò tiến trình chính
+// bên ngoài Node — với chính module `cluster` của Node thì MỌI instance
+// do PM2 sinh ra đều là worker (cluster.isPrimary luôn false), nên nếu chỉ
+// xét cluster.isPrimary thì không tiến trình nào nhận tác vụ định kỳ khi
+// chạy qua PM2 cluster mode. PM2 luôn set biến NODE_APP_INSTANCE ('0', '1',
+// ...) cho từng instance — dùng instance '0' làm nơi phụ trách trong
+// trường hợp này.
+const isScheduledJobOwner = process.env.NODE_APP_INSTANCE !== undefined
+    ? process.env.NODE_APP_INSTANCE === '0'
+    : cluster.isPrimary;
+
 const crypto = require('crypto');
 const express = require('express');
 const compression = require('compression');
@@ -418,8 +456,10 @@ async function maybeRunScheduledAdSync() {
         console.error('❌ Lỗi đồng bộ AD theo lịch:', e.message);
     }
 }
-setInterval(maybeRunScheduledAdSync, 60 * 60 * 1000);
-setTimeout(maybeRunScheduledAdSync, 10000);
+if (isScheduledJobOwner) {
+    setInterval(maybeRunScheduledAdSync, 60 * 60 * 1000);
+    setTimeout(maybeRunScheduledAdSync, 10000);
+}
 
 // --- Module Quản lý CNTT: cấu hình email SMTP thật + engine nhắc hết hạn ---
 // Đọc cấu hình SMTP thật (kể cả tài khoản/mật khẩu) — CHỈ dùng nội bộ server,
@@ -571,8 +611,10 @@ async function maybeRunScheduledExpiryCheck() {
         console.error('❌ Lỗi kiểm tra hạn CNTT theo lịch:', e.message);
     }
 }
-setInterval(maybeRunScheduledExpiryCheck, 60 * 60 * 1000);
-setTimeout(maybeRunScheduledExpiryCheck, 15000);
+if (isScheduledJobOwner) {
+    setInterval(maybeRunScheduledExpiryCheck, 60 * 60 * 1000);
+    setTimeout(maybeRunScheduledExpiryCheck, 15000);
+}
 
 // --- API AUTH ---
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
@@ -4353,6 +4395,14 @@ app.post('/api/it/check-expiry-now', requireAuth, requireAdmin, async (req, res)
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`🚀 Máy chủ DMS Production đang chạy tại cổng http://localhost:${PORT}`);
-});
+if (isClusterMode && cluster.isPrimary) {
+    // Tiến trình chính khi chạy cluster: không phục vụ HTTP (các worker đã
+    // lắng nghe chung 1 cổng qua cơ chế chia tải có sẵn của module cluster)
+    // — chỉ giám sát/hồi sinh worker và chạy tác vụ định kỳ.
+    console.log(`🧵 Tiến trình chính (PID ${process.pid}) không phục vụ HTTP trực tiếp — chỉ giám sát worker + chạy tác vụ định kỳ.`);
+} else {
+    app.listen(PORT, () => {
+        const workerTag = cluster.isWorker ? ` (worker #${cluster.worker.id}, PID ${process.pid})` : ` (PID ${process.pid})`;
+        console.log(`🚀 Máy chủ DMS Production đang chạy tại cổng http://localhost:${PORT}${workerTag}`);
+    });
+}
