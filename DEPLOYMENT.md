@@ -268,6 +268,45 @@ Log đúng khi khởi động thành công với `WEB_CONCURRENCY=2`:
 > được file khi upload tài liệu (do dòng `ProtectSystem=strict` chặn ghi
 > ra ngoài các đường dẫn đã liệt kê).
 
+### Phương án thay thế: dùng PM2 thay vì systemd
+
+Nếu bạn quen dùng [PM2](https://pm2.keymetrics.io/) để quản lý tiến trình
+Node thay vì systemd (hoặc chưa muốn tạo file `.service` ngay), **hoàn
+toàn dùng được** — ứng dụng đã hỗ trợ cả 2 cách chạy nhiều worker:
+
+| Cách chạy nhiều worker | Cấu hình |
+|---|---|
+| **Cluster tự thân của ứng dụng** (mục 8 ở trên) | `WEB_CONCURRENCY=N` trong `.env`, chạy `pm2 start server.js` (KHÔNG kèm `-i`) |
+| **Cluster mode của PM2** | `WEB_CONCURRENCY=1` (hoặc bỏ trống) trong `.env`, chạy `pm2 start server.js -i N` |
+
+**⚠️ Chỉ chọn 1 trong 2 cách — không dùng cùng lúc cả `WEB_CONCURRENCY>1`
+lẫn `pm2 start ... -i N`**, nếu không sẽ bị lồng cluster 2 lớp (PM2 fork N
+tiến trình, mỗi tiến trình đó lại tự fork thêm worker riêng) — vừa lãng
+phí tài nguyên vừa khó kiểm soát.
+
+Ví dụ dùng cluster mode của PM2 (khuyến nghị nếu đã quen PM2 — không cần
+lo về việc tác vụ định kỳ chạy trùng, ứng dụng đã tự nhận diện đúng biến
+`NODE_APP_INSTANCE` mà PM2 gán cho từng instance để chỉ 1 instance duy
+nhất — instance số `0` — chạy các tác vụ đó):
+
+```bash
+cd /opt/dms-prod
+sudo -u dms npm ci && sudo -u dms npm run build
+sudo -u dms pm2 start server.js --name dms-prod -i max   # "max" = bằng số lõi CPU
+sudo -u dms pm2 save                                     # lưu lại danh sách tiến trình
+sudo pm2 startup systemd -u dms --hp /opt/dms-prod        # sinh + cài unit systemd cho riêng PM2 daemon (tự khởi động cùng máy chủ)
+```
+Vận hành:
+```bash
+pm2 logs dms-prod           # xem log
+pm2 restart dms-prod        # khởi động lại toàn bộ
+pm2 status                  # xem trạng thái các instance
+```
+> `pm2 startup systemd` chỉ tạo 1 unit systemd DUY NHẤT cho tiến trình PM2
+> daemon (để PM2 tự sống lại sau khi reboot server) — bạn vẫn dùng lệnh
+> `pm2` để quản lý ứng dụng, không cần đụng tới `deploy/dms-prod.service`
+> nữa nếu chọn theo hướng này.
+
 ## 10. Nginx reverse proxy + HTTPS
 
 Tạo file cấu hình site mới:
@@ -344,6 +383,9 @@ sudo bash deploy/setup-service-account.sh /opt/dms-prod   # đảm bảo quyền
 sudo systemctl restart dms-prod
 sudo journalctl -u dms-prod -f            # theo dõi log để chắc khởi động thành công
 ```
+> Nếu dùng PM2 thay vì systemd (mục 9), thay 2 dòng cuối bằng
+> `sudo -u dms pm2 restart dms-prod` và `pm2 logs dms-prod`.
+
 Nếu `schema.sql` có thay đổi cấu trúc bảng, đọc kỹ ghi chú kèm theo bản
 cập nhật đó trước khi áp dụng — không tự ý chạy lại toàn bộ `schema.sql`
 lên CSDL đã có dữ liệu thật.

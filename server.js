@@ -26,7 +26,17 @@ if (isClusterMode && cluster.isPrimary) {
         cluster.fork();
     });
 }
-const isScheduledJobOwner = cluster.isPrimary;
+// Nếu chạy bằng PM2 ở chế độ cluster riêng của PM2 (`pm2 start ... -i N`,
+// KHÔNG dùng WEB_CONCURRENCY ở trên), PM2 tự đóng vai trò tiến trình chính
+// bên ngoài Node — với chính module `cluster` của Node thì MỌI instance
+// do PM2 sinh ra đều là worker (cluster.isPrimary luôn false), nên nếu chỉ
+// xét cluster.isPrimary thì không tiến trình nào nhận tác vụ định kỳ khi
+// chạy qua PM2 cluster mode. PM2 luôn set biến NODE_APP_INSTANCE ('0', '1',
+// ...) cho từng instance — dùng instance '0' làm nơi phụ trách trong
+// trường hợp này.
+const isScheduledJobOwner = process.env.NODE_APP_INSTANCE !== undefined
+    ? process.env.NODE_APP_INSTANCE === '0'
+    : cluster.isPrimary;
 
 const crypto = require('crypto');
 const express = require('express');
