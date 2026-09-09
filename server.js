@@ -4394,6 +4394,398 @@ app.post('/api/it/check-expiry-now', requireAuth, requireAdmin, async (req, res)
     }
 });
 
+// =====================================================================
+// MODULE QUẢN LÝ NGÂN SÁCH (budget2_*) — độc lập hoàn toàn với lic_budget_*.
+// Quy trình 3 giai đoạn Đề xuất -> Phê duyệt -> Sử dụng, lưu chung 1 bảng
+// budget2_lines, phân biệt bằng cột stage. Xem chú thích chi tiết ở schema.sql.
+// =====================================================================
+function requireBudgetOrAdmin(req, res, next) {
+    if (!req.user || !req.user.perms || (!req.user.perms.admin && !req.user.perms.budgetManager)) {
+        return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên hoặc Người quản lý Ngân sách.' });
+    }
+    next();
+}
+
+function mapBudget2Line(l) {
+    return {
+        id: l.id,
+        stage: l.stage,
+        parentId: l.parent_id,
+        sourceLineId: l.source_line_id,
+        companyId: l.company_id,
+        orgUnitId: l.org_unit_id,
+        content: l.content,
+        description: l.description,
+        quantity: Number(l.quantity),
+        unitPrice: Number(l.unit_price),
+        vatPercent: Number(l.vat_percent),
+        totalAmount: Number(l.total_amount),
+        budgetType: l.budget_type,
+        usageStatus: l.usage_status,
+        reallocationReason: l.reallocation_reason,
+        status: l.status,
+        note: l.note,
+        createdBy: l.created_by,
+        createdAt: l.created_at,
+        decidedBy: l.decided_by,
+        decidedAt: l.decided_at
+    };
+}
+
+function computeBudget2Total(quantity, unitPrice, vatPercent) {
+    const qty = Number(quantity) || 0;
+    const price = Number(unitPrice) || 0;
+    const vat = Number(vatPercent) || 0;
+    return Math.round(qty * price * (1 + vat / 100) * 100) / 100;
+}
+
+function validateBudget2LineInput(body) {
+    const content = String((body && body.content) || '').trim();
+    if (!content) return { error: 'Nội dung không được để trống.' };
+    const quantity = Number(body.quantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) return { error: 'Số lượng phải là số dương.' };
+    const unitPrice = Number(body.unitPrice);
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) return { error: 'Đơn giá không hợp lệ.' };
+    const vatPercent = body.vatPercent === undefined || body.vatPercent === null || body.vatPercent === '' ? 0 : Number(body.vatPercent);
+    if (!Number.isFinite(vatPercent) || vatPercent < 0 || vatPercent > 100) return { error: 'VAT% không hợp lệ (0-100).' };
+    const budgetType = body.budgetType === 'CAPEX' ? 'CAPEX' : (body.budgetType === 'OPEX' ? 'OPEX' : null);
+    if (!budgetType) return { error: 'Loại ngân sách phải là OPEX hoặc CAPEX.' };
+    const companyId = body.companyId ? Number(body.companyId) : null;
+    const orgUnitId = body.orgUnitId ? Number(body.orgUnitId) : null;
+    const description = body.description ? String(body.description).trim() : null;
+    const note = body.note ? String(body.note).trim() : null;
+    return { content, quantity, unitPrice, vatPercent, budgetType, companyId, orgUnitId, description, note };
+}
+
+// --- Bootstrap: toàn bộ dòng ngân sách + danh mục Công ty/Đơn vị (chỉ đọc, tái
+// sử dụng lic_companies/lic_org_units do module Bản quyền đã quản lý sẵn) ---
+app.get('/api/budget2/bootstrap', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+    try {
+        const [lines] = await pool.query('SELECT * FROM budget2_lines ORDER BY id DESC');
+        const [companies] = await pool.query('SELECT id, name, code FROM lic_companies WHERE active = 1 ORDER BY name');
+        const [orgUnits] = await pool.query('SELECT id, company_id AS companyId, parent_id AS parentId, name, level_label AS levelLabel FROM lic_org_units ORDER BY name');
+        res.json({
+            lines: lines.map(mapBudget2Line),
+            companies,
+            orgUnits
+        });
+    } catch (err) {
+        console.error('❌ Lỗi tải dữ liệu module Quản lý Ngân sách:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Tạo dòng Đề xuất mới ---
+app.post('/api/budget2/lines', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+    try {
+        const v = validateBudget2LineInput(req.body || {});
+        if (v.error) return res.status(400).json({ error: v.error });
+        const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
+        const now = new Date().toISOString();
+        const [result] = await pool.query(
+            `INSERT INTO budget2_lines
+                (stage, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, status, note, created_by, created_at)
+             VALUES ('PROPOSED', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', ?, ?, ?)`,
+            [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.note, req.user.username, now]
+        );
+        await writeAuditLog({ module: 'BUDGET2', actionType: 'CREATE_PROPOSAL', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Tạo đề xuất ngân sách [${v.content}], thành tiền ${totalAmount.toLocaleString('vi-VN')}.` });
+        res.json({ success: true, id: result.insertId });
+    } catch (err) {
+        console.error('❌ Lỗi tạo đề xuất ngân sách:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Sửa 1 dòng (Đề xuất chưa được duyệt/từ chối, HOẶC mục con Sử dụng) ---
+app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ?', [id]);
+        const line = rows[0];
+        if (!line) return res.status(404).json({ error: 'Không tìm thấy dòng ngân sách.' });
+
+        if (line.stage === 'PROPOSED') {
+            if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Đề xuất đã được duyệt/từ chối, không thể sửa.' });
+            const v = validateBudget2LineInput(req.body || {});
+            if (v.error) return res.status(400).json({ error: v.error });
+            const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
+            await pool.query(
+                `UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, note = ? WHERE id = ?`,
+                [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.note, id]
+            );
+            await writeAuditLog({ module: 'BUDGET2', actionType: 'UPDATE_PROPOSAL', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Cập nhật đề xuất ngân sách [${v.content}].` });
+            return res.json({ success: true });
+        }
+
+        if (line.stage === 'USED' && line.parent_id) {
+            const v = validateBudget2LineInput(req.body || {});
+            if (v.error) return res.status(400).json({ error: v.error });
+            const [parentRows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ?', [line.parent_id]);
+            const parent = parentRows[0];
+            if (!parent) return res.status(404).json({ error: 'Không tìm thấy mục cha.' });
+            const reallocationReason = req.body && req.body.reallocationReason ? String(req.body.reallocationReason).trim() : null;
+            if (v.budgetType !== parent.budget_type && !reallocationReason) {
+                return res.status(400).json({ error: 'Mục con khác loại ngân sách (OPEX/CAPEX) với mục cha — bắt buộc nhập lý do tái phân bổ.' });
+            }
+            const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
+            await pool.query(
+                `UPDATE budget2_lines SET content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, note = ?, reallocation_reason = ? WHERE id = ?`,
+                [v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.note, reallocationReason, id]
+            );
+            await recomputeBudget2ParentUsage(line.parent_id);
+            await writeAuditLog({ module: 'BUDGET2', actionType: 'UPDATE_USAGE_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Cập nhật mục sử dụng con [${v.content}].` });
+            return res.json({ success: true });
+        }
+
+        return res.status(400).json({ error: 'Dòng này không cho phép sửa trực tiếp.' });
+    } catch (err) {
+        console.error('❌ Lỗi cập nhật dòng ngân sách:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Xóa 1 dòng (Đề xuất chưa quyết định, HOẶC mục con Sử dụng) ---
+app.delete('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ?', [id]);
+        const line = rows[0];
+        if (!line) return res.status(404).json({ error: 'Không tìm thấy dòng ngân sách.' });
+
+        if (line.stage === 'PROPOSED') {
+            if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Đề xuất đã được duyệt/từ chối, không thể xóa.' });
+            await pool.query('DELETE FROM budget2_lines WHERE id = ?', [id]);
+            await writeAuditLog({ module: 'BUDGET2', actionType: 'DELETE_PROPOSAL', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Xóa đề xuất ngân sách [${line.content}].` });
+            return res.json({ success: true });
+        }
+
+        if (line.stage === 'USED' && line.parent_id) {
+            await pool.query('DELETE FROM budget2_lines WHERE id = ?', [id]);
+            await recomputeBudget2ParentUsage(line.parent_id);
+            await writeAuditLog({ module: 'BUDGET2', actionType: 'DELETE_USAGE_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Xóa mục sử dụng con [${line.content}].` });
+            return res.json({ success: true });
+        }
+
+        return res.status(400).json({ error: 'Dòng này không cho phép xóa trực tiếp.' });
+    } catch (err) {
+        console.error('❌ Lỗi xóa dòng ngân sách:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Duyệt 1 đề xuất: tự động sinh dòng Phê duyệt + dòng Sử dụng (mục cha) ---
+app.post('/api/budget2/lines/:id/approve', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+    const conn = await pool.getConnection();
+    try {
+        const { id } = req.params;
+        const [rows] = await conn.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'PROPOSED\' FOR UPDATE', [id]);
+        const line = rows[0];
+        if (!line) { conn.release(); return res.status(404).json({ error: 'Không tìm thấy đề xuất.' }); }
+        if (line.status !== 'SUBMITTED') { conn.release(); return res.status(400).json({ error: 'Đề xuất đã được xử lý trước đó.' }); }
+        if (line.created_by === req.user.username) { conn.release(); return res.status(400).json({ error: 'Không thể tự duyệt đề xuất do chính mình tạo.' }); }
+
+        await conn.beginTransaction();
+        const now = new Date().toISOString();
+        await conn.query('UPDATE budget2_lines SET status = \'APPROVED\', decided_by = ?, decided_at = ? WHERE id = ?', [req.user.username, now, id]);
+
+        const [approvedResult] = await conn.query(
+            `INSERT INTO budget2_lines
+                (stage, source_line_id, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, status, note, created_by, created_at, decided_by, decided_at)
+             VALUES ('APPROVED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'APPROVED', ?, ?, ?, ?, ?)`,
+            [line.id, line.company_id, line.org_unit_id, line.content, line.description, line.quantity, line.unit_price, line.vat_percent, line.total_amount, line.budget_type, line.note, req.user.username, now, req.user.username, now]
+        );
+        const approvedId = approvedResult.insertId;
+
+        await conn.query(
+            `INSERT INTO budget2_lines
+                (stage, source_line_id, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, usage_status, status, note, created_by, created_at)
+             VALUES ('USED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NOT_USED', 'APPROVED', ?, ?, ?)`,
+            [approvedId, line.company_id, line.org_unit_id, line.content, line.description, line.quantity, line.unit_price, line.vat_percent, line.total_amount, line.budget_type, line.note, req.user.username, now]
+        );
+
+        await conn.commit();
+        conn.release();
+        await writeAuditLog({ module: 'BUDGET2', actionType: 'APPROVE_PROPOSAL', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Duyệt đề xuất ngân sách [${line.content}] — tự động sinh dòng Phê duyệt + Sử dụng.` });
+        res.json({ success: true });
+    } catch (err) {
+        await conn.rollback().catch(() => {});
+        conn.release();
+        console.error('❌ Lỗi duyệt đề xuất ngân sách:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Từ chối 1 đề xuất ---
+app.post('/api/budget2/lines/:id/reject', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'PROPOSED\'', [id]);
+        const line = rows[0];
+        if (!line) return res.status(404).json({ error: 'Không tìm thấy đề xuất.' });
+        if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Đề xuất đã được xử lý trước đó.' });
+        if (line.created_by === req.user.username) return res.status(400).json({ error: 'Không thể tự từ chối đề xuất do chính mình tạo.' });
+        const now = new Date().toISOString();
+        await pool.query('UPDATE budget2_lines SET status = \'REJECTED\', decided_by = ?, decided_at = ? WHERE id = ?', [req.user.username, now, id]);
+        await writeAuditLog({ module: 'BUDGET2', actionType: 'REJECT_PROPOSAL', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Từ chối đề xuất ngân sách [${line.content}].` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi từ chối đề xuất ngân sách:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Nhập trực tiếp 1 dòng Phê duyệt (không qua đề xuất trước) — VD ngân
+// sách áp từ trên xuống. Vẫn tự động sinh dòng Sử dụng tương ứng, KHÔNG áp
+// dụng chặn tự duyệt (không có người đề xuất riêng để tự duyệt hộ). ---
+app.post('/api/budget2/lines/approved-direct', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+    const conn = await pool.getConnection();
+    try {
+        const v = validateBudget2LineInput(req.body || {});
+        if (v.error) { conn.release(); return res.status(400).json({ error: v.error }); }
+        const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
+        const now = new Date().toISOString();
+        await conn.beginTransaction();
+        const [approvedResult] = await conn.query(
+            `INSERT INTO budget2_lines
+                (stage, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, status, note, created_by, created_at, decided_by, decided_at)
+             VALUES ('APPROVED', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'APPROVED', ?, ?, ?, ?, ?)`,
+            [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.note, req.user.username, now, req.user.username, now]
+        );
+        const approvedId = approvedResult.insertId;
+        await conn.query(
+            `INSERT INTO budget2_lines
+                (stage, source_line_id, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, usage_status, status, note, created_by, created_at)
+             VALUES ('USED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NOT_USED', 'APPROVED', ?, ?, ?)`,
+            [approvedId, v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.note, req.user.username, now]
+        );
+        await conn.commit();
+        conn.release();
+        await writeAuditLog({ module: 'BUDGET2', actionType: 'CREATE_APPROVED_DIRECT', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Nhập trực tiếp dòng ngân sách đã duyệt [${v.content}] (không qua đề xuất) — tự động sinh dòng Sử dụng.` });
+        res.json({ success: true, id: approvedId });
+    } catch (err) {
+        await conn.rollback().catch(() => {});
+        conn.release();
+        console.error('❌ Lỗi tạo dòng ngân sách phê duyệt trực tiếp:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Thêm mục con Sử dụng dưới 1 mục cha (dòng USED gốc, parent_id NULL) ---
+app.post('/api/budget2/lines/:id/children', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [parentRows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'USED\' AND parent_id IS NULL', [id]);
+        const parent = parentRows[0];
+        if (!parent) return res.status(404).json({ error: 'Không tìm thấy mục ngân sách sử dụng.' });
+
+        const v = validateBudget2LineInput(req.body || {});
+        if (v.error) return res.status(400).json({ error: v.error });
+        const reallocationReason = req.body && req.body.reallocationReason ? String(req.body.reallocationReason).trim() : null;
+        if (v.budgetType !== parent.budget_type && !reallocationReason) {
+            return res.status(400).json({ error: 'Mục con khác loại ngân sách (OPEX/CAPEX) với mục cha — bắt buộc nhập lý do tái phân bổ.' });
+        }
+        const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
+        const now = new Date().toISOString();
+        await pool.query(
+            `INSERT INTO budget2_lines
+                (stage, parent_id, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, usage_status, status, note, reallocation_reason, created_by, created_at)
+             VALUES ('USED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USED', 'APPROVED', ?, ?, ?, ?)`,
+            [id, parent.company_id, parent.org_unit_id, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.note, reallocationReason, req.user.username, now]
+        );
+        await recomputeBudget2ParentUsage(id);
+        await writeAuditLog({ module: 'BUDGET2', actionType: 'CREATE_USAGE_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Thêm mục sử dụng con [${v.content}] dưới mục cha [${parent.content}].` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi thêm mục sử dụng con:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// Tự tính lại trạng thái sử dụng của mục cha dựa trên tổng các mục con hiện có
+// — NOT_USED (chưa có mục con nào), PARTIALLY_USED (tổng con < ngân sách cha),
+// USED (tổng con >= ngân sách cha). Không cho phép sửa tay trạng thái này.
+async function recomputeBudget2ParentUsage(parentId) {
+    const [parentRows] = await pool.query('SELECT total_amount FROM budget2_lines WHERE id = ?', [parentId]);
+    if (!parentRows[0]) return;
+    const [sumRows] = await pool.query('SELECT COALESCE(SUM(total_amount), 0) AS used FROM budget2_lines WHERE parent_id = ?', [parentId]);
+    const used = Number(sumRows[0].used);
+    const total = Number(parentRows[0].total_amount);
+    let usageStatus = 'NOT_USED';
+    if (used > 0 && used < total) usageStatus = 'PARTIALLY_USED';
+    else if (used >= total && total > 0) usageStatus = 'USED';
+    else if (used > 0 && total === 0) usageStatus = 'USED';
+    await pool.query('UPDATE budget2_lines SET usage_status = ? WHERE id = ?', [usageStatus, parentId]);
+}
+
+// --- Báo cáo tổng hợp: gộp cả 7 loại báo cáo yêu cầu vào 4 tập kết quả, phân
+// biệt bằng cột "dimension" (theo Công ty / theo Đơn vị / Tổng toàn công ty)
+// và các cột proposed/approved/used tách theo OPEX/CAPEX — client tự lọc theo
+// nhu cầu xem (Đề xuất/Duyệt/Sử dụng riêng lẻ chỉ là chọn đúng 1 cột). ---
+app.get('/api/budget2/reports', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+    try {
+        const stageSum = async (stage, groupCol) => {
+            const extraWhere = stage === 'PROPOSED' ? "AND status <> 'REJECTED'" : (stage === 'USED' ? 'AND parent_id IS NOT NULL' : '');
+            const sql = `SELECT ${groupCol} AS groupKey, budget_type AS budgetType, SUM(total_amount) AS total
+                         FROM budget2_lines WHERE stage = ? ${extraWhere} GROUP BY ${groupCol}, budget_type`;
+            const [rows] = await pool.query(sql, [stage]);
+            return rows;
+        };
+
+        const buildDimension = async (groupCol) => {
+            const [proposed, approved, used] = await Promise.all([
+                stageSum('PROPOSED', groupCol),
+                stageSum('APPROVED', groupCol),
+                stageSum('USED', groupCol)
+            ]);
+            const map = new Map();
+            const addRows = (rows, key) => rows.forEach(r => {
+                const mapKey = `${r.groupKey ?? 'null'}|${r.budgetType}`;
+                if (!map.has(mapKey)) map.set(mapKey, { groupKey: r.groupKey, budgetType: r.budgetType, proposed: 0, approved: 0, used: 0 });
+                map.get(mapKey)[key] = Number(r.total);
+            });
+            addRows(proposed, 'proposed');
+            addRows(approved, 'approved');
+            addRows(used, 'used');
+            return [...map.values()];
+        };
+
+        const [byCompany, byOrgUnit, total] = await Promise.all([
+            buildDimension('company_id'),
+            buildDimension('org_unit_id'),
+            buildDimension('1')
+        ]);
+
+        const [variance] = await pool.query(`
+            SELECT a.id AS approvedId, a.content, a.company_id AS companyId, a.org_unit_id AS orgUnitId, a.budget_type AS budgetType,
+                   a.total_amount AS approvedAmount, COALESCE(c.usedChildren, 0) AS usedAmount
+            FROM budget2_lines a
+            LEFT JOIN budget2_lines u ON u.stage = 'USED' AND u.parent_id IS NULL AND u.source_line_id = a.id
+            LEFT JOIN (SELECT parent_id, SUM(total_amount) AS usedChildren FROM budget2_lines WHERE stage = 'USED' AND parent_id IS NOT NULL GROUP BY parent_id) c ON c.parent_id = u.id
+            WHERE a.stage = 'APPROVED'
+            ORDER BY a.id DESC
+        `);
+
+        res.json({
+            byCompany,
+            byOrgUnit,
+            total,
+            variance: variance.map(v => ({
+                approvedId: v.approvedId,
+                content: v.content,
+                companyId: v.companyId,
+                orgUnitId: v.orgUnitId,
+                budgetType: v.budgetType,
+                approvedAmount: Number(v.approvedAmount),
+                usedAmount: Number(v.usedAmount),
+                remaining: Number(v.approvedAmount) - Number(v.usedAmount)
+            }))
+        });
+    } catch (err) {
+        console.error('❌ Lỗi tải báo cáo ngân sách:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
 const PORT = process.env.PORT || 3000;
 if (isClusterMode && cluster.isPrimary) {
     // Tiến trình chính khi chạy cluster: không phục vụ HTTP (các worker đã

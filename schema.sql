@@ -674,6 +674,48 @@ CREATE TABLE IF NOT EXISTS it_reminder_sent (
 );
 CALL create_unique_index_if_not_exists('it_reminder_sent', 'uq_it_reminder_sent', 'item_id, expiry_date, days_before');
 
+-- 17. Module Quản lý Ngân sách (mới, ĐỘC LẬP hoàn toàn với lic_budget_* — bên
+-- đó phục vụ dự trù số lượng license/thiết bị theo kỳ mua sắm, còn module này
+-- là ngân sách chi tiêu tổng quát toàn công ty, đặt ngang hàng module Bản
+-- quyền/CNTT/Hệ thống). Quy trình 3 giai đoạn Đề xuất -> Phê duyệt -> Sử dụng
+-- lưu chung 1 bảng, phân biệt bằng cột stage:
+--   - PROPOSED: phòng ban gửi đề xuất (dòng phẳng, không phân cấp).
+--   - APPROVED: sinh TỰ ĐỘNG khi 1 dòng PROPOSED được duyệt (source_line_id
+--     trỏ về dòng PROPOSED gốc) — liệt kê theo OPEX/CAPEX.
+--   - USED: sinh TỰ ĐỘNG song song với dòng APPROVED (source_line_id trỏ về
+--     dòng APPROVED) làm "mục cha"; mục con (parent_id trỏ về mục cha) ghi
+--     nhận từng lần sử dụng thực tế. "Ngân sách còn lại" của mục cha KHÔNG lưu
+--     thành 1 dòng cứng mà tính động = total_amount mục cha trừ tổng
+--     total_amount các mục con, để luôn đúng khi mục con bị sửa/xóa sau này.
+CREATE TABLE IF NOT EXISTS budget2_lines (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    stage ENUM('PROPOSED','APPROVED','USED') NOT NULL,
+    parent_id BIGINT NULL DEFAULT NULL,
+    source_line_id BIGINT NULL DEFAULT NULL,
+    company_id BIGINT NULL DEFAULT NULL,
+    org_unit_id BIGINT NULL DEFAULT NULL,
+    content VARCHAR(500) NOT NULL,
+    description TEXT NULL DEFAULT NULL,
+    quantity DECIMAL(18,2) NOT NULL DEFAULT 1,
+    unit_price DECIMAL(18,2) NOT NULL DEFAULT 0,
+    vat_percent DECIMAL(5,2) NOT NULL DEFAULT 0,
+    total_amount DECIMAL(18,2) NOT NULL DEFAULT 0,
+    budget_type ENUM('OPEX','CAPEX') NOT NULL DEFAULT 'OPEX',
+    usage_status ENUM('NOT_USED','USED','PARTIALLY_USED') NOT NULL DEFAULT 'NOT_USED',
+    reallocation_reason TEXT NULL DEFAULT NULL,
+    status ENUM('DRAFT','SUBMITTED','APPROVED','REJECTED') NOT NULL DEFAULT 'SUBMITTED',
+    note VARCHAR(500) NULL DEFAULT NULL,
+    created_by VARCHAR(100) NULL DEFAULT NULL,
+    created_at VARCHAR(100),
+    decided_by VARCHAR(100) NULL DEFAULT NULL,
+    decided_at VARCHAR(100) NULL DEFAULT NULL
+);
+CALL create_index_if_not_exists('budget2_lines', 'idx_budget2_stage', 'stage');
+CALL create_index_if_not_exists('budget2_lines', 'idx_budget2_parent', 'parent_id');
+CALL create_index_if_not_exists('budget2_lines', 'idx_budget2_source', 'source_line_id');
+CALL create_index_if_not_exists('budget2_lines', 'idx_budget2_company', 'company_id');
+CALL create_index_if_not_exists('budget2_lines', 'idx_budget2_org_unit', 'org_unit_id');
+
 -- Dọn dẹp: xóa các thủ tục tạm sau khi dùng xong, không để lại trong CSDL thật.
 DROP PROCEDURE IF EXISTS create_index_if_not_exists;
 DROP PROCEDURE IF EXISTS create_unique_index_if_not_exists;
