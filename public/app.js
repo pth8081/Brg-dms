@@ -6171,22 +6171,26 @@ function isPerpetualSoftware(softwareId) {
     }
 
     // --- Sub-tab: Ngân sách đề xuất ---
+    // Module này CHỈ giai đoạn Phê duyệt mới có bước duyệt/từ chối — Đề xuất
+    // chỉ đơn thuần là danh sách gửi lên, không cần duyệt. Một đề xuất "đã gửi
+    // sang Phê duyệt" khi có 1 dòng stage=APPROVED nào đó trỏ source_line_id
+    // về nó (không phân biệt dòng đó đã được quyết định hay còn đang chờ).
+    function budget2ProposalSentSet() {
+      return new Set(budget2DB.lines.filter(l => l.stage === 'APPROVED' && l.sourceLineId).map(l => l.sourceLineId));
+    }
     function renderBudget2ProposedTable() {
       const tbody = document.getElementById('budget2ProposeTableBody');
       if (!tbody) return;
       const rows = budget2DB.lines.filter(l => l.stage === 'PROPOSED').sort((a, b) => b.id - a.id);
-      const isAdmin = !!(currentUser.perms.admin || currentUser.perms.budgetManager);
-      if (!rows.length) { tbody.innerHTML = '<tr><td colspan="11" class="text-center p-4 text-gray-400 italic">Chưa có đề xuất ngân sách nào.</td></tr>'; return; }
+      const sentIds = budget2ProposalSentSet();
+      if (!rows.length) { tbody.innerHTML = '<tr><td colspan="10" class="text-center p-4 text-gray-400 italic">Chưa có đề xuất ngân sách nào.</td></tr>'; return; }
       tbody.innerHTML = rows.map((l, i) => {
-        let actions = '';
-        if (l.status === 'SUBMITTED') {
-          actions += `<button ${dc('openBudget2LineModal', 'PROPOSED', l.id)} class="text-blue-600 hover:underline mr-1" title="Sửa">✏️</button>`;
-          actions += `<button ${dc('deleteBudget2Line', l.id)} class="text-red-600 hover:underline mr-1" title="Xóa">🗑️</button>`;
-          if (isAdmin) {
-            actions += `<button ${dc('approveBudget2Line', l.id)} class="text-green-600 hover:underline mr-1" title="Duyệt">✔️</button>`;
-            actions += `<button ${dc('rejectBudget2Line', l.id)} class="text-red-600 hover:underline" title="Từ chối">✖️</button>`;
-          }
-        }
+        const sent = sentIds.has(l.id);
+        const actions = sent
+          ? '<span class="text-gray-400 italic">Đã gửi duyệt</span>'
+          : `<button ${dc('openBudget2LineModal', 'PROPOSED', l.id)} class="text-blue-600 hover:underline mr-1" title="Sửa">✏️</button>`
+            + `<button ${dc('deleteBudget2Line', l.id)} class="text-red-600 hover:underline mr-1" title="Xóa">🗑️</button>`
+            + `<button ${dc('sendBudget2ToApproval', l.id)} class="text-emerald-700 hover:underline font-bold whitespace-nowrap" title="Gửi sang Phê duyệt">➡️ Gửi duyệt</button>`;
         return `<tr>
           <td class="border p-2 text-center">${i + 1}</td>
           <td class="border p-2">${escapeHtml(l.content)}</td>
@@ -6197,30 +6201,41 @@ function isPerpetualSoftware(softwareId) {
           <td class="border p-2 text-right font-bold">${formatMoney(l.totalAmount)}</td>
           <td class="border p-2 text-center">${budget2TypeBadge(l.budgetType)}</td>
           <td class="border p-2">${budget2CompanyOrgLabel(l)}</td>
-          <td class="border p-2 text-center">${budget2StatusBadge(l.status)}</td>
           <td class="border p-2 text-center whitespace-nowrap">${actions}</td>
         </tr>`;
       }).join('');
     }
 
+    async function sendBudget2ToApproval(id) {
+      if (!confirm('Gửi đề xuất này sang chờ Phê duyệt?')) return;
+      try {
+        await apiFetch(`/api/budget2/lines/${id}/send-to-approval`, { method: 'POST' });
+        budget2DB.loaded = false;
+        await loadBudget2BootstrapData();
+        renderBudget2ProposedTable();
+        renderBudget2ApprovedTable();
+        showToast('Đã gửi sang Phê duyệt.', 'success');
+      } catch (err) { showToast(err.message, 'danger'); }
+    }
     async function approveBudget2Line(id) {
-      if (!confirm('Duyệt đề xuất ngân sách này? Hệ thống sẽ tự động sinh dòng Phê duyệt và dòng Sử dụng tương ứng.')) return;
+      if (!confirm('Duyệt dòng ngân sách này? Hệ thống sẽ tự động sinh dòng Sử dụng tương ứng.')) return;
       try {
         await apiFetch(`/api/budget2/lines/${id}/approve`, { method: 'POST' });
         budget2DB.loaded = false;
         await loadBudget2BootstrapData();
-        renderBudget2ProposedTable();
-        showToast('Đã duyệt đề xuất ngân sách.', 'success');
+        renderBudget2ApprovedTable();
+        renderBudget2UsedTable();
+        showToast('Đã duyệt.', 'success');
       } catch (err) { showToast(err.message, 'danger'); }
     }
     async function rejectBudget2Line(id) {
-      if (!confirm('Từ chối đề xuất ngân sách này?')) return;
+      if (!confirm('Từ chối dòng ngân sách này?')) return;
       try {
         await apiFetch(`/api/budget2/lines/${id}/reject`, { method: 'POST' });
         budget2DB.loaded = false;
         await loadBudget2BootstrapData();
-        renderBudget2ProposedTable();
-        showToast('Đã từ chối đề xuất ngân sách.', 'success');
+        renderBudget2ApprovedTable();
+        showToast('Đã từ chối.', 'success');
       } catch (err) { showToast(err.message, 'danger'); }
     }
     async function deleteBudget2Line(id) {
@@ -6240,7 +6255,9 @@ function isPerpetualSoftware(softwareId) {
     function openBudget2LineModal(stage, editId) {
       document.getElementById('budget2LineModalStage').value = stage;
       document.getElementById('budget2LineEditId').value = editId || '';
-      document.getElementById('budget2LineModalTitle').textContent = editId ? 'Sửa đề xuất ngân sách' : (stage === 'PROPOSED' ? 'Thêm đề xuất ngân sách' : 'Thêm dòng ngân sách phê duyệt (trực tiếp)');
+      document.getElementById('budget2LineModalTitle').textContent = editId
+        ? (stage === 'PROPOSED' ? 'Sửa đề xuất ngân sách' : 'Sửa dòng ngân sách phê duyệt (chờ duyệt)')
+        : (stage === 'PROPOSED' ? 'Thêm đề xuất ngân sách' : 'Thêm dòng ngân sách phê duyệt (chờ duyệt)');
       const companySel = document.getElementById('budget2LineCompany');
       companySel.innerHTML = '<option value="">-- Không chọn --</option>' + budget2DB.companies.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
       const line = editId ? budget2DB.lines.find(l => l.id === editId) : null;
@@ -6296,41 +6313,54 @@ function isPerpetualSoftware(softwareId) {
       } catch (err) { showToast(err.message, 'danger'); }
     }
 
-    // --- Sub-tab: Ngân sách phê duyệt (liệt kê theo OPEX/CAPEX) ---
+    // --- Sub-tab: Ngân sách phê duyệt (liệt kê theo OPEX/CAPEX) — CHỈ giai
+    // đoạn này mới có bước duyệt/từ chối thật sự trong cả module. Dòng ở đây
+    // có thể tới từ 1 đề xuất được gửi sang, hoặc nhập trực tiếp — cả 2 đều
+    // bắt đầu ở trạng thái Chờ duyệt và phải qua Duyệt/Từ chối như nhau. ---
     function renderBudget2ApprovedTable() {
       const container = document.getElementById('budget2ApprovedContainer');
       if (!container) return;
       const rows = budget2DB.lines.filter(l => l.stage === 'APPROVED').sort((a, b) => b.id - a.id);
       const renderGroup = (type) => {
         const groupRows = rows.filter(l => l.budgetType === type);
-        const subtotal = groupRows.reduce((s, l) => s + l.totalAmount, 0);
-        if (!groupRows.length) return `<div class="text-xs text-gray-400 italic p-2 border rounded mb-3">Chưa có dòng ${type} nào được duyệt.</div>`;
+        const subtotal = groupRows.filter(l => l.status === 'APPROVED').reduce((s, l) => s + l.totalAmount, 0);
+        if (!groupRows.length) return `<div class="text-xs text-gray-400 italic p-2 border rounded mb-3">Chưa có dòng ${type} nào.</div>`;
         return `<div class="overflow-x-auto border rounded mb-3">
           <table class="w-full text-xs border-collapse">
             <thead><tr class="bg-gray-100 text-left">
               <th class="border p-2 w-10">#</th><th class="border p-2">Nội dung</th><th class="border p-2">Mô tả</th>
               <th class="border p-2 text-right">SL</th><th class="border p-2 text-right">Đơn giá</th><th class="border p-2 text-right">VAT</th>
-              <th class="border p-2 text-right">Thành tiền</th><th class="border p-2">Công ty/Đơn vị</th><th class="border p-2 text-center">Người duyệt</th>
+              <th class="border p-2 text-right">Thành tiền</th><th class="border p-2">Công ty/Đơn vị</th>
+              <th class="border p-2 text-center">Trạng thái</th><th class="border p-2 text-center w-24">Thao tác</th>
             </tr></thead>
-            <tbody>${groupRows.map((l, i) => `<tr>
-              <td class="border p-2 text-center">${i + 1}</td>
-              <td class="border p-2">${escapeHtml(l.content)}</td>
-              <td class="border p-2">${escapeHtml(l.description || '')}</td>
-              <td class="border p-2 text-right">${l.quantity}</td>
-              <td class="border p-2 text-right">${formatMoney(l.unitPrice)}</td>
-              <td class="border p-2 text-right">${l.vatPercent}%</td>
-              <td class="border p-2 text-right font-bold">${formatMoney(l.totalAmount)}</td>
-              <td class="border p-2">${budget2CompanyOrgLabel(l)}</td>
-              <td class="border p-2 text-center">${escapeHtml(l.decidedBy || '')}</td>
-            </tr>`).join('')}
-            <tr class="bg-gray-50 font-bold"><td colspan="6" class="border p-2 text-right">Tổng ${type} đã duyệt</td><td class="border p-2 text-right">${formatMoney(subtotal)}</td><td class="border p-2" colspan="2"></td></tr>
+            <tbody>${groupRows.map((l, i) => {
+              const actions = l.status === 'SUBMITTED'
+                ? `<button ${dc('openBudget2LineModal', 'APPROVED', l.id)} class="text-blue-600 hover:underline mr-1" title="Sửa">✏️</button>`
+                  + `<button ${dc('deleteBudget2Line', l.id)} class="text-red-600 hover:underline mr-1" title="Xóa">🗑️</button>`
+                  + `<button ${dc('approveBudget2Line', l.id)} class="text-green-600 hover:underline mr-1" title="Duyệt">✔️</button>`
+                  + `<button ${dc('rejectBudget2Line', l.id)} class="text-red-600 hover:underline" title="Từ chối">✖️</button>`
+                : escapeHtml(l.decidedBy || '');
+              return `<tr>
+                <td class="border p-2 text-center">${i + 1}</td>
+                <td class="border p-2">${escapeHtml(l.content)}</td>
+                <td class="border p-2">${escapeHtml(l.description || '')}</td>
+                <td class="border p-2 text-right">${l.quantity}</td>
+                <td class="border p-2 text-right">${formatMoney(l.unitPrice)}</td>
+                <td class="border p-2 text-right">${l.vatPercent}%</td>
+                <td class="border p-2 text-right font-bold">${formatMoney(l.totalAmount)}</td>
+                <td class="border p-2">${budget2CompanyOrgLabel(l)}</td>
+                <td class="border p-2 text-center">${budget2StatusBadge(l.status)}</td>
+                <td class="border p-2 text-center whitespace-nowrap">${actions}</td>
+              </tr>`;
+            }).join('')}
+            <tr class="bg-gray-50 font-bold"><td colspan="6" class="border p-2 text-right">Tổng ${type} đã duyệt</td><td class="border p-2 text-right">${formatMoney(subtotal)}</td><td class="border p-2" colspan="3"></td></tr>
             </tbody>
           </table>
         </div>`;
       };
       container.innerHTML = `
         <div class="flex justify-end mb-2">
-          <button ${dc('openBudget2LineModal', 'APPROVED', null)} class="btn-primary px-3 py-1.5 rounded text-xs font-bold">+ Thêm dòng phê duyệt trực tiếp</button>
+          <button ${dc('openBudget2LineModal', 'APPROVED', null)} class="btn-primary px-3 py-1.5 rounded text-xs font-bold">+ Thêm dòng phê duyệt (chờ duyệt)</button>
         </div>
         <h3 class="font-bold text-sky-800 text-sm mb-1">💠 OPEX</h3>
         ${renderGroup('OPEX')}
