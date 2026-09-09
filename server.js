@@ -4496,7 +4496,9 @@ app.post('/api/budget2/lines', requireAuth, requireBudgetOrAdmin, async (req, re
     }
 });
 
-// --- Sửa 1 dòng (Đề xuất chưa được duyệt/từ chối, HOẶC mục con Sử dụng) ---
+// --- Sửa 1 dòng (Đề xuất chưa gửi Phê duyệt, dòng Phê duyệt chưa quyết định,
+// HOẶC mục con Sử dụng) — module này CHỈ giai đoạn Phê duyệt mới có bước
+// duyệt/từ chối, Đề xuất và Sử dụng không cần duyệt. ---
 app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
@@ -4505,7 +4507,8 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
         if (!line) return res.status(404).json({ error: 'Không tìm thấy dòng ngân sách.' });
 
         if (line.stage === 'PROPOSED') {
-            if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Đề xuất đã được duyệt/từ chối, không thể sửa.' });
+            const [sentRows] = await pool.query('SELECT id FROM budget2_lines WHERE stage = \'APPROVED\' AND source_line_id = ?', [id]);
+            if (sentRows.length) return res.status(400).json({ error: 'Đề xuất đã được gửi sang Phê duyệt, không thể sửa.' });
             const v = validateBudget2LineInput(req.body || {});
             if (v.error) return res.status(400).json({ error: v.error });
             const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
@@ -4514,6 +4517,19 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
                 [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.note, id]
             );
             await writeAuditLog({ module: 'BUDGET2', actionType: 'UPDATE_PROPOSAL', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Cập nhật đề xuất ngân sách [${v.content}].` });
+            return res.json({ success: true });
+        }
+
+        if (line.stage === 'APPROVED') {
+            if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Dòng ngân sách phê duyệt đã được duyệt/từ chối, không thể sửa.' });
+            const v = validateBudget2LineInput(req.body || {});
+            if (v.error) return res.status(400).json({ error: v.error });
+            const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
+            await pool.query(
+                `UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, note = ? WHERE id = ?`,
+                [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.note, id]
+            );
+            await writeAuditLog({ module: 'BUDGET2', actionType: 'UPDATE_APPROVED_PENDING', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Cập nhật dòng ngân sách phê duyệt (chờ duyệt) [${v.content}].` });
             return res.json({ success: true });
         }
 
@@ -4544,7 +4560,8 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
     }
 });
 
-// --- Xóa 1 dòng (Đề xuất chưa quyết định, HOẶC mục con Sử dụng) ---
+// --- Xóa 1 dòng (Đề xuất chưa gửi Phê duyệt, dòng Phê duyệt chưa quyết định,
+// HOẶC mục con Sử dụng) ---
 app.delete('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
@@ -4553,9 +4570,17 @@ app.delete('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (r
         if (!line) return res.status(404).json({ error: 'Không tìm thấy dòng ngân sách.' });
 
         if (line.stage === 'PROPOSED') {
-            if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Đề xuất đã được duyệt/từ chối, không thể xóa.' });
+            const [sentRows] = await pool.query('SELECT id FROM budget2_lines WHERE stage = \'APPROVED\' AND source_line_id = ?', [id]);
+            if (sentRows.length) return res.status(400).json({ error: 'Đề xuất đã được gửi sang Phê duyệt, không thể xóa.' });
             await pool.query('DELETE FROM budget2_lines WHERE id = ?', [id]);
             await writeAuditLog({ module: 'BUDGET2', actionType: 'DELETE_PROPOSAL', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Xóa đề xuất ngân sách [${line.content}].` });
+            return res.json({ success: true });
+        }
+
+        if (line.stage === 'APPROVED') {
+            if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Dòng ngân sách phê duyệt đã được duyệt/từ chối, không thể xóa.' });
+            await pool.query('DELETE FROM budget2_lines WHERE id = ?', [id]);
+            await writeAuditLog({ module: 'BUDGET2', actionType: 'DELETE_APPROVED_PENDING', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Xóa dòng ngân sách phê duyệt (chờ duyệt) [${line.content}].` });
             return res.json({ success: true });
         }
 
@@ -4573,98 +4598,106 @@ app.delete('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (r
     }
 });
 
-// --- Duyệt 1 đề xuất: tự động sinh dòng Phê duyệt + dòng Sử dụng (mục cha) ---
-app.post('/api/budget2/lines/:id/approve', requireAuth, requireBudgetOrAdmin, async (req, res) => {
-    const conn = await pool.getConnection();
-    try {
-        const { id } = req.params;
-        const [rows] = await conn.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'PROPOSED\' FOR UPDATE', [id]);
-        const line = rows[0];
-        if (!line) { conn.release(); return res.status(404).json({ error: 'Không tìm thấy đề xuất.' }); }
-        if (line.status !== 'SUBMITTED') { conn.release(); return res.status(400).json({ error: 'Đề xuất đã được xử lý trước đó.' }); }
-        if (line.created_by === req.user.username) { conn.release(); return res.status(400).json({ error: 'Không thể tự duyệt đề xuất do chính mình tạo.' }); }
-
-        await conn.beginTransaction();
-        const now = new Date().toISOString();
-        await conn.query('UPDATE budget2_lines SET status = \'APPROVED\', decided_by = ?, decided_at = ? WHERE id = ?', [req.user.username, now, id]);
-
-        const [approvedResult] = await conn.query(
-            `INSERT INTO budget2_lines
-                (stage, source_line_id, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, status, note, created_by, created_at, decided_by, decided_at)
-             VALUES ('APPROVED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'APPROVED', ?, ?, ?, ?, ?)`,
-            [line.id, line.company_id, line.org_unit_id, line.content, line.description, line.quantity, line.unit_price, line.vat_percent, line.total_amount, line.budget_type, line.note, req.user.username, now, req.user.username, now]
-        );
-        const approvedId = approvedResult.insertId;
-
-        await conn.query(
-            `INSERT INTO budget2_lines
-                (stage, source_line_id, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, usage_status, status, note, created_by, created_at)
-             VALUES ('USED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NOT_USED', 'APPROVED', ?, ?, ?)`,
-            [approvedId, line.company_id, line.org_unit_id, line.content, line.description, line.quantity, line.unit_price, line.vat_percent, line.total_amount, line.budget_type, line.note, req.user.username, now]
-        );
-
-        await conn.commit();
-        conn.release();
-        await writeAuditLog({ module: 'BUDGET2', actionType: 'APPROVE_PROPOSAL', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Duyệt đề xuất ngân sách [${line.content}] — tự động sinh dòng Phê duyệt + Sử dụng.` });
-        res.json({ success: true });
-    } catch (err) {
-        await conn.rollback().catch(() => {});
-        conn.release();
-        console.error('❌ Lỗi duyệt đề xuất ngân sách:', err.message);
-        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
-    }
-});
-
-// --- Từ chối 1 đề xuất ---
-app.post('/api/budget2/lines/:id/reject', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+// --- Gửi 1 đề xuất sang chờ Phê duyệt — CHƯA phải là duyệt, chỉ chuyển dòng
+// sang giai đoạn Phê duyệt ở trạng thái chờ (SUBMITTED). Không chặn tự thực
+// hiện vì đây không phải hành động quyết định — quyết định thật (duyệt/từ
+// chối) chỉ có ở giai đoạn Phê duyệt bên dưới. ---
+app.post('/api/budget2/lines/:id/send-to-approval', requireAuth, requireBudgetOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'PROPOSED\'', [id]);
         const line = rows[0];
         if (!line) return res.status(404).json({ error: 'Không tìm thấy đề xuất.' });
-        if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Đề xuất đã được xử lý trước đó.' });
-        if (line.created_by === req.user.username) return res.status(400).json({ error: 'Không thể tự từ chối đề xuất do chính mình tạo.' });
+        const [existing] = await pool.query('SELECT id FROM budget2_lines WHERE stage = \'APPROVED\' AND source_line_id = ?', [id]);
+        if (existing.length) return res.status(400).json({ error: 'Đề xuất này đã được gửi sang Phê duyệt trước đó.' });
         const now = new Date().toISOString();
-        await pool.query('UPDATE budget2_lines SET status = \'REJECTED\', decided_by = ?, decided_at = ? WHERE id = ?', [req.user.username, now, id]);
-        await writeAuditLog({ module: 'BUDGET2', actionType: 'REJECT_PROPOSAL', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Từ chối đề xuất ngân sách [${line.content}].` });
+        const [result] = await pool.query(
+            `INSERT INTO budget2_lines
+                (stage, source_line_id, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, status, note, created_by, created_at)
+             VALUES ('APPROVED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', ?, ?, ?)`,
+            [line.id, line.company_id, line.org_unit_id, line.content, line.description, line.quantity, line.unit_price, line.vat_percent, line.total_amount, line.budget_type, line.note, req.user.username, now]
+        );
+        await writeAuditLog({ module: 'BUDGET2', actionType: 'SEND_TO_APPROVAL', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Gửi đề xuất ngân sách [${line.content}] sang chờ Phê duyệt.` });
+        res.json({ success: true, id: result.insertId });
+    } catch (err) {
+        console.error('❌ Lỗi gửi đề xuất sang Phê duyệt:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Duyệt 1 dòng ngân sách phê duyệt (đang chờ) — CHỈ giai đoạn Phê duyệt
+// mới có bước duyệt này; tự động sinh dòng Sử dụng (mục cha) tương ứng. ---
+app.post('/api/budget2/lines/:id/approve', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+    const conn = await pool.getConnection();
+    try {
+        const { id } = req.params;
+        const [rows] = await conn.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'APPROVED\' FOR UPDATE', [id]);
+        const line = rows[0];
+        if (!line) { conn.release(); return res.status(404).json({ error: 'Không tìm thấy dòng ngân sách phê duyệt.' }); }
+        if (line.status !== 'SUBMITTED') { conn.release(); return res.status(400).json({ error: 'Dòng này đã được xử lý trước đó.' }); }
+        if (line.created_by === req.user.username) { conn.release(); return res.status(400).json({ error: 'Không thể tự duyệt dòng ngân sách do chính mình tạo.' }); }
+
+        await conn.beginTransaction();
+        const now = new Date().toISOString();
+        await conn.query('UPDATE budget2_lines SET status = \'APPROVED\', decided_by = ?, decided_at = ? WHERE id = ?', [req.user.username, now, id]);
+
+        await conn.query(
+            `INSERT INTO budget2_lines
+                (stage, source_line_id, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, usage_status, status, note, created_by, created_at)
+             VALUES ('USED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NOT_USED', 'APPROVED', ?, ?, ?)`,
+            [line.id, line.company_id, line.org_unit_id, line.content, line.description, line.quantity, line.unit_price, line.vat_percent, line.total_amount, line.budget_type, line.note, req.user.username, now]
+        );
+
+        await conn.commit();
+        conn.release();
+        await writeAuditLog({ module: 'BUDGET2', actionType: 'APPROVE_BUDGET', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Duyệt dòng ngân sách phê duyệt [${line.content}] — tự động sinh dòng Sử dụng.` });
         res.json({ success: true });
     } catch (err) {
-        console.error('❌ Lỗi từ chối đề xuất ngân sách:', err.message);
+        await conn.rollback().catch(() => {});
+        conn.release();
+        console.error('❌ Lỗi duyệt dòng ngân sách phê duyệt:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Từ chối 1 dòng ngân sách phê duyệt (đang chờ) ---
+app.post('/api/budget2/lines/:id/reject', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'APPROVED\'', [id]);
+        const line = rows[0];
+        if (!line) return res.status(404).json({ error: 'Không tìm thấy dòng ngân sách phê duyệt.' });
+        if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Dòng này đã được xử lý trước đó.' });
+        if (line.created_by === req.user.username) return res.status(400).json({ error: 'Không thể tự từ chối dòng ngân sách do chính mình tạo.' });
+        const now = new Date().toISOString();
+        await pool.query('UPDATE budget2_lines SET status = \'REJECTED\', decided_by = ?, decided_at = ? WHERE id = ?', [req.user.username, now, id]);
+        await writeAuditLog({ module: 'BUDGET2', actionType: 'REJECT_BUDGET', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Từ chối dòng ngân sách phê duyệt [${line.content}].` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi từ chối dòng ngân sách phê duyệt:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
 
 // --- Nhập trực tiếp 1 dòng Phê duyệt (không qua đề xuất trước) — VD ngân
-// sách áp từ trên xuống. Vẫn tự động sinh dòng Sử dụng tương ứng, KHÔNG áp
-// dụng chặn tự duyệt (không có người đề xuất riêng để tự duyệt hộ). ---
+// sách áp từ trên xuống. Vẫn phải qua đúng bước duyệt/từ chối như dòng được
+// gửi từ Đề xuất (chỉ tạo ở trạng thái chờ SUBMITTED, KHÔNG tự sinh dòng Sử
+// dụng ngay — chờ ai đó duyệt qua endpoint /approve ở trên). ---
 app.post('/api/budget2/lines/approved-direct', requireAuth, requireBudgetOrAdmin, async (req, res) => {
-    const conn = await pool.getConnection();
     try {
         const v = validateBudget2LineInput(req.body || {});
-        if (v.error) { conn.release(); return res.status(400).json({ error: v.error }); }
+        if (v.error) return res.status(400).json({ error: v.error });
         const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
         const now = new Date().toISOString();
-        await conn.beginTransaction();
-        const [approvedResult] = await conn.query(
+        const [result] = await pool.query(
             `INSERT INTO budget2_lines
-                (stage, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, status, note, created_by, created_at, decided_by, decided_at)
-             VALUES ('APPROVED', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'APPROVED', ?, ?, ?, ?, ?)`,
-            [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.note, req.user.username, now, req.user.username, now]
+                (stage, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, status, note, created_by, created_at)
+             VALUES ('APPROVED', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', ?, ?, ?)`,
+            [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.note, req.user.username, now]
         );
-        const approvedId = approvedResult.insertId;
-        await conn.query(
-            `INSERT INTO budget2_lines
-                (stage, source_line_id, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, usage_status, status, note, created_by, created_at)
-             VALUES ('USED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NOT_USED', 'APPROVED', ?, ?, ?)`,
-            [approvedId, v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.note, req.user.username, now]
-        );
-        await conn.commit();
-        conn.release();
-        await writeAuditLog({ module: 'BUDGET2', actionType: 'CREATE_APPROVED_DIRECT', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Nhập trực tiếp dòng ngân sách đã duyệt [${v.content}] (không qua đề xuất) — tự động sinh dòng Sử dụng.` });
-        res.json({ success: true, id: approvedId });
+        await writeAuditLog({ module: 'BUDGET2', actionType: 'CREATE_APPROVED_DIRECT', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Nhập trực tiếp dòng ngân sách phê duyệt [${v.content}] (không qua đề xuất) — đang chờ duyệt.` });
+        res.json({ success: true, id: result.insertId });
     } catch (err) {
-        await conn.rollback().catch(() => {});
-        conn.release();
         console.error('❌ Lỗi tạo dòng ngân sách phê duyệt trực tiếp:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
@@ -4724,7 +4757,11 @@ async function recomputeBudget2ParentUsage(parentId) {
 app.get('/api/budget2/reports', requireAuth, requireBudgetOrAdmin, async (req, res) => {
     try {
         const stageSum = async (stage, groupCol) => {
-            const extraWhere = stage === 'PROPOSED' ? "AND status <> 'REJECTED'" : (stage === 'USED' ? 'AND parent_id IS NOT NULL' : '');
+            // Đề xuất/Sử dụng không qua bước duyệt (module chỉ giai đoạn Phê
+            // duyệt mới có duyệt/từ chối) nên không cần lọc status; riêng
+            // APPROVED phải lọc status='APPROVED' để KHÔNG tính nhầm các dòng
+            // đang chờ duyệt (SUBMITTED) hoặc đã bị từ chối (REJECTED).
+            const extraWhere = stage === 'APPROVED' ? "AND status = 'APPROVED'" : (stage === 'USED' ? 'AND parent_id IS NOT NULL' : '');
             const sql = `SELECT ${groupCol} AS groupKey, budget_type AS budgetType, SUM(total_amount) AS total
                          FROM budget2_lines WHERE stage = ? ${extraWhere} GROUP BY ${groupCol}, budget_type`;
             const [rows] = await pool.query(sql, [stage]);
@@ -4761,7 +4798,7 @@ app.get('/api/budget2/reports', requireAuth, requireBudgetOrAdmin, async (req, r
             FROM budget2_lines a
             LEFT JOIN budget2_lines u ON u.stage = 'USED' AND u.parent_id IS NULL AND u.source_line_id = a.id
             LEFT JOIN (SELECT parent_id, SUM(total_amount) AS usedChildren FROM budget2_lines WHERE stage = 'USED' AND parent_id IS NOT NULL GROUP BY parent_id) c ON c.parent_id = u.id
-            WHERE a.stage = 'APPROVED'
+            WHERE a.stage = 'APPROVED' AND a.status = 'APPROVED'
             ORDER BY a.id DESC
         `);
 

@@ -1538,7 +1538,7 @@
         <h2 class="text-lg font-bold text-gray-800">Ngân sách đề xuất</h2>
         <button data-evt-click="openBudget2LineModal" data-args='["PROPOSED", null]' class="btn-primary px-4 py-2 rounded text-sm font-bold">+ Thêm đề xuất</button>
       </div>
-      <p class="text-[11px] text-gray-500">Đề xuất ngân sách do các phòng ban gửi lên — có thể chỉnh sửa lại khi chưa được duyệt/từ chối. Admin/Người quản lý Ngân sách bấm ✔️ để duyệt (tự động sinh dòng Phê duyệt + Sử dụng) hoặc ✖️ để từ chối.</p>
+      <p class="text-[11px] text-gray-500">Đề xuất ngân sách do các phòng ban gửi lên — có thể chỉnh sửa/xóa tự do, KHÔNG cần duyệt ở bước này. Bấm "➡️ Gửi duyệt" khi sẵn sàng để chuyển sang tab Ngân sách phê duyệt (bước duyệt thật sự chỉ diễn ra ở đó).</p>
       <div class="overflow-x-auto border rounded">
         <table class="w-full text-xs border-collapse">
           <thead>
@@ -1552,7 +1552,6 @@
               <th class="border p-2 text-right">Thành tiền</th>
               <th class="border p-2 text-center">Loại</th>
               <th class="border p-2">Công ty/Đơn vị</th>
-              <th class="border p-2 text-center">Trạng thái</th>
               <th class="border p-2 text-center w-24">Thao tác</th>
             </tr>
           </thead>
@@ -1564,7 +1563,7 @@
     <!-- Sub-tab: Ngân sách phê duyệt -->
     <div id="budget2SubApproved" class="hidden space-y-3">
       <h2 class="text-lg font-bold text-gray-800">Ngân sách phê duyệt</h2>
-      <p class="text-[11px] text-gray-500">Danh sách các dòng đã được duyệt, liệt kê theo OPEX/CAPEX — sinh tự động khi duyệt 1 đề xuất, hoặc nhập trực tiếp (không qua đề xuất). Mỗi dòng phê duyệt tự động sinh 1 mục ở tab Ngân sách sử dụng.</p>
+      <p class="text-[11px] text-gray-500">Đây là giai đoạn DUY NHẤT trong module cần duyệt/từ chối — dòng vào đây từ đề xuất được gửi sang, hoặc nhập trực tiếp, đều bắt đầu ở trạng thái "Chờ duyệt". Duyệt xong sẽ tự động sinh 1 mục ở tab Ngân sách sử dụng; không thể tự duyệt dòng do chính mình tạo.</p>
       <div id="budget2ApprovedContainer"></div>
     </div>
 
