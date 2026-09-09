@@ -167,6 +167,7 @@
       <button id="btnLicensePortalTab" data-evt-click="switchTab" data-args='["licensePortal"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">💰</span><span>Ngân sách &amp; Kỳ mua</span></button>
       <button id="btnReportsTab" data-evt-click="switchTab" data-args='["reports"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">📊</span><span>Báo cáo</span></button>
       <button id="btnItAssetsTab" data-evt-click="switchTab" data-args='["itAssets"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">🖥️</span><span>Quản lý CNTT</span></button>
+      <button id="btnBudget2Tab" data-evt-click="switchTab" data-args='["budget2"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">💵</span><span>Quản lý Ngân sách</span></button>
       <button id="btnAdminTab" data-evt-click="switchTab" data-args='["admin"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">🛡️</span><span>Hệ thống</span></button>
 
       <div id="userHeader" class="sidebar-foot hidden mt-auto pt-3 px-2">
@@ -539,6 +540,10 @@
                 <input type="checkbox" id="pLicenseManager"> Người quản lý License
               </label>
               <p class="text-[10px] text-gray-500 leading-tight">Toàn quyền trong module Bản quyền (Kỳ mua, Kỳ ngân sách, duyệt, phát hành, phân bổ...), không có quyền Admin ở module khác.</p>
+              <label class="flex items-center gap-2 text-teal-700 font-semibold cursor-pointer border-t pt-2">
+                <input type="checkbox" id="pBudgetManager"> Người quản lý Ngân sách
+              </label>
+              <p class="text-[10px] text-gray-500 leading-tight">Toàn quyền trong module Quản lý Ngân sách (Đề xuất, Phê duyệt, Sử dụng, Báo cáo), không có quyền Admin ở module khác.</p>
             </div>
 
             <div class="bg-white p-3 rounded border space-y-2">
@@ -1517,6 +1522,85 @@
     </div>
   </div>
 
+  <!-- MODULE: Quản lý Ngân sách (budget2) — độc lập với module Bản quyền, quy
+       trình Đề xuất -> Phê duyệt -> Sử dụng, đặt ngang hàng Hệ thống/CNTT. -->
+  <div id="budget2Section" class="hidden space-y-4">
+    <div class="flex gap-1 border-b border-gray-200 flex-wrap">
+      <button id="btnBudget2SubPropose" data-evt-click="switchBudget2SubTab" data-args='["propose"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📝 Ngân sách đề xuất</button>
+      <button id="btnBudget2SubApproved" data-evt-click="switchBudget2SubTab" data-args='["approved"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">✅ Ngân sách phê duyệt</button>
+      <button id="btnBudget2SubUsed" data-evt-click="switchBudget2SubTab" data-args='["used"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📦 Ngân sách sử dụng</button>
+      <button id="btnBudget2SubReports" data-evt-click="switchBudget2SubTab" data-args='["reports"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📊 Báo cáo</button>
+    </div>
+
+    <!-- Sub-tab: Ngân sách đề xuất -->
+    <div id="budget2SubPropose" class="space-y-3">
+      <div class="flex flex-wrap justify-between items-center gap-2">
+        <h2 class="text-lg font-bold text-gray-800">Ngân sách đề xuất</h2>
+        <button data-evt-click="openBudget2LineModal" data-args='["PROPOSED", null]' class="btn-primary px-4 py-2 rounded text-sm font-bold">+ Thêm đề xuất</button>
+      </div>
+      <p class="text-[11px] text-gray-500">Đề xuất ngân sách do các phòng ban gửi lên — có thể chỉnh sửa lại khi chưa được duyệt/từ chối. Admin/Người quản lý Ngân sách bấm ✔️ để duyệt (tự động sinh dòng Phê duyệt + Sử dụng) hoặc ✖️ để từ chối.</p>
+      <div class="overflow-x-auto border rounded">
+        <table class="w-full text-xs border-collapse">
+          <thead>
+            <tr class="bg-gray-100 text-left">
+              <th class="border p-2 w-10">STT</th>
+              <th class="border p-2">Nội dung</th>
+              <th class="border p-2">Mô tả</th>
+              <th class="border p-2 text-right">SL</th>
+              <th class="border p-2 text-right">Đơn giá</th>
+              <th class="border p-2 text-right">VAT</th>
+              <th class="border p-2 text-right">Thành tiền</th>
+              <th class="border p-2 text-center">Loại</th>
+              <th class="border p-2">Công ty/Đơn vị</th>
+              <th class="border p-2 text-center">Trạng thái</th>
+              <th class="border p-2 text-center w-24">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody id="budget2ProposeTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Sub-tab: Ngân sách phê duyệt -->
+    <div id="budget2SubApproved" class="hidden space-y-3">
+      <h2 class="text-lg font-bold text-gray-800">Ngân sách phê duyệt</h2>
+      <p class="text-[11px] text-gray-500">Danh sách các dòng đã được duyệt, liệt kê theo OPEX/CAPEX — sinh tự động khi duyệt 1 đề xuất, hoặc nhập trực tiếp (không qua đề xuất). Mỗi dòng phê duyệt tự động sinh 1 mục ở tab Ngân sách sử dụng.</p>
+      <div id="budget2ApprovedContainer"></div>
+    </div>
+
+    <!-- Sub-tab: Ngân sách sử dụng -->
+    <div id="budget2SubUsed" class="hidden space-y-3">
+      <h2 class="text-lg font-bold text-gray-800">Ngân sách sử dụng</h2>
+      <p class="text-[11px] text-gray-500">Mỗi mục (sinh tự động từ Ngân sách phê duyệt) cho phép thêm các mục con ghi nhận từng lần sử dụng thực tế — thành tiền mục con tự trừ vào ngân sách mục cha, dòng cuối luôn là "Ngân sách còn lại". Nếu mục con dùng khác Loại ngân sách (OPEX/CAPEX) so với mục cha, bắt buộc nhập Lý do tái phân bổ.</p>
+      <div id="budget2UsedContainer"></div>
+    </div>
+
+    <!-- Sub-tab: Báo cáo -->
+    <div id="budget2SubReports" class="hidden space-y-3">
+      <h2 class="text-lg font-bold text-gray-800">Báo cáo ngân sách</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-2 bg-gray-50 p-3 rounded border max-w-xl">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Nhóm theo</label>
+          <select id="budget2ReportDimension" data-evt-change="onBudget2ReportFilterChange" data-args='[]' class="w-full border p-1.5 rounded bg-white text-sm">
+            <option value="total">Toàn công ty (tổng hợp)</option>
+            <option value="company">Công ty</option>
+            <option value="orgUnit">Phòng/Ban/Khối</option>
+            <option value="variance">So sánh Phê duyệt vs Sử dụng</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Loại ngân sách</label>
+          <select id="budget2ReportType" data-evt-change="onBudget2ReportFilterChange" data-args='[]' class="w-full border p-1.5 rounded bg-white text-sm">
+            <option value="">-- Tất cả (OPEX + CAPEX) --</option>
+            <option value="OPEX">OPEX</option>
+            <option value="CAPEX">CAPEX</option>
+          </select>
+        </div>
+      </div>
+      <div id="budget2ReportTableContainer"></div>
+    </div>
+  </div>
+
     </div>
   </div>
 
@@ -1596,6 +1680,122 @@
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" data-evt-click="closeLicenseModal" data-args='["itCategoryModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
         <button type="button" data-evt-click="saveItCategory" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Thêm/sửa 1 dòng Ngân sách đề xuất (hoặc nhập trực tiếp 1 dòng Phê duyệt) -->
+  <div id="budget2LineModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-lg w-full p-5 space-y-3 max-h-[90vh] overflow-y-auto">
+      <h3 id="budget2LineModalTitle" class="font-bold text-gray-900 text-base">Thêm đề xuất ngân sách</h3>
+      <input type="hidden" id="budget2LineModalStage" value="PROPOSED">
+      <input type="hidden" id="budget2LineEditId">
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Nội dung</label>
+        <input id="budget2LineContent" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Mua laptop cho phòng Kinh doanh">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Mô tả (tùy chọn)</label>
+        <textarea id="budget2LineDescription" rows="2" class="w-full border p-2 rounded text-sm"></textarea>
+      </div>
+      <div class="grid grid-cols-3 gap-3">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Số lượng</label>
+          <input id="budget2LineQuantity" type="number" min="0.01" step="0.01" value="1" class="w-full border p-2 rounded text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn giá</label>
+          <input id="budget2LineUnitPrice" type="number" min="0" step="1000" value="0" class="w-full border p-2 rounded text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">VAT (%)</label>
+          <select id="budget2LineVat" class="w-full border p-2 rounded text-sm bg-white">
+            <option value="0">0%</option>
+            <option value="5">5%</option>
+            <option value="8">8%</option>
+            <option value="10">10%</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Loại ngân sách</label>
+        <select id="budget2LineType" class="w-full border p-2 rounded text-sm bg-white">
+          <option value="OPEX">OPEX</option>
+          <option value="CAPEX">CAPEX</option>
+        </select>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Công ty (tùy chọn)</label>
+          <select id="budget2LineCompany" data-evt-change="onBudget2LineCompanyChange" data-args='[]' class="w-full border p-2 rounded text-sm bg-white"></select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Phòng/Ban/Khối (tùy chọn)</label>
+          <select id="budget2LineOrgUnit" class="w-full border p-2 rounded text-sm bg-white"></select>
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Ghi chú (tùy chọn)</label>
+        <input id="budget2LineNote" type="text" class="w-full border p-2 rounded text-sm">
+      </div>
+      <div class="flex justify-end gap-2 pt-1">
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["budget2LineModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveBudget2Line" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Thêm/sửa 1 mục sử dụng con (Ngân sách sử dụng) -->
+  <div id="budget2ChildModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-lg w-full p-5 space-y-3 max-h-[90vh] overflow-y-auto">
+      <h3 id="budget2ChildModalTitle" class="font-bold text-gray-900 text-base">Thêm mục sử dụng con</h3>
+      <input type="hidden" id="budget2ChildParentId">
+      <input type="hidden" id="budget2ChildEditId">
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Nội dung</label>
+        <input id="budget2ChildContent" type="text" class="w-full border p-2 rounded text-sm">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Mô tả (tùy chọn)</label>
+        <textarea id="budget2ChildDescription" rows="2" class="w-full border p-2 rounded text-sm"></textarea>
+      </div>
+      <div class="grid grid-cols-3 gap-3">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Số lượng</label>
+          <input id="budget2ChildQuantity" type="number" min="0.01" step="0.01" value="1" class="w-full border p-2 rounded text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn giá</label>
+          <input id="budget2ChildUnitPrice" type="number" min="0" step="1000" value="0" class="w-full border p-2 rounded text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">VAT (%)</label>
+          <select id="budget2ChildVat" class="w-full border p-2 rounded text-sm bg-white">
+            <option value="0">0%</option>
+            <option value="5">5%</option>
+            <option value="8">8%</option>
+            <option value="10">10%</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Loại ngân sách</label>
+        <select id="budget2ChildType" data-evt-change="toggleBudget2ChildReasonField" data-args='[]' class="w-full border p-2 rounded text-sm bg-white">
+          <option value="OPEX">OPEX</option>
+          <option value="CAPEX">CAPEX</option>
+        </select>
+      </div>
+      <div id="budget2ChildReasonWrap" class="hidden">
+        <label class="block text-xs font-semibold text-red-600 mb-1">Lý do tái phân bổ (bắt buộc — mục con khác Loại ngân sách với mục cha)</label>
+        <textarea id="budget2ChildReason" rows="2" class="w-full border p-2 rounded text-sm border-red-300"></textarea>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Ghi chú (tùy chọn)</label>
+        <input id="budget2ChildNote" type="text" class="w-full border p-2 rounded text-sm">
+      </div>
+      <div class="flex justify-end gap-2 pt-1">
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["budget2ChildModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveBudget2Child" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
       </div>
     </div>
   </div>
