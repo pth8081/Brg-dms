@@ -12,6 +12,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 
 | Phiên bản | PR | Ngày merge | Nội dung |
 |---|---|---|---|
+| v6.51 | [#60](https://github.com/pth8081/Brg-dms/pull/60) | 2026-09-11 | Đợt 2: Sửa toàn bộ ~29 lỗi Medium (thu hồi JWT khi đổi mật khẩu, xác thực lại mật khẩu hiện tại, ẩn systemLogs, transaction/FOR UPDATE cho License, soft-delete CNTT, chống race condition ngân sách, mở quyền báo cáo license) |
 | v6.50 | [#59](https://github.com/pth8081/Brg-dms/pull/59) | 2026-09-11 | Sửa 6 lỗi bảo mật mức Cao: CAPTCHA raster, khóa tài khoản, lộ dữ liệu bootstrap, transaction sync users/workflows, chặn admin ghi đè lịch sử duyệt |
 | v6.49 | [#58](https://github.com/pth8081/dms-prod/pull/58) | 2026-09-11 | Cập nhật version.md: thêm dòng v6.48 (PR #57) |
 | v6.48 | [#57](https://github.com/pth8081/dms-prod/pull/57) | 2026-09-11 | Thêm cột Tháng ngân sách + Thu hồi theo nhân viên + Gán nhiều license cho 1 người |
