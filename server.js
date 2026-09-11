@@ -739,6 +739,18 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
     res.json({ user: sanitizeUser(req.user) });
 });
 
+// Tra cứu nhanh 1 tài khoản trong snapshot ad_accounts (đã đồng bộ từ AD) để
+// tự điền Họ tên/Email khi Admin tạo tài khoản DMS xác thực bằng LDAP/AD —
+// không tự tạo user, chỉ hỗ trợ điền sẵn thông tin cho Admin xác nhận lại.
+app.get('/api/users/ad-lookup', requireAuth, requireAdmin, async (req, res) => {
+    const username = String(req.query.username || '').trim();
+    if (!username) return res.status(400).json({ error: 'Thiếu tên đăng nhập cần tra cứu.' });
+    const [rows] = await pool.query('SELECT username, full_name, email, company, org_unit, active FROM ad_accounts WHERE username = ?', [username]);
+    const acc = rows[0];
+    if (!acc) return res.json({ found: false });
+    res.json({ found: true, username: acc.username, fullName: acc.full_name, email: acc.email, company: acc.company, orgUnit: acc.org_unit, active: !!acc.active });
+});
+
 // --- API CẬP NHẬT HỒ SƠ CÁ NHÂN (tự phục vụ, không cần quyền admin) ---
 app.post('/api/profile', requireAuth, async (req, res) => {
     try {
