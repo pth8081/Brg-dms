@@ -2514,8 +2514,8 @@
     function switchLicenseSubTab(subName) {
       if (!currentUser || !(currentUser.perms.admin || currentUser.perms.licenseManager)) return;
 
-      const subs = { org: 'licenseSubOrg', emp: 'licenseSubEmp', software: 'licenseSubSoftware', itemCatalog: 'licenseSubItemCatalog', batch: 'licenseSubBatch', alloc: 'licenseSubAlloc', ad: 'licenseSubAD', purchase: 'licenseSubPurchase', rounds: 'licenseSubRounds', budget: 'licenseSubBudget' };
-      const btns = { org: 'btnLicenseSubOrg', emp: 'btnLicenseSubEmp', software: 'btnLicenseSubSoftware', itemCatalog: 'btnLicenseSubItemCatalog', batch: 'btnLicenseSubBatch', alloc: 'btnLicenseSubAlloc', ad: 'btnLicenseSubAD', purchase: 'btnLicenseSubPurchase', rounds: 'btnLicenseSubRounds', budget: 'btnLicenseSubBudget' };
+      const subs = { org: 'licenseSubOrg', emp: 'licenseSubEmp', software: 'licenseSubSoftware', itemCatalog: 'licenseSubItemCatalog', batch: 'licenseSubBatch', alloc: 'licenseSubAlloc', revokeEmp: 'licenseSubRevokeEmp', ad: 'licenseSubAD', purchase: 'licenseSubPurchase', rounds: 'licenseSubRounds', budget: 'licenseSubBudget' };
+      const btns = { org: 'btnLicenseSubOrg', emp: 'btnLicenseSubEmp', software: 'btnLicenseSubSoftware', itemCatalog: 'btnLicenseSubItemCatalog', batch: 'btnLicenseSubBatch', alloc: 'btnLicenseSubAlloc', revokeEmp: 'btnLicenseSubRevokeEmp', ad: 'btnLicenseSubAD', purchase: 'btnLicenseSubPurchase', rounds: 'btnLicenseSubRounds', budget: 'btnLicenseSubBudget' };
       Object.keys(subs).forEach(key => {
         document.getElementById(subs[key]).classList.toggle('hidden', key !== subName);
         document.getElementById(btns[key]).classList.toggle('active', key === subName);
@@ -2528,6 +2528,7 @@
         if (subName === 'itemCatalog') renderBudgetItemCatalogTable();
         if (subName === 'batch') renderBatchTable();
         if (subName === 'alloc') { populateAllocFilterSelects(); renderAllocTable(); renderBulkAllocRequestsTable(); }
+        if (subName === 'revokeEmp') { resetRevokeEmpPanel(); }
         if (subName === 'ad') { renderAdAccountsTable(); }
         if (subName === 'purchase') { populateRegistrationFilterSelects(); renderRegistrationsTable(); }
         if (subName === 'rounds') { renderRoundsList(); populateAdminRegFilterSelects(); renderAdminRegistrationsTable(); }
@@ -3254,6 +3255,116 @@ function isPerpetualSoftware(softwareId) {
       }
     }
 
+    // --- Sub-tab: Thu hồi theo nhân viên (dùng khi nghỉ việc) — tra cứu theo
+    // đúng Mã nhân viên (employeeCode), liệt kê TOÀN BỘ license đang gắn với
+    // người này rồi cho thu hồi hàng loạt. Tái sử dụng nguyên endpoint
+    // unassign-bulk đã có (cùng endpoint dùng cho "Thu hồi đã chọn" ở tab
+    // Phân bổ) — không cần thêm API mới. ---
+    let revokeEmpAssignments = [];
+    let selectedRevokeEmpKeys = new Set();
+
+    function resetRevokeEmpPanel() {
+      document.getElementById('revokeEmpCode').value = '';
+      document.getElementById('revokeEmpInfo').innerHTML = '';
+      document.getElementById('revokeEmpTableWrap').classList.add('hidden');
+      revokeEmpAssignments = [];
+      selectedRevokeEmpKeys.clear();
+    }
+
+    function lookupEmployeeForRevoke() {
+      const code = document.getElementById('revokeEmpCode').value.trim();
+      const infoBox = document.getElementById('revokeEmpInfo');
+      const wrap = document.getElementById('revokeEmpTableWrap');
+      if (!code) { infoBox.innerHTML = ''; wrap.classList.add('hidden'); return; }
+
+      const emp = licenseDB.employees.find(e => (e.employeeCode || '').toLowerCase() === code.toLowerCase());
+      if (!emp) {
+        infoBox.innerHTML = `<div class="text-xs text-danger-700 bg-danger-100 p-2 rounded">Không tìm thấy nhân viên với mã [${escapeHtml(code)}].</div>`;
+        wrap.classList.add('hidden');
+        revokeEmpAssignments = [];
+        return;
+      }
+      const orgUnit = licenseDB.orgUnits.find(u => u.id === emp.orgUnitId);
+      const company = orgUnit ? licenseDB.companies.find(c => c.id === orgUnit.companyId) : null;
+      infoBox.innerHTML = `<div class="text-xs bg-gray-50 border rounded p-2">
+        <span class="font-bold text-gray-800">${escapeHtml(emp.fullName)}</span>
+        ${emp.title ? `<span class="text-gray-500"> — ${escapeHtml(emp.title)}</span>` : ''}
+        <span class="text-gray-500 ml-2">${escapeHtml(company ? company.name : '')}${orgUnit ? ' / ' + escapeHtml(orgUnit.name) : ''}</span>
+      </div>`;
+
+      revokeEmpAssignments = licenseDB.licenseCodeAssignments
+        .filter(a => a.employeeId === emp.id)
+        .map(a => {
+          const licCode = licenseDB.licenseCodes.find(c => c.id === a.codeId);
+          if (!licCode) return null;
+          return { codeId: licCode.id, employeeId: emp.id, code: licCode, assignment: a, software: licenseDB.softwareCatalog.find(s => s.id === licCode.softwareId) };
+        })
+        .filter(Boolean);
+
+      selectedRevokeEmpKeys = new Set(revokeEmpAssignments.map(r => allocKey(r.codeId, r.employeeId)));
+      wrap.classList.remove('hidden');
+      renderRevokeEmpTable();
+    }
+
+    function renderRevokeEmpTable() {
+      const tbody = document.getElementById('revokeEmpTableBody');
+      if (!revokeEmpAssignments.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-gray-500 p-4">Nhân viên này chưa được cấp phát phần mềm/license nào.</td></tr>';
+      } else {
+        tbody.innerHTML = revokeEmpAssignments.map((r, i) => {
+          const key = allocKey(r.codeId, r.employeeId);
+          return `<tr class="hover:bg-gray-50">
+            <td class="border p-2 text-center"><input type="checkbox" class="revokeEmpCheckbox" value="${escapeJsAttr(key)}" ${selectedRevokeEmpKeys.has(key) ? 'checked' : ''} ${dchg('onRevokeEmpSelectChange')}></td>
+            <td class="border p-2 text-center">${i + 1}</td>
+            <td class="border p-2">${escapeHtml(r.software ? r.software.name : '(không rõ)')}</td>
+            <td class="border p-2 whitespace-nowrap">${escapeHtml(r.code.code)}</td>
+            <td class="border p-2 whitespace-nowrap">${r.assignment.assignedAt}</td>
+            <td class="border p-2 whitespace-nowrap">${expiryLabel(r.code.expiryDate)}</td>
+          </tr>`;
+        }).join('');
+      }
+      document.getElementById('revokeEmpSelectAll').checked = revokeEmpAssignments.length > 0 && selectedRevokeEmpKeys.size === revokeEmpAssignments.length;
+      document.getElementById('revokeEmpSelectedCount').innerText = selectedRevokeEmpKeys.size;
+    }
+
+    function onRevokeEmpSelectChange() {
+      const boxes = Array.from(document.querySelectorAll('.revokeEmpCheckbox'));
+      selectedRevokeEmpKeys.clear();
+      boxes.forEach(cb => { if (cb.checked) selectedRevokeEmpKeys.add(cb.value); });
+      document.getElementById('revokeEmpSelectAll').checked = boxes.length > 0 && selectedRevokeEmpKeys.size === boxes.length;
+      document.getElementById('revokeEmpSelectedCount').innerText = selectedRevokeEmpKeys.size;
+    }
+
+    function toggleSelectAllRevokeEmp(checked) {
+      selectedRevokeEmpKeys = checked ? new Set(revokeEmpAssignments.map(r => allocKey(r.codeId, r.employeeId))) : new Set();
+      renderRevokeEmpTable();
+    }
+
+    async function revokeSelectedForEmployee() {
+      const keys = Array.from(selectedRevokeEmpKeys);
+      if (keys.length === 0) return showToast('Chưa chọn license nào để thu hồi.', 'warning');
+      const items = keys.map(k => { const [codeId, employeeId] = k.split(':').map(Number); return { codeId, employeeId }; });
+      const empName = revokeEmpAssignments[0] ? (licenseDB.employees.find(e => e.id === revokeEmpAssignments[0].employeeId) || {}).fullName : '';
+
+      const ok = await showConfirm({
+        title: 'Thu hồi license theo nhân viên',
+        message: `Thu hồi ${keys.length} license đã chọn của nhân viên [${empName}]? Các slot sẽ trống lại, có thể phân bổ cho người khác.`,
+        danger: true, confirmText: 'Thu hồi',
+        requiredText: keys.length > 10 ? 'THU HOI' : null
+      });
+      if (!ok) return;
+
+      try {
+        const result = await apiFetch('/api/license/codes/unassign-bulk', { method: 'POST', body: JSON.stringify({ items }) });
+        showToast(`Đã thu hồi ${result.revokedCount} license.`, 'success');
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        lookupEmployeeForRevoke();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+
     // --- Tài khoản AD (đồng bộ LDAP, độc lập với đăng nhập LDAP đã có) ---
     // Công ty/Khối phòng ban của tài khoản AD là chuỗi tự do đồng bộ thẳng từ
     // thuộc tính LDAP (không có bảng danh mục riêng) — nên danh sách lựa chọn
@@ -3935,6 +4046,104 @@ function isPerpetualSoftware(softwareId) {
           showToast(`Đã cấp ${result.successCount}, lỗi ${result.failCount} dòng: ${firstErrors}`, 'warning');
         } else {
           showToast(`Đã cấp phát license cho ${result.successCount} người.`, 'success');
+        }
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+
+    // --- Modal "Gán nhiều license cho 1 nhân viên" — chọn 1 nhân viên cố
+    // định, thêm nhiều dòng Phần mềm/Mã license bên dưới, gọi CHUNG endpoint
+    // batch với allocModal (mỗi dòng chỉ khác nhau ở codeId, employeeId luôn
+    // là nhân viên đã chọn). Trạng thái tách riêng khỏi allocCreateRows vì
+    // đây là 1 modal khác, không dùng chung lúc nào. ---
+    let allocByEmpRows = [];
+    let allocByEmpRowSeq = 1;
+    let allocByEmpEmployeeId = null;
+
+    function renderAllocByEmpRows() {
+      const tbody = document.getElementById('allocByEmpRowsBody');
+      if (allocByEmpRows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="4" class="text-center text-gray-400 p-3">Chưa có dòng nào — bấm "+ Thêm dòng" để bắt đầu.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = allocByEmpRows.map(row => {
+        const maxAssignees = row.softwareId ? codeMaxAssignees(row.softwareId) : 1;
+        const codes = row.softwareId
+          ? licenseDB.licenseCodes.filter(c => c.softwareId === row.softwareId && codeAssignments(c.id).length < maxAssignees)
+          : [];
+        return `
+          <tr>
+            <td class="border p-1.5">
+              <select ${dchg('updateAllocByEmpRow', row.id, 'softwareId', LIVE_VALUE_NUM)} class="w-full border p-1 rounded text-xs bg-white">
+                <option value="">-- Chọn phần mềm --</option>
+                ${licenseDB.softwareCatalog.map(s => `<option value="${s.id}" ${s.id === row.softwareId ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('')}
+              </select>
+            </td>
+            <td class="border p-1.5">
+              <select ${dchg('updateAllocByEmpRow', row.id, 'codeId', LIVE_VALUE_NUM)} class="w-full border p-1 rounded text-xs bg-white" ${row.softwareId ? '' : 'disabled'}>
+                <option value="">${row.softwareId ? '-- Chọn mã --' : '-- Chọn phần mềm trước --'}</option>
+                ${codes.map(c => {
+                  const company = licenseDB.companies.find(x => x.id === c.companyId);
+                  return `<option value="${c.id}" ${c.id === row.codeId ? 'selected' : ''}>${escapeHtml(c.code)} — ${escapeHtml(company ? company.name : '—')} (${codeAssignments(c.id).length}/${maxAssignees})</option>`;
+                }).join('')}
+              </select>
+            </td>
+            <td class="border p-1.5">
+              <input type="date" value="${row.issuedDate}" ${dchg('updateAllocByEmpRow', row.id, 'issuedDate', LIVE_VALUE)} class="w-full border p-1 rounded text-xs">
+            </td>
+            <td class="border p-1.5 text-center">
+              <button type="button" ${dc('removeAllocByEmpRow', row.id)} class="text-red-500 hover:text-red-700">🗑️</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+    function updateAllocByEmpRow(id, field, value) {
+      const row = allocByEmpRows.find(r => r.id === id);
+      if (!row) return;
+      row[field] = value;
+      if (field === 'softwareId') row.codeId = null;
+      renderAllocByEmpRows();
+    }
+    function removeAllocByEmpRow(id) {
+      allocByEmpRows = allocByEmpRows.filter(r => r.id !== id);
+      renderAllocByEmpRows();
+    }
+    function addAllocByEmpRow() {
+      allocByEmpRows.push({ id: allocByEmpRowSeq++, softwareId: null, codeId: null, issuedDate: new Date().toISOString().slice(0, 10) });
+      renderAllocByEmpRows();
+    }
+    function onAllocByEmpEmployeeChange(employeeId) {
+      allocByEmpEmployeeId = employeeId || null;
+    }
+    function openAllocByEmpModal() {
+      allocByEmpRows = [];
+      allocByEmpRowSeq = 1;
+      allocByEmpEmployeeId = null;
+      const sel = document.getElementById('allocByEmpEmployee');
+      sel.innerHTML = '<option value="">-- Chọn nhân viên --</option>' + licenseDB.employees.map(e => `<option value="${e.id}">${escapeHtml(employeeLabel(e))}</option>`).join('');
+      addAllocByEmpRow();
+      openLicenseModal('allocByEmpModal');
+    }
+    async function saveAllocByEmp() {
+      if (!allocByEmpEmployeeId) return showToast('Vui lòng chọn nhân viên.', 'warning');
+      const items = allocByEmpRows.map(r => ({ codeId: r.codeId, employeeId: allocByEmpEmployeeId, issuedDate: r.issuedDate }));
+      if (items.length === 0) return showToast('Chưa có dòng nào để cấp phát.', 'warning');
+      if (items.some(it => !it.codeId || !it.issuedDate)) {
+        return showToast('Vui lòng chọn đủ Phần mềm/Mã license và Ngày cấp cho mọi dòng.', 'warning');
+      }
+      try {
+        const result = await apiFetch('/api/license/allocations/batch', { method: 'POST', body: JSON.stringify({ items }) });
+        closeLicenseModal('allocByEmpModal');
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        renderAllocTable();
+        if (result.failCount > 0) {
+          const firstErrors = result.results.filter(r => !r.success).slice(0, 3).map(r => r.error).join('; ');
+          showToast(`Đã cấp ${result.successCount}, lỗi ${result.failCount} dòng: ${firstErrors}`, 'warning');
+        } else {
+          showToast(`Đã cấp phát ${result.successCount} license cho nhân viên.`, 'success');
         }
       } catch (err) {
         showToast(err.message, 'danger');
@@ -6179,7 +6388,7 @@ function isPerpetualSoftware(softwareId) {
     let budget2ReportsData = null;
     const budget2ReportFilters = {
       mode: 'single',
-      dimension: 'total', budgetType: '', year: '',
+      dimension: 'total', budgetType: '', year: '', month: '',
       compareDimension: 'total', compareMetric: 'approved', compareType: ''
     };
     // Dữ liệu đang hiển thị trong bảng báo cáo hiện tại — luôn cập nhật lại
@@ -6257,13 +6466,14 @@ function isPerpetualSoftware(softwareId) {
     }
 
     // --- Nhập/Xuất Excel (dùng chung cho cả Đề xuất và Phê duyệt) ---
-    const BUDGET2_XLSX_HEADER_LABELS = ['Nội dung', 'Mô tả', 'Số lượng', 'Đơn giá', 'VAT (%)', 'Loại (OPEX/CAPEX)', 'Năm ngân sách', 'Mã công ty', 'Đơn vị'];
-    const BUDGET2_XLSX_HEADER_KEYS = ['content', 'description', 'quantity', 'unitPrice', 'vatPercent', 'budgetType', 'budgetYear', 'companyCode', 'orgUnitName'];
+    const BUDGET2_XLSX_HEADER_LABELS = ['Nội dung', 'Mô tả', 'Số lượng', 'Đơn giá', 'VAT (%)', 'Loại (OPEX/CAPEX)', 'Tháng ngân sách', 'Năm ngân sách', 'Mã công ty', 'Đơn vị'];
+    const BUDGET2_XLSX_HEADER_KEYS = ['content', 'description', 'quantity', 'unitPrice', 'vatPercent', 'budgetType', 'budgetMonth', 'budgetYear', 'companyCode', 'orgUnitName'];
     function downloadBudget2Template() {
       const thisYear = new Date().getFullYear();
+      const thisMonth = new Date().getMonth() + 1;
       downloadXlsxFile('mau_ngan_sach.xlsx', BUDGET2_XLSX_HEADER_LABELS, [
-        ['Mua laptop Dell cho phòng KD', 'Laptop Dell Latitude 5440', 5, 20000000, 10, 'OPEX', thisYear, 'TA', 'Phòng Kinh doanh'],
-        ['Ngân sách CAPEX Quý 1', '', 1, 200000000, 0, 'CAPEX', thisYear, '', '']
+        ['Mua laptop Dell cho phòng KD', 'Laptop Dell Latitude 5440', 5, 20000000, 10, 'OPEX', thisMonth, thisYear, 'TA', 'Phòng Kinh doanh'],
+        ['Ngân sách CAPEX Quý 1', '', 1, 200000000, 0, 'CAPEX', thisMonth, thisYear, '', '']
       ]);
     }
     async function importBudget2Xlsx(e, stage) {
@@ -6284,11 +6494,11 @@ function isPerpetualSoftware(softwareId) {
     }
     function exportBudget2Xlsx(stage) {
       const rows = budget2DB.lines.filter(l => l.stage === stage).sort((a, b) => a.id - b.id);
-      const header = ['STT', 'Nội dung', 'Mô tả', 'Số lượng', 'Đơn giá', 'VAT (%)', 'Thành tiền', 'Loại', 'Năm ngân sách', 'Công ty', 'Khối/Ban/Phòng'];
+      const header = ['STT', 'Nội dung', 'Mô tả', 'Số lượng', 'Đơn giá', 'VAT (%)', 'Thành tiền', 'Loại', 'Tháng ngân sách', 'Năm ngân sách', 'Công ty', 'Khối/Ban/Phòng'];
       if (stage === 'APPROVED') header.push('Trạng thái');
       const statusLabel = { SUBMITTED: 'Chờ duyệt', APPROVED: 'Đã duyệt', REJECTED: 'Từ chối' };
       const data = rows.map((l, i) => {
-        const row = [i + 1, l.content, l.description || '', l.quantity, l.unitPrice, l.vatPercent, l.totalAmount, l.budgetType, l.budgetYear, budget2CompanyName(l.companyId), budget2OrgUnitName(l.orgUnitId)];
+        const row = [i + 1, l.content, l.description || '', l.quantity, l.unitPrice, l.vatPercent, l.totalAmount, l.budgetType, l.budgetMonth, l.budgetYear, budget2CompanyName(l.companyId), budget2OrgUnitName(l.orgUnitId)];
         if (stage === 'APPROVED') row.push(statusLabel[l.status] || l.status);
         return row;
       });
@@ -6309,7 +6519,7 @@ function isPerpetualSoftware(softwareId) {
       if (!tbody) return;
       const rows = budget2DB.lines.filter(l => l.stage === 'PROPOSED').sort((a, b) => b.id - a.id);
       const sentIds = budget2ProposalSentSet();
-      if (!rows.length) { tbody.innerHTML = '<tr><td colspan="12" class="text-center p-4 text-gray-400 italic">Chưa có đề xuất ngân sách nào.</td></tr>'; return; }
+      if (!rows.length) { tbody.innerHTML = '<tr><td colspan="13" class="text-center p-4 text-gray-400 italic">Chưa có đề xuất ngân sách nào.</td></tr>'; return; }
       tbody.innerHTML = rows.map((l, i) => {
         const sent = sentIds.has(l.id);
         const actions = sent
@@ -6326,6 +6536,7 @@ function isPerpetualSoftware(softwareId) {
           <td class="border p-2 text-right">${l.vatPercent}%</td>
           <td class="border p-2 text-right font-bold">${formatMoney(l.totalAmount)}</td>
           <td class="border p-2 text-center">${budget2TypeBadge(l.budgetType)}</td>
+          <td class="border p-2 text-center">${l.budgetMonth || '—'}</td>
           <td class="border p-2 text-center">${l.budgetYear || '—'}</td>
           <td class="border p-2">${budget2CompanyCell(l)}</td>
           <td class="border p-2">${budget2OrgUnitCell(l)}</td>
@@ -6395,6 +6606,7 @@ function isPerpetualSoftware(softwareId) {
       document.getElementById('budget2LineUnitPrice').value = line ? line.unitPrice : 0;
       document.getElementById('budget2LineVat').value = line ? line.vatPercent : 0;
       document.getElementById('budget2LineType').value = line ? line.budgetType : 'OPEX';
+      document.getElementById('budget2LineMonth').value = line ? line.budgetMonth : (new Date().getMonth() + 1);
       document.getElementById('budget2LineYear').value = line ? line.budgetYear : new Date().getFullYear();
       document.getElementById('budget2LineNote').value = line ? (line.note || '') : '';
       companySel.value = line && line.companyId ? line.companyId : '';
@@ -6420,6 +6632,7 @@ function isPerpetualSoftware(softwareId) {
         unitPrice: Number(document.getElementById('budget2LineUnitPrice').value),
         vatPercent: Number(document.getElementById('budget2LineVat').value),
         budgetType: document.getElementById('budget2LineType').value,
+        budgetMonth: Number(document.getElementById('budget2LineMonth').value),
         budgetYear: Number(document.getElementById('budget2LineYear').value),
         companyId: document.getElementById('budget2LineCompany').value || null,
         orgUnitId: document.getElementById('budget2LineOrgUnit').value || null,
@@ -6460,7 +6673,7 @@ function isPerpetualSoftware(softwareId) {
             <thead><tr class="bg-gray-100 text-left">
               <th class="border p-2 w-10">#</th><th class="border p-2">Nội dung</th><th class="border p-2">Mô tả</th>
               <th class="border p-2 text-right">SL</th><th class="border p-2 text-right">Đơn giá</th><th class="border p-2 text-right">VAT</th>
-              <th class="border p-2 text-right">Thành tiền</th><th class="border p-2 text-center">Năm</th>
+              <th class="border p-2 text-right">Thành tiền</th><th class="border p-2 text-center">Tháng</th><th class="border p-2 text-center">Năm</th>
               <th class="border p-2">Công ty</th><th class="border p-2">Khối/Ban/Phòng</th>
               <th class="border p-2 text-center">Trạng thái</th><th class="border p-2 text-center w-24">Thao tác</th>
             </tr></thead>
@@ -6479,6 +6692,7 @@ function isPerpetualSoftware(softwareId) {
                 <td class="border p-2 text-right">${formatMoney(l.unitPrice)}</td>
                 <td class="border p-2 text-right">${l.vatPercent}%</td>
                 <td class="border p-2 text-right font-bold">${formatMoney(l.totalAmount)}</td>
+                <td class="border p-2 text-center">${l.budgetMonth || '—'}</td>
                 <td class="border p-2 text-center">${l.budgetYear || '—'}</td>
                 <td class="border p-2">${budget2CompanyCell(l)}</td>
                 <td class="border p-2">${budget2OrgUnitCell(l)}</td>
@@ -6486,7 +6700,7 @@ function isPerpetualSoftware(softwareId) {
                 <td class="border p-2 text-center whitespace-nowrap">${actions}</td>
               </tr>`;
             }).join('')}
-            <tr class="bg-gray-50 font-bold"><td colspan="6" class="border p-2 text-right">Tổng ${type} đã duyệt</td><td class="border p-2 text-right">${formatMoney(subtotal)}</td><td class="border p-2" colspan="5"></td></tr>
+            <tr class="bg-gray-50 font-bold"><td colspan="6" class="border p-2 text-right">Tổng ${type} đã duyệt</td><td class="border p-2 text-right">${formatMoney(subtotal)}</td><td class="border p-2" colspan="6"></td></tr>
             </tbody>
           </table>
         </div>`;
@@ -6520,7 +6734,7 @@ function isPerpetualSoftware(softwareId) {
             <div>
               <span class="font-bold text-gray-800 text-sm">${escapeHtml(p.content)}</span>
               ${budget2TypeBadge(p.budgetType)} ${budget2UsageStatusBadge(p.usageStatus)}
-              <span class="text-[10px] font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full ml-1">Năm ${p.budgetYear || '—'}</span>
+              <span class="text-[10px] font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full ml-1">Tháng ${p.budgetMonth || '—'}/${p.budgetYear || '—'}</span>
               <span class="text-[11px] text-gray-500 ml-2">${budget2CompanyOrgLabel(p)}</span>
             </div>
             <div class="flex items-center gap-2">
@@ -6655,6 +6869,7 @@ function isPerpetualSoftware(softwareId) {
       budget2ReportFilters.dimension = document.getElementById('budget2ReportDimension').value;
       budget2ReportFilters.budgetType = document.getElementById('budget2ReportType').value;
       budget2ReportFilters.year = document.getElementById('budget2ReportYear').value;
+      budget2ReportFilters.month = document.getElementById('budget2ReportMonth').value;
       budget2ReportFilters.compareDimension = document.getElementById('budget2ReportCompareDimension').value;
       budget2ReportFilters.compareMetric = document.getElementById('budget2ReportCompareMetric').value;
       budget2ReportFilters.compareType = document.getElementById('budget2ReportCompareType').value;
@@ -6668,31 +6883,34 @@ function isPerpetualSoftware(softwareId) {
       const dim = budget2ReportFilters.dimension;
       const typeFilter = budget2ReportFilters.budgetType;
       const yearFilter = budget2ReportFilters.year;
+      const monthFilter = budget2ReportFilters.month;
 
       if (dim === 'variance') {
         let rows = budget2ReportsData.variance || [];
         if (typeFilter) rows = rows.filter(r => r.budgetType === typeFilter);
         if (yearFilter) rows = rows.filter(r => r.budgetYear === Number(yearFilter));
-        const header = ['Nội dung', 'Công ty', 'Khối/Ban/Phòng', 'Năm', 'Loại', 'Đã duyệt', 'Đã dùng', 'Còn lại'];
+        if (monthFilter) rows = rows.filter(r => r.budgetMonth === Number(monthFilter));
+        const header = ['Nội dung', 'Công ty', 'Khối/Ban/Phòng', 'Tháng', 'Năm', 'Loại', 'Đã duyệt', 'Đã dùng', 'Còn lại'];
         budget2ReportExport = {
           header, filename: 'bao_cao_chenh_lech_ngan_sach.xlsx',
-          rows: rows.map(r => [r.content, budget2CompanyName(r.companyId) || '', budget2OrgUnitName(r.orgUnitId) || '', r.budgetYear, r.budgetType, r.approvedAmount, r.usedAmount, r.remaining])
+          rows: rows.map(r => [r.content, budget2CompanyName(r.companyId) || '', budget2OrgUnitName(r.orgUnitId) || '', r.budgetMonth, r.budgetYear, r.budgetType, r.approvedAmount, r.usedAmount, r.remaining])
         };
         container.innerHTML = `<div class="overflow-x-auto border rounded"><table class="w-full text-xs border-collapse">
           <thead><tr class="bg-gray-100 text-left">
-            <th class="border p-2">Nội dung</th><th class="border p-2">Công ty</th><th class="border p-2">Khối/Ban/Phòng</th><th class="border p-2 text-center">Năm</th><th class="border p-2 text-center">Loại</th>
+            <th class="border p-2">Nội dung</th><th class="border p-2">Công ty</th><th class="border p-2">Khối/Ban/Phòng</th><th class="border p-2 text-center">Tháng</th><th class="border p-2 text-center">Năm</th><th class="border p-2 text-center">Loại</th>
             <th class="border p-2 text-right">Đã duyệt</th><th class="border p-2 text-right">Đã dùng</th><th class="border p-2 text-right">Còn lại</th>
           </tr></thead>
           <tbody>${rows.length ? rows.map(r => `<tr>
             <td class="border p-2">${escapeHtml(r.content)}</td>
             <td class="border p-2">${escapeHtml(budget2CompanyName(r.companyId))}</td>
             <td class="border p-2">${escapeHtml(budget2OrgUnitName(r.orgUnitId))}</td>
+            <td class="border p-2 text-center">${r.budgetMonth}</td>
             <td class="border p-2 text-center">${r.budgetYear}</td>
             <td class="border p-2 text-center">${budget2TypeBadge(r.budgetType)}</td>
             <td class="border p-2 text-right">${formatMoney(r.approvedAmount)}</td>
             <td class="border p-2 text-right">${formatMoney(r.usedAmount)}</td>
             <td class="border p-2 text-right font-bold ${r.remaining < 0 ? 'text-red-600' : ''}">${formatMoney(r.remaining)}</td>
-          </tr>`).join('') : '<tr><td colspan="8" class="text-center p-3 text-gray-400 italic">Không có dữ liệu.</td></tr>'}</tbody>
+          </tr>`).join('') : '<tr><td colspan="9" class="text-center p-3 text-gray-400 italic">Không có dữ liệu.</td></tr>'}</tbody>
         </table></div>`;
         return;
       }
@@ -6700,21 +6918,20 @@ function isPerpetualSoftware(softwareId) {
       const dataSetMap = { company: budget2ReportsData.byCompany, orgUnit: budget2ReportsData.byOrgUnit, total: budget2ReportsData.total };
       let rows = dataSetMap[dim] || [];
       if (typeFilter) rows = rows.filter(r => r.budgetType === typeFilter);
-      if (yearFilter) {
-        rows = rows.filter(r => r.budgetYear === Number(yearFilter));
-      } else {
-        // "Tất cả năm (gộp)": cộng dồn các dòng cùng nhóm/loại nhưng khác năm
-        // thành 1 dòng duy nhất — cho ra đúng nghĩa "tổng ngân sách" không
-        // phân biệt năm.
-        const map = new Map();
-        rows.forEach(r => {
-          const key = `${r.groupKey ?? 'null'}|${r.budgetType}`;
-          if (!map.has(key)) map.set(key, { groupKey: r.groupKey, budgetType: r.budgetType, proposed: 0, approved: 0, used: 0 });
-          const agg = map.get(key);
-          agg.proposed += r.proposed; agg.approved += r.approved; agg.used += r.used;
-        });
-        rows = [...map.values()];
-      }
+      if (yearFilter) rows = rows.filter(r => r.budgetYear === Number(yearFilter));
+      if (monthFilter) rows = rows.filter(r => r.budgetMonth === Number(monthFilter));
+      // Nếu Tháng và/hoặc Năm để trống ("gộp"): cộng dồn các dòng cùng
+      // nhóm/loại nhưng khác giá trị đã bỏ trống thành 1 dòng duy nhất. Khi cả
+      // 2 đã chọn cụ thể, mỗi nhóm/loại vốn chỉ còn đúng 1 dòng nên gộp không
+      // đổi kết quả — luôn chạy bước này cho gọn logic.
+      const map = new Map();
+      rows.forEach(r => {
+        const key = `${r.groupKey ?? 'null'}|${r.budgetType}`;
+        if (!map.has(key)) map.set(key, { groupKey: r.groupKey, budgetType: r.budgetType, proposed: 0, approved: 0, used: 0 });
+        const agg = map.get(key);
+        agg.proposed += r.proposed; agg.approved += r.approved; agg.used += r.used;
+      });
+      rows = [...map.values()];
       const labelFor = (r) => dim === 'company' ? (budget2CompanyName(r.groupKey) || '(Chưa gán công ty)') : (dim === 'orgUnit' ? (budget2OrgUnitName(r.groupKey) || '(Chưa gán đơn vị)') : 'Toàn công ty');
       const dimLabel = dim === 'company' ? 'Công ty' : (dim === 'orgUnit' ? 'Phòng/Ban/Khối' : 'Phạm vi');
 
@@ -6739,10 +6956,11 @@ function isPerpetualSoftware(softwareId) {
       </table></div>`;
     }
 
-    // So sánh hàng năm: dựng bảng pivot — mỗi dòng là 1 nhóm (Công ty/Đơn
-    // vị/Tổng) x Loại ngân sách, mỗi cột là 1 năm, giá trị theo đúng 1 chỉ
-    // tiêu đã chọn (Đề xuất/Phê duyệt/Sử dụng) — dùng chung cho cả 2 báo cáo
-    // "Phê duyệt so sánh hàng năm" và "Chi tiêu so sánh hàng năm".
+    // So sánh nhiều kỳ: dựng bảng pivot — mỗi dòng là 1 nhóm (Công ty/Đơn
+    // vị/Tổng) x Loại ngân sách, mỗi cột là 1 kỳ Tháng/Năm cụ thể (không phải
+    // chỉ riêng năm), giá trị theo đúng 1 chỉ tiêu đã chọn (Đề xuất/Phê
+    // duyệt/Sử dụng) — dùng chung cho cả 2 báo cáo "Phê duyệt so sánh" và
+    // "Chi tiêu so sánh".
     function renderBudget2ReportCompareTable(container) {
       const dim = budget2ReportFilters.compareDimension;
       const metric = budget2ReportFilters.compareMetric;
@@ -6751,45 +6969,49 @@ function isPerpetualSoftware(softwareId) {
       let rows = dataSetMap[dim] || [];
       if (typeFilter) rows = rows.filter(r => r.budgetType === typeFilter);
 
-      const years = [...new Set(rows.map(r => r.budgetYear).filter(Boolean))].sort((a, b) => a - b);
+      const periodKey = (r) => `${r.budgetYear}-${String(r.budgetMonth).padStart(2, '0')}`;
+      const periodLabel = (key) => { const [y, m] = key.split('-'); return `Tháng ${Number(m)}/${y}`; };
+      const periods = [...new Set(rows.filter(r => r.budgetYear && r.budgetMonth).map(periodKey))].sort();
       const labelFor = (r) => dim === 'company' ? (budget2CompanyName(r.groupKey) || '(Chưa gán công ty)') : (dim === 'orgUnit' ? (budget2OrgUnitName(r.groupKey) || '(Chưa gán đơn vị)') : 'Toàn công ty');
       const dimLabel = dim === 'company' ? 'Công ty' : (dim === 'orgUnit' ? 'Phòng/Ban/Khối' : 'Phạm vi');
       const metricLabel = { proposed: 'Ngân sách đề xuất', approved: 'Ngân sách phê duyệt', used: 'Ngân sách chi tiêu' }[metric];
 
       const groupMap = new Map();
       rows.forEach(r => {
+        if (!r.budgetYear || !r.budgetMonth) return;
         const key = `${r.groupKey ?? 'null'}|${r.budgetType}`;
-        if (!groupMap.has(key)) groupMap.set(key, { groupKey: r.groupKey, budgetType: r.budgetType, byYear: {} });
-        groupMap.get(key).byYear[r.budgetYear] = (groupMap.get(key).byYear[r.budgetYear] || 0) + r[metric];
+        if (!groupMap.has(key)) groupMap.set(key, { groupKey: r.groupKey, budgetType: r.budgetType, byPeriod: {} });
+        const pk = periodKey(r);
+        groupMap.get(key).byPeriod[pk] = (groupMap.get(key).byPeriod[pk] || 0) + r[metric];
       });
       const groups = [...groupMap.values()];
 
-      if (!years.length || !groups.length) {
-        container.innerHTML = `<div class="text-xs text-gray-400 italic p-4 border rounded">Chưa có dữ liệu ${metricLabel.toLowerCase()} để so sánh theo năm.</div>`;
-        budget2ReportExport = { header: [], rows: [], filename: 'so_sanh_ngan_sach_hang_nam.xlsx' };
+      if (!periods.length || !groups.length) {
+        container.innerHTML = `<div class="text-xs text-gray-400 italic p-4 border rounded">Chưa có dữ liệu ${metricLabel.toLowerCase()} để so sánh theo kỳ.</div>`;
+        budget2ReportExport = { header: [], rows: [], filename: 'so_sanh_ngan_sach_nhieu_ky.xlsx' };
         return;
       }
 
       budget2ReportExport = {
-        header: [dimLabel, 'Loại', ...years.map(y => `Năm ${y}`), 'Tổng'],
-        filename: `so_sanh_${metric}_hang_nam.xlsx`,
+        header: [dimLabel, 'Loại', ...periods.map(periodLabel), 'Tổng'],
+        filename: `so_sanh_${metric}_nhieu_ky.xlsx`,
         rows: groups.map(g => {
-          const values = years.map(y => g.byYear[y] || 0);
+          const values = periods.map(p => g.byPeriod[p] || 0);
           const total = values.reduce((s, v) => s + v, 0);
           return [labelFor(g), g.budgetType, ...values, total];
         })
       };
 
       container.innerHTML = `
-        <h3 class="text-sm font-bold text-gray-700 mb-1">${metricLabel} — so sánh theo năm</h3>
+        <h3 class="text-sm font-bold text-gray-700 mb-1">${metricLabel} — so sánh theo từng kỳ Tháng/Năm</h3>
         <div class="overflow-x-auto border rounded"><table class="w-full text-xs border-collapse">
           <thead><tr class="bg-gray-100 text-left">
             <th class="border p-2">${dimLabel}</th><th class="border p-2 text-center">Loại</th>
-            ${years.map(y => `<th class="border p-2 text-right">Năm ${y}</th>`).join('')}
+            ${periods.map(p => `<th class="border p-2 text-right whitespace-nowrap">${periodLabel(p)}</th>`).join('')}
             <th class="border p-2 text-right">Tổng</th>
           </tr></thead>
           <tbody>${groups.map(g => {
-            const values = years.map(y => g.byYear[y] || 0);
+            const values = periods.map(p => g.byPeriod[p] || 0);
             const total = values.reduce((s, v) => s + v, 0);
             return `<tr>
               <td class="border p-2">${escapeHtml(labelFor(g))}</td>
