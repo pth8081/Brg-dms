@@ -724,6 +724,12 @@ CALL create_index_if_not_exists('budget2_lines', 'idx_budget2_org_unit', 'org_un
 CALL add_column_if_not_exists('budget2_lines', 'budget_year', 'SMALLINT NOT NULL DEFAULT 0');
 CALL create_index_if_not_exists('budget2_lines', 'idx_budget2_year', 'budget_year');
 
+-- Tháng ngân sách: cùng vai trò với budget_year ở trên nhưng theo tháng (1-12),
+-- cho phép báo cáo/so sánh theo từng kỳ Tháng-Năm cụ thể. Kế thừa y hệt quy tắc
+-- của budget_year (mục con Sử dụng kế thừa tháng của mục cha).
+CALL add_column_if_not_exists('budget2_lines', 'budget_month', 'TINYINT NOT NULL DEFAULT 1');
+CALL create_index_if_not_exists('budget2_lines', 'idx_budget2_month', 'budget_month');
+
 -- Dọn dẹp: xóa các thủ tục tạm sau khi dùng xong, không để lại trong CSDL thật.
 DROP PROCEDURE IF EXISTS create_index_if_not_exists;
 DROP PROCEDURE IF EXISTS create_unique_index_if_not_exists;

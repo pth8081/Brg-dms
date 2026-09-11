@@ -854,6 +854,7 @@
       <button id="btnLicenseSubItemCatalog" data-evt-click="switchLicenseSubTab" data-args='["itemCatalog"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🗄️ Danh mục HC/DV/Khác</button>
       <button id="btnLicenseSubBatch" data-evt-click="switchLicenseSubTab" data-args='["batch"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📜 Phát hành license</button>
       <button id="btnLicenseSubAlloc" data-evt-click="switchLicenseSubTab" data-args='["alloc"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📦 Phân bổ</button>
+      <button id="btnLicenseSubRevokeEmp" data-evt-click="switchLicenseSubTab" data-args='["revokeEmp"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🚪 Thu hồi theo nhân viên</button>
       <button id="btnLicenseSubAD" data-evt-click="switchLicenseSubTab" data-args='["ad"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🗂️ Tài khoản AD</button>
       <button id="btnLicenseSubPurchase" data-evt-click="switchLicenseSubTab" data-args='["purchase"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🛒 Đăng ký mua bản quyền</button>
       <button id="btnLicenseSubRounds" data-evt-click="switchLicenseSubTab" data-args='["rounds"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📋 Phát hành đăng ký mua</button>
@@ -1017,6 +1018,7 @@
       </div>
       <div class="flex flex-wrap gap-2">
         <button data-evt-click="openAllocModal" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Thêm phân bổ</button>
+        <button data-evt-click="openAllocByEmpModal" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">👤 Gán nhiều license cho 1 người</button>
         <button data-evt-click="openBulkAllocateModal" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">📋 Cấp phát hàng loạt theo nhân sự</button>
         <button data-evt-click="openBulkAllocFileModal" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">📁 Cấp phát hàng loạt từ file</button>
         <button data-evt-click="openAutoAllocateModal" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">🔄 Gia hạn/Thu hồi hàng loạt</button>
@@ -1065,6 +1067,39 @@
         </table>
       </div>
       <div id="allocTablePaginationBox" class="flex flex-col sm:flex-row justify-between items-center gap-3 bg-gray-50 p-3 rounded border text-xs text-gray-700"></div>
+    </div>
+
+    <!-- Sub-tab: Thu hồi theo nhân viên -->
+    <div id="licenseSubRevokeEmp" class="hidden space-y-3">
+      <p class="text-[11px] text-gray-500">Dùng khi nhân viên nghỉ việc: nhập đúng Mã nhân viên để liệt kê toàn bộ phần mềm/license đang gắn với người này, rồi thu hồi hàng loạt (mặc định chọn hết, có thể bỏ chọn dòng nào muốn giữ lại).</p>
+      <div class="flex flex-wrap items-end gap-2 bg-gray-50 p-3 rounded border text-xs">
+        <div class="w-56">
+          <label class="block font-semibold text-gray-600 mb-1">Mã nhân viên</label>
+          <input id="revokeEmpCode" type="text" data-evt-change="lookupEmployeeForRevoke" data-args='[]' placeholder="VD: NV0012" class="w-full border p-1.5 rounded">
+        </div>
+        <button data-evt-click="lookupEmployeeForRevoke" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">🔍 Tra cứu</button>
+      </div>
+      <div id="revokeEmpInfo"></div>
+      <div id="revokeEmpTableWrap" class="hidden">
+        <div class="overflow-x-auto border rounded">
+          <table class="w-full border-collapse bg-white text-xs">
+            <thead>
+              <tr class="bg-gray-100 text-left">
+                <th class="border p-2 text-center"><input type="checkbox" id="revokeEmpSelectAll" data-evt-change="toggleSelectAllRevokeEmp" data-args='[{"__live__":"checked"}]'></th>
+                <th class="border p-2 w-10">STT</th>
+                <th class="border p-2">Phần mềm</th>
+                <th class="border p-2 whitespace-nowrap">Mã license</th>
+                <th class="border p-2 whitespace-nowrap">Ngày cấp</th>
+                <th class="border p-2 whitespace-nowrap">Ngày hết hạn</th>
+              </tr>
+            </thead>
+            <tbody id="revokeEmpTableBody"></tbody>
+          </table>
+        </div>
+        <div class="flex justify-end mt-2">
+          <button id="btnRevokeEmpAll" data-evt-click="revokeSelectedForEmployee" data-args='[]' class="text-xs bg-red-600 text-white px-3 py-1.5 rounded font-bold hover:bg-red-700">🗑️ Thu hồi đã chọn (<span id="revokeEmpSelectedCount">0</span>)</button>
+        </div>
+      </div>
     </div>
 
     <!-- Sub-tab: Tài khoản AD -->
@@ -1576,6 +1611,7 @@
               <th class="border p-2 text-right">VAT</th>
               <th class="border p-2 text-right">Thành tiền</th>
               <th class="border p-2 text-center">Loại</th>
+              <th class="border p-2 text-center">Tháng</th>
               <th class="border p-2 text-center">Năm</th>
               <th class="border p-2">Công ty</th>
               <th class="border p-2">Khối/Ban/Phòng</th>
@@ -1617,13 +1653,14 @@
         <button data-evt-click="exportBudget2ReportXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">📤 Xuất Excel báo cáo</button>
       </div>
       <div class="flex gap-1 border-b">
-        <button id="btnBudget2ReportModeSingle" data-evt-click="onBudget2ReportModeChange" data-args='["single"]' class="px-3 py-1.5 text-xs font-bold border-b-2 border-teal-600 text-teal-700">📅 Theo kỳ (1 năm)</button>
-        <button id="btnBudget2ReportModeCompare" data-evt-click="onBudget2ReportModeChange" data-args='["compare"]' class="px-3 py-1.5 text-xs font-bold border-b-2 border-transparent text-gray-500">📈 So sánh nhiều năm</button>
+        <button id="btnBudget2ReportModeSingle" data-evt-click="onBudget2ReportModeChange" data-args='["single"]' class="px-3 py-1.5 text-xs font-bold border-b-2 border-teal-600 text-teal-700">📅 Theo kỳ (Tháng/Năm)</button>
+        <button id="btnBudget2ReportModeCompare" data-evt-click="onBudget2ReportModeChange" data-args='["compare"]' class="px-3 py-1.5 text-xs font-bold border-b-2 border-transparent text-gray-500">📈 So sánh nhiều kỳ</button>
       </div>
 
-      <!-- Chế độ: Theo kỳ (1 năm) — bao gồm Tổng ngân sách hàng năm, Chi tiêu
-           hàng năm, Chênh lệch chi tiêu vs phê duyệt (chọn đúng 1 năm). -->
-      <div id="budget2ReportModeSingle" class="grid grid-cols-1 md:grid-cols-3 gap-2 bg-gray-50 p-3 rounded border max-w-3xl">
+      <!-- Chế độ: Theo kỳ (Tháng/Năm) — bao gồm Tổng ngân sách theo kỳ, Chi
+           tiêu theo kỳ, Chênh lệch chi tiêu vs phê duyệt (chọn đúng 1 kỳ, có
+           thể gộp theo Năm bằng cách để trống Tháng). -->
+      <div id="budget2ReportModeSingle" class="grid grid-cols-1 md:grid-cols-4 gap-2 bg-gray-50 p-3 rounded border max-w-4xl">
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Nhóm theo</label>
           <select id="budget2ReportDimension" data-evt-change="onBudget2ReportFilterChange" data-args='[]' class="w-full border p-1.5 rounded bg-white text-sm">
@@ -1642,6 +1679,24 @@
           </select>
         </div>
         <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Tháng</label>
+          <select id="budget2ReportMonth" data-evt-change="onBudget2ReportFilterChange" data-args='[]' class="w-full border p-1.5 rounded bg-white text-sm">
+            <option value="">-- Tất cả tháng (gộp) --</option>
+            <option value="1">Tháng 1</option>
+            <option value="2">Tháng 2</option>
+            <option value="3">Tháng 3</option>
+            <option value="4">Tháng 4</option>
+            <option value="5">Tháng 5</option>
+            <option value="6">Tháng 6</option>
+            <option value="7">Tháng 7</option>
+            <option value="8">Tháng 8</option>
+            <option value="9">Tháng 9</option>
+            <option value="10">Tháng 10</option>
+            <option value="11">Tháng 11</option>
+            <option value="12">Tháng 12</option>
+          </select>
+        </div>
+        <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Năm</label>
           <select id="budget2ReportYear" data-evt-change="onBudget2ReportFilterChange" data-args='[]' class="w-full border p-1.5 rounded bg-white text-sm">
             <option value="">-- Tất cả năm (gộp) --</option>
@@ -1649,8 +1704,9 @@
         </div>
       </div>
 
-      <!-- Chế độ: So sánh nhiều năm — Tổng/Phê duyệt/Chi tiêu so sánh hàng
-           năm theo Công ty hoặc Phòng/Ban/Khối, dựng pivot năm theo cột. -->
+      <!-- Chế độ: So sánh nhiều kỳ — Tổng/Phê duyệt/Chi tiêu so sánh giữa các
+           kỳ Tháng-Năm theo Công ty hoặc Phòng/Ban/Khối, dựng pivot từng kỳ
+           Tháng/Năm theo cột. -->
       <div id="budget2ReportModeCompare" class="hidden grid grid-cols-1 md:grid-cols-3 gap-2 bg-gray-50 p-3 rounded border max-w-3xl">
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Nhóm theo</label>
@@ -1798,12 +1854,29 @@
           </select>
         </div>
       </div>
-      <div class="grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-3 gap-3">
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Loại ngân sách</label>
           <select id="budget2LineType" class="w-full border p-2 rounded text-sm bg-white">
             <option value="OPEX">OPEX</option>
             <option value="CAPEX">CAPEX</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Tháng ngân sách</label>
+          <select id="budget2LineMonth" class="w-full border p-2 rounded text-sm bg-white">
+            <option value="1">Tháng 1</option>
+            <option value="2">Tháng 2</option>
+            <option value="3">Tháng 3</option>
+            <option value="4">Tháng 4</option>
+            <option value="5">Tháng 5</option>
+            <option value="6">Tháng 6</option>
+            <option value="7">Tháng 7</option>
+            <option value="8">Tháng 8</option>
+            <option value="9">Tháng 9</option>
+            <option value="10">Tháng 10</option>
+            <option value="11">Tháng 11</option>
+            <option value="12">Tháng 12</option>
           </select>
         </div>
         <div>
@@ -2157,6 +2230,39 @@
       <div class="flex justify-end gap-2 pt-1 border-t">
         <button type="button" data-evt-click="closeLicenseModal" data-args='["allocModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
         <button type="button" data-evt-click="saveAllocation" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Cấp phát</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Gán nhiều license cho 1 nhân viên (chọn nhân viên 1 lần, thêm
+       nhiều dòng Phần mềm/Mã license bên dưới) -->
+  <div id="allocByEmpModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-4xl w-full p-5 space-y-3 max-h-[90vh] overflow-y-auto">
+      <h3 class="font-bold text-gray-900 text-base">Gán nhiều license cho 1 nhân viên</h3>
+      <p class="text-xs text-gray-500">Chọn 1 nhân viên rồi thêm từng dòng Phần mềm/Mã license bên dưới — dùng khi 1 người cần cấp nhiều phần mềm cùng lúc. 1 dòng lỗi (VD phần mềm đã có) không làm mất các dòng khác.</p>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Nhân viên</label>
+        <select id="allocByEmpEmployee" data-evt-change="onAllocByEmpEmployeeChange" data-args='[{"__live__":"valueNum"}]' class="w-full border p-2 rounded text-sm bg-white">
+          <option value="">-- Chọn nhân viên --</option>
+        </select>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs border-collapse">
+          <thead>
+            <tr class="bg-gray-50 text-left">
+              <th class="border p-1.5 w-1/3">Phần mềm</th>
+              <th class="border p-1.5 w-1/3">Mã license (còn slot trống)</th>
+              <th class="border p-1.5">Ngày cấp</th>
+              <th class="border p-1.5 text-center w-8">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody id="allocByEmpRowsBody"></tbody>
+        </table>
+      </div>
+      <button type="button" data-evt-click="addAllocByEmpRow" data-args='[]' class="text-xs font-semibold text-brand-700 hover:underline">+ Thêm dòng</button>
+      <div class="flex justify-end gap-2 pt-1 border-t">
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["allocByEmpModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveAllocByEmp" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Cấp phát</button>
       </div>
     </div>
   </div>
