@@ -1916,6 +1916,9 @@
         ? 'Tài khoản này đăng nhập bằng mật khẩu AD/LDAP của chính người dùng — không cần đặt mật khẩu ở đây.'
         : 'Khi sửa tài khoản: để trống nếu muốn giữ nguyên mật khẩu hiện tại.';
       lookupBtn.classList.toggle('hidden', !useAd);
+      if (useAd && document.getElementById('uUsername').value.trim()) {
+        lookupAdAccountForUser();
+      }
     }
 
     async function lookupAdAccountForUser() {
@@ -1932,6 +1935,16 @@
       } catch (e) {
         showToast(e.message || 'Không tra cứu được thông tin AD.', 'danger');
       }
+    }
+
+    // Khi đang bật "Xác thực bằng tài khoản AD", tự động tra cứu ngay khi rời
+    // khỏi ô Tên đăng nhập (không cần bấm nút) — chỉ những trường AD trả về
+    // (Họ tên/Email) mới được điền tự động, các trường khác (SĐT, Phòng ban)
+    // vẫn để Admin tự điền như bình thường.
+    async function onUsernameChangeForAd() {
+      if (!document.getElementById('uUseAd').checked) return;
+      if (!document.getElementById('uUsername').value.trim()) return;
+      await lookupAdAccountForUser();
     }
 
     async function saveUser(e) {

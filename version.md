@@ -12,6 +12,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 
 | Phiên bản | PR | Ngày merge | Nội dung |
 |---|---|---|---|
+| v6.45 | [#54](https://github.com/pth8081/dms-prod/pull/54) | 2026-09-11 | Thêm CAPTCHA đăng nhập + xác thực AD khi tạo user + cập nhật version.md |
 | v6.44 | [#53](https://github.com/pth8081/dms-prod/pull/53) | 2026-09-11 | Thêm version.md — nhật ký phiên bản đầy đủ + hướng dẫn cập nhật |
 | v6.43 | [#52](https://github.com/pth8081/dms-prod/pull/52) | 2026-09-11 | Thêm cột Công ty/Khối-Ban-Phòng riêng biệt + Năm ngân sách + báo cáo theo năm |
 | v6.42 | [#51](https://github.com/pth8081/dms-prod/pull/51) | 2026-09-09 | Chỉ giai đoạn Ngân sách phê duyệt mới cần bước duyệt/từ chối |
