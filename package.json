@@ -36,5 +36,8 @@
     "exceljs": "^4.4.0",
     "tailwindcss": "^4.3.3",
     "terser": "^5.51.2"
+  },
+  "overrides": {
+    "qs": "^6.16.0"
   }
 }
