@@ -4703,6 +4703,79 @@ app.post('/api/budget2/lines/approved-direct', requireAuth, requireBudgetOrAdmin
     }
 });
 
+// --- Nhập hàng loạt từ file Excel (.xlsx) vào Đề xuất HOẶC thẳng vào Phê
+// duyệt (chờ duyệt, KHÔNG tự sinh Sử dụng ngay — vẫn phải qua đúng bước
+// duyệt như dòng nhập tay/gửi từ Đề xuất). Công ty/Đơn vị trong file là MÃ
+// công ty (lic_companies.code) + TÊN đơn vị (lic_org_units.name, khớp trong
+// đúng công ty đó) — tự tra ra id, giống hệt cách import Nhân viên module
+// Bản quyền, để người dùng không phải biết ID nội bộ. ---
+app.post('/api/budget2/import', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+    try {
+        const stage = (req.body && req.body.stage === 'APPROVED') ? 'APPROVED' : ((req.body && req.body.stage === 'PROPOSED') ? 'PROPOSED' : null);
+        if (!stage) return res.status(400).json({ error: 'Thiếu hoặc sai giai đoạn khi nhập file.' });
+        const rows = Array.isArray(req.body && req.body.rows) ? req.body.rows.slice(0, 2000) : [];
+        if (rows.length === 0) return res.status(400).json({ error: 'File không có dữ liệu hợp lệ.' });
+
+        const [companies] = await pool.query('SELECT * FROM lic_companies');
+        const companyByCode = new Map(companies.map(c => [c.code, c]));
+        const [units] = await pool.query('SELECT * FROM lic_org_units');
+
+        const errors = [];
+        let created = 0;
+        const now = new Date().toISOString();
+
+        for (let i = 0; i < rows.length; i++) {
+            const r = rows[i] || {};
+            const rowNo = i + 2;
+            const companyCode = String(r.companyCode || '').trim().toUpperCase();
+            const orgUnitName = String(r.orgUnitName || '').trim();
+
+            let companyId = null, orgUnitId = null;
+            if (companyCode) {
+                const company = companyByCode.get(companyCode);
+                if (!company) { errors.push(`Dòng ${rowNo}: không tìm thấy công ty mã [${companyCode}].`); continue; }
+                companyId = company.id;
+                if (orgUnitName) {
+                    const candidates = units.filter(u => u.company_id === company.id && u.name === orgUnitName);
+                    if (candidates.length === 0) { errors.push(`Dòng ${rowNo}: không tìm thấy đơn vị [${orgUnitName}] trong công ty [${companyCode}].`); continue; }
+                    if (candidates.length > 1) { errors.push(`Dòng ${rowNo}: có nhiều hơn 1 đơn vị tên [${orgUnitName}] trong công ty [${companyCode}] — không thể xác định đúng đơn vị.`); continue; }
+                    orgUnitId = candidates[0].id;
+                }
+            } else if (orgUnitName) {
+                errors.push(`Dòng ${rowNo}: có Đơn vị nhưng thiếu Mã công ty để xác định đúng đơn vị.`);
+                continue;
+            }
+
+            const v = validateBudget2LineInput({
+                content: r.content,
+                description: r.description,
+                quantity: r.quantity,
+                unitPrice: r.unitPrice,
+                vatPercent: r.vatPercent,
+                budgetType: String(r.budgetType || '').trim().toUpperCase(),
+                companyId,
+                orgUnitId
+            });
+            if (v.error) { errors.push(`Dòng ${rowNo}: ${v.error}`); continue; }
+
+            const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
+            await pool.query(
+                `INSERT INTO budget2_lines
+                    (stage, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, status, note, created_by, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', ?, ?, ?)`,
+                [stage, v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.note, req.user.username, now]
+            );
+            created++;
+        }
+
+        await writeAuditLog({ module: 'BUDGET2', actionType: 'IMPORT_LINES', status: errors.length ? 'PARTIAL' : 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: stage === 'PROPOSED' ? 'Ngân sách đề xuất' : 'Ngân sách phê duyệt', description: `Nhập Excel ${stage === 'PROPOSED' ? 'Đề xuất' : 'Phê duyệt'}: ${created} dòng mới, ${errors.length} lỗi.` });
+        res.json({ success: true, created, errors });
+    } catch (err) {
+        console.error('❌ Lỗi nhập Excel ngân sách:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
 // --- Thêm mục con Sử dụng dưới 1 mục cha (dòng USED gốc, parent_id NULL) ---
 app.post('/api/budget2/lines/:id/children', requireAuth, requireBudgetOrAdmin, async (req, res) => {
     try {

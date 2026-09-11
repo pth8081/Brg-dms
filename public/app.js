@@ -6170,6 +6170,45 @@ function isPerpetualSoftware(softwareId) {
       return parts.length ? escapeHtml(parts.join(' / ')) : '<span class="text-gray-400 italic">(chưa gán)</span>';
     }
 
+    // --- Nhập/Xuất Excel (dùng chung cho cả Đề xuất và Phê duyệt) ---
+    const BUDGET2_XLSX_HEADER_LABELS = ['Nội dung', 'Mô tả', 'Số lượng', 'Đơn giá', 'VAT (%)', 'Loại (OPEX/CAPEX)', 'Mã công ty', 'Đơn vị'];
+    const BUDGET2_XLSX_HEADER_KEYS = ['content', 'description', 'quantity', 'unitPrice', 'vatPercent', 'budgetType', 'companyCode', 'orgUnitName'];
+    function downloadBudget2Template() {
+      downloadXlsxFile('mau_ngan_sach.xlsx', BUDGET2_XLSX_HEADER_LABELS, [
+        ['Mua laptop Dell cho phòng KD', 'Laptop Dell Latitude 5440', 5, 20000000, 10, 'OPEX', 'TA', 'Phòng Kinh doanh'],
+        ['Ngân sách CAPEX Quý 1', '', 1, 200000000, 0, 'CAPEX', '', '']
+      ]);
+    }
+    async function importBudget2Xlsx(e, stage) {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const rows = await readXlsxRows(file, BUDGET2_XLSX_HEADER_KEYS, BUDGET2_XLSX_HEADER_LABELS);
+        const result = await apiFetch('/api/budget2/import', { method: 'POST', body: JSON.stringify({ stage, rows }) });
+        showToast(`Đã nhập ${result.created} dòng ngân sách mới.`, 'success');
+        reportImportErrors(result.errors);
+        budget2DB.loaded = false;
+        await loadBudget2BootstrapData();
+        if (stage === 'PROPOSED') renderBudget2ProposedTable(); else renderBudget2ApprovedTable();
+      } catch (err) {
+        showToast(err.message || 'Không thể nhập file Excel.', 'danger');
+      }
+      e.target.value = '';
+    }
+    function exportBudget2Xlsx(stage) {
+      const rows = budget2DB.lines.filter(l => l.stage === stage).sort((a, b) => a.id - b.id);
+      const header = ['STT', 'Nội dung', 'Mô tả', 'Số lượng', 'Đơn giá', 'VAT (%)', 'Thành tiền', 'Loại', 'Công ty', 'Đơn vị'];
+      if (stage === 'APPROVED') header.push('Trạng thái');
+      const statusLabel = { SUBMITTED: 'Chờ duyệt', APPROVED: 'Đã duyệt', REJECTED: 'Từ chối' };
+      const data = rows.map((l, i) => {
+        const row = [i + 1, l.content, l.description || '', l.quantity, l.unitPrice, l.vatPercent, l.totalAmount, l.budgetType, budget2CompanyName(l.companyId), budget2OrgUnitName(l.orgUnitId)];
+        if (stage === 'APPROVED') row.push(statusLabel[l.status] || l.status);
+        return row;
+      });
+      const filename = stage === 'PROPOSED' ? 'ngan_sach_de_xuat.xlsx' : 'ngan_sach_phe_duyet.xlsx';
+      downloadXlsxFile(filename, header, data);
+    }
+
     // --- Sub-tab: Ngân sách đề xuất ---
     // Module này CHỈ giai đoạn Phê duyệt mới có bước duyệt/từ chối — Đề xuất
     // chỉ đơn thuần là danh sách gửi lên, không cần duyệt. Một đề xuất "đã gửi

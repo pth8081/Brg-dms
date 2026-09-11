@@ -1536,9 +1536,16 @@
     <div id="budget2SubPropose" class="space-y-3">
       <div class="flex flex-wrap justify-between items-center gap-2">
         <h2 class="text-lg font-bold text-gray-800">Ngân sách đề xuất</h2>
-        <button data-evt-click="openBudget2LineModal" data-args='["PROPOSED", null]' class="btn-primary px-4 py-2 rounded text-sm font-bold">+ Thêm đề xuất</button>
+        <div class="flex flex-wrap gap-2 text-xs">
+          <button data-evt-click="openBudget2LineModal" data-args='["PROPOSED", null]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition">+ Thêm đề xuất</button>
+          <button data-evt-click="downloadBudget2Template" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition">📄 Tải File Excel Mẫu</button>
+          <label class="btn-secondary px-2.5 py-1.5 rounded font-semibold cursor-pointer transition">
+            📥 Nhập Excel <input type="file" accept=".xlsx" data-evt-change="importBudget2Xlsx" data-args='[{"__live__":"event"}, "PROPOSED"]' class="hidden">
+          </label>
+          <button data-evt-click="exportBudget2Xlsx" data-args='["PROPOSED"]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition">📤 Xuất Excel</button>
+        </div>
       </div>
-      <p class="text-[11px] text-gray-500">Đề xuất ngân sách do các phòng ban gửi lên — có thể chỉnh sửa/xóa tự do, KHÔNG cần duyệt ở bước này. Bấm "➡️ Gửi duyệt" khi sẵn sàng để chuyển sang tab Ngân sách phê duyệt (bước duyệt thật sự chỉ diễn ra ở đó).</p>
+      <p class="text-[11px] text-gray-500">Đề xuất ngân sách do các phòng ban gửi lên — có thể chỉnh sửa/xóa tự do, KHÔNG cần duyệt ở bước này. Bấm "➡️ Gửi duyệt" khi sẵn sàng để chuyển sang tab Ngân sách phê duyệt (bước duyệt thật sự chỉ diễn ra ở đó). Nhập hàng loạt: tải mẫu, điền dữ liệu (Mã công ty/Đơn vị là tùy chọn, phải nhập đúng như đã có trong hệ thống), rồi nhập lại Excel.</p>
       <div class="overflow-x-auto border rounded">
         <table class="w-full text-xs border-collapse">
           <thead>
@@ -1562,8 +1569,17 @@
 
     <!-- Sub-tab: Ngân sách phê duyệt -->
     <div id="budget2SubApproved" class="hidden space-y-3">
-      <h2 class="text-lg font-bold text-gray-800">Ngân sách phê duyệt</h2>
-      <p class="text-[11px] text-gray-500">Đây là giai đoạn DUY NHẤT trong module cần duyệt/từ chối — dòng vào đây từ đề xuất được gửi sang, hoặc nhập trực tiếp, đều bắt đầu ở trạng thái "Chờ duyệt". Duyệt xong sẽ tự động sinh 1 mục ở tab Ngân sách sử dụng; không thể tự duyệt dòng do chính mình tạo.</p>
+      <div class="flex flex-wrap justify-between items-center gap-2">
+        <h2 class="text-lg font-bold text-gray-800">Ngân sách phê duyệt</h2>
+        <div class="flex flex-wrap gap-2 text-xs">
+          <button data-evt-click="downloadBudget2Template" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition">📄 Tải File Excel Mẫu</button>
+          <label class="btn-secondary px-2.5 py-1.5 rounded font-semibold cursor-pointer transition">
+            📥 Nhập Excel <input type="file" accept=".xlsx" data-evt-change="importBudget2Xlsx" data-args='[{"__live__":"event"}, "APPROVED"]' class="hidden">
+          </label>
+          <button data-evt-click="exportBudget2Xlsx" data-args='["APPROVED"]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition">📤 Xuất Excel</button>
+        </div>
+      </div>
+      <p class="text-[11px] text-gray-500">Đây là giai đoạn DUY NHẤT trong module cần duyệt/từ chối — dòng vào đây từ đề xuất được gửi sang, hoặc nhập trực tiếp/nhập Excel, đều bắt đầu ở trạng thái "Chờ duyệt". Duyệt xong sẽ tự động sinh 1 mục ở tab Ngân sách sử dụng; không thể tự duyệt dòng do chính mình tạo.</p>
       <div id="budget2ApprovedContainer"></div>
     </div>
 
