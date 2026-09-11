@@ -708,13 +708,21 @@ CREATE TABLE IF NOT EXISTS budget2_lines (
     created_by VARCHAR(100) NULL DEFAULT NULL,
     created_at VARCHAR(100),
     decided_by VARCHAR(100) NULL DEFAULT NULL,
-    decided_at VARCHAR(100) NULL DEFAULT NULL
+    decided_at VARCHAR(100) NULL DEFAULT NULL,
+    budget_year SMALLINT NOT NULL DEFAULT 0
 );
 CALL create_index_if_not_exists('budget2_lines', 'idx_budget2_stage', 'stage');
 CALL create_index_if_not_exists('budget2_lines', 'idx_budget2_parent', 'parent_id');
 CALL create_index_if_not_exists('budget2_lines', 'idx_budget2_source', 'source_line_id');
 CALL create_index_if_not_exists('budget2_lines', 'idx_budget2_company', 'company_id');
 CALL create_index_if_not_exists('budget2_lines', 'idx_budget2_org_unit', 'org_unit_id');
+
+-- Năm ngân sách: cho phép báo cáo/so sánh theo từng năm (Đề xuất/Phê duyệt/
+-- Sử dụng đều mang cùng 1 giá trị năm, mục con Sử dụng kế thừa năm của mục
+-- cha) — thêm sau khi module đã có sẵn nên dùng add_column_if_not_exists để
+-- không lỗi trên CSDL đã tồn tại bảng này từ trước.
+CALL add_column_if_not_exists('budget2_lines', 'budget_year', 'SMALLINT NOT NULL DEFAULT 0');
+CALL create_index_if_not_exists('budget2_lines', 'idx_budget2_year', 'budget_year');
 
 -- Dọn dẹp: xóa các thủ tục tạm sau khi dùng xong, không để lại trong CSDL thật.
 DROP PROCEDURE IF EXISTS create_index_if_not_exists;
