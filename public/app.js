@@ -422,12 +422,21 @@
       showToast('Vui lòng liên hệ Quản trị viên hệ thống để được cấp lại mật khẩu.', 'info');
     }
 
+    function refreshCaptcha() {
+      const img = document.getElementById('captchaImg');
+      if (img) img.src = '/api/auth/captcha?t=' + Date.now();
+      const captchaInput = document.getElementById('txtCaptcha');
+      if (captchaInput) captchaInput.value = '';
+    }
+
     async function login(e) {
       if (e) e.preventDefault();
       const u = document.getElementById('txtUser').value.trim();
       const p = document.getElementById('txtPass').value.trim();
+      const captcha = document.getElementById('txtCaptcha').value.trim();
 
       if (!u || !p) return showToast('Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu!', 'warning');
+      if (!captcha) return showToast('Vui lòng nhập mã xác nhận!', 'warning');
 
       const submitBtn = document.getElementById('btnLoginSubmit');
       const spinner = document.getElementById('loginSpinner');
@@ -439,11 +448,12 @@
       try {
         const data = await apiFetch('/api/auth/login', {
           method: 'POST',
-          body: JSON.stringify({ username: u, password: p })
+          body: JSON.stringify({ username: u, password: p, captcha })
         });
         await enterApp(data.user);
       } catch (e) {
         showToast(e.message || 'Tài khoản hoặc mật khẩu không chính xác!', 'danger');
+        refreshCaptcha();
       } finally {
         submitBtn.disabled = false;
         spinner.classList.add('hidden');
@@ -1887,17 +1897,61 @@
 
     let pendingNewUsers = [];
 
+    function generateRandomPassword() {
+      const bytes = new Uint8Array(24);
+      crypto.getRandomValues(bytes);
+      return Array.from(bytes, b => b.toString(36).padStart(2, '0')).join('');
+    }
+
+    function toggleUseAdAuth() {
+      const useAd = document.getElementById('uUseAd').checked;
+      const passInput = document.getElementById('uPassword');
+      const passHint = document.getElementById('uPasswordHint');
+      const lookupBtn = document.getElementById('btnAdLookup');
+      passInput.required = !useAd;
+      passInput.disabled = useAd;
+      passInput.placeholder = useAd ? 'Mật khẩu do AD xác thực' : '******';
+      if (useAd) passInput.value = '';
+      passHint.textContent = useAd
+        ? 'Tài khoản này đăng nhập bằng mật khẩu AD/LDAP của chính người dùng — không cần đặt mật khẩu ở đây.'
+        : 'Khi sửa tài khoản: để trống nếu muốn giữ nguyên mật khẩu hiện tại.';
+      lookupBtn.classList.toggle('hidden', !useAd);
+    }
+
+    async function lookupAdAccountForUser() {
+      const username = document.getElementById('uUsername').value.trim();
+      if (!username) return showToast('Vui lòng nhập tên đăng nhập trước khi tra cứu AD!', 'warning');
+      try {
+        const data = await apiFetch(`/api/users/ad-lookup?username=${encodeURIComponent(username)}`);
+        if (!data.found) {
+          return showToast(`Không tìm thấy [${username}] trong danh sách AD đã đồng bộ. Kiểm tra lại tên đăng nhập hoặc chạy đồng bộ AD trước.`, 'warning');
+        }
+        if (data.fullName) document.getElementById('uFullName').value = data.fullName;
+        if (data.email) document.getElementById('uEmail').value = data.email;
+        showToast(`Đã điền thông tin từ AD cho [${username}]. Vui lòng kiểm tra lại Phòng ban trước khi lưu.`, 'success');
+      } catch (e) {
+        showToast(e.message || 'Không tra cứu được thông tin AD.', 'danger');
+      }
+    }
+
     async function saveUser(e) {
       e.preventDefault();
       const editId = document.getElementById('editUserId').value;
       const username = document.getElementById('uUsername').value.trim();
-      const pass = document.getElementById('uPassword').value.trim();
+      const useAd = document.getElementById('uUseAd').checked;
+      let pass = document.getElementById('uPassword').value.trim();
       const name = document.getElementById('uFullName').value.trim();
       const email = document.getElementById('uEmail').value.trim();
       const phone = document.getElementById('uPhone').value.trim();
       const dept = document.getElementById('uDept').value;
 
-      if (!editId && !pass) return showToast('Vui lòng nhập mật khẩu cho tài khoản mới!', 'warning');
+      if (!editId && !pass) {
+        if (useAd) {
+          pass = generateRandomPassword();
+        } else {
+          return showToast('Vui lòng nhập mật khẩu cho tài khoản mới!', 'warning');
+        }
+      }
       if (pass && pass.length < 6) return showToast('Mật khẩu phải có ít nhất 6 ký tự!', 'warning');
 
       const userScope = getScopePayload('user');
@@ -2082,6 +2136,8 @@
       document.getElementById('uUsername').value = '';
       document.getElementById('uPassword').value = '';
       document.getElementById('uPassword').required = true;
+      document.getElementById('uUseAd').checked = false;
+      toggleUseAdAuth();
       document.getElementById('uFullName').value = '';
       document.getElementById('uEmail').value = '';
       document.getElementById('uPhone').value = '';

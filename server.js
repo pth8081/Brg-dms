@@ -617,11 +617,60 @@ if (isScheduledJobOwner) {
 }
 
 // --- API AUTH ---
+const CAPTCHA_COOKIE = 'dms_captcha';
+
+function renderCaptchaSvg(code) {
+    const width = 140, height = 50;
+    const colors = ['#2563eb', '#dc2626', '#16a34a', '#7c3aed', '#ea580c'];
+    let chars = '';
+    for (let i = 0; i < code.length; i++) {
+        const x = 20 + i * 28;
+        const y = 34 + (crypto.randomInt(-4, 5));
+        const rotate = crypto.randomInt(-20, 21);
+        const color = colors[crypto.randomInt(0, colors.length)];
+        chars += `<text x="${x}" y="${y}" font-size="26" font-family="Arial, sans-serif" font-weight="bold" fill="${color}" transform="rotate(${rotate} ${x} ${y})">${code[i]}</text>`;
+    }
+    let noiseLines = '';
+    for (let i = 0; i < 5; i++) {
+        const x1 = crypto.randomInt(0, width), y1 = crypto.randomInt(0, height);
+        const x2 = crypto.randomInt(0, width), y2 = crypto.randomInt(0, height);
+        noiseLines += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#94a3b8" stroke-width="1" opacity="0.5"/>`;
+    }
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#f1f5f9"/>${noiseLines}${chars}</svg>`;
+}
+
+app.get('/api/auth/captcha', (req, res) => {
+    const code = String(crypto.randomInt(0, 10000)).padStart(4, '0');
+    const token = jwt.sign({ captcha: code }, JWT_SECRET, { expiresIn: '5m' });
+    res.cookie(CAPTCHA_COOKIE, token, {
+        httpOnly: true,
+        secure: isProd,
+        sameSite: 'strict',
+        maxAge: 5 * 60 * 1000
+    });
+    res.set('Content-Type', 'image/svg+xml');
+    res.set('Cache-Control', 'no-store');
+    res.send(renderCaptchaSvg(code));
+});
+
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
     try {
-        const { username, password } = req.body || {};
+        const { username, password, captcha } = req.body || {};
         if (!username || !password) {
             return res.status(400).json({ error: 'Vui lòng nhập tên đăng nhập và mật khẩu.' });
+        }
+
+        const captchaTokenCookie = req.cookies[CAPTCHA_COOKIE];
+        res.clearCookie(CAPTCHA_COOKIE, { httpOnly: true, secure: isProd, sameSite: 'strict' });
+        let captchaOk = false;
+        if (captchaTokenCookie && captcha) {
+            try {
+                const payload = jwt.verify(captchaTokenCookie, JWT_SECRET, { algorithms: ['HS256'] });
+                captchaOk = String(payload.captcha) === String(captcha).trim();
+            } catch (e) { captchaOk = false; }
+        }
+        if (!captchaOk) {
+            return res.status(400).json({ error: 'Mã xác nhận không đúng hoặc đã hết hạn, vui lòng thử lại.' });
         }
 
         const [rows] = await pool.query('SELECT * FROM users WHERE username = ?', [username]);
@@ -688,6 +737,18 @@ app.post('/api/auth/logout', async (req, res) => {
 
 app.get('/api/auth/me', requireAuth, (req, res) => {
     res.json({ user: sanitizeUser(req.user) });
+});
+
+// Tra cứu nhanh 1 tài khoản trong snapshot ad_accounts (đã đồng bộ từ AD) để
+// tự điền Họ tên/Email khi Admin tạo tài khoản DMS xác thực bằng LDAP/AD —
+// không tự tạo user, chỉ hỗ trợ điền sẵn thông tin cho Admin xác nhận lại.
+app.get('/api/users/ad-lookup', requireAuth, requireAdmin, async (req, res) => {
+    const username = String(req.query.username || '').trim();
+    if (!username) return res.status(400).json({ error: 'Thiếu tên đăng nhập cần tra cứu.' });
+    const [rows] = await pool.query('SELECT username, full_name, email, company, org_unit, active FROM ad_accounts WHERE username = ?', [username]);
+    const acc = rows[0];
+    if (!acc) return res.json({ found: false });
+    res.json({ found: true, username: acc.username, fullName: acc.full_name, email: acc.email, company: acc.company, orgUnit: acc.org_unit, active: !!acc.active });
 });
 
 // --- API CẬP NHẬT HỒ SƠ CÁ NHÂN (tự phục vụ, không cần quyền admin) ---
