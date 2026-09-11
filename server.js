@@ -598,13 +598,16 @@ async function runExpiryReminderCheck() {
     const thresholds = [...new Set([...reminderConfig.daysBeforeList, 0])];
 
     const [items] = await pool.query(
-        'SELECT i.*, c.name AS category_name FROM it_items i JOIN it_categories c ON c.id = i.category_id WHERE i.active = 1'
+        'SELECT i.*, c.name AS category_name FROM it_items i JOIN it_categories c ON c.id = i.category_id WHERE i.active = 1 AND i.deleted_at IS NULL'
     );
     const [allUsers] = await pool.query('SELECT id, email, active, perms FROM users');
     const adminEmails = allUsers
         .filter(u => u.active && (typeof u.perms === 'string' ? JSON.parse(u.perms || '{}') : (u.perms || {})).admin)
         .map(u => u.email).filter(Boolean);
-    const emailById = new Map(allUsers.map(u => [u.id, u.email]));
+    // Chỉ lấy email của user còn active — trước đây lấy cả user đã bị khóa,
+    // khiến hệ thống tiếp tục gửi email nhắc hạn tới người phụ trách đã nghỉ
+    // việc/bị khóa tài khoản khi đầu mục chưa kịp đổi người phụ trách mới.
+    const emailById = new Map(allUsers.filter(u => u.active).map(u => [u.id, u.email]));
 
     const todayStr = fmtDate(new Date());
     let sentCount = 0;
@@ -612,12 +615,25 @@ async function runExpiryReminderCheck() {
         const expiryStr = fmtDate(item.expiry_date);
         const daysLeft = Math.round((new Date(`${expiryStr}T00:00:00`) - new Date(`${todayStr}T00:00:00`)) / 86400000);
         for (const daysBefore of thresholds) {
-            if (daysLeft !== daysBefore) continue;
-            const [existing] = await pool.query(
-                'SELECT id FROM it_reminder_sent WHERE item_id = ? AND expiry_date = ? AND days_before = ?',
-                [item.id, expiryStr, daysBefore]
+            // Trước đây chỉ khớp CHÍNH XÁC 1 ngày (daysLeft === daysBefore) — nếu
+            // server ngừng chạy (downtime) đúng vào ngày đó, hoặc cấu hình nhắc
+            // hẹn vừa được bật lại sau khi đã qua mốc, mốc đó KHÔNG BAO GIỜ được
+            // gửi lại (daysLeft chỉ giảm dần, không bao giờ bằng lại giá trị cũ).
+            // Đổi thành "còn <= daysBefore ngày" để tự động bắt kịp các mốc đã bị
+            // bỏ lỡ — bảng it_reminder_sent (khóa theo item+expiry+daysBefore) vẫn
+            // đảm bảo mỗi mốc chỉ gửi đúng 1 lần, không gửi lặp lại mỗi ngày.
+            if (daysLeft > daysBefore) continue;
+            // Giành "quyền gửi" TRƯỚC khi gửi email (không phải SELECT-rồi-gửi-
+            // rồi-mới-INSERT như trước) — INSERT IGNORE dựa vào UNIQUE KEY
+            // (item_id, expiry_date, days_before) nên atomic ở tầng CSDL: nếu 2
+            // lượt quét chạy gần như đồng thời (nút "Kiểm tra ngay" + job lịch
+            // trùng giờ), chỉ đúng 1 lượt insert thành công (affectedRows=1) và
+            // được phép gửi — tránh gửi trùng email nhắc hạn cho cùng 1 mốc.
+            const [claim] = await pool.query(
+                'INSERT IGNORE INTO it_reminder_sent (item_id, expiry_date, days_before, sent_at) VALUES (?, ?, ?, ?)',
+                [item.id, expiryStr, daysBefore, new Date().toISOString()]
             );
-            if (existing[0]) continue;
+            if (claim.affectedRows === 0) continue; // lượt quét khác đã giành và đang/đã gửi
 
             const recipients = new Set(adminEmails);
             if (item.owner_user_id && emailById.get(item.owner_user_id)) recipients.add(emailById.get(item.owner_user_id));
@@ -638,12 +654,6 @@ async function runExpiryReminderCheck() {
                 }
                 sentCount++;
             }
-            // Vẫn ghi nhận đã xử lý mốc này dù không có ai nhận (chưa gán người phụ
-            // trách và không có email Admin nào) — tránh quét lại y hệt mãi mãi.
-            await pool.query(
-                'INSERT INTO it_reminder_sent (item_id, expiry_date, days_before, sent_at) VALUES (?, ?, ?, ?)',
-                [item.id, expiryStr, daysBefore, new Date().toISOString()]
-            );
         }
     }
     return { checked: items.length, sent: sentCount };
@@ -2499,7 +2509,18 @@ app.get('/api/license/portal/bootstrap', requireAuth, async (req, res) => {
 // Bản quyền). Chỉ đọc, không có tham số lọc phức tạp ở bản đầu tiên này.
 app.get('/api/reports/docs', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT dept, status, created_at, history FROM docs WHERE deleted_at IS NULL');
+        const [allRows] = await pool.query('SELECT dept, status, created_at, history, doc_group_id, version_no FROM docs WHERE deleted_at IS NULL');
+        // Tài liệu hỗ trợ nhiều phiên bản cùng doc_group_id (nộp lại/tạo version
+        // mới không xóa/đổi trạng thái bản cũ) — trước đây tổng hợp báo cáo trên
+        // TOÀN BỘ các dòng, đếm trùng nhiều lần cho cùng 1 tài liệu có nhiều
+        // version. Chỉ giữ đúng 1 dòng (bản mới nhất) cho mỗi doc_group_id.
+        const latestByGroup = new Map();
+        for (const d of allRows) {
+            const key = d.doc_group_id;
+            const existing = latestByGroup.get(key);
+            if (!existing || (d.version_no || 0) > (existing.version_no || 0)) latestByGroup.set(key, d);
+        }
+        const rows = [...latestByGroup.values()];
         const totals = { total: rows.length, pending: 0, approved: 0, rejected: 0 };
         const byDeptMap = new Map();
         // Thời gian "nằm ở bước X" = khoảng cách từ mốc trước đó (ngày tạo hoặc
@@ -2539,7 +2560,19 @@ app.get('/api/reports/docs', requireAuth, requireAdmin, async (req, res) => {
     }
 });
 
-app.get('/api/reports/license', requireAuth, requireAdmin, async (req, res) => {
+// Trước đây chỉ Admin xem được báo cáo này — trong khi Người quản lý License
+// và Người quản lý Ngân sách (đã có toàn quyền tạo/duyệt dữ liệu License/
+// Ngân sách qua requireLicenseOrAdmin/requireBudgetOrAdmin ở các route khác)
+// lại không xem được chính báo cáo tổng hợp của module mình phụ trách, phải
+// nhờ Admin xem hộ.
+function requireLicenseOrBudgetOrAdmin(req, res, next) {
+    const perms = req.user && req.user.perms;
+    if (!perms || (!perms.admin && !perms.licenseManager && !perms.budgetManager)) {
+        return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên, Người quản lý License hoặc Người quản lý Ngân sách.' });
+    }
+    next();
+}
+app.get('/api/reports/license', requireAuth, requireLicenseOrBudgetOrAdmin, async (req, res) => {
     try {
         const [[{ totalCodes }]] = await pool.query('SELECT COUNT(*) AS totalCodes FROM lic_license_codes');
         const [[{ assignedCodes }]] = await pool.query('SELECT COUNT(DISTINCT code_id) AS assignedCodes FROM lic_license_code_assignments');
@@ -2562,13 +2595,17 @@ app.get('/api/reports/license', requireAuth, requireAdmin, async (req, res) => {
         const [latestRoundRows] = await pool.query('SELECT id, name FROM lic_budget_rounds ORDER BY id DESC LIMIT 1');
         let budgetVsUsage = [];
         if (latestRoundRows[0]) {
+            // Chỉ tính dự trù ĐÃ DUYỆT — trước đây không lọc status, cộng cả
+            // PENDING/REJECTED vào cột "Dự trù mới", sai lệch so với 2 khối tổng
+            // hợp khác cùng endpoint (budgetItemComparison, budgetCapexOpexSummary)
+            // vốn đều chỉ tính APPROVED.
             const [regRows] = await pool.query(
                 `SELECT r.current_quantity, r.requested_quantity, u.name AS unitName, COALESCE(sw.name, bi.item_name) AS softwareName
                  FROM lic_budget_registrations r
                  JOIN lic_org_units u ON u.id = r.org_unit_id
                  JOIN lic_budget_round_items bi ON bi.id = r.round_item_id
                  LEFT JOIN lic_software_catalog sw ON sw.id = bi.software_id
-                 WHERE r.round_id = ? ORDER BY r.id`,
+                 WHERE r.round_id = ? AND r.status = 'APPROVED' ORDER BY r.id`,
                 [latestRoundRows[0].id]
             );
             budgetVsUsage = regRows.map(r => ({ unitName: r.unitName, softwareName: r.softwareName, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity }));
@@ -4370,10 +4407,20 @@ app.post('/api/license/budget-rounds/:id/items', requireAuth, requireLicenseOrAd
             if (dupRows[0]) return res.status(400).json({ error: 'Hạng mục này đã có trong kỳ ngân sách.' });
         }
 
-        const [result] = await pool.query(
-            'INSERT INTO lic_budget_round_items (round_id, software_id, item_type, item_name, catalog_item_id, capex_opex, unit_price, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [id, normalized.softwareId, normalized.itemType, null, normalized.catalogItemId, normalized.capexOpex, normalized.unitPrice, normalized.description]
-        );
+        // Race condition: cột dedup_key + UNIQUE KEY (xem schema.sql) là chốt
+        // chặn cuối cùng cấp CSDL — kiểm tra dupRows ở trên chỉ là kiểm tra sớm
+        // để trả lỗi thân thiện trong trường hợp thường gặp (không đồng thời).
+        const dedupKey = `${normalized.itemType}:${normalized.itemType === 'SOFTWARE' ? normalized.softwareId : 'cat' + normalized.catalogItemId}`;
+        let result;
+        try {
+            [result] = await pool.query(
+                'INSERT INTO lic_budget_round_items (round_id, software_id, item_type, item_name, catalog_item_id, capex_opex, unit_price, description, dedup_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [id, normalized.softwareId, normalized.itemType, null, normalized.catalogItemId, normalized.capexOpex, normalized.unitPrice, normalized.description, dedupKey]
+            );
+        } catch (e) {
+            if (e.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: `Hạng mục [${itemLabel}] đã có trong kỳ ngân sách.` });
+            throw e;
+        }
         await writeAuditLog({ module: 'LICENSE', actionType: 'ADD_BUDGET_ROUND_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: itemLabel, description: `Thêm hạng mục [${itemLabel}] (${normalized.itemType}/${normalized.capexOpex}) vào kỳ ngân sách #${id}, đơn giá ${normalized.unitPrice}.` });
         res.json({ success: true, id: result.insertId });
     } catch (err) {
@@ -4813,7 +4860,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 app.get('/api/it/bootstrap', requireAuth, requireAdmin, async (req, res) => {
     try {
         const [categories] = await pool.query('SELECT * FROM it_categories ORDER BY sort_order, name');
-        const [items] = await pool.query('SELECT * FROM it_items ORDER BY expiry_date');
+        const [items] = await pool.query('SELECT * FROM it_items WHERE deleted_at IS NULL ORDER BY expiry_date');
         const reminderConfig = await getItReminderConfig();
         const lastCheckAt = await getItExpiryLastCheckAt();
         res.json({
@@ -4963,17 +5010,33 @@ app.put('/api/it/items/:id', requireAuth, requireAdmin, async (req, res) => {
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
+// Xóa mềm — trước đây DELETE cứng vĩnh viễn (khác hẳn module Tài liệu có
+// Thùng rác/khôi phục). Đánh dấu deleted_at, không xóa dữ liệu thật, nên có
+// thể khôi phục qua POST /api/it/items/:id/restore bên dưới nếu xóa nhầm.
 app.delete('/api/it/items/:id', requireAuth, requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
-        const [rows] = await pool.query('SELECT name FROM it_items WHERE id = ?', [id]);
+        const [rows] = await pool.query('SELECT name FROM it_items WHERE id = ? AND deleted_at IS NULL', [id]);
         if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy đầu mục.' });
-        await pool.query('DELETE FROM it_reminder_sent WHERE item_id = ?', [id]);
-        await pool.query('DELETE FROM it_items WHERE id = ?', [id]);
-        await writeAuditLog({ module: 'IT_ASSETS', actionType: 'DELETE_IT_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: rows[0].name, description: `Xóa đầu mục CNTT [${rows[0].name}].` });
+        await pool.query('UPDATE it_items SET deleted_at = ? WHERE id = ?', [new Date().toISOString(), id]);
+        await writeAuditLog({ module: 'IT_ASSETS', actionType: 'DELETE_IT_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: rows[0].name, description: `Xóa đầu mục CNTT [${rows[0].name}] (đã chuyển vào Thùng rác, có thể khôi phục).` });
         res.json({ success: true });
     } catch (err) {
         console.error('❌ Lỗi xóa đầu mục CNTT:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.post('/api/it/items/:id/restore', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query('SELECT name FROM it_items WHERE id = ? AND deleted_at IS NOT NULL', [id]);
+        if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy đầu mục đã xóa để khôi phục.' });
+        await pool.query('UPDATE it_items SET deleted_at = NULL WHERE id = ?', [id]);
+        await writeAuditLog({ module: 'IT_ASSETS', actionType: 'RESTORE_IT_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: rows[0].name, description: `Khôi phục đầu mục CNTT [${rows[0].name}] từ Thùng rác.` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi khôi phục đầu mục CNTT:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
