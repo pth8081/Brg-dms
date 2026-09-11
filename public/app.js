@@ -6108,7 +6108,16 @@ function isPerpetualSoftware(softwareId) {
     // =====================================================================
     const budget2DB = { lines: [], companies: [], orgUnits: [], loaded: false };
     let budget2ReportsData = null;
-    const budget2ReportFilters = { dimension: 'total', budgetType: '' };
+    const budget2ReportFilters = {
+      mode: 'single',
+      dimension: 'total', budgetType: '', year: '',
+      compareDimension: 'total', compareMetric: 'approved', compareType: ''
+    };
+    // Dữ liệu đang hiển thị trong bảng báo cáo hiện tại — luôn cập nhật lại
+    // mỗi lần render, để "Xuất Excel báo cáo" xuất ĐÚNG những gì đang xem
+    // (không phải gọi lại API/tính lại) và giữ số liệu là số thật, không phải
+    // chuỗi đã format tiền tệ.
+    let budget2ReportExport = { header: [], rows: [], filename: 'bao_cao_ngan_sach.xlsx' };
 
     async function loadBudget2BootstrapData() {
       if (budget2DB.loaded) return;
@@ -6169,14 +6178,23 @@ function isPerpetualSoftware(softwareId) {
       const parts = [budget2CompanyName(l.companyId), budget2OrgUnitName(l.orgUnitId)].filter(Boolean);
       return parts.length ? escapeHtml(parts.join(' / ')) : '<span class="text-gray-400 italic">(chưa gán)</span>';
     }
+    function budget2CompanyCell(l) {
+      const name = budget2CompanyName(l.companyId);
+      return name ? escapeHtml(name) : '<span class="text-gray-400 italic">—</span>';
+    }
+    function budget2OrgUnitCell(l) {
+      const name = budget2OrgUnitName(l.orgUnitId);
+      return name ? escapeHtml(name) : '<span class="text-gray-400 italic">—</span>';
+    }
 
     // --- Nhập/Xuất Excel (dùng chung cho cả Đề xuất và Phê duyệt) ---
-    const BUDGET2_XLSX_HEADER_LABELS = ['Nội dung', 'Mô tả', 'Số lượng', 'Đơn giá', 'VAT (%)', 'Loại (OPEX/CAPEX)', 'Mã công ty', 'Đơn vị'];
-    const BUDGET2_XLSX_HEADER_KEYS = ['content', 'description', 'quantity', 'unitPrice', 'vatPercent', 'budgetType', 'companyCode', 'orgUnitName'];
+    const BUDGET2_XLSX_HEADER_LABELS = ['Nội dung', 'Mô tả', 'Số lượng', 'Đơn giá', 'VAT (%)', 'Loại (OPEX/CAPEX)', 'Năm ngân sách', 'Mã công ty', 'Đơn vị'];
+    const BUDGET2_XLSX_HEADER_KEYS = ['content', 'description', 'quantity', 'unitPrice', 'vatPercent', 'budgetType', 'budgetYear', 'companyCode', 'orgUnitName'];
     function downloadBudget2Template() {
+      const thisYear = new Date().getFullYear();
       downloadXlsxFile('mau_ngan_sach.xlsx', BUDGET2_XLSX_HEADER_LABELS, [
-        ['Mua laptop Dell cho phòng KD', 'Laptop Dell Latitude 5440', 5, 20000000, 10, 'OPEX', 'TA', 'Phòng Kinh doanh'],
-        ['Ngân sách CAPEX Quý 1', '', 1, 200000000, 0, 'CAPEX', '', '']
+        ['Mua laptop Dell cho phòng KD', 'Laptop Dell Latitude 5440', 5, 20000000, 10, 'OPEX', thisYear, 'TA', 'Phòng Kinh doanh'],
+        ['Ngân sách CAPEX Quý 1', '', 1, 200000000, 0, 'CAPEX', thisYear, '', '']
       ]);
     }
     async function importBudget2Xlsx(e, stage) {
@@ -6197,11 +6215,11 @@ function isPerpetualSoftware(softwareId) {
     }
     function exportBudget2Xlsx(stage) {
       const rows = budget2DB.lines.filter(l => l.stage === stage).sort((a, b) => a.id - b.id);
-      const header = ['STT', 'Nội dung', 'Mô tả', 'Số lượng', 'Đơn giá', 'VAT (%)', 'Thành tiền', 'Loại', 'Công ty', 'Đơn vị'];
+      const header = ['STT', 'Nội dung', 'Mô tả', 'Số lượng', 'Đơn giá', 'VAT (%)', 'Thành tiền', 'Loại', 'Năm ngân sách', 'Công ty', 'Khối/Ban/Phòng'];
       if (stage === 'APPROVED') header.push('Trạng thái');
       const statusLabel = { SUBMITTED: 'Chờ duyệt', APPROVED: 'Đã duyệt', REJECTED: 'Từ chối' };
       const data = rows.map((l, i) => {
-        const row = [i + 1, l.content, l.description || '', l.quantity, l.unitPrice, l.vatPercent, l.totalAmount, l.budgetType, budget2CompanyName(l.companyId), budget2OrgUnitName(l.orgUnitId)];
+        const row = [i + 1, l.content, l.description || '', l.quantity, l.unitPrice, l.vatPercent, l.totalAmount, l.budgetType, l.budgetYear, budget2CompanyName(l.companyId), budget2OrgUnitName(l.orgUnitId)];
         if (stage === 'APPROVED') row.push(statusLabel[l.status] || l.status);
         return row;
       });
@@ -6222,7 +6240,7 @@ function isPerpetualSoftware(softwareId) {
       if (!tbody) return;
       const rows = budget2DB.lines.filter(l => l.stage === 'PROPOSED').sort((a, b) => b.id - a.id);
       const sentIds = budget2ProposalSentSet();
-      if (!rows.length) { tbody.innerHTML = '<tr><td colspan="10" class="text-center p-4 text-gray-400 italic">Chưa có đề xuất ngân sách nào.</td></tr>'; return; }
+      if (!rows.length) { tbody.innerHTML = '<tr><td colspan="12" class="text-center p-4 text-gray-400 italic">Chưa có đề xuất ngân sách nào.</td></tr>'; return; }
       tbody.innerHTML = rows.map((l, i) => {
         const sent = sentIds.has(l.id);
         const actions = sent
@@ -6239,7 +6257,9 @@ function isPerpetualSoftware(softwareId) {
           <td class="border p-2 text-right">${l.vatPercent}%</td>
           <td class="border p-2 text-right font-bold">${formatMoney(l.totalAmount)}</td>
           <td class="border p-2 text-center">${budget2TypeBadge(l.budgetType)}</td>
-          <td class="border p-2">${budget2CompanyOrgLabel(l)}</td>
+          <td class="border p-2 text-center">${l.budgetYear || '—'}</td>
+          <td class="border p-2">${budget2CompanyCell(l)}</td>
+          <td class="border p-2">${budget2OrgUnitCell(l)}</td>
           <td class="border p-2 text-center whitespace-nowrap">${actions}</td>
         </tr>`;
       }).join('');
@@ -6306,6 +6326,7 @@ function isPerpetualSoftware(softwareId) {
       document.getElementById('budget2LineUnitPrice').value = line ? line.unitPrice : 0;
       document.getElementById('budget2LineVat').value = line ? line.vatPercent : 0;
       document.getElementById('budget2LineType').value = line ? line.budgetType : 'OPEX';
+      document.getElementById('budget2LineYear').value = line ? line.budgetYear : new Date().getFullYear();
       document.getElementById('budget2LineNote').value = line ? (line.note || '') : '';
       companySel.value = line && line.companyId ? line.companyId : '';
       onBudget2LineCompanyChange();
@@ -6330,6 +6351,7 @@ function isPerpetualSoftware(softwareId) {
         unitPrice: Number(document.getElementById('budget2LineUnitPrice').value),
         vatPercent: Number(document.getElementById('budget2LineVat').value),
         budgetType: document.getElementById('budget2LineType').value,
+        budgetYear: Number(document.getElementById('budget2LineYear').value),
         companyId: document.getElementById('budget2LineCompany').value || null,
         orgUnitId: document.getElementById('budget2LineOrgUnit').value || null,
         note: document.getElementById('budget2LineNote').value.trim()
@@ -6369,7 +6391,8 @@ function isPerpetualSoftware(softwareId) {
             <thead><tr class="bg-gray-100 text-left">
               <th class="border p-2 w-10">#</th><th class="border p-2">Nội dung</th><th class="border p-2">Mô tả</th>
               <th class="border p-2 text-right">SL</th><th class="border p-2 text-right">Đơn giá</th><th class="border p-2 text-right">VAT</th>
-              <th class="border p-2 text-right">Thành tiền</th><th class="border p-2">Công ty/Đơn vị</th>
+              <th class="border p-2 text-right">Thành tiền</th><th class="border p-2 text-center">Năm</th>
+              <th class="border p-2">Công ty</th><th class="border p-2">Khối/Ban/Phòng</th>
               <th class="border p-2 text-center">Trạng thái</th><th class="border p-2 text-center w-24">Thao tác</th>
             </tr></thead>
             <tbody>${groupRows.map((l, i) => {
@@ -6387,12 +6410,14 @@ function isPerpetualSoftware(softwareId) {
                 <td class="border p-2 text-right">${formatMoney(l.unitPrice)}</td>
                 <td class="border p-2 text-right">${l.vatPercent}%</td>
                 <td class="border p-2 text-right font-bold">${formatMoney(l.totalAmount)}</td>
-                <td class="border p-2">${budget2CompanyOrgLabel(l)}</td>
+                <td class="border p-2 text-center">${l.budgetYear || '—'}</td>
+                <td class="border p-2">${budget2CompanyCell(l)}</td>
+                <td class="border p-2">${budget2OrgUnitCell(l)}</td>
                 <td class="border p-2 text-center">${budget2StatusBadge(l.status)}</td>
                 <td class="border p-2 text-center whitespace-nowrap">${actions}</td>
               </tr>`;
             }).join('')}
-            <tr class="bg-gray-50 font-bold"><td colspan="6" class="border p-2 text-right">Tổng ${type} đã duyệt</td><td class="border p-2 text-right">${formatMoney(subtotal)}</td><td class="border p-2" colspan="3"></td></tr>
+            <tr class="bg-gray-50 font-bold"><td colspan="6" class="border p-2 text-right">Tổng ${type} đã duyệt</td><td class="border p-2 text-right">${formatMoney(subtotal)}</td><td class="border p-2" colspan="5"></td></tr>
             </tbody>
           </table>
         </div>`;
@@ -6426,6 +6451,7 @@ function isPerpetualSoftware(softwareId) {
             <div>
               <span class="font-bold text-gray-800 text-sm">${escapeHtml(p.content)}</span>
               ${budget2TypeBadge(p.budgetType)} ${budget2UsageStatusBadge(p.usageStatus)}
+              <span class="text-[10px] font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full ml-1">Năm ${p.budgetYear || '—'}</span>
               <span class="text-[11px] text-gray-500 ml-2">${budget2CompanyOrgLabel(p)}</span>
             </div>
             <div class="flex items-center gap-2">
@@ -6525,37 +6551,79 @@ function isPerpetualSoftware(softwareId) {
     function renderBudget2Reports() {
       apiFetch('/api/budget2/reports').then(data => {
         budget2ReportsData = data;
+        populateBudget2ReportYearSelect();
         renderBudget2ReportTable();
       }).catch(err => showToast(err.message || 'Không thể tải báo cáo ngân sách.', 'danger'));
+    }
+    // Danh sách năm hiển thị trong bộ lọc "Theo kỳ" — lấy từ toàn bộ dữ liệu
+    // đang có (không phụ thuộc dimension đang chọn) để không bỏ sót năm nào.
+    function budget2AllYearsPresent() {
+      const years = new Set();
+      (budget2ReportsData.total || []).forEach(r => { if (r.budgetYear) years.add(r.budgetYear); });
+      return [...years].sort((a, b) => a - b);
+    }
+    function populateBudget2ReportYearSelect() {
+      const sel = document.getElementById('budget2ReportYear');
+      if (!sel || !budget2ReportsData) return;
+      const years = budget2AllYearsPresent();
+      const current = sel.value;
+      sel.innerHTML = '<option value="">-- Tất cả năm (gộp) --</option>' + years.map(y => `<option value="${y}">${y}</option>`).join('');
+      if (years.includes(Number(current))) sel.value = current;
+    }
+    function onBudget2ReportModeChange(mode) {
+      budget2ReportFilters.mode = mode;
+      document.getElementById('budget2ReportModeSingle').classList.toggle('hidden', mode !== 'single');
+      document.getElementById('budget2ReportModeCompare').classList.toggle('hidden', mode !== 'compare');
+      document.getElementById('btnBudget2ReportModeSingle').classList.toggle('border-teal-600', mode === 'single');
+      document.getElementById('btnBudget2ReportModeSingle').classList.toggle('text-teal-700', mode === 'single');
+      document.getElementById('btnBudget2ReportModeSingle').classList.toggle('border-transparent', mode !== 'single');
+      document.getElementById('btnBudget2ReportModeCompare').classList.toggle('border-teal-600', mode === 'compare');
+      document.getElementById('btnBudget2ReportModeCompare').classList.toggle('text-teal-700', mode === 'compare');
+      document.getElementById('btnBudget2ReportModeCompare').classList.toggle('border-transparent', mode !== 'compare');
+      renderBudget2ReportTable();
     }
     function onBudget2ReportFilterChange() {
       budget2ReportFilters.dimension = document.getElementById('budget2ReportDimension').value;
       budget2ReportFilters.budgetType = document.getElementById('budget2ReportType').value;
+      budget2ReportFilters.year = document.getElementById('budget2ReportYear').value;
+      budget2ReportFilters.compareDimension = document.getElementById('budget2ReportCompareDimension').value;
+      budget2ReportFilters.compareMetric = document.getElementById('budget2ReportCompareMetric').value;
+      budget2ReportFilters.compareType = document.getElementById('budget2ReportCompareType').value;
       renderBudget2ReportTable();
     }
     function renderBudget2ReportTable() {
       const container = document.getElementById('budget2ReportTableContainer');
       if (!container || !budget2ReportsData) return;
+      if (budget2ReportFilters.mode === 'compare') { renderBudget2ReportCompareTable(container); return; }
+
       const dim = budget2ReportFilters.dimension;
       const typeFilter = budget2ReportFilters.budgetType;
+      const yearFilter = budget2ReportFilters.year;
 
       if (dim === 'variance') {
         let rows = budget2ReportsData.variance || [];
         if (typeFilter) rows = rows.filter(r => r.budgetType === typeFilter);
+        if (yearFilter) rows = rows.filter(r => r.budgetYear === Number(yearFilter));
+        const header = ['Nội dung', 'Công ty', 'Khối/Ban/Phòng', 'Năm', 'Loại', 'Đã duyệt', 'Đã dùng', 'Còn lại'];
+        budget2ReportExport = {
+          header, filename: 'bao_cao_chenh_lech_ngan_sach.xlsx',
+          rows: rows.map(r => [r.content, budget2CompanyName(r.companyId) || '', budget2OrgUnitName(r.orgUnitId) || '', r.budgetYear, r.budgetType, r.approvedAmount, r.usedAmount, r.remaining])
+        };
         container.innerHTML = `<div class="overflow-x-auto border rounded"><table class="w-full text-xs border-collapse">
           <thead><tr class="bg-gray-100 text-left">
-            <th class="border p-2">Nội dung</th><th class="border p-2">Công ty</th><th class="border p-2">Đơn vị</th><th class="border p-2 text-center">Loại</th>
+            <th class="border p-2">Nội dung</th><th class="border p-2">Công ty</th><th class="border p-2">Khối/Ban/Phòng</th><th class="border p-2 text-center">Năm</th><th class="border p-2 text-center">Loại</th>
             <th class="border p-2 text-right">Đã duyệt</th><th class="border p-2 text-right">Đã dùng</th><th class="border p-2 text-right">Còn lại</th>
           </tr></thead>
           <tbody>${rows.length ? rows.map(r => `<tr>
             <td class="border p-2">${escapeHtml(r.content)}</td>
             <td class="border p-2">${escapeHtml(budget2CompanyName(r.companyId))}</td>
             <td class="border p-2">${escapeHtml(budget2OrgUnitName(r.orgUnitId))}</td>
+            <td class="border p-2 text-center">${r.budgetYear}</td>
             <td class="border p-2 text-center">${budget2TypeBadge(r.budgetType)}</td>
             <td class="border p-2 text-right">${formatMoney(r.approvedAmount)}</td>
             <td class="border p-2 text-right">${formatMoney(r.usedAmount)}</td>
             <td class="border p-2 text-right font-bold ${r.remaining < 0 ? 'text-red-600' : ''}">${formatMoney(r.remaining)}</td>
-          </tr>`).join('') : '<tr><td colspan="7" class="text-center p-3 text-gray-400 italic">Không có dữ liệu.</td></tr>'}</tbody>
+          </tr>`).join('') : '<tr><td colspan="8" class="text-center p-3 text-gray-400 italic">Không có dữ liệu.</td></tr>'}</tbody>
         </table></div>`;
         return;
       }
@@ -6563,11 +6631,32 @@ function isPerpetualSoftware(softwareId) {
       const dataSetMap = { company: budget2ReportsData.byCompany, orgUnit: budget2ReportsData.byOrgUnit, total: budget2ReportsData.total };
       let rows = dataSetMap[dim] || [];
       if (typeFilter) rows = rows.filter(r => r.budgetType === typeFilter);
+      if (yearFilter) {
+        rows = rows.filter(r => r.budgetYear === Number(yearFilter));
+      } else {
+        // "Tất cả năm (gộp)": cộng dồn các dòng cùng nhóm/loại nhưng khác năm
+        // thành 1 dòng duy nhất — cho ra đúng nghĩa "tổng ngân sách" không
+        // phân biệt năm.
+        const map = new Map();
+        rows.forEach(r => {
+          const key = `${r.groupKey ?? 'null'}|${r.budgetType}`;
+          if (!map.has(key)) map.set(key, { groupKey: r.groupKey, budgetType: r.budgetType, proposed: 0, approved: 0, used: 0 });
+          const agg = map.get(key);
+          agg.proposed += r.proposed; agg.approved += r.approved; agg.used += r.used;
+        });
+        rows = [...map.values()];
+      }
       const labelFor = (r) => dim === 'company' ? (budget2CompanyName(r.groupKey) || '(Chưa gán công ty)') : (dim === 'orgUnit' ? (budget2OrgUnitName(r.groupKey) || '(Chưa gán đơn vị)') : 'Toàn công ty');
+      const dimLabel = dim === 'company' ? 'Công ty' : (dim === 'orgUnit' ? 'Phòng/Ban/Khối' : 'Phạm vi');
 
+      budget2ReportExport = {
+        header: [dimLabel, 'Loại', 'Đề xuất', 'Phê duyệt', 'Sử dụng'],
+        filename: 'bao_cao_ngan_sach_theo_ky.xlsx',
+        rows: rows.map(r => [labelFor(r), r.budgetType, r.proposed, r.approved, r.used])
+      };
       container.innerHTML = `<div class="overflow-x-auto border rounded"><table class="w-full text-xs border-collapse">
         <thead><tr class="bg-gray-100 text-left">
-          <th class="border p-2">${dim === 'company' ? 'Công ty' : (dim === 'orgUnit' ? 'Phòng/Ban/Khối' : 'Phạm vi')}</th>
+          <th class="border p-2">${dimLabel}</th>
           <th class="border p-2 text-center">Loại</th>
           <th class="border p-2 text-right">Đề xuất</th><th class="border p-2 text-right">Phê duyệt</th><th class="border p-2 text-right">Sử dụng</th>
         </tr></thead>
@@ -6579,4 +6668,70 @@ function isPerpetualSoftware(softwareId) {
           <td class="border p-2 text-right">${formatMoney(r.used)}</td>
         </tr>`).join('') : '<tr><td colspan="5" class="text-center p-3 text-gray-400 italic">Không có dữ liệu.</td></tr>'}</tbody>
       </table></div>`;
+    }
+
+    // So sánh hàng năm: dựng bảng pivot — mỗi dòng là 1 nhóm (Công ty/Đơn
+    // vị/Tổng) x Loại ngân sách, mỗi cột là 1 năm, giá trị theo đúng 1 chỉ
+    // tiêu đã chọn (Đề xuất/Phê duyệt/Sử dụng) — dùng chung cho cả 2 báo cáo
+    // "Phê duyệt so sánh hàng năm" và "Chi tiêu so sánh hàng năm".
+    function renderBudget2ReportCompareTable(container) {
+      const dim = budget2ReportFilters.compareDimension;
+      const metric = budget2ReportFilters.compareMetric;
+      const typeFilter = budget2ReportFilters.compareType;
+      const dataSetMap = { company: budget2ReportsData.byCompany, orgUnit: budget2ReportsData.byOrgUnit, total: budget2ReportsData.total };
+      let rows = dataSetMap[dim] || [];
+      if (typeFilter) rows = rows.filter(r => r.budgetType === typeFilter);
+
+      const years = [...new Set(rows.map(r => r.budgetYear).filter(Boolean))].sort((a, b) => a - b);
+      const labelFor = (r) => dim === 'company' ? (budget2CompanyName(r.groupKey) || '(Chưa gán công ty)') : (dim === 'orgUnit' ? (budget2OrgUnitName(r.groupKey) || '(Chưa gán đơn vị)') : 'Toàn công ty');
+      const dimLabel = dim === 'company' ? 'Công ty' : (dim === 'orgUnit' ? 'Phòng/Ban/Khối' : 'Phạm vi');
+      const metricLabel = { proposed: 'Ngân sách đề xuất', approved: 'Ngân sách phê duyệt', used: 'Ngân sách chi tiêu' }[metric];
+
+      const groupMap = new Map();
+      rows.forEach(r => {
+        const key = `${r.groupKey ?? 'null'}|${r.budgetType}`;
+        if (!groupMap.has(key)) groupMap.set(key, { groupKey: r.groupKey, budgetType: r.budgetType, byYear: {} });
+        groupMap.get(key).byYear[r.budgetYear] = (groupMap.get(key).byYear[r.budgetYear] || 0) + r[metric];
+      });
+      const groups = [...groupMap.values()];
+
+      if (!years.length || !groups.length) {
+        container.innerHTML = `<div class="text-xs text-gray-400 italic p-4 border rounded">Chưa có dữ liệu ${metricLabel.toLowerCase()} để so sánh theo năm.</div>`;
+        budget2ReportExport = { header: [], rows: [], filename: 'so_sanh_ngan_sach_hang_nam.xlsx' };
+        return;
+      }
+
+      budget2ReportExport = {
+        header: [dimLabel, 'Loại', ...years.map(y => `Năm ${y}`), 'Tổng'],
+        filename: `so_sanh_${metric}_hang_nam.xlsx`,
+        rows: groups.map(g => {
+          const values = years.map(y => g.byYear[y] || 0);
+          const total = values.reduce((s, v) => s + v, 0);
+          return [labelFor(g), g.budgetType, ...values, total];
+        })
+      };
+
+      container.innerHTML = `
+        <h3 class="text-sm font-bold text-gray-700 mb-1">${metricLabel} — so sánh theo năm</h3>
+        <div class="overflow-x-auto border rounded"><table class="w-full text-xs border-collapse">
+          <thead><tr class="bg-gray-100 text-left">
+            <th class="border p-2">${dimLabel}</th><th class="border p-2 text-center">Loại</th>
+            ${years.map(y => `<th class="border p-2 text-right">Năm ${y}</th>`).join('')}
+            <th class="border p-2 text-right">Tổng</th>
+          </tr></thead>
+          <tbody>${groups.map(g => {
+            const values = years.map(y => g.byYear[y] || 0);
+            const total = values.reduce((s, v) => s + v, 0);
+            return `<tr>
+              <td class="border p-2">${escapeHtml(labelFor(g))}</td>
+              <td class="border p-2 text-center">${budget2TypeBadge(g.budgetType)}</td>
+              ${values.map(v => `<td class="border p-2 text-right">${formatMoney(v)}</td>`).join('')}
+              <td class="border p-2 text-right font-bold">${formatMoney(total)}</td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table></div>`;
+    }
+    function exportBudget2ReportXlsx() {
+      if (!budget2ReportExport.rows.length) return showToast('Không có dữ liệu để xuất.', 'warning');
+      downloadXlsxFile(budget2ReportExport.filename, budget2ReportExport.header, budget2ReportExport.rows);
     }

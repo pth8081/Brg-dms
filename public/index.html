@@ -1545,7 +1545,7 @@
           <button data-evt-click="exportBudget2Xlsx" data-args='["PROPOSED"]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition">📤 Xuất Excel</button>
         </div>
       </div>
-      <p class="text-[11px] text-gray-500">Đề xuất ngân sách do các phòng ban gửi lên — có thể chỉnh sửa/xóa tự do, KHÔNG cần duyệt ở bước này. Bấm "➡️ Gửi duyệt" khi sẵn sàng để chuyển sang tab Ngân sách phê duyệt (bước duyệt thật sự chỉ diễn ra ở đó). Nhập hàng loạt: tải mẫu, điền dữ liệu (Mã công ty/Đơn vị là tùy chọn, phải nhập đúng như đã có trong hệ thống), rồi nhập lại Excel.</p>
+      <p class="text-[11px] text-gray-500">Đề xuất ngân sách do các phòng ban gửi lên — có thể chỉnh sửa/xóa tự do, KHÔNG cần duyệt ở bước này. Bấm "➡️ Gửi duyệt" khi sẵn sàng để chuyển sang tab Ngân sách phê duyệt (bước duyệt thật sự chỉ diễn ra ở đó). Nhập hàng loạt: tải mẫu, điền dữ liệu (Năm ngân sách bắt buộc; Mã công ty/Đơn vị tùy chọn, phải nhập đúng như đã có trong hệ thống), rồi nhập lại Excel.</p>
       <div class="overflow-x-auto border rounded">
         <table class="w-full text-xs border-collapse">
           <thead>
@@ -1558,7 +1558,9 @@
               <th class="border p-2 text-right">VAT</th>
               <th class="border p-2 text-right">Thành tiền</th>
               <th class="border p-2 text-center">Loại</th>
-              <th class="border p-2">Công ty/Đơn vị</th>
+              <th class="border p-2 text-center">Năm</th>
+              <th class="border p-2">Công ty</th>
+              <th class="border p-2">Khối/Ban/Phòng</th>
               <th class="border p-2 text-center w-24">Thao tác</th>
             </tr>
           </thead>
@@ -1592,15 +1594,25 @@
 
     <!-- Sub-tab: Báo cáo -->
     <div id="budget2SubReports" class="hidden space-y-3">
-      <h2 class="text-lg font-bold text-gray-800">Báo cáo ngân sách</h2>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-2 bg-gray-50 p-3 rounded border max-w-xl">
+      <div class="flex flex-wrap justify-between items-center gap-2">
+        <h2 class="text-lg font-bold text-gray-800">Báo cáo ngân sách</h2>
+        <button data-evt-click="exportBudget2ReportXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">📤 Xuất Excel báo cáo</button>
+      </div>
+      <div class="flex gap-1 border-b">
+        <button id="btnBudget2ReportModeSingle" data-evt-click="onBudget2ReportModeChange" data-args='["single"]' class="px-3 py-1.5 text-xs font-bold border-b-2 border-teal-600 text-teal-700">📅 Theo kỳ (1 năm)</button>
+        <button id="btnBudget2ReportModeCompare" data-evt-click="onBudget2ReportModeChange" data-args='["compare"]' class="px-3 py-1.5 text-xs font-bold border-b-2 border-transparent text-gray-500">📈 So sánh nhiều năm</button>
+      </div>
+
+      <!-- Chế độ: Theo kỳ (1 năm) — bao gồm Tổng ngân sách hàng năm, Chi tiêu
+           hàng năm, Chênh lệch chi tiêu vs phê duyệt (chọn đúng 1 năm). -->
+      <div id="budget2ReportModeSingle" class="grid grid-cols-1 md:grid-cols-3 gap-2 bg-gray-50 p-3 rounded border max-w-3xl">
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Nhóm theo</label>
           <select id="budget2ReportDimension" data-evt-change="onBudget2ReportFilterChange" data-args='[]' class="w-full border p-1.5 rounded bg-white text-sm">
             <option value="total">Toàn công ty (tổng hợp)</option>
             <option value="company">Công ty</option>
             <option value="orgUnit">Phòng/Ban/Khối</option>
-            <option value="variance">So sánh Phê duyệt vs Sử dụng</option>
+            <option value="variance">Chênh lệch Phê duyệt vs Sử dụng</option>
           </select>
         </div>
         <div>
@@ -1611,7 +1623,43 @@
             <option value="CAPEX">CAPEX</option>
           </select>
         </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Năm</label>
+          <select id="budget2ReportYear" data-evt-change="onBudget2ReportFilterChange" data-args='[]' class="w-full border p-1.5 rounded bg-white text-sm">
+            <option value="">-- Tất cả năm (gộp) --</option>
+          </select>
+        </div>
       </div>
+
+      <!-- Chế độ: So sánh nhiều năm — Tổng/Phê duyệt/Chi tiêu so sánh hàng
+           năm theo Công ty hoặc Phòng/Ban/Khối, dựng pivot năm theo cột. -->
+      <div id="budget2ReportModeCompare" class="hidden grid grid-cols-1 md:grid-cols-3 gap-2 bg-gray-50 p-3 rounded border max-w-3xl">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Nhóm theo</label>
+          <select id="budget2ReportCompareDimension" data-evt-change="onBudget2ReportFilterChange" data-args='[]' class="w-full border p-1.5 rounded bg-white text-sm">
+            <option value="total">Tổng toàn công ty</option>
+            <option value="company">Công ty</option>
+            <option value="orgUnit">Phòng/Ban/Khối</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Chỉ tiêu so sánh</label>
+          <select id="budget2ReportCompareMetric" data-evt-change="onBudget2ReportFilterChange" data-args='[]' class="w-full border p-1.5 rounded bg-white text-sm">
+            <option value="proposed">Ngân sách đề xuất</option>
+            <option value="approved" selected>Ngân sách phê duyệt</option>
+            <option value="used">Ngân sách chi tiêu (sử dụng)</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Loại ngân sách</label>
+          <select id="budget2ReportCompareType" data-evt-change="onBudget2ReportFilterChange" data-args='[]' class="w-full border p-1.5 rounded bg-white text-sm">
+            <option value="">-- Tất cả (OPEX + CAPEX) --</option>
+            <option value="OPEX">OPEX</option>
+            <option value="CAPEX">CAPEX</option>
+          </select>
+        </div>
+      </div>
+
       <div id="budget2ReportTableContainer"></div>
     </div>
   </div>
@@ -1732,12 +1780,18 @@
           </select>
         </div>
       </div>
-      <div>
-        <label class="block text-xs font-semibold text-gray-600 mb-1">Loại ngân sách</label>
-        <select id="budget2LineType" class="w-full border p-2 rounded text-sm bg-white">
-          <option value="OPEX">OPEX</option>
-          <option value="CAPEX">CAPEX</option>
-        </select>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Loại ngân sách</label>
+          <select id="budget2LineType" class="w-full border p-2 rounded text-sm bg-white">
+            <option value="OPEX">OPEX</option>
+            <option value="CAPEX">CAPEX</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Năm ngân sách</label>
+          <input id="budget2LineYear" type="number" min="2000" max="2100" step="1" class="w-full border p-2 rounded text-sm">
+        </div>
       </div>
       <div class="grid grid-cols-2 gap-3">
         <div>
