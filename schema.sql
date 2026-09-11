@@ -121,6 +121,14 @@ CREATE TABLE IF NOT EXISTS users (
     active BOOLEAN NOT NULL DEFAULT TRUE
 );
 
+-- Khóa tạm tài khoản theo username sau nhiều lần đăng nhập sai liên tiếp —
+-- bổ sung cho rate-limit theo IP (loginLimiter) vốn không chặn được kiểu tấn
+-- công dò 1 tài khoản cụ thể từ nhiều IP khác nhau (botnet/proxy pool). Thêm
+-- sau khi bảng đã tồn tại nên dùng add_column_if_not_exists để không lỗi
+-- trên CSDL cũ.
+CALL add_column_if_not_exists('users', 'failed_login_count', 'INT NOT NULL DEFAULT 0');
+CALL add_column_if_not_exists('users', 'locked_until', 'VARCHAR(100) NULL DEFAULT NULL');
+
 -- 4. Bảng Tài Liệu
 CREATE TABLE IF NOT EXISTS docs (
     id BIGINT PRIMARY KEY,

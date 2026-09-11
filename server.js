@@ -55,6 +55,7 @@ const fontkit = require('@pdf-lib/fontkit');
 const multer = require('multer');
 const { Client: LdapClient } = require('ldapts');
 const nodemailer = require('nodemailer');
+const { Jimp } = require('jimp');
 
 const app = express();
 const isProd = process.env.NODE_ENV === 'production';
@@ -187,7 +188,7 @@ function setAuthCookie(res, token) {
 
 function sanitizeUser(u) {
     if (!u) return u;
-    const { pass, ...rest } = u;
+    const { pass, failed_login_count, locked_until, ...rest } = u;
     return rest;
 }
 
@@ -283,6 +284,11 @@ const loginLimiter = rateLimit({
     skipSuccessfulRequests: true, // chỉ đếm số lần đăng nhập THẤT BẠI, không tính lần thành công
     message: { error: 'Quá nhiều lần đăng nhập thất bại. Vui lòng thử lại sau ít phút.' }
 });
+
+// Khóa tạm theo TÀI KHOẢN, bổ sung cho loginLimiter (chỉ đếm theo IP) — chặn
+// kiểu tấn công dò 1 tài khoản cụ thể phân tán qua nhiều IP khác nhau.
+const MAX_FAILED_LOGIN_ATTEMPTS = 10;
+const ACCOUNT_LOCKOUT_MINUTES = 15;
 
 const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -619,38 +625,93 @@ if (isScheduledJobOwner) {
 // --- API AUTH ---
 const CAPTCHA_COOKIE = 'dms_captcha';
 
-function renderCaptchaSvg(code) {
-    const width = 140, height = 50;
-    const colors = ['#2563eb', '#dc2626', '#16a34a', '#7c3aed', '#ea580c'];
-    let chars = '';
-    for (let i = 0; i < code.length; i++) {
-        const x = 20 + i * 28;
-        const y = 34 + (crypto.randomInt(-4, 5));
-        const rotate = crypto.randomInt(-20, 21);
-        const color = colors[crypto.randomInt(0, colors.length)];
-        chars += `<text x="${x}" y="${y}" font-size="26" font-family="Arial, sans-serif" font-weight="bold" fill="${color}" transform="rotate(${rotate} ${x} ${y})">${code[i]}</text>`;
-    }
-    let noiseLines = '';
-    for (let i = 0; i < 5; i++) {
+// Ảnh CAPTCHA PHẢI là ảnh raster thật (pixel), KHÔNG được dùng SVG <text> —
+// phần tử <text> trong SVG chứa nguyên văn chữ số dưới dạng text node, nên
+// một script tự động chỉ cần đọc thẳng nội dung XML (không cần OCR) để lấy
+// mã, khiến captcha vô tác dụng trước brute-force script hoá. Font bitmap
+// 5x7 tự vẽ bên dưới + nhiễu điểm/đường random buộc phải nhận dạng ảnh thật
+// (OCR) mới đọc được, nâng đáng kể độ khó so với việc parse text thuần.
+const CAPTCHA_DIGIT_FONT = {
+    '0': ['01110', '10001', '10011', '10101', '11001', '10001', '01110'],
+    '1': ['00100', '01100', '00100', '00100', '00100', '00100', '01110'],
+    '2': ['01110', '10001', '00001', '00010', '00100', '01000', '11111'],
+    '3': ['11111', '00010', '00100', '00010', '00001', '10001', '01110'],
+    '4': ['00010', '00110', '01010', '10010', '11111', '00010', '00010'],
+    '5': ['11111', '10000', '11110', '00001', '00001', '10001', '01110'],
+    '6': ['00110', '01000', '10000', '11110', '10001', '10001', '01110'],
+    '7': ['11111', '00001', '00010', '00100', '01000', '01000', '01000'],
+    '8': ['01110', '10001', '10001', '01110', '10001', '10001', '01110'],
+    '9': ['01110', '10001', '10001', '01111', '00001', '00010', '01100']
+};
+const CAPTCHA_COLORS = [0x2563ebff, 0xdc2626ff, 0x16a34aff, 0x7c3aedff, 0xea580cff];
+
+async function renderCaptchaImage(code) {
+    const width = 140, height = 50, scale = 3;
+    const img = new Jimp({ width, height, color: 0xf1f5f9ff });
+
+    // Nhiễu đường (Bresenham thủ công) — vẽ trước chữ số để chữ luôn ở lớp trên.
+    for (let i = 0; i < 6; i++) {
+        let x0 = crypto.randomInt(0, width), y0 = crypto.randomInt(0, height);
         const x1 = crypto.randomInt(0, width), y1 = crypto.randomInt(0, height);
-        const x2 = crypto.randomInt(0, width), y2 = crypto.randomInt(0, height);
-        noiseLines += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#94a3b8" stroke-width="1" opacity="0.5"/>`;
+        const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0);
+        const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+        let err = dx + dy;
+        for (let guard = 0; guard < width + height; guard++) {
+            if (x0 >= 0 && x0 < width && y0 >= 0 && y0 < height) img.setPixelColor(0x94a3b880, x0, y0);
+            if (x0 === x1 && y0 === y1) break;
+            const e2 = 2 * err;
+            if (e2 >= dy) { err += dy; x0 += sx; }
+            if (e2 <= dx) { err += dx; y0 += sy; }
+        }
     }
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#f1f5f9"/>${noiseLines}${chars}</svg>`;
+
+    // Vẽ từng chữ số bằng font bitmap 5x7, phóng to theo `scale`, mỗi chữ
+    // lệch ngẫu nhiên vị trí/màu để tránh mẫu cố định dễ đoán.
+    for (let i = 0; i < code.length; i++) {
+        const glyph = CAPTCHA_DIGIT_FONT[code[i]];
+        const color = CAPTCHA_COLORS[crypto.randomInt(0, CAPTCHA_COLORS.length)];
+        const baseX = 12 + i * 30 + crypto.randomInt(-3, 4);
+        const baseY = 8 + crypto.randomInt(-3, 4);
+        for (let row = 0; row < glyph.length; row++) {
+            for (let col = 0; col < glyph[row].length; col++) {
+                if (glyph[row][col] !== '1') continue;
+                for (let sy = 0; sy < scale; sy++) {
+                    for (let sx = 0; sx < scale; sx++) {
+                        const px = baseX + col * scale + sx;
+                        const py = baseY + row * scale + sy;
+                        if (px >= 0 && px < width && py >= 0 && py < height) img.setPixelColor(color, px, py);
+                    }
+                }
+            }
+        }
+    }
+
+    // Nhiễu điểm rải rác phủ lên trên cùng.
+    for (let i = 0; i < 60; i++) {
+        img.setPixelColor(0x64748b60, crypto.randomInt(0, width), crypto.randomInt(0, height));
+    }
+
+    return img.getBuffer('image/png');
 }
 
-app.get('/api/auth/captcha', (req, res) => {
-    const code = String(crypto.randomInt(0, 10000)).padStart(4, '0');
-    const token = jwt.sign({ captcha: code }, JWT_SECRET, { expiresIn: '5m' });
-    res.cookie(CAPTCHA_COOKIE, token, {
-        httpOnly: true,
-        secure: isProd,
-        sameSite: 'strict',
-        maxAge: 5 * 60 * 1000
-    });
-    res.set('Content-Type', 'image/svg+xml');
-    res.set('Cache-Control', 'no-store');
-    res.send(renderCaptchaSvg(code));
+app.get('/api/auth/captcha', async (req, res) => {
+    try {
+        const code = String(crypto.randomInt(0, 10000)).padStart(4, '0');
+        const token = jwt.sign({ captcha: code }, JWT_SECRET, { expiresIn: '5m' });
+        res.cookie(CAPTCHA_COOKIE, token, {
+            httpOnly: true,
+            secure: isProd,
+            sameSite: 'strict',
+            maxAge: 5 * 60 * 1000
+        });
+        const buffer = await renderCaptchaImage(code);
+        res.set('Content-Type', 'image/png');
+        res.set('Cache-Control', 'no-store');
+        res.send(buffer);
+    } catch (err) {
+        console.error('❌ Lỗi sinh ảnh captcha:', err.message);
+        res.status(500).json({ error: 'Không thể sinh mã xác nhận, vui lòng thử lại.' });
+    }
 });
 
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
@@ -680,6 +741,17 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
             return res.status(401).json({ error: 'Tài khoản hoặc mật khẩu không chính xác!' });
         }
 
+        // Khóa tạm theo TÀI KHOẢN (không chỉ theo IP) — loginLimiter chỉ đếm
+        // theo IP nên không chặn được kiểu tấn công dò 1 tài khoản cụ thể từ
+        // nhiều IP khác nhau (botnet/proxy pool). Khóa tự hết hạn sau
+        // ACCOUNT_LOCKOUT_MINUTES, không khóa vĩnh viễn, tránh bị lợi dụng
+        // để khóa tài khoản người khác vô thời hạn.
+        if (user.locked_until && new Date(user.locked_until).getTime() > Date.now()) {
+            const minutesLeft = Math.ceil((new Date(user.locked_until).getTime() - Date.now()) / 60000);
+            await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_FAILED', status: 'FAILED', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: `Đăng nhập thất bại: tài khoản đang bị khóa tạm do đăng nhập sai nhiều lần (còn ${minutesLeft} phút).` });
+            return res.status(429).json({ error: `Tài khoản tạm khóa do đăng nhập sai quá nhiều lần. Vui lòng thử lại sau ${minutesLeft} phút.` });
+        }
+
         // Xác thực: thử mật khẩu local trước; nếu sai VÀ LDAP/AD đang được bật,
         // thử xác thực qua LDAP với đúng username/password vừa nhập (không tạo
         // tài khoản mới — username phải đã tồn tại sẵn trong DMS). Tài khoản
@@ -697,6 +769,14 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
         }
 
         if (!authOk) {
+            const failedCount = (user.failed_login_count || 0) + 1;
+            if (failedCount >= MAX_FAILED_LOGIN_ATTEMPTS) {
+                const lockedUntil = new Date(Date.now() + ACCOUNT_LOCKOUT_MINUTES * 60000).toISOString();
+                await pool.query('UPDATE users SET failed_login_count = 0, locked_until = ? WHERE id = ?', [lockedUntil, user.id]);
+                await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_FAILED', status: 'FAILED', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: `Đăng nhập thất bại: sai mật khẩu ${failedCount} lần liên tiếp — tài khoản bị khóa tạm ${ACCOUNT_LOCKOUT_MINUTES} phút.` });
+                return res.status(429).json({ error: `Sai mật khẩu quá nhiều lần. Tài khoản tạm khóa ${ACCOUNT_LOCKOUT_MINUTES} phút.` });
+            }
+            await pool.query('UPDATE users SET failed_login_count = ? WHERE id = ?', [failedCount, user.id]);
             await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_FAILED', status: 'FAILED', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: `Đăng nhập thất bại: sai mật khẩu.` });
             return res.status(401).json({ error: 'Tài khoản hoặc mật khẩu không chính xác!' });
         }
@@ -704,6 +784,10 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
         if (!user.active) {
             await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_FAILED', status: 'FAILED', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: `Đăng nhập thất bại: tài khoản đã bị khóa.` });
             return res.status(401).json({ error: 'Tài khoản đã bị khóa, vui lòng liên hệ quản trị viên.' });
+        }
+
+        if (user.failed_login_count || user.locked_until) {
+            await pool.query('UPDATE users SET failed_login_count = 0, locked_until = NULL WHERE id = ?', [user.id]);
         }
 
         const token = signToken(user);
@@ -805,16 +889,45 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
 
         let configMap = {};
         configs.forEach(c => configMap[c.config_key] = c.config_value);
+        const deptWorkflows = configMap.deptWorkflows
+            ? (typeof configMap.deptWorkflows === 'string' ? JSON.parse(configMap.deptWorkflows) : configMap.deptWorkflows)
+            : {};
+
+        // Bảo mật: trước đây trả TOÀN BỘ metadata tài liệu (kể cả nội dung,
+        // phòng ban, lịch sử duyệt/lý do từ chối) cho MỌI user đã đăng nhập,
+        // chỉ ẩn ở giao diện (canUserViewDoc phía client) — một user tùy biến
+        // gọi thẳng API vẫn đọc được dữ liệu ngoài quyền xem. Lọc lại ngay ở
+        // server, dùng canViewDocRow() (đúng hàm đã dùng cho /api/docs/:id/file
+        // để nhất quán 1 nguồn sự thật duy nhất) MỞ RỘNG thêm quyền
+        // uploadAll/uploadDepts — vì giao diện "Cập nhật phiên bản" (app.js) cho
+        // phép người có quyền Upload ở 1 phòng ban chọn tài liệu CŨ trong đúng
+        // phòng ban đó để tải lên bản mới, dù họ không có quyền Xem — giữ đúng
+        // hành vi này, chỉ chặn user hoàn toàn không có quyền gì liên quan.
+        const visibleDocs = docs.filter(d =>
+            canViewDocRow(req.user, d, deptWorkflows) ||
+            req.user.perms.uploadAll ||
+            (req.user.perms.uploadDepts && req.user.perms.uploadDepts.includes(d.dept))
+        );
+
+        // Bảo mật: tương tự, trước đây trả toàn bộ bảng users (kèm object
+        // `perms` đầy đủ — ai là admin, ai xem/duyệt được phòng ban nào) cho
+        // BẤT KỲ user nào đã đăng nhập, không chỉ Admin. Chỉ Admin (người có
+        // quyền quản lý người dùng) mới cần thấy đầy đủ; user thường chỉ cần
+        // tên/username để hiển thị "người duyệt kế tiếp" — không cần perms,
+        // email, số điện thoại, phòng ban của người khác.
+        const visibleUsers = req.user.perms.admin
+            ? users.map(u => sanitizeUser({ ...u, perms: typeof u.perms === 'string' ? JSON.parse(u.perms || '{}') : u.perms }))
+            : users.map(u => ({ id: u.id, username: u.username, name: u.name, active: !!u.active }));
 
         res.json({
             depts: depts.map(d => ({ id: d.id, name: d.name, abbr: d.abbr })),
             cats: cats.map(c => ({ id: c.id, name: c.name, abbr: c.abbr })),
-            users: users.map(u => sanitizeUser({ ...u, perms: typeof u.perms === 'string' ? JSON.parse(u.perms || '{}') : u.perms })),
+            users: visibleUsers,
             // Bảng docs lưu cột dạng snake_case (file_name, current_step_order...) nhưng
             // toàn bộ frontend dùng camelCase (fileName, currentStepOrder...) — phải ánh
             // xạ lại đây, nếu không mọi thao tác xem/tải/duyệt tài liệu cũ (đã qua
             // bootstrap) sẽ nhận giá trị undefined ngay sau khi tải lại trang.
-            docs: docs.map(d => ({
+            docs: visibleDocs.map(d => ({
                 id: d.id,
                 code: d.code,
                 title: d.title,
@@ -1457,6 +1570,7 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
             }
 
             const toUpsert = [];
+            const adminWorkflowOverrides = [];
             for (const d of data) {
                 const existing = existingMap.get(String(d.id));
                 if (existing && existing.deleted_at) {
@@ -1491,12 +1605,38 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                 if (!canApproveStep(existing)) {
                     return res.status(403).json({ error: `Bạn không có quyền duyệt/từ chối tài liệu [${d.code}] ở bước hiện tại.` });
                 }
-                // Admin được bỏ qua kiểm tra transition chặt chẽ (có thể cần sửa tay
-                // 1 tài liệu bị kẹt) — người duyệt thường thì bắt buộc đúng transition
-                // hợp lệ duy nhất, không tự ý nhảy bước/bịa lịch sử.
+                // Dù là admin hay không, lịch sử duyệt cũ (existingHistory) không bao
+                // giờ được phép sửa/xóa — chỉ được GHI THÊM đúng 1 mục mới vào cuối.
+                // Trước đây admin bị bỏ qua toàn bộ kiểm tra bên dưới nên có thể gửi
+                // thẳng 1 history bịa đè lên lịch sử duyệt thật, xóa dấu vết ai đã
+                // duyệt/từ chối trước đó — nay bắt buộc kiểm tra "chỉ nối thêm" này
+                // cho MỌI người dùng trước khi xét tiếp.
+                const newHistoryRaw = d.history || [];
+                if (!Array.isArray(newHistoryRaw) || newHistoryRaw.length !== existingHistory.length + 1) {
+                    return res.status(400).json({ error: `Dữ liệu duyệt tài liệu [${d.code}] không hợp lệ.` });
+                }
+                for (let i = 0; i < existingHistory.length; i++) {
+                    if (JSON.stringify(newHistoryRaw[i]) !== JSON.stringify(existingHistory[i])) {
+                        return res.status(400).json({ error: `Không được sửa lịch sử duyệt đã có của tài liệu [${d.code}].` });
+                    }
+                }
+                // Admin được bỏ qua kiểm tra transition CHẶT CHẼ (bước/trạng thái kế
+                // tiếp phải đúng logic quy trình chuẩn) — có thể cần sửa tay 1 tài
+                // liệu bị kẹt. Người duyệt thường thì bắt buộc đúng transition hợp lệ
+                // duy nhất, không tự ý nhảy bước. Mọi lần admin dùng đường tắt này
+                // (transition không khớp logic chuẩn) đều ghi lại 1 dòng log riêng để
+                // có dấu vết, vì đây là hành động có khả năng phá vỡ quy trình duyệt.
                 if (!req.user.perms.admin) {
-                    const transitionCheck = validateWorkflowTransition(existing, d.status, d.currentStepOrder, d.history || [], existingHistory);
+                    const transitionCheck = validateWorkflowTransition(existing, d.status, d.currentStepOrder, newHistoryRaw, existingHistory);
                     if (!transitionCheck.ok) return res.status(400).json({ error: transitionCheck.error });
+                } else {
+                    const transitionCheck = validateWorkflowTransition(existing, d.status, d.currentStepOrder, newHistoryRaw, existingHistory);
+                    if (!transitionCheck.ok) {
+                        adminWorkflowOverrides.push({
+                            code: existing.code, oldStatus: existing.status, newStatus: d.status,
+                            oldStepOrder: existing.current_step_order, newStepOrder: d.currentStepOrder
+                        });
+                    }
                 }
                 toUpsert.push([
                     d.id, existing.code, existing.title, existing.ver, existing.dept, existing.cat, existing.summary,
@@ -1513,6 +1653,13 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                      ON DUPLICATE KEY UPDATE current_step_order = VALUES(current_step_order), status = VALUES(status), history = VALUES(history)`,
                     row
                 );
+            }
+            for (const ov of adminWorkflowOverrides) {
+                await writeAuditLog({
+                    module: 'INTERACTION', actionType: 'ADMIN_WORKFLOW_OVERRIDE', status: 'SUCCESS',
+                    username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: ov.code,
+                    description: `Admin ghi đè trực tiếp trạng thái duyệt tài liệu [${ov.code}]: ${ov.oldStatus} (bước ${ov.oldStepOrder}) → ${ov.newStatus} (bước ${ov.newStepOrder}), bỏ qua kiểm tra transition duyệt chuẩn.`
+                });
             }
         } else if (table === 'users') {
             // Bảo mật: mật khẩu không bao giờ được client gửi dạng đã biết trước (bootstrap không trả field `pass`).
@@ -1546,12 +1693,38 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                 rowsToInsert.push([u.id, u.username, passHash, u.name, u.email, u.phone, u.dept, JSON.stringify(u.perms || {}), active]);
             }
 
-            await pool.query('DELETE FROM users');
-            for (let row of rowsToInsert) {
-                await pool.query(
-                    'INSERT INTO users (id, username, pass, name, email, phone, dept, perms, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    row
-                );
+            // Bảo mật: bảng users bị xóa-chèn-lại toàn bộ (không có id ổn định phía
+            // client cho user mới), nên bắt buộc phải còn ÍT NHẤT 1 tài khoản admin
+            // đang hoạt động trong chính payload gửi lên — nếu không, một request
+            // sync bị lỗi dữ liệu (hoặc cố tình) có thể xóa sạch mọi quyền admin
+            // khỏi hệ thống, không còn ai đăng nhập được để khắc phục.
+            const hasActiveAdmin = data.some(u => {
+                const perms = u && u.perms ? u.perms : {};
+                return perms.admin === true && u.active !== false;
+            });
+            if (!hasActiveAdmin) {
+                return res.status(400).json({ error: 'Phải còn ít nhất 1 tài khoản Admin đang hoạt động. Không thể lưu danh sách người dùng không có Admin.' });
+            }
+
+            // Toàn bộ xóa-chèn-lại phải nằm trong 1 transaction — trước đây nếu
+            // lỗi giữa chừng vòng lặp INSERT (VD: mất kết nối DB), bảng users đã bị
+            // DELETE sạch nhưng chưa insert lại kịp, khiến không ai đăng nhập được.
+            const usersConn = await pool.getConnection();
+            try {
+                await usersConn.beginTransaction();
+                await usersConn.query('DELETE FROM users');
+                for (let row of rowsToInsert) {
+                    await usersConn.query(
+                        'INSERT INTO users (id, username, pass, name, email, phone, dept, perms, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        row
+                    );
+                }
+                await usersConn.commit();
+            } catch (e) {
+                await usersConn.rollback();
+                throw e;
+            } finally {
+                usersConn.release();
             }
         } else if (table === 'depts' || table === 'cats') {
             // Viết tắt (abbr) dùng để sinh mã tài liệu tự động (VD: HD-IT-2026-001)
@@ -1653,9 +1826,22 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                 conn.release();
             }
         } else if (table === 'workflows') {
-            await pool.query('DELETE FROM workflows');
-            for (let w of data) {
-                await pool.query('INSERT INTO workflows (id, name, steps) VALUES (?, ?, ?)', [w.id, w.name, JSON.stringify(w.steps || [])]);
+            // Cũng xóa-chèn-lại toàn bộ bảng như users ở trên nên cần transaction
+            // tương tự — lỗi giữa chừng trước đây có thể xóa sạch mọi mẫu quy trình
+            // mà không insert lại kịp, khiến tài liệu không còn quy trình để duyệt.
+            const wfConn = await pool.getConnection();
+            try {
+                await wfConn.beginTransaction();
+                await wfConn.query('DELETE FROM workflows');
+                for (let w of data) {
+                    await wfConn.query('INSERT INTO workflows (id, name, steps) VALUES (?, ?, ?)', [w.id, w.name, JSON.stringify(w.steps || [])]);
+                }
+                await wfConn.commit();
+            } catch (e) {
+                await wfConn.rollback();
+                throw e;
+            } finally {
+                wfConn.release();
             }
         } else if (['deptWorkflows', 'emailConfig', 'ldapConfig'].includes(table)) {
             if (table === 'ldapConfig' && data && data.enabled) {
