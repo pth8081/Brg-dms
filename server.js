@@ -94,7 +94,7 @@ app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
-            scriptSrc: ["'self'", "https://cdn.tailwindcss.com"],
+            scriptSrc: ["'self'"],
             scriptSrcAttr: ["'none'"],
             // Font trang đăng nhập (Spectral, Be Vietnam Pro) tải từ Google Fonts —
             // styleSrc cho stylesheet @font-face, fontSrc riêng cho file font nhị phân.
@@ -128,8 +128,18 @@ app.use((req, res, next) => {
 });
 
 app.use(cookieParser());
-app.use(express.json({ limit: '100mb' }));
-app.use(express.urlencoded({ limit: '100mb', extended: true }));
+// 100MB trước đây áp dụng cho MỌI request JSON/urlencoded kể cả đăng nhập,
+// ghi log, sync... vốn chỉ cần vài KB — 1 request JSON dung lượng lớn giả
+// mạo có thể ăn nhiều bộ nhớ tiến trình Node cùng lúc. Bulk import lớn nhất
+// (5000 dòng, xem MAX_SYNC_ROWS) chỉ cỡ vài MB, nên 10MB vẫn đủ rộng rãi.
+// Upload file PDF dùng multipart/form-data (multer, giới hạn riêng theo
+// MAX_PDF_SIZE_MB), không đi qua middleware này nên không bị ảnh hưởng.
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
+// Mọi response JSON của API đều là dữ liệu riêng theo phiên đăng nhập (tài
+// liệu, người dùng, báo cáo...) — không được để proxy/trình duyệt cache lại,
+// tránh dữ liệu của người dùng trước lộ ra cho người dùng sau trên cùng máy.
+app.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Cấu hình kết nối MySQL hỗ trợ Biến Môi Trường (Environment Variables)
@@ -171,7 +181,7 @@ const TOKEN_TTL = '8h';
 
 function signToken(user) {
     return jwt.sign(
-        { id: user.id, username: user.username },
+        { id: user.id, username: user.username, v: user.token_version || 1 },
         JWT_SECRET,
         { expiresIn: TOKEN_TTL }
     );
@@ -188,7 +198,7 @@ function setAuthCookie(res, token) {
 
 function sanitizeUser(u) {
     if (!u) return u;
-    const { pass, failed_login_count, locked_until, ...rest } = u;
+    const { pass, failed_login_count, locked_until, token_version, ...rest } = u;
     return rest;
 }
 
@@ -244,6 +254,12 @@ async function requireAuth(req, res, next) {
         const dbUser = rows[0];
         if (!dbUser) return res.status(401).json({ error: 'Tài khoản không tồn tại.' });
         if (!dbUser.active) return res.status(401).json({ error: 'Tài khoản đã bị khóa, vui lòng liên hệ quản trị viên.' });
+        // Token mang theo "phiên bản" tại thời điểm đăng nhập — nếu mật khẩu đã
+        // bị đổi sau đó (token_version tăng lên), token cũ (kể cả chưa hết hạn
+        // 8h, kể cả bị đánh cắp trước khi đổi mật khẩu) lập tức bị từ chối.
+        if ((payload.v || 1) !== (dbUser.token_version || 1)) {
+            return res.status(401).json({ error: 'Phiên đăng nhập đã hết hiệu lực do mật khẩu vừa được thay đổi, vui lòng đăng nhập lại.' });
+        }
 
         req.user = dbUser;
         req.user.perms = typeof dbUser.perms === 'string' ? JSON.parse(dbUser.perms || '{}') : (dbUser.perms || {});
@@ -297,6 +313,31 @@ const apiLimiter = rateLimit({
     legacyHeaders: false
 });
 app.use('/api', apiLimiter);
+
+// Giới hạn chặt hơn cho các endpoint tốn tài nguyên hoặc dễ bị lạm dụng để
+// phình dữ liệu/CPU dù đã đăng nhập hợp lệ — apiLimiter dùng chung 6000
+// req/15 phút/IP quá rộng để chặn riêng các trường hợp này.
+const logsWriteLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 500,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Ghi nhật ký quá nhiều lần trong thời gian ngắn, vui lòng thử lại sau.' }
+});
+const captchaLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 120,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Yêu cầu mã xác nhận quá nhiều lần, vui lòng thử lại sau ít phút.' }
+});
+const uploadLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 200,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Tải lên quá nhiều lần trong thời gian ngắn, vui lòng thử lại sau.' }
+});
 
 // --- ĐĂNG NHẬP QUA LDAP / ACTIVE DIRECTORY (tùy chọn, cấu hình trong Quản trị) ---
 // Chỉ dùng kiểu "Direct Bind": ghép username với domain (UPN dạng
@@ -694,7 +735,7 @@ async function renderCaptchaImage(code) {
     return img.getBuffer('image/png');
 }
 
-app.get('/api/auth/captcha', async (req, res) => {
+app.get('/api/auth/captcha', captchaLimiter, async (req, res) => {
     try {
         const code = String(crypto.randomInt(0, 10000)).padStart(4, '0');
         const token = jwt.sign({ captcha: code }, JWT_SECRET, { expiresIn: '5m' });
@@ -838,27 +879,54 @@ app.get('/api/users/ad-lookup', requireAuth, requireAdmin, async (req, res) => {
 // --- API CẬP NHẬT HỒ SƠ CÁ NHÂN (tự phục vụ, không cần quyền admin) ---
 app.post('/api/profile', requireAuth, async (req, res) => {
     try {
-        const { name, email, phone, newPassword } = req.body || {};
+        const { name, email, phone, currentPassword, newPassword } = req.body || {};
         if (!name || !email) {
             return res.status(400).json({ error: 'Họ tên và Email là bắt buộc.' });
+        }
+        if (String(name).length > 255 || String(email).length > 255 || (phone && String(phone).length > 50)) {
+            return res.status(400).json({ error: 'Họ tên/Email/Số điện thoại vượt quá độ dài cho phép.' });
+        }
+        if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email))) {
+            return res.status(400).json({ error: 'Email không đúng định dạng.' });
         }
         if (newPassword && newPassword.length < 6) {
             return res.status(400).json({ error: 'Mật khẩu mới phải có ít nhất 6 ký tự.' });
         }
 
         let passHash = req.user.pass;
+        let bumpTokenVersion = false;
         if (newPassword) {
+            // Bảo mật: bắt buộc xác thực lại mật khẩu HIỆN TẠI trước khi cho phép
+            // đặt mật khẩu mới — trước đây chỉ cần cookie phiên hợp lệ là đổi được
+            // ngay, nghĩa là 1 phiên bị đánh cắp tạm thời (XSS, thiết bị dùng
+            // chung) có thể tự đổi mật khẩu để chiếm tài khoản vĩnh viễn.
+            if (!currentPassword) {
+                return res.status(400).json({ error: 'Vui lòng nhập mật khẩu hiện tại để xác nhận đổi mật khẩu.' });
+            }
+            const currentOk = await bcrypt.compare(String(currentPassword), req.user.pass);
+            if (!currentOk) {
+                return res.status(401).json({ error: 'Mật khẩu hiện tại không chính xác.' });
+            }
             passHash = await bcrypt.hash(newPassword, 12);
+            bumpTokenVersion = true;
         }
 
         await pool.query(
-            'UPDATE users SET name = ?, email = ?, phone = ?, pass = ? WHERE id = ?',
+            `UPDATE users SET name = ?, email = ?, phone = ?, pass = ?${bumpTokenVersion ? ', token_version = token_version + 1' : ''} WHERE id = ?`,
             [name, email, phone || '', passHash, req.user.id]
         );
 
         const [rows] = await pool.query('SELECT * FROM users WHERE id = ?', [req.user.id]);
         const updated = rows[0];
         const perms = typeof updated.perms === 'string' ? JSON.parse(updated.perms || '{}') : updated.perms;
+        // Nếu vừa đổi mật khẩu (token_version tăng), token hiện tại của chính
+        // phiên này cũng đã bị token_version-check ở requireAuth làm mất hiệu
+        // lực ở request kế tiếp — ký lại token mới ngay để người dùng không bị
+        // tự đăng xuất ngay sau khi đổi mật khẩu của chính mình.
+        if (bumpTokenVersion) {
+            const freshToken = signToken(updated);
+            setAuthCookie(res, freshToken);
+        }
         res.json({ user: sanitizeUser({ ...updated, perms }) });
     } catch (err) {
         console.error('❌ Lỗi cập nhật hồ sơ:', err.message);
@@ -885,7 +953,13 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
         );
         const [workflows] = await pool.query('SELECT * FROM workflows');
         const [configs] = await pool.query('SELECT * FROM app_configs');
-        const [logs] = await pool.query('SELECT * FROM system_logs ORDER BY id DESC LIMIT 300');
+        // Bảo mật: Nhật ký hệ thống (IP, hành vi chi tiết của MỌI nhân sự khác,
+        // kể cả admin/license/ngân sách) trước đây trả cho bất kỳ user đã đăng
+        // nhập nào, không chỉ Admin. Chỉ truy vấn khi thật sự cần (admin) để
+        // vừa đúng phân quyền vừa đỡ tải 1 query không cần thiết cho user thường.
+        const logs = req.user.perms.admin
+            ? (await pool.query('SELECT * FROM system_logs ORDER BY id DESC LIMIT 300'))[0]
+            : [];
 
         let configMap = {};
         configs.forEach(c => configMap[c.config_key] = c.config_value);
@@ -1052,6 +1126,42 @@ app.get('/api/docs/:id/file', requireAuth, async (req, res) => {
         return res.status(404).json({ error: 'Tài liệu không có file đính kèm.' });
     } catch (err) {
         console.error('❌ Lỗi lấy nội dung file:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// Thông báo email cho người duyệt kế tiếp sau khi 1 bước duyệt hoàn tất.
+// Trước đây client chỉ console.log() giả lập rồi tự ghi log "đã gửi thành
+// công" — không hề gửi mail thật, trong khi hệ thống đã có sẵn cơ chế gửi
+// SMTP thật (sendRealEmail, dùng cho nhắc hạn CNTT). Người phụ trách được
+// server TỰ TÍNH LẠI từ trạng thái tài liệu + cấu hình quy trình hiện tại
+// trong CSDL — không nhận email/nội dung tuỳ ý từ client — để endpoint này
+// không thể bị lợi dụng làm công cụ gửi mail tuỳ ý tới bất kỳ địa chỉ nào.
+app.post('/api/docs/:id/notify-next-approver', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query('SELECT * FROM docs WHERE id = ? AND deleted_at IS NULL', [id]);
+        const doc = rows[0];
+        if (!doc || doc.status !== 'PENDING') return res.json({ success: true, notified: false });
+
+        const [cfgRows] = await pool.query("SELECT config_value FROM app_configs WHERE config_key = 'deptWorkflows'");
+        const deptWorkflows = cfgRows[0]
+            ? (typeof cfgRows[0].config_value === 'string' ? JSON.parse(cfgRows[0].config_value) : cfgRows[0].config_value)
+            : {};
+        const cfg = deptWorkflows[doc.dept];
+        const nextApproverUsername = cfg && cfg.approvers ? cfg.approvers[doc.current_step_order] : null;
+        if (!nextApproverUsername) return res.json({ success: true, notified: false });
+
+        const [userRows] = await pool.query('SELECT name, email, active FROM users WHERE username = ?', [nextApproverUsername]);
+        const nextUser = userRows[0];
+        if (!nextUser || !nextUser.active || !nextUser.email) return res.json({ success: true, notified: false });
+
+        const subject = `[DMS] Chuyển duyệt tài liệu: ${doc.code}`;
+        const html = `Tài liệu <b>${escapeHtmlServer(doc.title)}</b> (${escapeHtmlServer(doc.code)}) đã được thông qua bước trước và cần bạn duyệt bước tiếp theo.`;
+        const result = await sendRealEmail(nextUser.email, subject, html);
+        res.json({ success: true, notified: !!result.success });
+    } catch (err) {
+        console.error('❌ Lỗi gửi email thông báo duyệt tài liệu:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
@@ -1272,7 +1382,7 @@ const upload = multer({
     limits: { fileSize: MAX_PDF_SIZE_BYTES }
 });
 
-app.post('/api/docs/upload', requireAuth, (req, res, next) => {
+app.post('/api/docs/upload', requireAuth, uploadLimiter, (req, res, next) => {
     upload.array('files', 50)(req, res, (err) => {
         if (err) {
             if (err.code === 'LIMIT_FILE_SIZE') {
@@ -1638,21 +1748,46 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                         });
                     }
                 }
-                toUpsert.push([
-                    d.id, existing.code, existing.title, existing.ver, existing.dept, existing.cat, existing.summary,
-                    existing.file_name, existing.file_type, existing.file_data, existing.created_by, existing.creator_username,
-                    existing.created_at, d.workflowId, d.currentStepOrder, d.status, JSON.stringify(d.history || []),
-                    existing.doc_group_id, existing.version_no
-                ]);
+                toUpsert.push({
+                    id: d.id, currentStepOrder: d.currentStepOrder, status: d.status, historyJson: JSON.stringify(d.history || []),
+                    // Trạng thái mong đợi TẠI THỜI ĐIỂM đọc/validate ở trên — dùng để
+                    // khóa dòng và đối chiếu lại ngay trước khi ghi (xem transaction
+                    // bên dưới), chống 2 người duyệt/từ chối cùng 1 tài liệu gần như
+                    // đồng thời ghi đè mất lượt duyệt của nhau.
+                    expectedStatus: existing.status, expectedStepOrder: existing.current_step_order, expectedHistoryJson: JSON.stringify(existingHistory)
+                });
             }
 
-            for (const row of toUpsert) {
-                await pool.query(
-                    `INSERT INTO docs (id, code, title, ver, dept, cat, summary, file_name, file_type, file_data, created_by, creator_username, created_at, workflow_id, current_step_order, status, history, doc_group_id, version_no)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                     ON DUPLICATE KEY UPDATE current_step_order = VALUES(current_step_order), status = VALUES(status), history = VALUES(history)`,
-                    row
-                );
+            // Bảo mật/toàn vẹn dữ liệu: trước đây đọc toàn bộ docs 1 lần rồi ghi
+            // bằng INSERT...ON DUPLICATE KEY UPDATE không transaction, không khóa
+            // dòng — 2 request duyệt/từ chối gần như đồng thời cùng đọc y hệt
+            // trạng thái PENDING gốc trước khi cái nào ghi trước, khiến request ghi
+            // sau âm thầm ghi đè mất lượt duyệt của request ghi trước (cả 2 đều
+            // nhận phản hồi "thành công"). Nay khóa từng dòng (FOR UPDATE) và đối
+            // chiếu lại đúng trạng thái đã validate trước khi ghi — nếu đã đổi
+            // (do 1 request khác vừa ghi trước), từ chối rõ ràng thay vì ghi đè.
+            const docsConn = await pool.getConnection();
+            try {
+                await docsConn.beginTransaction();
+                for (const item of toUpsert) {
+                    const [lockRows] = await docsConn.query('SELECT code, status, current_step_order, history FROM docs WHERE id = ? FOR UPDATE', [item.id]);
+                    const locked = lockRows[0];
+                    const lockedHistoryJson = JSON.stringify(typeof locked.history === 'string' ? JSON.parse(locked.history || '[]') : (locked.history || []));
+                    if (!locked || locked.status !== item.expectedStatus || locked.current_step_order !== item.expectedStepOrder || lockedHistoryJson !== item.expectedHistoryJson) {
+                        await docsConn.rollback();
+                        return res.status(409).json({ error: `Tài liệu [${locked ? locked.code : item.id}] vừa được xử lý bởi người khác, vui lòng tải lại trang và thử lại.` });
+                    }
+                    await docsConn.query(
+                        'UPDATE docs SET current_step_order = ?, status = ?, history = ? WHERE id = ?',
+                        [item.currentStepOrder, item.status, item.historyJson, item.id]
+                    );
+                }
+                await docsConn.commit();
+            } catch (e) {
+                await docsConn.rollback();
+                throw e;
+            } finally {
+                docsConn.release();
             }
             for (const ov of adminWorkflowOverrides) {
                 await writeAuditLog({
@@ -1664,33 +1799,65 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
         } else if (table === 'users') {
             // Bảo mật: mật khẩu không bao giờ được client gửi dạng đã biết trước (bootstrap không trả field `pass`).
             // Nếu client không gửi mật khẩu mới (trống) cho một user đã tồn tại, giữ nguyên hash cũ trong DB.
-            const [existingRows] = await pool.query('SELECT username, pass FROM users');
+            const [existingRows] = await pool.query('SELECT username, pass, token_version FROM users');
             const existingPassMap = {};
-            existingRows.forEach(r => existingPassMap[r.username] = r.pass);
+            const existingTokenVersionMap = {};
+            existingRows.forEach(r => { existingPassMap[r.username] = r.pass; existingTokenVersionMap[r.username] = r.token_version || 1; });
+            const [deptRows] = await pool.query('SELECT name FROM depts');
+            const validDeptNames = new Set(deptRows.map(d => d.name));
 
             const rowsToInsert = [];
             for (let u of data) {
+                const username = String(u.username || '').trim();
+                const name = String(u.name || '').trim();
+                const email = String(u.email || '').trim();
+                const phone = String(u.phone || '').trim();
+                // Xác thực input: trước đây khối này không kiểm tra định dạng/độ dài
+                // gì cả (khác hẳn khối depts/cats bên dưới) — dữ liệu rác có thể lưu
+                // thẳng vào CSDL, hoặc vượt độ dài cột gây lỗi 500 khó hiểu.
+                if (!LDAP_USERNAME_RE.test(username)) {
+                    return res.status(400).json({ error: `Tên đăng nhập [${username || u.username}] không hợp lệ (chỉ chữ/số không dấu, dấu chấm/gạch dưới/gạch ngang, tối đa 100 ký tự).` });
+                }
+                if (!name || name.length > 255) {
+                    return res.status(400).json({ error: `Họ tên cho user [${username}] không được để trống và tối đa 255 ký tự.` });
+                }
+                if (email && (!EMAIL_RE.test(email) || email.length > 255)) {
+                    return res.status(400).json({ error: `Email [${email}] cho user [${username}] không hợp lệ.` });
+                }
+                if (phone.length > 50) {
+                    return res.status(400).json({ error: `Số điện thoại cho user [${username}] quá dài (tối đa 50 ký tự).` });
+                }
+                if (u.dept && !validDeptNames.has(u.dept)) {
+                    return res.status(400).json({ error: `Phòng ban [${u.dept}] của user [${username}] không tồn tại.` });
+                }
+
                 let passHash;
+                let tokenVersion = existingTokenVersionMap[username] || 1;
                 if (u.pass && String(u.pass).trim()) {
                     if (String(u.pass).trim().length < 6) {
-                        return res.status(400).json({ error: `Mật khẩu cho user [${u.username}] phải có ít nhất 6 ký tự.` });
+                        return res.status(400).json({ error: `Mật khẩu cho user [${username}] phải có ít nhất 6 ký tự.` });
                     }
                     passHash = await bcrypt.hash(String(u.pass).trim(), 12);
-                } else if (existingPassMap[u.username]) {
-                    passHash = existingPassMap[u.username];
+                    // Admin đặt lại mật khẩu cho user khác — vô hiệu hóa mọi phiên đăng
+                    // nhập cũ của user đó ngay (giống hệt lý do khi tự đổi mật khẩu ở
+                    // /api/profile), tránh 1 phiên bị đánh cắp tiếp tục dùng được token
+                    // cũ sau khi Admin đã chủ động đặt lại mật khẩu.
+                    if (existingPassMap[username] !== undefined) tokenVersion += 1;
+                } else if (existingPassMap[username] !== undefined) {
+                    passHash = existingPassMap[username];
                 } else {
-                    return res.status(400).json({ error: `Thiếu mật khẩu cho tài khoản mới: ${u.username}` });
+                    return res.status(400).json({ error: `Thiếu mật khẩu cho tài khoản mới: ${username}` });
                 }
 
                 const active = u.active !== false;
-                if (!active && u.username === 'admin') {
+                if (!active && username === 'admin') {
                     return res.status(400).json({ error: 'Không thể khóa tài khoản Admin gốc!' });
                 }
                 if (!active && String(u.id) === String(req.user.id)) {
                     return res.status(400).json({ error: 'Không thể tự khóa chính tài khoản đang đăng nhập!' });
                 }
 
-                rowsToInsert.push([u.id, u.username, passHash, u.name, u.email, u.phone, u.dept, JSON.stringify(u.perms || {}), active]);
+                rowsToInsert.push([u.id, username, passHash, name, email, phone, u.dept, JSON.stringify(u.perms || {}), active, tokenVersion]);
             }
 
             // Bảo mật: bảng users bị xóa-chèn-lại toàn bộ (không có id ổn định phía
@@ -1715,7 +1882,7 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                 await usersConn.query('DELETE FROM users');
                 for (let row of rowsToInsert) {
                     await usersConn.query(
-                        'INSERT INTO users (id, username, pass, name, email, phone, dept, perms, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        'INSERT INTO users (id, username, pass, name, email, phone, dept, perms, active, token_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                         row
                     );
                 }
@@ -1766,8 +1933,46 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
             }
 
             const keptIds = new Set(toUpdate.map(u => String(u.id)));
-            const toDeleteIds = existingRows.filter(r => !keptIds.has(String(r.id))).map(r => r.id);
+            const toDelete = existingRows.filter(r => !keptIds.has(String(r.id)));
+            const toDeleteIds = toDelete.map(r => r.id);
             const renames = toUpdate.filter(u => u.oldName !== u.name);
+
+            // Bảo mật/toàn vẹn dữ liệu: trước đây xóa thẳng ngay khi 1 dòng bị bỏ
+            // khỏi payload, không kiểm tra còn tài liệu/người dùng/quy trình nào
+            // đang tham chiếu tên đó hay không — xóa nhầm để lại tài liệu/quyền
+            // "mồ côi" theo 1 tên phòng ban/phân loại không còn tồn tại.
+            if (toDelete.length > 0) {
+                const toDeleteNames = toDelete.map(r => r.name);
+                const namePlaceholders = toDeleteNames.map(() => '?').join(',');
+                const docsColumn = table === 'depts' ? 'dept' : 'cat';
+                const [refDocs] = await pool.query(`SELECT DISTINCT ${docsColumn} AS name FROM docs WHERE ${docsColumn} IN (${namePlaceholders}) AND deleted_at IS NULL`, toDeleteNames);
+                if (refDocs.length > 0) {
+                    return res.status(400).json({ error: `Không thể xóa ${label} [${refDocs.map(r => r.name).join(', ')}] vì vẫn còn tài liệu đang thuộc ${label} này.` });
+                }
+                if (table === 'depts') {
+                    const [refUsers] = await pool.query(`SELECT DISTINCT dept AS name FROM users WHERE dept IN (${namePlaceholders})`, toDeleteNames);
+                    if (refUsers.length > 0) {
+                        return res.status(400).json({ error: `Không thể xóa phòng ban [${refUsers.map(r => r.name).join(', ')}] vì vẫn còn người dùng thuộc phòng ban này.` });
+                    }
+                    const [allUserRows] = await pool.query('SELECT username, perms FROM users');
+                    const deleteNameSet = new Set(toDeleteNames);
+                    const permReferenced = allUserRows.some(u => {
+                        const perms = typeof u.perms === 'string' ? JSON.parse(u.perms || '{}') : (u.perms || {});
+                        return ['uploadDepts', 'viewDraftDepts', 'viewApprovedDepts', 'downloadDepts'].some(key =>
+                            Array.isArray(perms[key]) && perms[key].some(d => deleteNameSet.has(d))
+                        );
+                    });
+                    if (permReferenced) {
+                        return res.status(400).json({ error: `Không thể xóa phòng ban [${toDeleteNames.join(', ')}] vì vẫn đang được gán trong phân quyền của người dùng nào đó.` });
+                    }
+                    const [cfgRows] = await pool.query("SELECT config_value FROM app_configs WHERE config_key = 'deptWorkflows'");
+                    const deptWorkflows = cfgRows[0] ? (typeof cfgRows[0].config_value === 'string' ? JSON.parse(cfgRows[0].config_value) : cfgRows[0].config_value) : {};
+                    const wfReferenced = toDeleteNames.some(n => Object.prototype.hasOwnProperty.call(deptWorkflows || {}, n));
+                    if (wfReferenced) {
+                        return res.status(400).json({ error: `Không thể xóa phòng ban [${toDeleteNames.join(', ')}] vì vẫn đang được gán quy trình duyệt.` });
+                    }
+                }
+            }
 
             const conn = await pool.getConnection();
             try {
@@ -1910,7 +2115,7 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
 // nhầm là "xoá bớt" chỉ vì client chỉ giữ 300 log gần nhất trong bộ nhớ.
 // Danh tính (username/fullName) và IP do server tự xác định từ phiên đăng
 // nhập thật, không tin giá trị client gửi lên — dùng lại writeAuditLog().
-app.post('/api/logs', requireAuth, async (req, res) => {
+app.post('/api/logs', requireAuth, logsWriteLimiter, async (req, res) => {
     try {
         const module = String((req.body && req.body.module) || '').trim();
         const actionType = String((req.body && req.body.actionType) || '').trim();
@@ -1919,6 +2124,11 @@ app.post('/api/logs', requireAuth, async (req, res) => {
         const targetObject = String((req.body && req.body.targetObject) || '').trim();
         if (!module || !actionType || !description) {
             return res.status(400).json({ error: 'Thiếu thông tin bắt buộc (module/actionType/description) để ghi log.' });
+        }
+        // Trước đây không giới hạn độ dài các trường client tự gửi — cho phép
+        // 1 user thường (không chỉ admin) ghi log nội dung tùy ý dài tùy thích.
+        if (module.length > 50 || actionType.length > 100 || description.length > 500 || targetObject.length > 255 || status.length > 50) {
+            return res.status(400).json({ error: 'Nội dung ghi log vượt quá độ dài cho phép.' });
         }
         await writeAuditLog({ module, actionType, targetObject, description, status, username: req.user.username, fullName: req.user.name, ip: req.ip });
         res.json({ success: true });

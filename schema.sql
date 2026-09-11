@@ -129,6 +129,12 @@ CREATE TABLE IF NOT EXISTS users (
 CALL add_column_if_not_exists('users', 'failed_login_count', 'INT NOT NULL DEFAULT 0');
 CALL add_column_if_not_exists('users', 'locked_until', 'VARCHAR(100) NULL DEFAULT NULL');
 
+-- Phiên bản token: nhúng vào JWT lúc đăng nhập, đối chiếu lại ở mọi request
+-- (requireAuth) — tăng lên khi đổi mật khẩu để các token cũ (đã bị đánh cắp
+-- trước đó, hoặc phiên đăng nhập cũ trên thiết bị khác) lập tức mất hiệu lực
+-- ngay cả khi chưa hết hạn 8h, thay vì chỉ dựa vào JWT tự hết hạn.
+CALL add_column_if_not_exists('users', 'token_version', 'INT NOT NULL DEFAULT 1');
+
 -- 4. Bảng Tài Liệu
 CREATE TABLE IF NOT EXISTS docs (
     id BIGINT PRIMARY KEY,

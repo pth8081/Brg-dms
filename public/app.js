@@ -397,14 +397,18 @@
       apiFetch('/api/logs', { method: 'POST', body: JSON.stringify({ module, actionType, description, status, targetObject: target }) }).catch(() => {});
     }
 
-    function sendNotificationEmail(recipientEmail, recipientName, subject, messageBody) {
-      if (!DB.emailConfig.enabled) {
-        logSystemAction('EMAIL', 'SEND_EMAIL_SKIPPED', `Email gửi tới ${recipientName} (${recipientEmail}) bỏ qua do SMTP disabled.`, 'WARNING', recipientEmail);
-        return;
+    // Trước đây hàm này chỉ console.log() giả lập rồi tự ghi log "đã gửi
+    // thành công" — không hề gửi mail thật. Nay gọi API server thật
+    // (POST /api/docs/:id/notify-next-approver, dùng cơ chế SMTP thật đã có
+    // sẵn cho nhắc hạn CNTT) — server tự tính người duyệt kế tiếp từ trạng
+    // thái tài liệu hiện tại trong CSDL, không nhận địa chỉ/nội dung tuỳ ý từ
+    // client. Không chặn luồng chính nếu gửi lỗi (chỉ log cảnh báo).
+    async function notifyNextApprover(docId) {
+      try {
+        await apiFetch(`/api/docs/${docId}/notify-next-approver`, { method: 'POST' });
+      } catch (e) {
+        console.warn('Lỗi khi gọi API thông báo duyệt tài liệu:', e);
       }
-      if (!recipientEmail) return;
-      console.log(`[DMS EMAIL SENT] To: ${recipientName} <${recipientEmail}> | Subject: ${subject}`);
-      logSystemAction('EMAIL', 'SEND_EMAIL_SUCCESS', `Đã gửi mail tự động tới [${recipientName} - ${recipientEmail}] với tiêu đề: "${subject}"`, 'SUCCESS', recipientEmail);
     }
 
     // --- AUTHENTICATION ---
@@ -877,15 +881,7 @@
           logSystemAction('INTERACTION', mode === 'update' ? 'UPDATE_DOC_VERSION' : 'UPLOAD_DOC', `${actionLabel} tài liệu: ${d.code} (${d.ver}) - ${d.title}`, 'SUCCESS', d.code);
         });
 
-        const notifyDept = createdDocs[0]?.dept || selDept;
-        const deptConfig = DB.deptWorkflows[notifyDept];
-        const firstApprover = deptConfig?.approvers?.[1];
-        const approverUser = DB.users.find(u => u.username === firstApprover);
-        if (approverUser && approverUser.email) {
-          createdDocs.forEach(d => {
-            sendNotificationEmail(approverUser.email, approverUser.name, `[DMS] Tài liệu chờ duyệt: ${d.code} (${d.ver})`, `Tài liệu ${d.title} trình từ ${currentUser.name} đang chờ bạn phê duyệt.`);
-          });
-        }
+        createdDocs.forEach(d => notifyNextApprover(d.id));
 
         showToast(`Đã tải lên và trình ký ${createdDocs.length} tài liệu thành công: ${createdDocs.map(d => d.code).join(', ')}`, 'success');
         document.getElementById('docForm').reset();
@@ -900,9 +896,15 @@
       }
     }
 
-    function approveDoc(docId) {
+    async function approveDoc(docId) {
       const doc = DB.docs.find(d => d.id === docId);
       if (!doc) return;
+      // Trước đây không await/kiểm tra kết quả syncStorage — nếu server từ
+      // chối (VD 409 do người khác vừa duyệt/từ chối cùng tài liệu gần như
+      // đồng thời), UI vẫn báo "thành công" trong khi dữ liệu thật trên server
+      // không đổi, lệch trạng thái tới khi tải lại trang. Lưu lại state cũ để
+      // hoàn tác đúng khi server từ chối.
+      const snapshot = { history: [...doc.history], currentStepOrder: doc.currentStepOrder, status: doc.status };
 
       const deptConfig = DB.deptWorkflows[doc.dept];
       const wf = DB.workflows.find(w => w.id === (doc.workflowId || deptConfig?.workflowId));
@@ -918,17 +920,25 @@
 
       if (doc.currentStepOrder < totalSteps) {
         doc.currentStepOrder += 1;
-        const nextApproverUsername = deptConfig?.approvers?.[doc.currentStepOrder];
-        const nextUser = DB.users.find(u => u.username === nextApproverUsername);
-        if (nextUser && nextUser.email) {
-          sendNotificationEmail(nextUser.email, nextUser.name, `[DMS] Chuyển duyệt tài liệu: ${doc.code}`, `Tài liệu ${doc.title} đã được thông qua cấp ${doc.currentStepOrder - 1} và cần bạn duyệt cấp tiếp theo.`);
-        }
       } else {
         doc.status = 'APPROVED';
-        logSystemAction('INTERACTION', 'APPROVE_DOC_FINAL', `Phê duyệt hoàn tất tài liệu: ${doc.code}`, 'SUCCESS', doc.code);
       }
 
-      syncStorage('docs');
+      const ok = await syncStorage('docs');
+      if (!ok) {
+        doc.history = snapshot.history;
+        doc.currentStepOrder = snapshot.currentStepOrder;
+        doc.status = snapshot.status;
+        renderDocs();
+        return;
+      }
+
+      if (doc.status === 'APPROVED') {
+        logSystemAction('INTERACTION', 'APPROVE_DOC_FINAL', `Phê duyệt hoàn tất tài liệu: ${doc.code}`, 'SUCCESS', doc.code);
+      } else {
+        notifyNextApprover(doc.id);
+      }
+
       showToast('Đã phê duyệt tài liệu thành công!', 'success');
       renderDocs();
     }
@@ -945,6 +955,7 @@
       });
       if (reason === null) return;
 
+      const snapshot = { history: [...doc.history], status: doc.status };
       doc.history.push({
         stepOrder: doc.currentStepOrder,
         action: 'REJECTED',
@@ -953,9 +964,15 @@
         reason: reason,
         at: new Date().toLocaleString('vi-VN')
       });
-
       doc.status = 'REJECTED';
-      syncStorage('docs');
+
+      const ok = await syncStorage('docs');
+      if (!ok) {
+        doc.history = snapshot.history;
+        doc.status = snapshot.status;
+        renderDocs();
+        return;
+      }
       logSystemAction('INTERACTION', 'REJECT_DOC', `Từ chối tài liệu ${doc.code}. Lý do: ${reason}`, 'SUCCESS', doc.code);
       showToast('Đã trả về tài liệu!', 'warning');
       renderDocs();
@@ -1688,7 +1705,7 @@
       reorderStepRows();
     }
 
-    function saveWorkflowTemplate(e) {
+    async function saveWorkflowTemplate(e) {
       e.preventDefault();
       const editingCode = document.getElementById('editingWfCode').value;
       const code = document.getElementById('wfCode').value.trim().toUpperCase();
@@ -1702,15 +1719,17 @@
         name: inp.value.trim()
       }));
 
+      const prevWorkflows = DB.workflows;
       if (editingCode) {
         const idx = DB.workflows.findIndex(w => w.id === editingCode);
-        if (idx !== -1) DB.workflows[idx] = { id: editingCode, name, steps };
+        if (idx !== -1) DB.workflows = DB.workflows.map((w, i) => i === idx ? { id: editingCode, name, steps } : w);
       } else {
         if (DB.workflows.some(w => w.id === code)) return showToast('Mã quy trình này đã tồn tại!', 'danger');
-        DB.workflows.push({ id: code, name, steps });
+        DB.workflows = [...DB.workflows, { id: code, name, steps }];
       }
 
-      syncStorage('workflows');
+      const ok = await syncStorage('workflows');
+      if (!ok) { DB.workflows = prevWorkflows; return; }
       logSystemAction('CONFIG', 'SAVE_WORKFLOW_TEMPLATE', `Lưu mẫu quy trình [${code}] - ${name}`, 'SUCCESS', code);
       showToast('Đã lưu mẫu quy trình!', 'success');
       resetWorkflowForm();
@@ -1738,8 +1757,10 @@
     async function deleteWorkflowTemplate(code) {
       const ok = await showConfirm({ title: 'Xóa mẫu quy trình', message: `Bạn có chắc chắn muốn xóa mẫu quy trình [${code}]?`, danger: true, confirmText: 'Xóa' });
       if (!ok) return;
+      const prevWorkflows = DB.workflows;
       DB.workflows = DB.workflows.filter(w => w.id !== code);
-      syncStorage('workflows');
+      const syncOk = await syncStorage('workflows');
+      if (!syncOk) { DB.workflows = prevWorkflows; return; }
       logSystemAction('CONFIG', 'DELETE_WORKFLOW_TEMPLATE', `Xóa mẫu quy trình [${code}]`, 'SUCCESS', code);
       showToast(`Đã xóa mẫu quy trình [${code}].`, 'success');
       renderWorkflowTab();
@@ -1786,6 +1807,27 @@
       document.getElementById('txtDeptAbbr').value = '';
       document.getElementById('btnSaveDept').innerText = 'Thêm';
       document.getElementById('btnCancelDept').classList.add('hidden');
+    }
+
+    // Nút "Xóa" trong renderDeptList() gọi dc('deleteDept', ...) nhưng hàm này
+    // trước đây không hề tồn tại — bấm Xóa không có phản hồi gì (dispatch chỉ
+    // console.error im lặng). Server đã tự chặn xóa dept còn tài liệu/người
+    // dùng/phân quyền/quy trình tham chiếu, chỉ cần gọi đúng syncStorage.
+    async function deleteDept(name) {
+      const ok = await showConfirm({
+        title: 'Xóa phòng ban', message: `Xóa phòng ban [${name}]? Chỉ xóa được nếu không còn tài liệu/người dùng nào thuộc phòng ban này.`,
+        danger: true, confirmText: 'Xóa'
+      });
+      if (!ok) return;
+      const prevDepts = DB.depts;
+      DB.depts = DB.depts.filter(d => d.name !== name);
+      const syncOk = await syncStorage('depts');
+      if (!syncOk) { DB.depts = prevDepts; return; }
+      logSystemAction('CONFIG', 'DELETE_DEPT', `Xóa phòng ban: ${name}`, 'SUCCESS', name);
+      showToast(`Đã xóa phòng ban ${name}.`, 'success');
+      populateDropdowns();
+      renderDeptList();
+      renderDeptCheckboxes();
     }
 
     async function saveDept(e) {
@@ -1845,6 +1887,24 @@
       document.getElementById('txtCatAbbr').value = '';
       document.getElementById('btnSaveCat').innerText = 'Thêm';
       document.getElementById('btnCancelCat').classList.add('hidden');
+    }
+
+    // Tương tự deleteDept() ở trên — hàm deleteCat() trước đây cũng không tồn
+    // tại dù nút "Xóa" ở renderCatList() gọi dc('deleteCat', ...).
+    async function deleteCat(name) {
+      const ok = await showConfirm({
+        title: 'Xóa phân loại', message: `Xóa phân loại [${name}]? Chỉ xóa được nếu không còn tài liệu nào thuộc phân loại này.`,
+        danger: true, confirmText: 'Xóa'
+      });
+      if (!ok) return;
+      const prevCats = DB.cats;
+      DB.cats = DB.cats.filter(c => c.name !== name);
+      const syncOk = await syncStorage('cats');
+      if (!syncOk) { DB.cats = prevCats; return; }
+      logSystemAction('CONFIG', 'DELETE_CAT', `Xóa phân loại: ${name}`, 'SUCCESS', name);
+      showToast(`Đã xóa phân loại ${name}.`, 'success');
+      populateDropdowns();
+      renderCatList();
     }
 
     async function saveCat(e) {
@@ -2108,8 +2168,10 @@
       const ok = await showConfirm({ title: 'Xóa người dùng', message: `Bạn có chắc chắn muốn xóa user ${u.username}?`, danger: true, confirmText: 'Xóa' });
       if (!ok) return;
 
+      const prevUsers = DB.users;
       DB.users = DB.users.filter(item => item.id != id);
-      syncStorage('users');
+      const syncOk = await syncStorage('users');
+      if (!syncOk) { DB.users = prevUsers; return; }
       logSystemAction('USER_MGM', 'DELETE_USER', `Xóa tài khoản user: ${u.username}`, 'SUCCESS', u.username);
       showToast(`Đã xóa tài khoản ${u.username}.`, 'success');
       renderUsers();
@@ -2212,8 +2274,9 @@
       renderPaginationBar('userTablePaginationBox', 'userTable', DB.users.length, 'renderUsers', { itemLabel: 'người dùng' });
     }
 
-    function saveEmailConfig(e) {
+    async function saveEmailConfig(e) {
       e.preventDefault();
+      const prevEmailConfig = DB.emailConfig;
       DB.emailConfig = {
         enabled: document.getElementById('cfgEmailEnabled').value === 'true',
         smtpHost: document.getElementById('cfgSmtpHost').value.trim(),
@@ -2225,7 +2288,8 @@
         // bao giờ ghi đè bằng chuỗi rỗng nếu Admin không chủ động đổi.
         smtpPass: document.getElementById('cfgSmtpPass').value
       };
-      syncStorage('emailConfig');
+      const ok = await syncStorage('emailConfig');
+      if (!ok) { DB.emailConfig = prevEmailConfig; return; }
       logSystemAction('CONFIG', 'UPDATE_SMTP_CONFIG', `Cập nhật cấu hình SMTP Server thành công.`, 'SUCCESS', 'SMTP');
       showToast('Đã lưu cấu hình Email thành công!', 'success');
     }
@@ -2245,7 +2309,7 @@
       document.getElementById('cfgSmtpPass').placeholder = DB.emailConfig.smtpPass ? 'Đã có mật khẩu (để trống nếu không đổi)' : 'Để trống nếu không đổi';
     }
 
-    function saveLdapConfig(e) {
+    async function saveLdapConfig(e) {
       e.preventDefault();
       const enabled = document.getElementById('cfgLdapEnabled').value === 'true';
       const url = document.getElementById('cfgLdapUrl').value.trim();
@@ -2259,6 +2323,7 @@
       // Gộp (không ghi đè hoàn toàn) vì cùng 1 đối tượng ldapConfig còn được dùng
       // chung bởi form "Đồng Bộ Tài Khoản AD" bên dưới — ghi đè hết sẽ xóa mất
       // cấu hình đồng bộ AD đã lưu trước đó.
+      const prevLdapConfig = DB.ldapConfig;
       DB.ldapConfig = {
         ...DB.ldapConfig,
         enabled,
@@ -2267,7 +2332,8 @@
         domain,
         tlsRejectUnauthorized: document.getElementById('cfgLdapTlsReject').value === 'true'
       };
-      syncStorage('ldapConfig');
+      const ok = await syncStorage('ldapConfig');
+      if (!ok) { DB.ldapConfig = prevLdapConfig; return; }
       logSystemAction('CONFIG', 'UPDATE_LDAP_CONFIG', `Cập nhật cấu hình đăng nhập LDAP/Active Directory (${enabled ? 'Bật' : 'Tắt'}).`, 'SUCCESS', 'LDAP');
       showToast('Đã lưu cấu hình LDAP thành công!', 'success');
     }
@@ -2287,7 +2353,7 @@
       document.getElementById('cfgAdOrgUnitAttr').value = DB.ldapConfig.orgUnitAttr || '';
     }
 
-    function saveAdSyncConfig(e) {
+    async function saveAdSyncConfig(e) {
       e.preventDefault();
       const adSyncEnabled = document.getElementById('cfgAdSyncEnabled').value === 'true';
       const serviceBindDn = document.getElementById('cfgAdServiceBindDn').value.trim();
@@ -2299,6 +2365,7 @@
       if (adSyncEnabled && !serviceBindDn) return showToast('Vui lòng nhập Bind DN tài khoản dịch vụ.', 'danger');
       if (adSyncEnabled && !searchBaseDn) return showToast('Vui lòng nhập Base DN tìm kiếm.', 'danger');
       // Gộp vào ldapConfig chung, không ghi đè phần cấu hình đăng nhập ở form trên.
+      const prevLdapConfig = DB.ldapConfig;
       DB.ldapConfig = {
         ...DB.ldapConfig,
         adSyncEnabled,
@@ -2308,7 +2375,8 @@
         companyAttr: document.getElementById('cfgAdCompanyAttr').value.trim(),
         orgUnitAttr: document.getElementById('cfgAdOrgUnitAttr').value.trim()
       };
-      syncStorage('ldapConfig');
+      const ok = await syncStorage('ldapConfig');
+      if (!ok) { DB.ldapConfig = prevLdapConfig; return; }
       logSystemAction('CONFIG', 'UPDATE_AD_SYNC_CONFIG', `Cập nhật cấu hình đồng bộ tài khoản AD (${adSyncEnabled ? 'Bật' : 'Tắt'}).`, 'SUCCESS', 'AD');
       showToast('Đã lưu cấu hình đồng bộ AD thành công!', 'success');
       document.getElementById('cfgAdServicePassword').value = '';
@@ -2331,11 +2399,13 @@
       if (!file) return;
       try {
         const rows = await readXlsxRows(file, ['username', 'pass', 'name', 'email', 'phone', 'dept'], ['username', 'password', 'fullName', 'email', 'phone', 'dept']);
+        const prevUsers = DB.users;
         let count = 0;
+        const newUsers = [...DB.users];
         rows.forEach(r => {
           if (!r.username) return;
-          if (!DB.users.some(u => u.username === r.username)) {
-            DB.users.push({
+          if (!newUsers.some(u => u.username === r.username)) {
+            newUsers.push({
               id: Date.now() + Math.random(),
               username: r.username, pass: r.pass, name: r.name, email: r.email, phone: r.phone, dept: r.dept,
               perms: { admin: false, uploadAll: false, viewDraftAll: false, viewApprovedAll: false, downloadAll: false }
@@ -2343,7 +2413,9 @@
             count++;
           }
         });
-        syncStorage('users');
+        DB.users = newUsers;
+        const ok = await syncStorage('users');
+        if (!ok) { DB.users = prevUsers; e.target.value = ''; return; }
         showToast(`Đã import thành công ${count} tài khoản người dùng!`, 'success');
         renderUsers();
       } catch (err) {
@@ -5419,12 +5491,22 @@ function isPerpetualSoftware(softwareId) {
     // trong cấu trúc riêng, không qua dấu phân tách hay bảng mã nên tránh được
     // cả hai lỗi trên. Dùng thư viện ExcelJS tự lưu trữ tại /vendor (không gọi
     // CDN ngoài) — xem thẻ <script> nạp ở đầu file.
+    // Chống Excel/CSV Formula Injection: dữ liệu xuất ra thường lấy trực tiếp
+    // từ các trường tự do do người dùng nhập (tên, mô tả, ghi chú...). Nếu 1
+    // ô bắt đầu bằng = + - @ (ký tự khởi đầu công thức trong Excel), phần mềm
+    // bảng tính khi mở file có thể diễn giải nhầm thành công thức và thực thi
+    // (VD =HYPERLINK(...), =cmd|'/c calc'!A1) trên máy người mở file (thường
+    // là Admin xuất báo cáo). Thêm tiền tố nháy đơn buộc luôn hiểu là văn bản.
+    function sanitizeXlsxCellValue(v) {
+      if (typeof v === 'string' && /^[=+\-@]/.test(v)) return "'" + v;
+      return v;
+    }
     async function downloadXlsxFile(filename, headerRow, dataRows) {
       const wb = new ExcelJS.Workbook();
       const ws = wb.addWorksheet('Sheet1');
-      ws.addRow(headerRow);
+      ws.addRow(headerRow.map(sanitizeXlsxCellValue));
       ws.getRow(1).font = { bold: true };
-      dataRows.forEach(r => ws.addRow(r));
+      dataRows.forEach(r => ws.addRow(Array.isArray(r) ? r.map(sanitizeXlsxCellValue) : r));
       ws.columns.forEach(col => {
         let maxLen = 10;
         col.eachCell({ includeEmpty: true }, cell => { maxLen = Math.max(maxLen, String(cell.value ?? '').length); });
