@@ -422,12 +422,21 @@
       showToast('Vui lòng liên hệ Quản trị viên hệ thống để được cấp lại mật khẩu.', 'info');
     }
 
+    function refreshCaptcha() {
+      const img = document.getElementById('captchaImg');
+      if (img) img.src = '/api/auth/captcha?t=' + Date.now();
+      const captchaInput = document.getElementById('txtCaptcha');
+      if (captchaInput) captchaInput.value = '';
+    }
+
     async function login(e) {
       if (e) e.preventDefault();
       const u = document.getElementById('txtUser').value.trim();
       const p = document.getElementById('txtPass').value.trim();
+      const captcha = document.getElementById('txtCaptcha').value.trim();
 
       if (!u || !p) return showToast('Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu!', 'warning');
+      if (!captcha) return showToast('Vui lòng nhập mã xác nhận!', 'warning');
 
       const submitBtn = document.getElementById('btnLoginSubmit');
       const spinner = document.getElementById('loginSpinner');
@@ -439,11 +448,12 @@
       try {
         const data = await apiFetch('/api/auth/login', {
           method: 'POST',
-          body: JSON.stringify({ username: u, password: p })
+          body: JSON.stringify({ username: u, password: p, captcha })
         });
         await enterApp(data.user);
       } catch (e) {
         showToast(e.message || 'Tài khoản hoặc mật khẩu không chính xác!', 'danger');
+        refreshCaptcha();
       } finally {
         submitBtn.disabled = false;
         spinner.classList.add('hidden');
