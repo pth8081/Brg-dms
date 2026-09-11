@@ -129,6 +129,12 @@ CREATE TABLE IF NOT EXISTS users (
 CALL add_column_if_not_exists('users', 'failed_login_count', 'INT NOT NULL DEFAULT 0');
 CALL add_column_if_not_exists('users', 'locked_until', 'VARCHAR(100) NULL DEFAULT NULL');
 
+-- Phiên bản token: nhúng vào JWT lúc đăng nhập, đối chiếu lại ở mọi request
+-- (requireAuth) — tăng lên khi đổi mật khẩu để các token cũ (đã bị đánh cắp
+-- trước đó, hoặc phiên đăng nhập cũ trên thiết bị khác) lập tức mất hiệu lực
+-- ngay cả khi chưa hết hạn 8h, thay vì chỉ dựa vào JWT tự hết hạn.
+CALL add_column_if_not_exists('users', 'token_version', 'INT NOT NULL DEFAULT 1');
+
 -- 4. Bảng Tài Liệu
 CREATE TABLE IF NOT EXISTS docs (
     id BIGINT PRIMARY KEY,
@@ -605,6 +611,17 @@ CALL create_index_if_not_exists('lic_budget_round_items', 'idx_lic_budget_round_
 -- tiết, ghi chú nội bộ) — không ảnh hưởng logic tính toán, chỉ hiển thị.
 CALL add_column_if_not_exists('lic_budget_round_items', 'description', 'VARCHAR(500) NULL DEFAULT NULL');
 
+-- Chống trùng hạng mục khi 2 request thêm cùng 1 phần mềm/hạng mục gần như
+-- đồng thời (double-click, 2 tab) — trước đây chỉ kiểm tra "chưa có" bằng
+-- SELECT rồi mới INSERT, không có ràng buộc DB nào chặn race condition này.
+-- Không thể đặt UNIQUE KEY trực tiếp lên (round_id, item_type, software_id,
+-- catalog_item_id) vì NULL được coi là khác nhau trong unique index (2 dòng
+-- cùng NULL vẫn được coi là không trùng) — nên tính sẵn 1 cột gộp không bao
+-- giờ NULL để làm khóa duy nhất thay thế.
+CALL add_column_if_not_exists('lic_budget_round_items', 'dedup_key', 'VARCHAR(100) NULL DEFAULT NULL');
+UPDATE lic_budget_round_items SET dedup_key = CONCAT(item_type, ':', COALESCE(software_id, CONCAT('cat', catalog_item_id))) WHERE dedup_key IS NULL;
+CALL create_unique_index_if_not_exists('lic_budget_round_items', 'uq_lic_budget_round_items_dedup', 'round_id, dedup_key');
+
 -- Sổ ghi nhận mua thực tế (nhiều dòng theo thời gian) cho từng hạng mục ngân
 -- sách — ĐỘC LẬP với lic_budget_registrations (dự trù theo đơn vị): "Kế
 -- hoạch" = tổng dự trù đã duyệt của hạng mục, "Thực tế" = tổng các dòng ở
@@ -669,6 +686,10 @@ CREATE TABLE IF NOT EXISTS it_items (
 );
 CALL create_index_if_not_exists('it_items', 'idx_it_items_category', 'category_id');
 CALL create_index_if_not_exists('it_items', 'idx_it_items_expiry', 'expiry_date');
+
+-- Xóa mềm: trước đây xóa 1 đầu mục CNTT là xóa cứng vĩnh viễn (không giống
+-- module Tài liệu có Thùng rác/khôi phục) — xóa nhầm mất luôn không cứu được.
+CALL add_column_if_not_exists('it_items', 'deleted_at', 'VARCHAR(100) NULL DEFAULT NULL');
 
 -- Sổ ghi nhận đã gửi nhắc — khóa theo (item_id, expiry_date, days_before) để
 -- không gửi trùng trong 1 chu kỳ hạn; nếu đầu mục được gia hạn (expiry_date

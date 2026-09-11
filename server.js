@@ -94,7 +94,7 @@ app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
-            scriptSrc: ["'self'", "https://cdn.tailwindcss.com"],
+            scriptSrc: ["'self'"],
             scriptSrcAttr: ["'none'"],
             // Font trang đăng nhập (Spectral, Be Vietnam Pro) tải từ Google Fonts —
             // styleSrc cho stylesheet @font-face, fontSrc riêng cho file font nhị phân.
@@ -128,8 +128,18 @@ app.use((req, res, next) => {
 });
 
 app.use(cookieParser());
-app.use(express.json({ limit: '100mb' }));
-app.use(express.urlencoded({ limit: '100mb', extended: true }));
+// 100MB trước đây áp dụng cho MỌI request JSON/urlencoded kể cả đăng nhập,
+// ghi log, sync... vốn chỉ cần vài KB — 1 request JSON dung lượng lớn giả
+// mạo có thể ăn nhiều bộ nhớ tiến trình Node cùng lúc. Bulk import lớn nhất
+// (5000 dòng, xem MAX_SYNC_ROWS) chỉ cỡ vài MB, nên 10MB vẫn đủ rộng rãi.
+// Upload file PDF dùng multipart/form-data (multer, giới hạn riêng theo
+// MAX_PDF_SIZE_MB), không đi qua middleware này nên không bị ảnh hưởng.
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
+// Mọi response JSON của API đều là dữ liệu riêng theo phiên đăng nhập (tài
+// liệu, người dùng, báo cáo...) — không được để proxy/trình duyệt cache lại,
+// tránh dữ liệu của người dùng trước lộ ra cho người dùng sau trên cùng máy.
+app.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Cấu hình kết nối MySQL hỗ trợ Biến Môi Trường (Environment Variables)
@@ -171,7 +181,7 @@ const TOKEN_TTL = '8h';
 
 function signToken(user) {
     return jwt.sign(
-        { id: user.id, username: user.username },
+        { id: user.id, username: user.username, v: user.token_version || 1 },
         JWT_SECRET,
         { expiresIn: TOKEN_TTL }
     );
@@ -188,7 +198,7 @@ function setAuthCookie(res, token) {
 
 function sanitizeUser(u) {
     if (!u) return u;
-    const { pass, failed_login_count, locked_until, ...rest } = u;
+    const { pass, failed_login_count, locked_until, token_version, ...rest } = u;
     return rest;
 }
 
@@ -244,6 +254,12 @@ async function requireAuth(req, res, next) {
         const dbUser = rows[0];
         if (!dbUser) return res.status(401).json({ error: 'Tài khoản không tồn tại.' });
         if (!dbUser.active) return res.status(401).json({ error: 'Tài khoản đã bị khóa, vui lòng liên hệ quản trị viên.' });
+        // Token mang theo "phiên bản" tại thời điểm đăng nhập — nếu mật khẩu đã
+        // bị đổi sau đó (token_version tăng lên), token cũ (kể cả chưa hết hạn
+        // 8h, kể cả bị đánh cắp trước khi đổi mật khẩu) lập tức bị từ chối.
+        if ((payload.v || 1) !== (dbUser.token_version || 1)) {
+            return res.status(401).json({ error: 'Phiên đăng nhập đã hết hiệu lực do mật khẩu vừa được thay đổi, vui lòng đăng nhập lại.' });
+        }
 
         req.user = dbUser;
         req.user.perms = typeof dbUser.perms === 'string' ? JSON.parse(dbUser.perms || '{}') : (dbUser.perms || {});
@@ -297,6 +313,31 @@ const apiLimiter = rateLimit({
     legacyHeaders: false
 });
 app.use('/api', apiLimiter);
+
+// Giới hạn chặt hơn cho các endpoint tốn tài nguyên hoặc dễ bị lạm dụng để
+// phình dữ liệu/CPU dù đã đăng nhập hợp lệ — apiLimiter dùng chung 6000
+// req/15 phút/IP quá rộng để chặn riêng các trường hợp này.
+const logsWriteLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 500,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Ghi nhật ký quá nhiều lần trong thời gian ngắn, vui lòng thử lại sau.' }
+});
+const captchaLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 120,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Yêu cầu mã xác nhận quá nhiều lần, vui lòng thử lại sau ít phút.' }
+});
+const uploadLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 200,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Tải lên quá nhiều lần trong thời gian ngắn, vui lòng thử lại sau.' }
+});
 
 // --- ĐĂNG NHẬP QUA LDAP / ACTIVE DIRECTORY (tùy chọn, cấu hình trong Quản trị) ---
 // Chỉ dùng kiểu "Direct Bind": ghép username với domain (UPN dạng
@@ -430,7 +471,25 @@ async function ldapSyncAccounts() {
             updated++;
         }
     }
-    return { total: entries.length, created, updated };
+
+    // Trước đây chỉ INSERT/UPDATE các tài khoản còn xuất hiện trong kết quả
+    // tìm kiếm AD lần này — không đối chiếu để phát hiện tài khoản đã bị XÓA
+    // HẲN khỏi AD (không chỉ disable). Báo cáo "Kiểm soát" dùng đúng bảng này
+    // để cảnh báo nhân viên nghỉ việc còn giữ license (điều kiện active=0) —
+    // nếu IT xóa hẳn tài khoản AD thay vì disable, dòng ad_accounts tương ứng
+    // giữ active=1 mãi mãi, cảnh báo kiểm soát sẽ bỏ sót trường hợp này. Đánh
+    // dấu inactive các tài khoản có last_synced_at CŨ HƠN lần đồng bộ này.
+    const syncedUsernames = new Set(entries.map(e => String(e.sAMAccountName || '').trim()).filter(Boolean));
+    const removedUsernames = existingRows.filter(r => r.active && !syncedUsernames.has(r.username)).map(r => r.username);
+    let removed = 0;
+    if (removedUsernames.length > 0) {
+        await pool.query(
+            `UPDATE ad_accounts SET active = FALSE, disabled_at = ?, last_synced_at = ? WHERE username IN (${removedUsernames.map(() => '?').join(',')})`,
+            [today, nowIso, ...removedUsernames]
+        );
+        removed = removedUsernames.length;
+    }
+    return { total: entries.length, created, updated, removed };
 }
 
 async function getAdLastSyncAt() {
@@ -539,13 +598,16 @@ async function runExpiryReminderCheck() {
     const thresholds = [...new Set([...reminderConfig.daysBeforeList, 0])];
 
     const [items] = await pool.query(
-        'SELECT i.*, c.name AS category_name FROM it_items i JOIN it_categories c ON c.id = i.category_id WHERE i.active = 1'
+        'SELECT i.*, c.name AS category_name FROM it_items i JOIN it_categories c ON c.id = i.category_id WHERE i.active = 1 AND i.deleted_at IS NULL'
     );
     const [allUsers] = await pool.query('SELECT id, email, active, perms FROM users');
     const adminEmails = allUsers
         .filter(u => u.active && (typeof u.perms === 'string' ? JSON.parse(u.perms || '{}') : (u.perms || {})).admin)
         .map(u => u.email).filter(Boolean);
-    const emailById = new Map(allUsers.map(u => [u.id, u.email]));
+    // Chỉ lấy email của user còn active — trước đây lấy cả user đã bị khóa,
+    // khiến hệ thống tiếp tục gửi email nhắc hạn tới người phụ trách đã nghỉ
+    // việc/bị khóa tài khoản khi đầu mục chưa kịp đổi người phụ trách mới.
+    const emailById = new Map(allUsers.filter(u => u.active).map(u => [u.id, u.email]));
 
     const todayStr = fmtDate(new Date());
     let sentCount = 0;
@@ -553,12 +615,25 @@ async function runExpiryReminderCheck() {
         const expiryStr = fmtDate(item.expiry_date);
         const daysLeft = Math.round((new Date(`${expiryStr}T00:00:00`) - new Date(`${todayStr}T00:00:00`)) / 86400000);
         for (const daysBefore of thresholds) {
-            if (daysLeft !== daysBefore) continue;
-            const [existing] = await pool.query(
-                'SELECT id FROM it_reminder_sent WHERE item_id = ? AND expiry_date = ? AND days_before = ?',
-                [item.id, expiryStr, daysBefore]
+            // Trước đây chỉ khớp CHÍNH XÁC 1 ngày (daysLeft === daysBefore) — nếu
+            // server ngừng chạy (downtime) đúng vào ngày đó, hoặc cấu hình nhắc
+            // hẹn vừa được bật lại sau khi đã qua mốc, mốc đó KHÔNG BAO GIỜ được
+            // gửi lại (daysLeft chỉ giảm dần, không bao giờ bằng lại giá trị cũ).
+            // Đổi thành "còn <= daysBefore ngày" để tự động bắt kịp các mốc đã bị
+            // bỏ lỡ — bảng it_reminder_sent (khóa theo item+expiry+daysBefore) vẫn
+            // đảm bảo mỗi mốc chỉ gửi đúng 1 lần, không gửi lặp lại mỗi ngày.
+            if (daysLeft > daysBefore) continue;
+            // Giành "quyền gửi" TRƯỚC khi gửi email (không phải SELECT-rồi-gửi-
+            // rồi-mới-INSERT như trước) — INSERT IGNORE dựa vào UNIQUE KEY
+            // (item_id, expiry_date, days_before) nên atomic ở tầng CSDL: nếu 2
+            // lượt quét chạy gần như đồng thời (nút "Kiểm tra ngay" + job lịch
+            // trùng giờ), chỉ đúng 1 lượt insert thành công (affectedRows=1) và
+            // được phép gửi — tránh gửi trùng email nhắc hạn cho cùng 1 mốc.
+            const [claim] = await pool.query(
+                'INSERT IGNORE INTO it_reminder_sent (item_id, expiry_date, days_before, sent_at) VALUES (?, ?, ?, ?)',
+                [item.id, expiryStr, daysBefore, new Date().toISOString()]
             );
-            if (existing[0]) continue;
+            if (claim.affectedRows === 0) continue; // lượt quét khác đã giành và đang/đã gửi
 
             const recipients = new Set(adminEmails);
             if (item.owner_user_id && emailById.get(item.owner_user_id)) recipients.add(emailById.get(item.owner_user_id));
@@ -579,12 +654,6 @@ async function runExpiryReminderCheck() {
                 }
                 sentCount++;
             }
-            // Vẫn ghi nhận đã xử lý mốc này dù không có ai nhận (chưa gán người phụ
-            // trách và không có email Admin nào) — tránh quét lại y hệt mãi mãi.
-            await pool.query(
-                'INSERT INTO it_reminder_sent (item_id, expiry_date, days_before, sent_at) VALUES (?, ?, ?, ?)',
-                [item.id, expiryStr, daysBefore, new Date().toISOString()]
-            );
         }
     }
     return { checked: items.length, sent: sentCount };
@@ -694,7 +763,7 @@ async function renderCaptchaImage(code) {
     return img.getBuffer('image/png');
 }
 
-app.get('/api/auth/captcha', async (req, res) => {
+app.get('/api/auth/captcha', captchaLimiter, async (req, res) => {
     try {
         const code = String(crypto.randomInt(0, 10000)).padStart(4, '0');
         const token = jwt.sign({ captcha: code }, JWT_SECRET, { expiresIn: '5m' });
@@ -838,27 +907,54 @@ app.get('/api/users/ad-lookup', requireAuth, requireAdmin, async (req, res) => {
 // --- API CẬP NHẬT HỒ SƠ CÁ NHÂN (tự phục vụ, không cần quyền admin) ---
 app.post('/api/profile', requireAuth, async (req, res) => {
     try {
-        const { name, email, phone, newPassword } = req.body || {};
+        const { name, email, phone, currentPassword, newPassword } = req.body || {};
         if (!name || !email) {
             return res.status(400).json({ error: 'Họ tên và Email là bắt buộc.' });
+        }
+        if (String(name).length > 255 || String(email).length > 255 || (phone && String(phone).length > 50)) {
+            return res.status(400).json({ error: 'Họ tên/Email/Số điện thoại vượt quá độ dài cho phép.' });
+        }
+        if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email))) {
+            return res.status(400).json({ error: 'Email không đúng định dạng.' });
         }
         if (newPassword && newPassword.length < 6) {
             return res.status(400).json({ error: 'Mật khẩu mới phải có ít nhất 6 ký tự.' });
         }
 
         let passHash = req.user.pass;
+        let bumpTokenVersion = false;
         if (newPassword) {
+            // Bảo mật: bắt buộc xác thực lại mật khẩu HIỆN TẠI trước khi cho phép
+            // đặt mật khẩu mới — trước đây chỉ cần cookie phiên hợp lệ là đổi được
+            // ngay, nghĩa là 1 phiên bị đánh cắp tạm thời (XSS, thiết bị dùng
+            // chung) có thể tự đổi mật khẩu để chiếm tài khoản vĩnh viễn.
+            if (!currentPassword) {
+                return res.status(400).json({ error: 'Vui lòng nhập mật khẩu hiện tại để xác nhận đổi mật khẩu.' });
+            }
+            const currentOk = await bcrypt.compare(String(currentPassword), req.user.pass);
+            if (!currentOk) {
+                return res.status(401).json({ error: 'Mật khẩu hiện tại không chính xác.' });
+            }
             passHash = await bcrypt.hash(newPassword, 12);
+            bumpTokenVersion = true;
         }
 
         await pool.query(
-            'UPDATE users SET name = ?, email = ?, phone = ?, pass = ? WHERE id = ?',
+            `UPDATE users SET name = ?, email = ?, phone = ?, pass = ?${bumpTokenVersion ? ', token_version = token_version + 1' : ''} WHERE id = ?`,
             [name, email, phone || '', passHash, req.user.id]
         );
 
         const [rows] = await pool.query('SELECT * FROM users WHERE id = ?', [req.user.id]);
         const updated = rows[0];
         const perms = typeof updated.perms === 'string' ? JSON.parse(updated.perms || '{}') : updated.perms;
+        // Nếu vừa đổi mật khẩu (token_version tăng), token hiện tại của chính
+        // phiên này cũng đã bị token_version-check ở requireAuth làm mất hiệu
+        // lực ở request kế tiếp — ký lại token mới ngay để người dùng không bị
+        // tự đăng xuất ngay sau khi đổi mật khẩu của chính mình.
+        if (bumpTokenVersion) {
+            const freshToken = signToken(updated);
+            setAuthCookie(res, freshToken);
+        }
         res.json({ user: sanitizeUser({ ...updated, perms }) });
     } catch (err) {
         console.error('❌ Lỗi cập nhật hồ sơ:', err.message);
@@ -885,7 +981,13 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
         );
         const [workflows] = await pool.query('SELECT * FROM workflows');
         const [configs] = await pool.query('SELECT * FROM app_configs');
-        const [logs] = await pool.query('SELECT * FROM system_logs ORDER BY id DESC LIMIT 300');
+        // Bảo mật: Nhật ký hệ thống (IP, hành vi chi tiết của MỌI nhân sự khác,
+        // kể cả admin/license/ngân sách) trước đây trả cho bất kỳ user đã đăng
+        // nhập nào, không chỉ Admin. Chỉ truy vấn khi thật sự cần (admin) để
+        // vừa đúng phân quyền vừa đỡ tải 1 query không cần thiết cho user thường.
+        const logs = req.user.perms.admin
+            ? (await pool.query('SELECT * FROM system_logs ORDER BY id DESC LIMIT 300'))[0]
+            : [];
 
         let configMap = {};
         configs.forEach(c => configMap[c.config_key] = c.config_value);
@@ -1052,6 +1154,42 @@ app.get('/api/docs/:id/file', requireAuth, async (req, res) => {
         return res.status(404).json({ error: 'Tài liệu không có file đính kèm.' });
     } catch (err) {
         console.error('❌ Lỗi lấy nội dung file:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// Thông báo email cho người duyệt kế tiếp sau khi 1 bước duyệt hoàn tất.
+// Trước đây client chỉ console.log() giả lập rồi tự ghi log "đã gửi thành
+// công" — không hề gửi mail thật, trong khi hệ thống đã có sẵn cơ chế gửi
+// SMTP thật (sendRealEmail, dùng cho nhắc hạn CNTT). Người phụ trách được
+// server TỰ TÍNH LẠI từ trạng thái tài liệu + cấu hình quy trình hiện tại
+// trong CSDL — không nhận email/nội dung tuỳ ý từ client — để endpoint này
+// không thể bị lợi dụng làm công cụ gửi mail tuỳ ý tới bất kỳ địa chỉ nào.
+app.post('/api/docs/:id/notify-next-approver', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query('SELECT * FROM docs WHERE id = ? AND deleted_at IS NULL', [id]);
+        const doc = rows[0];
+        if (!doc || doc.status !== 'PENDING') return res.json({ success: true, notified: false });
+
+        const [cfgRows] = await pool.query("SELECT config_value FROM app_configs WHERE config_key = 'deptWorkflows'");
+        const deptWorkflows = cfgRows[0]
+            ? (typeof cfgRows[0].config_value === 'string' ? JSON.parse(cfgRows[0].config_value) : cfgRows[0].config_value)
+            : {};
+        const cfg = deptWorkflows[doc.dept];
+        const nextApproverUsername = cfg && cfg.approvers ? cfg.approvers[doc.current_step_order] : null;
+        if (!nextApproverUsername) return res.json({ success: true, notified: false });
+
+        const [userRows] = await pool.query('SELECT name, email, active FROM users WHERE username = ?', [nextApproverUsername]);
+        const nextUser = userRows[0];
+        if (!nextUser || !nextUser.active || !nextUser.email) return res.json({ success: true, notified: false });
+
+        const subject = `[DMS] Chuyển duyệt tài liệu: ${doc.code}`;
+        const html = `Tài liệu <b>${escapeHtmlServer(doc.title)}</b> (${escapeHtmlServer(doc.code)}) đã được thông qua bước trước và cần bạn duyệt bước tiếp theo.`;
+        const result = await sendRealEmail(nextUser.email, subject, html);
+        res.json({ success: true, notified: !!result.success });
+    } catch (err) {
+        console.error('❌ Lỗi gửi email thông báo duyệt tài liệu:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
@@ -1272,7 +1410,7 @@ const upload = multer({
     limits: { fileSize: MAX_PDF_SIZE_BYTES }
 });
 
-app.post('/api/docs/upload', requireAuth, (req, res, next) => {
+app.post('/api/docs/upload', requireAuth, uploadLimiter, (req, res, next) => {
     upload.array('files', 50)(req, res, (err) => {
         if (err) {
             if (err.code === 'LIMIT_FILE_SIZE') {
@@ -1638,21 +1776,46 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                         });
                     }
                 }
-                toUpsert.push([
-                    d.id, existing.code, existing.title, existing.ver, existing.dept, existing.cat, existing.summary,
-                    existing.file_name, existing.file_type, existing.file_data, existing.created_by, existing.creator_username,
-                    existing.created_at, d.workflowId, d.currentStepOrder, d.status, JSON.stringify(d.history || []),
-                    existing.doc_group_id, existing.version_no
-                ]);
+                toUpsert.push({
+                    id: d.id, currentStepOrder: d.currentStepOrder, status: d.status, historyJson: JSON.stringify(d.history || []),
+                    // Trạng thái mong đợi TẠI THỜI ĐIỂM đọc/validate ở trên — dùng để
+                    // khóa dòng và đối chiếu lại ngay trước khi ghi (xem transaction
+                    // bên dưới), chống 2 người duyệt/từ chối cùng 1 tài liệu gần như
+                    // đồng thời ghi đè mất lượt duyệt của nhau.
+                    expectedStatus: existing.status, expectedStepOrder: existing.current_step_order, expectedHistoryJson: JSON.stringify(existingHistory)
+                });
             }
 
-            for (const row of toUpsert) {
-                await pool.query(
-                    `INSERT INTO docs (id, code, title, ver, dept, cat, summary, file_name, file_type, file_data, created_by, creator_username, created_at, workflow_id, current_step_order, status, history, doc_group_id, version_no)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                     ON DUPLICATE KEY UPDATE current_step_order = VALUES(current_step_order), status = VALUES(status), history = VALUES(history)`,
-                    row
-                );
+            // Bảo mật/toàn vẹn dữ liệu: trước đây đọc toàn bộ docs 1 lần rồi ghi
+            // bằng INSERT...ON DUPLICATE KEY UPDATE không transaction, không khóa
+            // dòng — 2 request duyệt/từ chối gần như đồng thời cùng đọc y hệt
+            // trạng thái PENDING gốc trước khi cái nào ghi trước, khiến request ghi
+            // sau âm thầm ghi đè mất lượt duyệt của request ghi trước (cả 2 đều
+            // nhận phản hồi "thành công"). Nay khóa từng dòng (FOR UPDATE) và đối
+            // chiếu lại đúng trạng thái đã validate trước khi ghi — nếu đã đổi
+            // (do 1 request khác vừa ghi trước), từ chối rõ ràng thay vì ghi đè.
+            const docsConn = await pool.getConnection();
+            try {
+                await docsConn.beginTransaction();
+                for (const item of toUpsert) {
+                    const [lockRows] = await docsConn.query('SELECT code, status, current_step_order, history FROM docs WHERE id = ? FOR UPDATE', [item.id]);
+                    const locked = lockRows[0];
+                    const lockedHistoryJson = JSON.stringify(typeof locked.history === 'string' ? JSON.parse(locked.history || '[]') : (locked.history || []));
+                    if (!locked || locked.status !== item.expectedStatus || locked.current_step_order !== item.expectedStepOrder || lockedHistoryJson !== item.expectedHistoryJson) {
+                        await docsConn.rollback();
+                        return res.status(409).json({ error: `Tài liệu [${locked ? locked.code : item.id}] vừa được xử lý bởi người khác, vui lòng tải lại trang và thử lại.` });
+                    }
+                    await docsConn.query(
+                        'UPDATE docs SET current_step_order = ?, status = ?, history = ? WHERE id = ?',
+                        [item.currentStepOrder, item.status, item.historyJson, item.id]
+                    );
+                }
+                await docsConn.commit();
+            } catch (e) {
+                await docsConn.rollback();
+                throw e;
+            } finally {
+                docsConn.release();
             }
             for (const ov of adminWorkflowOverrides) {
                 await writeAuditLog({
@@ -1664,33 +1827,65 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
         } else if (table === 'users') {
             // Bảo mật: mật khẩu không bao giờ được client gửi dạng đã biết trước (bootstrap không trả field `pass`).
             // Nếu client không gửi mật khẩu mới (trống) cho một user đã tồn tại, giữ nguyên hash cũ trong DB.
-            const [existingRows] = await pool.query('SELECT username, pass FROM users');
+            const [existingRows] = await pool.query('SELECT username, pass, token_version FROM users');
             const existingPassMap = {};
-            existingRows.forEach(r => existingPassMap[r.username] = r.pass);
+            const existingTokenVersionMap = {};
+            existingRows.forEach(r => { existingPassMap[r.username] = r.pass; existingTokenVersionMap[r.username] = r.token_version || 1; });
+            const [deptRows] = await pool.query('SELECT name FROM depts');
+            const validDeptNames = new Set(deptRows.map(d => d.name));
 
             const rowsToInsert = [];
             for (let u of data) {
+                const username = String(u.username || '').trim();
+                const name = String(u.name || '').trim();
+                const email = String(u.email || '').trim();
+                const phone = String(u.phone || '').trim();
+                // Xác thực input: trước đây khối này không kiểm tra định dạng/độ dài
+                // gì cả (khác hẳn khối depts/cats bên dưới) — dữ liệu rác có thể lưu
+                // thẳng vào CSDL, hoặc vượt độ dài cột gây lỗi 500 khó hiểu.
+                if (!LDAP_USERNAME_RE.test(username)) {
+                    return res.status(400).json({ error: `Tên đăng nhập [${username || u.username}] không hợp lệ (chỉ chữ/số không dấu, dấu chấm/gạch dưới/gạch ngang, tối đa 100 ký tự).` });
+                }
+                if (!name || name.length > 255) {
+                    return res.status(400).json({ error: `Họ tên cho user [${username}] không được để trống và tối đa 255 ký tự.` });
+                }
+                if (email && (!EMAIL_RE.test(email) || email.length > 255)) {
+                    return res.status(400).json({ error: `Email [${email}] cho user [${username}] không hợp lệ.` });
+                }
+                if (phone.length > 50) {
+                    return res.status(400).json({ error: `Số điện thoại cho user [${username}] quá dài (tối đa 50 ký tự).` });
+                }
+                if (u.dept && !validDeptNames.has(u.dept)) {
+                    return res.status(400).json({ error: `Phòng ban [${u.dept}] của user [${username}] không tồn tại.` });
+                }
+
                 let passHash;
+                let tokenVersion = existingTokenVersionMap[username] || 1;
                 if (u.pass && String(u.pass).trim()) {
                     if (String(u.pass).trim().length < 6) {
-                        return res.status(400).json({ error: `Mật khẩu cho user [${u.username}] phải có ít nhất 6 ký tự.` });
+                        return res.status(400).json({ error: `Mật khẩu cho user [${username}] phải có ít nhất 6 ký tự.` });
                     }
                     passHash = await bcrypt.hash(String(u.pass).trim(), 12);
-                } else if (existingPassMap[u.username]) {
-                    passHash = existingPassMap[u.username];
+                    // Admin đặt lại mật khẩu cho user khác — vô hiệu hóa mọi phiên đăng
+                    // nhập cũ của user đó ngay (giống hệt lý do khi tự đổi mật khẩu ở
+                    // /api/profile), tránh 1 phiên bị đánh cắp tiếp tục dùng được token
+                    // cũ sau khi Admin đã chủ động đặt lại mật khẩu.
+                    if (existingPassMap[username] !== undefined) tokenVersion += 1;
+                } else if (existingPassMap[username] !== undefined) {
+                    passHash = existingPassMap[username];
                 } else {
-                    return res.status(400).json({ error: `Thiếu mật khẩu cho tài khoản mới: ${u.username}` });
+                    return res.status(400).json({ error: `Thiếu mật khẩu cho tài khoản mới: ${username}` });
                 }
 
                 const active = u.active !== false;
-                if (!active && u.username === 'admin') {
+                if (!active && username === 'admin') {
                     return res.status(400).json({ error: 'Không thể khóa tài khoản Admin gốc!' });
                 }
                 if (!active && String(u.id) === String(req.user.id)) {
                     return res.status(400).json({ error: 'Không thể tự khóa chính tài khoản đang đăng nhập!' });
                 }
 
-                rowsToInsert.push([u.id, u.username, passHash, u.name, u.email, u.phone, u.dept, JSON.stringify(u.perms || {}), active]);
+                rowsToInsert.push([u.id, username, passHash, name, email, phone, u.dept, JSON.stringify(u.perms || {}), active, tokenVersion]);
             }
 
             // Bảo mật: bảng users bị xóa-chèn-lại toàn bộ (không có id ổn định phía
@@ -1715,7 +1910,7 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                 await usersConn.query('DELETE FROM users');
                 for (let row of rowsToInsert) {
                     await usersConn.query(
-                        'INSERT INTO users (id, username, pass, name, email, phone, dept, perms, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        'INSERT INTO users (id, username, pass, name, email, phone, dept, perms, active, token_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                         row
                     );
                 }
@@ -1766,8 +1961,46 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
             }
 
             const keptIds = new Set(toUpdate.map(u => String(u.id)));
-            const toDeleteIds = existingRows.filter(r => !keptIds.has(String(r.id))).map(r => r.id);
+            const toDelete = existingRows.filter(r => !keptIds.has(String(r.id)));
+            const toDeleteIds = toDelete.map(r => r.id);
             const renames = toUpdate.filter(u => u.oldName !== u.name);
+
+            // Bảo mật/toàn vẹn dữ liệu: trước đây xóa thẳng ngay khi 1 dòng bị bỏ
+            // khỏi payload, không kiểm tra còn tài liệu/người dùng/quy trình nào
+            // đang tham chiếu tên đó hay không — xóa nhầm để lại tài liệu/quyền
+            // "mồ côi" theo 1 tên phòng ban/phân loại không còn tồn tại.
+            if (toDelete.length > 0) {
+                const toDeleteNames = toDelete.map(r => r.name);
+                const namePlaceholders = toDeleteNames.map(() => '?').join(',');
+                const docsColumn = table === 'depts' ? 'dept' : 'cat';
+                const [refDocs] = await pool.query(`SELECT DISTINCT ${docsColumn} AS name FROM docs WHERE ${docsColumn} IN (${namePlaceholders}) AND deleted_at IS NULL`, toDeleteNames);
+                if (refDocs.length > 0) {
+                    return res.status(400).json({ error: `Không thể xóa ${label} [${refDocs.map(r => r.name).join(', ')}] vì vẫn còn tài liệu đang thuộc ${label} này.` });
+                }
+                if (table === 'depts') {
+                    const [refUsers] = await pool.query(`SELECT DISTINCT dept AS name FROM users WHERE dept IN (${namePlaceholders})`, toDeleteNames);
+                    if (refUsers.length > 0) {
+                        return res.status(400).json({ error: `Không thể xóa phòng ban [${refUsers.map(r => r.name).join(', ')}] vì vẫn còn người dùng thuộc phòng ban này.` });
+                    }
+                    const [allUserRows] = await pool.query('SELECT username, perms FROM users');
+                    const deleteNameSet = new Set(toDeleteNames);
+                    const permReferenced = allUserRows.some(u => {
+                        const perms = typeof u.perms === 'string' ? JSON.parse(u.perms || '{}') : (u.perms || {});
+                        return ['uploadDepts', 'viewDraftDepts', 'viewApprovedDepts', 'downloadDepts'].some(key =>
+                            Array.isArray(perms[key]) && perms[key].some(d => deleteNameSet.has(d))
+                        );
+                    });
+                    if (permReferenced) {
+                        return res.status(400).json({ error: `Không thể xóa phòng ban [${toDeleteNames.join(', ')}] vì vẫn đang được gán trong phân quyền của người dùng nào đó.` });
+                    }
+                    const [cfgRows] = await pool.query("SELECT config_value FROM app_configs WHERE config_key = 'deptWorkflows'");
+                    const deptWorkflows = cfgRows[0] ? (typeof cfgRows[0].config_value === 'string' ? JSON.parse(cfgRows[0].config_value) : cfgRows[0].config_value) : {};
+                    const wfReferenced = toDeleteNames.some(n => Object.prototype.hasOwnProperty.call(deptWorkflows || {}, n));
+                    if (wfReferenced) {
+                        return res.status(400).json({ error: `Không thể xóa phòng ban [${toDeleteNames.join(', ')}] vì vẫn đang được gán quy trình duyệt.` });
+                    }
+                }
+            }
 
             const conn = await pool.getConnection();
             try {
@@ -1910,7 +2143,7 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
 // nhầm là "xoá bớt" chỉ vì client chỉ giữ 300 log gần nhất trong bộ nhớ.
 // Danh tính (username/fullName) và IP do server tự xác định từ phiên đăng
 // nhập thật, không tin giá trị client gửi lên — dùng lại writeAuditLog().
-app.post('/api/logs', requireAuth, async (req, res) => {
+app.post('/api/logs', requireAuth, logsWriteLimiter, async (req, res) => {
     try {
         const module = String((req.body && req.body.module) || '').trim();
         const actionType = String((req.body && req.body.actionType) || '').trim();
@@ -1919,6 +2152,11 @@ app.post('/api/logs', requireAuth, async (req, res) => {
         const targetObject = String((req.body && req.body.targetObject) || '').trim();
         if (!module || !actionType || !description) {
             return res.status(400).json({ error: 'Thiếu thông tin bắt buộc (module/actionType/description) để ghi log.' });
+        }
+        // Trước đây không giới hạn độ dài các trường client tự gửi — cho phép
+        // 1 user thường (không chỉ admin) ghi log nội dung tùy ý dài tùy thích.
+        if (module.length > 50 || actionType.length > 100 || description.length > 500 || targetObject.length > 255 || status.length > 50) {
+            return res.status(400).json({ error: 'Nội dung ghi log vượt quá độ dài cho phép.' });
         }
         await writeAuditLog({ module, actionType, targetObject, description, status, username: req.user.username, fullName: req.user.name, ip: req.ip });
         res.json({ success: true });
@@ -2271,7 +2509,18 @@ app.get('/api/license/portal/bootstrap', requireAuth, async (req, res) => {
 // Bản quyền). Chỉ đọc, không có tham số lọc phức tạp ở bản đầu tiên này.
 app.get('/api/reports/docs', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT dept, status, created_at, history FROM docs WHERE deleted_at IS NULL');
+        const [allRows] = await pool.query('SELECT dept, status, created_at, history, doc_group_id, version_no FROM docs WHERE deleted_at IS NULL');
+        // Tài liệu hỗ trợ nhiều phiên bản cùng doc_group_id (nộp lại/tạo version
+        // mới không xóa/đổi trạng thái bản cũ) — trước đây tổng hợp báo cáo trên
+        // TOÀN BỘ các dòng, đếm trùng nhiều lần cho cùng 1 tài liệu có nhiều
+        // version. Chỉ giữ đúng 1 dòng (bản mới nhất) cho mỗi doc_group_id.
+        const latestByGroup = new Map();
+        for (const d of allRows) {
+            const key = d.doc_group_id;
+            const existing = latestByGroup.get(key);
+            if (!existing || (d.version_no || 0) > (existing.version_no || 0)) latestByGroup.set(key, d);
+        }
+        const rows = [...latestByGroup.values()];
         const totals = { total: rows.length, pending: 0, approved: 0, rejected: 0 };
         const byDeptMap = new Map();
         // Thời gian "nằm ở bước X" = khoảng cách từ mốc trước đó (ngày tạo hoặc
@@ -2311,7 +2560,19 @@ app.get('/api/reports/docs', requireAuth, requireAdmin, async (req, res) => {
     }
 });
 
-app.get('/api/reports/license', requireAuth, requireAdmin, async (req, res) => {
+// Trước đây chỉ Admin xem được báo cáo này — trong khi Người quản lý License
+// và Người quản lý Ngân sách (đã có toàn quyền tạo/duyệt dữ liệu License/
+// Ngân sách qua requireLicenseOrAdmin/requireBudgetOrAdmin ở các route khác)
+// lại không xem được chính báo cáo tổng hợp của module mình phụ trách, phải
+// nhờ Admin xem hộ.
+function requireLicenseOrBudgetOrAdmin(req, res, next) {
+    const perms = req.user && req.user.perms;
+    if (!perms || (!perms.admin && !perms.licenseManager && !perms.budgetManager)) {
+        return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên, Người quản lý License hoặc Người quản lý Ngân sách.' });
+    }
+    next();
+}
+app.get('/api/reports/license', requireAuth, requireLicenseOrBudgetOrAdmin, async (req, res) => {
     try {
         const [[{ totalCodes }]] = await pool.query('SELECT COUNT(*) AS totalCodes FROM lic_license_codes');
         const [[{ assignedCodes }]] = await pool.query('SELECT COUNT(DISTINCT code_id) AS assignedCodes FROM lic_license_code_assignments');
@@ -2334,13 +2595,17 @@ app.get('/api/reports/license', requireAuth, requireAdmin, async (req, res) => {
         const [latestRoundRows] = await pool.query('SELECT id, name FROM lic_budget_rounds ORDER BY id DESC LIMIT 1');
         let budgetVsUsage = [];
         if (latestRoundRows[0]) {
+            // Chỉ tính dự trù ĐÃ DUYỆT — trước đây không lọc status, cộng cả
+            // PENDING/REJECTED vào cột "Dự trù mới", sai lệch so với 2 khối tổng
+            // hợp khác cùng endpoint (budgetItemComparison, budgetCapexOpexSummary)
+            // vốn đều chỉ tính APPROVED.
             const [regRows] = await pool.query(
                 `SELECT r.current_quantity, r.requested_quantity, u.name AS unitName, COALESCE(sw.name, bi.item_name) AS softwareName
                  FROM lic_budget_registrations r
                  JOIN lic_org_units u ON u.id = r.org_unit_id
                  JOIN lic_budget_round_items bi ON bi.id = r.round_item_id
                  LEFT JOIN lic_software_catalog sw ON sw.id = bi.software_id
-                 WHERE r.round_id = ? ORDER BY r.id`,
+                 WHERE r.round_id = ? AND r.status = 'APPROVED' ORDER BY r.id`,
                 [latestRoundRows[0].id]
             );
             budgetVsUsage = regRows.map(r => ({ unitName: r.unitName, softwareName: r.softwareName, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity }));
@@ -2586,8 +2851,21 @@ app.post('/api/license/employees', requireAuth, requireLicenseOrAdmin, async (re
         const email = String((req.body && req.body.email) || '').trim();
         if (!orgUnitId) return res.status(400).json({ error: 'Vui lòng chọn Đơn vị.' });
         if (!fullName) return res.status(400).json({ error: 'Họ và tên không được để trống.' });
-        const [unitRows] = await pool.query('SELECT id FROM lic_org_units WHERE id = ?', [orgUnitId]);
+        const [unitRows] = await pool.query('SELECT id, company_id FROM lic_org_units WHERE id = ?', [orgUnitId]);
         if (!unitRows[0]) return res.status(400).json({ error: 'Đơn vị không tồn tại.' });
+        // Import CSV (employees/import) coi (company_id, employee_code) là khóa
+        // định danh để quyết định cập nhật hay tạo mới — nếu thêm tay 1 nhân
+        // viên trùng mã với nhân viên đã có trong cùng công ty (khác dòng), lần
+        // import CSV sau đó sẽ chỉ khớp được 1 trong 2 bản ghi, bản ghi còn lại
+        // "mồ côi" khỏi mọi lần cập nhật CSV về sau. Chặn ngay từ khi thêm tay.
+        if (employeeCode) {
+            const [dupRows] = await pool.query(
+                `SELECT e.id FROM lic_employees e JOIN lic_org_units u ON u.id = e.org_unit_id
+                 WHERE u.company_id = ? AND e.employee_code = ?`,
+                [unitRows[0].company_id, employeeCode]
+            );
+            if (dupRows.length > 0) return res.status(400).json({ error: `Mã nhân viên [${employeeCode}] đã tồn tại trong công ty này.` });
+        }
         const [result] = await pool.query(
             'INSERT INTO lic_employees (org_unit_id, full_name, title, employee_code, email, active) VALUES (?, ?, ?, ?, ?, TRUE)',
             [orgUnitId, fullName, title || null, employeeCode || null, email || null]
@@ -2610,8 +2888,16 @@ app.put('/api/license/employees/:id', requireAuth, requireLicenseOrAdmin, async 
         const email = String((req.body && req.body.email) || '').trim();
         if (!orgUnitId) return res.status(400).json({ error: 'Vui lòng chọn Đơn vị.' });
         if (!fullName) return res.status(400).json({ error: 'Họ và tên không được để trống.' });
-        const [unitRows] = await pool.query('SELECT id FROM lic_org_units WHERE id = ?', [orgUnitId]);
+        const [unitRows] = await pool.query('SELECT id, company_id FROM lic_org_units WHERE id = ?', [orgUnitId]);
         if (!unitRows[0]) return res.status(400).json({ error: 'Đơn vị không tồn tại.' });
+        if (employeeCode) {
+            const [dupRows] = await pool.query(
+                `SELECT e.id FROM lic_employees e JOIN lic_org_units u ON u.id = e.org_unit_id
+                 WHERE u.company_id = ? AND e.employee_code = ? AND e.id != ?`,
+                [unitRows[0].company_id, employeeCode, id]
+            );
+            if (dupRows.length > 0) return res.status(400).json({ error: `Mã nhân viên [${employeeCode}] đã tồn tại trong công ty này.` });
+        }
         const [result] = await pool.query(
             'UPDATE lic_employees SET org_unit_id = ?, full_name = ?, title = ?, employee_code = ?, email = ? WHERE id = ?',
             [orgUnitId, fullName, title || null, employeeCode || null, email || null, id]
@@ -2877,6 +3163,14 @@ app.post('/api/license/batches', requireAuth, requireLicenseOrAdmin, async (req,
             // bị loại ra (giữ nguyên hạn cũ) nếu không đủ chỗ trong tổng số lượng mới.
             // Với Kỳ mua mới (NEW) danh sách này chỉ để tính total_quantity báo cáo —
             // không dùng để tính toGenerate hay để gia hạn.
+            // Khóa dòng chính (FOR UPDATE) TRƯỚC bằng câu SELECT không GROUP BY —
+            // MariaDB không cho `FOR UPDATE` cùng `GROUP BY`/hàm tổng hợp. Chỉ
+            // khóa registration_id (đăng ký #x) là chưa đủ — 2 đăng ký KHÁC NHAU
+            // cùng company+software phát hành gần như đồng thời vẫn có thể cùng
+            // đọc y hệt existingCount cũ trước khi bên nào ghi mã mới, tính sai
+            // toGenerate/renewedCount (sinh dư mã hoặc ghi total_quantity lệch
+            // thực tế). Khóa toàn bộ tập mã của company+software này lại.
+            await conn.query('SELECT id FROM lic_license_codes WHERE company_id = ? AND software_id = ? FOR UPDATE', [companyId, softwareId]);
             const [existingCodesRaw] = await conn.query(
                 `SELECT c.id, COUNT(a.id) AS assign_count
                  FROM lic_license_codes c LEFT JOIN lic_license_code_assignments a ON a.code_id = c.id
@@ -2948,22 +3242,47 @@ app.delete('/api/license/batches/:id', requireAuth, requireLicenseOrAdmin, async
         const { id } = req.params;
         const [rows] = await pool.query('SELECT * FROM lic_license_batches WHERE id = ?', [id]);
         if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy lượt phát hành.' });
-        const [assigned] = await pool.query(
-            'SELECT COUNT(*) AS cnt FROM lic_license_code_assignments a JOIN lic_license_codes c ON c.id = a.code_id WHERE c.batch_id = ?',
-            [id]
-        );
-        if (assigned[0].cnt > 0) return res.status(400).json({ error: 'Không thể xóa — lượt phát hành này đã sinh ra mã đang được phân bổ cho nhân viên. Hãy thu hồi hết trước.' });
-        await pool.query('DELETE FROM lic_license_codes WHERE batch_id = ?', [id]);
-        await pool.query('DELETE FROM lic_license_batches WHERE id = ?', [id]);
-        // Nếu lượt phát hành này gắn với 1 đăng ký mua (luồng mới bắt buộc theo
-        // registrationId), đưa đăng ký về lại APPROVED để Admin có thể phát hành
-        // lại (VD lỡ nhập sai số lượng/hạn) — không để đăng ký kẹt ở ISSUED mà
-        // lô phát hành tương ứng đã bị xóa.
-        if (rows[0].registration_id) {
-            await pool.query(
-                'UPDATE lic_purchase_registrations SET status = ?, issued_batch_id = NULL, issued_quantity = NULL, issued_at = NULL WHERE id = ? AND issued_batch_id = ?',
-                ['APPROVED', rows[0].registration_id, id]
-            );
+
+        // Race condition: trước đây kiểm tra "chưa có mã nào được gán" rồi mới
+        // xóa bằng 3 câu query rời rạc không transaction/khóa dòng — giữa lúc
+        // kiểm tra và lúc xóa, 1 request POST .../assign khác chạy song song có
+        // thể gán mã của batch này cho nhân viên; dữ liệu gán đó sẽ bị xóa theo
+        // mà không để lại dấu vết (mã "biến mất" khỏi tay nhân viên, không có
+        // audit log thu hồi). Nay khóa các mã của batch (FOR UPDATE) và re-check
+        // ngay trong cùng transaction trước khi xóa.
+        const conn = await pool.getConnection();
+        try {
+            await conn.beginTransaction();
+            const [codeIdRows] = await conn.query('SELECT id FROM lic_license_codes WHERE batch_id = ? FOR UPDATE', [id]);
+            const codeIds = codeIdRows.map(r => r.id);
+            if (codeIds.length > 0) {
+                const [assigned] = await conn.query(
+                    `SELECT COUNT(*) AS cnt FROM lic_license_code_assignments WHERE code_id IN (${codeIds.map(() => '?').join(',')})`,
+                    codeIds
+                );
+                if (assigned[0].cnt > 0) {
+                    await conn.rollback();
+                    return res.status(400).json({ error: 'Không thể xóa — lượt phát hành này đã sinh ra mã đang được phân bổ cho nhân viên. Hãy thu hồi hết trước.' });
+                }
+            }
+            await conn.query('DELETE FROM lic_license_codes WHERE batch_id = ?', [id]);
+            await conn.query('DELETE FROM lic_license_batches WHERE id = ?', [id]);
+            // Nếu lượt phát hành này gắn với 1 đăng ký mua (luồng mới bắt buộc theo
+            // registrationId), đưa đăng ký về lại APPROVED để Admin có thể phát hành
+            // lại (VD lỡ nhập sai số lượng/hạn) — không để đăng ký kẹt ở ISSUED mà
+            // lô phát hành tương ứng đã bị xóa.
+            if (rows[0].registration_id) {
+                await conn.query(
+                    'UPDATE lic_purchase_registrations SET status = ?, issued_batch_id = NULL, issued_quantity = NULL, issued_at = NULL WHERE id = ? AND issued_batch_id = ?',
+                    ['APPROVED', rows[0].registration_id, id]
+                );
+            }
+            await conn.commit();
+        } catch (e) {
+            await conn.rollback();
+            throw e;
+        } finally {
+            conn.release();
         }
         await writeAuditLog({ module: 'LICENSE', actionType: 'DELETE_BATCH', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `Lượt phát hành #${id}`, description: `Xóa lượt phát hành license #${id} (chưa có mã nào được phân bổ).` });
         res.json({ success: true });
@@ -2994,12 +3313,18 @@ async function assignLicenseCodeToEmployee(codeId, employeeId, issuedDate) {
     try {
         await conn.beginTransaction();
         const [codeRows] = await conn.query(
-            `SELECT c.id, c.code, c.company_id, s.max_assignees, s.allow_cross_company_share
+            `SELECT c.id, c.code, c.company_id, c.expiry_date, s.max_assignees, s.allow_cross_company_share
              FROM lic_license_codes c JOIN lic_software_catalog s ON s.id = c.software_id WHERE c.id = ? FOR UPDATE`,
             [codeId]
         );
         if (!codeRows[0]) { await conn.rollback(); return { error: 'Không tìm thấy mã license.' }; }
         const code = codeRows[0];
+        // Trước đây không kiểm tra hạn — có thể vô tình cấp 1 mã đã hết hạn cho
+        // nhân viên mà hệ thống không cảnh báo gì (kể cả duyệt yêu cầu hàng loạt).
+        if (code.expiry_date && fmtDate(code.expiry_date) < new Date().toISOString().slice(0, 10)) {
+            await conn.rollback();
+            return { error: `Mã license [${code.code}] đã hết hạn (${fmtDate(code.expiry_date)}), không thể cấp cho nhân viên.` };
+        }
 
         const [empRows] = await conn.query(
             'SELECT e.id, e.full_name, u.company_id FROM lic_employees e JOIN lic_org_units u ON u.id = e.org_unit_id WHERE e.id = ?',
@@ -3215,19 +3540,38 @@ app.post('/api/license/companies/:companyId/auto-allocate', requireAuth, require
         );
         const latestExpiryBySoftware = new Map(latestBatchRows.map(r => [r.software_id, fmtDate(r.expiry_date)]));
 
+        // Bọc transaction + khóa dòng — trước đây validate (đọc assignRows ở
+        // trên) và ghi (vòng lặp DELETE/UPDATE dưới đây) tách rời không
+        // transaction: 1 thao tác gán/thu hồi khác chạy song song giữa 2 bước
+        // này có thể khiến REVOKE xóa nhầm 1 bản ghi gán MỚI vừa được tạo lại
+        // cho đúng cặp (codeId, employeeId), hoặc RENEW ghi đè hạn lên 1 mã đã
+        // bị revoke. Re-check ngay trong transaction trước khi ghi từng dòng.
         let renewedCount = 0, revokedCount = 0;
-        for (const n of normalized) {
-            const code = codeById.get(n.codeId);
-            if (n.action === 'REVOKE') {
-                await pool.query('DELETE FROM lic_license_code_assignments WHERE code_id = ? AND employee_id = ?', [n.codeId, n.employeeId]);
-                revokedCount++;
-            } else {
-                const newExpiry = latestExpiryBySoftware.get(code.software_id);
-                if (newExpiry) {
-                    await pool.query('UPDATE lic_license_codes SET expiry_date = ? WHERE id = ?', [newExpiry, n.codeId]);
-                    renewedCount++;
+        const conn = await pool.getConnection();
+        try {
+            await conn.beginTransaction();
+            await conn.query(`SELECT id FROM lic_license_codes WHERE id IN (${codeIds.map(() => '?').join(',')}) FOR UPDATE`, codeIds);
+            for (const n of normalized) {
+                const code = codeById.get(n.codeId);
+                if (n.action === 'REVOKE') {
+                    const [delResult] = await conn.query('DELETE FROM lic_license_code_assignments WHERE code_id = ? AND employee_id = ?', [n.codeId, n.employeeId]);
+                    if (delResult.affectedRows > 0) revokedCount++;
+                } else {
+                    const [stillAssigned] = await conn.query('SELECT 1 FROM lic_license_code_assignments WHERE code_id = ? AND employee_id = ?', [n.codeId, n.employeeId]);
+                    if (stillAssigned.length === 0) continue; // đã bị thu hồi bởi thao tác khác giữa lúc validate và lúc ghi
+                    const newExpiry = latestExpiryBySoftware.get(code.software_id);
+                    if (newExpiry) {
+                        await conn.query('UPDATE lic_license_codes SET expiry_date = ? WHERE id = ?', [newExpiry, n.codeId]);
+                        renewedCount++;
+                    }
                 }
             }
+            await conn.commit();
+        } catch (e) {
+            await conn.rollback();
+            throw e;
+        } finally {
+            conn.release();
         }
 
         await writeAuditLog({ module: 'LICENSE', actionType: 'BULK_RENEW_REVOKE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `Công ty #${companyId}`, description: `Gia hạn/thu hồi hàng loạt: gia hạn ${renewedCount} mã, thu hồi ${revokedCount} mã.` });
@@ -3297,10 +3641,12 @@ app.post('/api/license/companies/:companyId/bulk-allocate', requireAuth, require
 
             // Mã còn slot trống của đúng công ty này (khóa dòng để tránh 2 lượt
             // cấp phát hàng loạt chạy đồng thời cùng giành 1 mã).
+            // Loại mã đã hết hạn khỏi danh sách slot còn trống — trước đây không
+            // lọc, có thể vô tình cấp phát hàng loạt 1 mã đã hết hạn.
             const [codesWithCount] = await conn.query(
                 `SELECT c.id, COUNT(a.id) AS assigned_count
                  FROM lic_license_codes c LEFT JOIN lic_license_code_assignments a ON a.code_id = c.id
-                 WHERE c.company_id = ? AND c.software_id = ?
+                 WHERE c.company_id = ? AND c.software_id = ? AND (c.expiry_date IS NULL OR c.expiry_date >= CURDATE())
                  GROUP BY c.id HAVING assigned_count < ?
                  ORDER BY c.id FOR UPDATE`,
                 [companyId, softwareId, software.max_assignees]
@@ -3448,10 +3794,14 @@ app.post('/api/license/bulk-allocation-requests/:id/reject', requireAuth, requir
         const [rows] = await pool.query('SELECT * FROM lic_bulk_allocation_requests WHERE id = ?', [id]);
         if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy yêu cầu.' });
         if (rows[0].status !== 'PENDING') return res.status(400).json({ error: 'Yêu cầu này đã được xử lý trước đó.' });
-        await pool.query(
-            'UPDATE lic_bulk_allocation_requests SET status = ?, approved_by = ?, approved_at = ?, reject_reason = ? WHERE id = ?',
+        // Khớp với guard đã có ở route approve (khóa dòng FOR UPDATE trong
+        // transaction) — reject đơn giản hơn (chỉ 1 UPDATE), dùng điều kiện
+        // `AND status = 'PENDING'` ngay trong câu UPDATE là đủ atomic.
+        const [upd] = await pool.query(
+            "UPDATE lic_bulk_allocation_requests SET status = ?, approved_by = ?, approved_at = ?, reject_reason = ? WHERE id = ? AND status = 'PENDING'",
             ['REJECTED', req.user.username, new Date().toISOString(), reason || null, id]
         );
+        if (upd.affectedRows === 0) return res.status(409).json({ error: 'Yêu cầu này vừa được xử lý bởi người khác, vui lòng tải lại trang.' });
         await writeAuditLog({ module: 'LICENSE', actionType: 'REJECT_BULK_ALLOC_REQUEST', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `Yêu cầu #${id}`, description: `Từ chối yêu cầu cấp phát hàng loạt #${id}.${reason ? ` Lý do: ${reason}` : ''}` });
         res.json({ success: true });
     } catch (err) {
@@ -3559,11 +3909,11 @@ app.post('/api/license/bulk-allocation-requests/:id/approve', requireAuth, requi
             });
 
             // Mã còn slot trống (khóa dòng để tránh race với lượt cấp phát khác
-            // chạy song song trên cùng công ty+phần mềm).
+            // chạy song song trên cùng công ty+phần mềm). Loại mã đã hết hạn.
             const [codesWithCount] = await conn.query(
                 `SELECT c.id, COUNT(a.id) AS assigned_count
                  FROM lic_license_codes c LEFT JOIN lic_license_code_assignments a ON a.code_id = c.id
-                 WHERE c.company_id = ? AND c.software_id = ?
+                 WHERE c.company_id = ? AND c.software_id = ? AND (c.expiry_date IS NULL OR c.expiry_date >= CURDATE())
                  GROUP BY c.id HAVING assigned_count < ?
                  ORDER BY c.id FOR UPDATE`,
                 [preRows[0].company_id, preRows[0].software_id, software.max_assignees]
@@ -3855,6 +4205,19 @@ app.post('/api/license/registrations', requireAuth, async (req, res) => {
             return res.status(400).json({ error: 'Có hạng mục phần mềm không thuộc kỳ mua này.' });
         }
 
+        // Chống double-submit (double-click, gửi 2 tab): không cho tạo đăng ký
+        // PENDING trùng (round_id, round_item_id, company_id) — trước đây không
+        // kiểm tra, 2 đăng ký PENDING trùng có thể bị Admin duyệt cả 2, làm tăng
+        // gấp đôi số lượng "đã duyệt" so với nhu cầu thật.
+        const [dupPendingRows] = await pool.query(
+            `SELECT round_item_id FROM lic_purchase_registrations
+             WHERE round_id = ? AND company_id = ? AND status = 'PENDING' AND round_item_id IN (${itemIds.map(() => '?').join(',')})`,
+            [roundId, companyId, ...itemIds]
+        );
+        if (dupPendingRows.length > 0) {
+            return res.status(400).json({ error: 'Công ty này đã có đăng ký đang chờ duyệt cho (các) phần mềm đã chọn trong kỳ mua này — vui lòng chờ xử lý xong trước khi tạo đăng ký mới.' });
+        }
+
         const softwareIds = itemRows.map(r => r.software_id);
         const [usageRows] = await pool.query(
             `SELECT software_id, COUNT(*) AS cnt FROM lic_license_codes WHERE company_id = ? AND software_id IN (${softwareIds.map(() => '?').join(',')}) GROUP BY software_id`,
@@ -3909,7 +4272,13 @@ app.post('/api/license/registrations/:id/approve', requireAuth, requireLicenseOr
         if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy đăng ký.' });
         if (rows[0].status !== 'PENDING') return res.status(400).json({ error: 'Đăng ký này đã được xử lý.' });
         if (rows[0].created_by && rows[0].created_by === req.user.username) return res.status(403).json({ error: 'Không thể tự duyệt đăng ký do chính mình tạo — cần một Admin/Người quản lý License khác duyệt.' });
-        await pool.query('UPDATE lic_purchase_registrations SET status = ?, decided_by = ?, decided_at = ? WHERE id = ?', ['APPROVED', req.user.username, new Date().toISOString(), id]);
+        // Race condition: trước đây chỉ SELECT-rồi-check-status-ở-JS rồi UPDATE
+        // không điều kiện — 2 request duyệt/từ chối gần như đồng thời cùng đọc
+        // PENDING trước khi cái nào ghi trước có thể ghi đè lẫn nhau. Thêm
+        // `AND status = 'PENDING'` vào chính câu UPDATE để chỉ request đến
+        // trước mới thắng, kiểm tra affectedRows để phát hiện request đến sau.
+        const [upd] = await pool.query("UPDATE lic_purchase_registrations SET status = ?, decided_by = ?, decided_at = ? WHERE id = ? AND status = 'PENDING'", ['APPROVED', req.user.username, new Date().toISOString(), id]);
+        if (upd.affectedRows === 0) return res.status(409).json({ error: 'Đăng ký này vừa được xử lý bởi người khác, vui lòng tải lại trang.' });
         await writeAuditLog({ module: 'LICENSE', actionType: 'APPROVE_REGISTRATION', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `Đăng ký #${id}`, description: `Duyệt đăng ký mua bản quyền #${id}.` });
         res.json({ success: true });
     } catch (err) {
@@ -3924,7 +4293,8 @@ app.post('/api/license/registrations/:id/reject', requireAuth, requireLicenseOrA
         const [rows] = await pool.query('SELECT * FROM lic_purchase_registrations WHERE id = ?', [id]);
         if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy đăng ký.' });
         if (rows[0].status !== 'PENDING') return res.status(400).json({ error: 'Đăng ký này đã được xử lý.' });
-        await pool.query('UPDATE lic_purchase_registrations SET status = ?, decided_by = ?, decided_at = ? WHERE id = ?', ['REJECTED', req.user.username, new Date().toISOString(), id]);
+        const [upd] = await pool.query("UPDATE lic_purchase_registrations SET status = ?, decided_by = ?, decided_at = ? WHERE id = ? AND status = 'PENDING'", ['REJECTED', req.user.username, new Date().toISOString(), id]);
+        if (upd.affectedRows === 0) return res.status(409).json({ error: 'Đăng ký này vừa được xử lý bởi người khác, vui lòng tải lại trang.' });
         await writeAuditLog({ module: 'LICENSE', actionType: 'REJECT_REGISTRATION', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `Đăng ký #${id}`, description: `Từ chối đăng ký mua bản quyền #${id}.` });
         res.json({ success: true });
     } catch (err) {
@@ -4037,10 +4407,20 @@ app.post('/api/license/budget-rounds/:id/items', requireAuth, requireLicenseOrAd
             if (dupRows[0]) return res.status(400).json({ error: 'Hạng mục này đã có trong kỳ ngân sách.' });
         }
 
-        const [result] = await pool.query(
-            'INSERT INTO lic_budget_round_items (round_id, software_id, item_type, item_name, catalog_item_id, capex_opex, unit_price, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [id, normalized.softwareId, normalized.itemType, null, normalized.catalogItemId, normalized.capexOpex, normalized.unitPrice, normalized.description]
-        );
+        // Race condition: cột dedup_key + UNIQUE KEY (xem schema.sql) là chốt
+        // chặn cuối cùng cấp CSDL — kiểm tra dupRows ở trên chỉ là kiểm tra sớm
+        // để trả lỗi thân thiện trong trường hợp thường gặp (không đồng thời).
+        const dedupKey = `${normalized.itemType}:${normalized.itemType === 'SOFTWARE' ? normalized.softwareId : 'cat' + normalized.catalogItemId}`;
+        let result;
+        try {
+            [result] = await pool.query(
+                'INSERT INTO lic_budget_round_items (round_id, software_id, item_type, item_name, catalog_item_id, capex_opex, unit_price, description, dedup_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [id, normalized.softwareId, normalized.itemType, null, normalized.catalogItemId, normalized.capexOpex, normalized.unitPrice, normalized.description, dedupKey]
+            );
+        } catch (e) {
+            if (e.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: `Hạng mục [${itemLabel}] đã có trong kỳ ngân sách.` });
+            throw e;
+        }
         await writeAuditLog({ module: 'LICENSE', actionType: 'ADD_BUDGET_ROUND_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: itemLabel, description: `Thêm hạng mục [${itemLabel}] (${normalized.itemType}/${normalized.capexOpex}) vào kỳ ngân sách #${id}, đơn giá ${normalized.unitPrice}.` });
         res.json({ success: true, id: result.insertId });
     } catch (err) {
@@ -4147,6 +4527,16 @@ app.post('/api/license/budget-registrations', requireAuth, async (req, res) => {
             return res.status(400).json({ error: 'Có hạng mục không thuộc kỳ ngân sách này.' });
         }
 
+        // Chống double-submit — cùng lý do như /api/license/registrations ở trên.
+        const [dupPendingRows] = await pool.query(
+            `SELECT round_item_id FROM lic_budget_registrations
+             WHERE round_id = ? AND org_unit_id = ? AND status = 'PENDING' AND round_item_id IN (${itemIds.map(() => '?').join(',')})`,
+            [roundId, orgUnitId, ...itemIds]
+        );
+        if (dupPendingRows.length > 0) {
+            return res.status(400).json({ error: 'Đơn vị này đã có dự trù đang chờ duyệt cho (các) hạng mục đã chọn trong kỳ ngân sách này — vui lòng chờ xử lý xong trước khi tạo mới.' });
+        }
+
         const subtreeIds = orgUnitSubtreeIds(allOrgUnits, orgUnitId);
         const softwareIds = itemRows.filter(r => r.item_type === 'SOFTWARE' && r.software_id).map(r => r.software_id);
         let usageBySoftware = new Map();
@@ -4190,7 +4580,8 @@ app.post('/api/license/budget-registrations/:id/approve', requireAuth, requireLi
         if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy dự trù.' });
         if (rows[0].status !== 'PENDING') return res.status(400).json({ error: 'Dự trù này đã được xử lý.' });
         if (rows[0].created_by && rows[0].created_by === req.user.username) return res.status(403).json({ error: 'Không thể tự duyệt dự trù do chính mình tạo — cần một Admin/Người quản lý License khác duyệt.' });
-        await pool.query('UPDATE lic_budget_registrations SET status = ?, decided_by = ?, decided_at = ? WHERE id = ?', ['APPROVED', req.user.username, new Date().toISOString(), id]);
+        const [upd] = await pool.query("UPDATE lic_budget_registrations SET status = ?, decided_by = ?, decided_at = ? WHERE id = ? AND status = 'PENDING'", ['APPROVED', req.user.username, new Date().toISOString(), id]);
+        if (upd.affectedRows === 0) return res.status(409).json({ error: 'Dự trù này vừa được xử lý bởi người khác, vui lòng tải lại trang.' });
         await writeAuditLog({ module: 'LICENSE', actionType: 'APPROVE_BUDGET_REGISTRATION', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `Dự trù #${id}`, description: `Duyệt dự trù ngân sách #${id}.` });
         res.json({ success: true });
     } catch (err) {
@@ -4205,7 +4596,8 @@ app.post('/api/license/budget-registrations/:id/reject', requireAuth, requireLic
         const [rows] = await pool.query('SELECT * FROM lic_budget_registrations WHERE id = ?', [id]);
         if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy dự trù.' });
         if (rows[0].status !== 'PENDING') return res.status(400).json({ error: 'Dự trù này đã được xử lý.' });
-        await pool.query('UPDATE lic_budget_registrations SET status = ?, decided_by = ?, decided_at = ? WHERE id = ?', ['REJECTED', req.user.username, new Date().toISOString(), id]);
+        const [upd] = await pool.query("UPDATE lic_budget_registrations SET status = ?, decided_by = ?, decided_at = ? WHERE id = ? AND status = 'PENDING'", ['REJECTED', req.user.username, new Date().toISOString(), id]);
+        if (upd.affectedRows === 0) return res.status(409).json({ error: 'Dự trù này vừa được xử lý bởi người khác, vui lòng tải lại trang.' });
         await writeAuditLog({ module: 'LICENSE', actionType: 'REJECT_BUDGET_REGISTRATION', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `Dự trù #${id}`, description: `Từ chối dự trù ngân sách #${id}.` });
         res.json({ success: true });
     } catch (err) {
@@ -4268,13 +4660,21 @@ app.delete('/api/license/budget-actuals/:id', requireAuth, requireLicenseOrAdmin
 // Client chỉ parse CSV thành mảng dòng thô rồi gửi lên — server tự validate
 // và tạo dữ liệu hoàn toàn, không tin cấu trúc/quan hệ do client suy luận sẵn.
 app.post('/api/license/org-units/import', requireAuth, requireLicenseOrAdmin, async (req, res) => {
+    // Toàn bộ import chạy trong 1 transaction — trước đây mỗi dòng insert
+    // được await riêng lẻ ngoài transaction; lỗi DB thật giữa chừng file lớn
+    // (mất kết nối, trùng khóa ngoài dự kiến) để lại công ty/đơn vị đã tạo
+    // trước đó nằm lại trong CSDL trong khi Admin chỉ nhận lỗi 500 chung
+    // chung, không biết đã nhập bao nhiêu, dễ import lại gây trùng lặp.
+    let conn;
     try {
         const rows = Array.isArray(req.body && req.body.rows) ? req.body.rows.slice(0, 2000) : [];
         if (rows.length === 0) return res.status(400).json({ error: 'File không có dữ liệu hợp lệ.' });
 
-        const [existingCompanies] = await pool.query('SELECT * FROM lic_companies');
+        conn = await pool.getConnection();
+        await conn.beginTransaction();
+        const [existingCompanies] = await conn.query('SELECT * FROM lic_companies');
         const companyByCode = new Map(existingCompanies.map(c => [c.code, c]));
-        const [existingUnits] = await pool.query('SELECT * FROM lic_org_units');
+        const [existingUnits] = await conn.query('SELECT * FROM lic_org_units');
         // Key theo CẢ company + parent + tên — không chỉ company + tên — vì cây
         // tổ chức là N cấp, 2 đơn vị cùng tên nhưng khác nhánh cha (VD "Phòng Kế
         // Toán" ở Chi nhánh A và Chi nhánh B) là 2 đơn vị KHÁC NHAU, không phải
@@ -4291,9 +4691,14 @@ app.post('/api/license/org-units/import', requireAuth, requireLicenseOrAdmin, as
             const code = String(r.ma_cong_ty || '').trim().toUpperCase();
             const name = String(r.ten_cong_ty || '').trim();
             if (!code || !name) { errors.push(`Dòng ${i + 2}: thiếu mã hoặc tên công ty.`); continue; }
+            // Route tạo công ty thủ công (POST /api/license/companies) bắt buộc
+            // validCode(code, 20) — nhánh import này trước đây bỏ qua, cho phép
+            // mã công ty chứa dấu cách/ký tự đặc biệt/quá dài, phá vỡ định dạng
+            // "{mã công ty}-{mã phần mềm}-XXXXXX" dùng để sinh mã license.
+            if (!validCode(code, 20)) { errors.push(`Dòng ${i + 2}: mã công ty [${code}] không hợp lệ (chỉ chữ/số không dấu, tối đa 20 ký tự).`); continue; }
             if (!companyByCode.has(code)) {
                 try {
-                    const [result] = await pool.query('INSERT INTO lic_companies (name, code, active) VALUES (?, ?, TRUE)', [name, code]);
+                    const [result] = await conn.query('INSERT INTO lic_companies (name, code, active) VALUES (?, ?, TRUE)', [name, code]);
                     companyByCode.set(code, { id: result.insertId, name, code });
                     companiesCreated++;
                 } catch (e) {
@@ -4338,7 +4743,7 @@ app.post('/api/license/org-units/import', requireAuth, requireLicenseOrAdmin, as
 
                 const key = orgUnitKey(company.id, parentId, unitName);
                 if (unitByKey.has(key)) { pending.splice(idx, 1); continue; } // đã có sẵn (đúng công ty + đúng cha + đúng tên), bỏ qua
-                const [result] = await pool.query(
+                const [result] = await conn.query(
                     'INSERT INTO lic_org_units (company_id, parent_id, name, level_label, sort_order) VALUES (?, ?, ?, ?, 0)',
                     [company.id, parentId, unitName, level]
                 );
@@ -4352,23 +4757,33 @@ app.post('/api/license/org-units/import', requireAuth, requireLicenseOrAdmin, as
             errors.push(`Dòng ${rowNo}: không tìm thấy đơn vị cha [${r.don_vi_cha}] — kiểm tra lại tên hoặc thứ tự dòng.`);
         }
 
+        await conn.commit();
         await writeAuditLog({ module: 'LICENSE', actionType: 'IMPORT_ORG_UNITS', status: errors.length ? 'PARTIAL' : 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: 'Tổ chức công ty', description: `Nhập CSV: ${companiesCreated} công ty mới, ${unitsCreated} đơn vị mới, ${errors.length} lỗi.` });
         res.json({ success: true, companiesCreated, unitsCreated, errors });
     } catch (err) {
+        if (conn) { try { await conn.rollback(); } catch (_) {} }
         console.error('❌ Lỗi nhập CSV tổ chức công ty:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    } finally {
+        if (conn) conn.release();
     }
 });
 
 app.post('/api/license/employees/import', requireAuth, requireLicenseOrAdmin, async (req, res) => {
+    // Cùng lý do transaction như org-units/import ở trên — trước đây mỗi dòng
+    // insert/update chạy ngoài transaction, lỗi giữa chừng để lại phần đã ghi
+    // mà Admin không biết chính xác đã xử lý bao nhiêu dòng.
+    let conn;
     try {
         const rows = Array.isArray(req.body && req.body.rows) ? req.body.rows.slice(0, 2000) : [];
         if (rows.length === 0) return res.status(400).json({ error: 'File không có dữ liệu hợp lệ.' });
 
-        const [companies] = await pool.query('SELECT * FROM lic_companies');
+        conn = await pool.getConnection();
+        await conn.beginTransaction();
+        const [companies] = await conn.query('SELECT * FROM lic_companies');
         const companyByCode = new Map(companies.map(c => [c.code, c]));
-        const [units] = await pool.query('SELECT * FROM lic_org_units');
-        const [existingEmployees] = await pool.query('SELECT * FROM lic_employees');
+        const [units] = await conn.query('SELECT * FROM lic_org_units');
+        const [existingEmployees] = await conn.query('SELECT * FROM lic_employees');
         const unitById = new Map(units.map(u => [u.id, u]));
         // Key theo CẢ company + mã NV — không chỉ mã NV — vì mỗi công ty tự đánh
         // số mã nhân viên độc lập, trùng mã giữa 2 công ty khác nhau là bình
@@ -4406,13 +4821,13 @@ app.post('/api/license/employees/import', requireAuth, requireLicenseOrAdmin, as
             const employeeKey = `${company.id}::${employeeCode}`;
             if (employeeCode && employeeByCompanyAndCode.has(employeeKey)) {
                 const existing = employeeByCompanyAndCode.get(employeeKey);
-                await pool.query(
+                await conn.query(
                     'UPDATE lic_employees SET org_unit_id = ?, full_name = ?, title = ?, email = ? WHERE id = ?',
                     [unit.id, fullName, title || null, email || null, existing.id]
                 );
                 updated++;
             } else {
-                const [result] = await pool.query(
+                const [result] = await conn.query(
                     'INSERT INTO lic_employees (org_unit_id, full_name, title, employee_code, email, active) VALUES (?, ?, ?, ?, ?, TRUE)',
                     [unit.id, fullName, title || null, employeeCode || null, email || null]
                 );
@@ -4421,11 +4836,15 @@ app.post('/api/license/employees/import', requireAuth, requireLicenseOrAdmin, as
             }
         }
 
+        await conn.commit();
         await writeAuditLog({ module: 'LICENSE', actionType: 'IMPORT_EMPLOYEES', status: errors.length ? 'PARTIAL' : 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: 'Danh sách nhân viên', description: `Nhập CSV: ${created} nhân viên mới, ${updated} cập nhật, ${errors.length} lỗi.` });
         res.json({ success: true, created, updated, errors });
     } catch (err) {
+        if (conn) { try { await conn.rollback(); } catch (_) {} }
         console.error('❌ Lỗi nhập CSV nhân viên:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    } finally {
+        if (conn) conn.release();
     }
 });
 
@@ -4441,7 +4860,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 app.get('/api/it/bootstrap', requireAuth, requireAdmin, async (req, res) => {
     try {
         const [categories] = await pool.query('SELECT * FROM it_categories ORDER BY sort_order, name');
-        const [items] = await pool.query('SELECT * FROM it_items ORDER BY expiry_date');
+        const [items] = await pool.query('SELECT * FROM it_items WHERE deleted_at IS NULL ORDER BY expiry_date');
         const reminderConfig = await getItReminderConfig();
         const lastCheckAt = await getItExpiryLastCheckAt();
         res.json({
@@ -4591,17 +5010,33 @@ app.put('/api/it/items/:id', requireAuth, requireAdmin, async (req, res) => {
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
+// Xóa mềm — trước đây DELETE cứng vĩnh viễn (khác hẳn module Tài liệu có
+// Thùng rác/khôi phục). Đánh dấu deleted_at, không xóa dữ liệu thật, nên có
+// thể khôi phục qua POST /api/it/items/:id/restore bên dưới nếu xóa nhầm.
 app.delete('/api/it/items/:id', requireAuth, requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
-        const [rows] = await pool.query('SELECT name FROM it_items WHERE id = ?', [id]);
+        const [rows] = await pool.query('SELECT name FROM it_items WHERE id = ? AND deleted_at IS NULL', [id]);
         if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy đầu mục.' });
-        await pool.query('DELETE FROM it_reminder_sent WHERE item_id = ?', [id]);
-        await pool.query('DELETE FROM it_items WHERE id = ?', [id]);
-        await writeAuditLog({ module: 'IT_ASSETS', actionType: 'DELETE_IT_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: rows[0].name, description: `Xóa đầu mục CNTT [${rows[0].name}].` });
+        await pool.query('UPDATE it_items SET deleted_at = ? WHERE id = ?', [new Date().toISOString(), id]);
+        await writeAuditLog({ module: 'IT_ASSETS', actionType: 'DELETE_IT_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: rows[0].name, description: `Xóa đầu mục CNTT [${rows[0].name}] (đã chuyển vào Thùng rác, có thể khôi phục).` });
         res.json({ success: true });
     } catch (err) {
         console.error('❌ Lỗi xóa đầu mục CNTT:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.post('/api/it/items/:id/restore', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query('SELECT name FROM it_items WHERE id = ? AND deleted_at IS NOT NULL', [id]);
+        if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy đầu mục đã xóa để khôi phục.' });
+        await pool.query('UPDATE it_items SET deleted_at = NULL WHERE id = ?', [id]);
+        await writeAuditLog({ module: 'IT_ASSETS', actionType: 'RESTORE_IT_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: rows[0].name, description: `Khôi phục đầu mục CNTT [${rows[0].name}] từ Thùng rác.` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi khôi phục đầu mục CNTT:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
