@@ -702,12 +702,23 @@ async function runExpiryReminderCheck() {
             const toList = [...recipients].filter(Boolean);
 
             if (toList.length) {
-                const subject = daysBefore === 0
-                    ? `[DMS] "${item.name}" đã đến hạn hôm nay (${expiryStr})`
-                    : `[DMS] "${item.name}" sẽ hết hạn sau ${daysBefore} ngày (${expiryStr})`;
+                // Nội dung email PHẢI dùng daysLeft (số ngày còn lại THẬT của
+                // item), không dùng daysBefore (chỉ là ngưỡng nội bộ để quyết
+                // định có gửi hay không) — do cơ chế "bắt kịp mốc đã bị bỏ lỡ"
+                // ở trên (daysLeft > daysBefore continue) có thể khớp NHIỀU
+                // ngưỡng cùng lúc trong 1 lượt quét (VD item mới tạo đã hết
+                // hạn sau 7 ngày sẽ khớp cả 3 ngưỡng 30/15/7), dùng daysBefore
+                // sẽ gửi tới 3 email với nội dung sai sự thật khác nhau (VD
+                // "sẽ hết hạn sau 30 ngày" cho 1 item chỉ còn 7 ngày, thậm chí
+                // đã hết hạn) — xác nhận qua kiểm thử thật.
+                const daysLeftDesc = daysLeft > 0
+                    ? `sẽ hết hạn sau <b>${daysLeft} ngày</b> nữa`
+                    : (daysLeft === 0 ? 'đã đến ngày hết hạn hôm nay' : `đã hết hạn được <b>${-daysLeft} ngày</b>`);
+                const subjectDesc = daysLeft > 0 ? `sẽ hết hạn sau ${daysLeft} ngày` : (daysLeft === 0 ? 'đã đến hạn hôm nay' : `đã hết hạn được ${-daysLeft} ngày`);
+                const subject = `[DMS] "${item.name}" ${subjectDesc} (${expiryStr})`;
                 const html = `<p>Đầu mục <b>${escapeHtmlServer(item.name)}</b> (${escapeHtmlServer(item.category_name)})`
                     + `${item.provider ? ` — nhà cung cấp <b>${escapeHtmlServer(item.provider)}</b>` : ''} `
-                    + `${daysBefore === 0 ? 'đã đến ngày hết hạn' : `sẽ hết hạn trong <b>${daysBefore} ngày</b> nữa`} `
+                    + `${daysLeftDesc} `
                     + `(ngày hết hạn: <b>${expiryStr}</b>).</p>`
                     + `<p>Vui lòng kiểm tra và gia hạn kịp thời để tránh gián đoạn dịch vụ.</p>`;
                 for (const to of toList) {
