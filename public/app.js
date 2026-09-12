@@ -4244,16 +4244,21 @@ function isPerpetualSoftware(softwareId) {
     // --- Phạm vi (COMPANY/ORG_UNIT) cho Kỳ mua/Kỳ ngân sách: nhãn hiển thị +
     // kiểm tra phạm vi bao trùm company/org-unit nào đó ở phía client (để vẽ
     // badge trạng thái hoàn thành mà không cần gọi thêm API).
+    // (L3 - License) Trả về HTML đã escape sẵn — khác với các hàm "Label" khác
+    // trong file, kết quả của hàm này luôn được ghép thẳng vào innerHTML ở nơi
+    // gọi mà KHÔNG qua escapeHtml() nữa (đã kiểm tra 3 nơi gọi), nên tên công
+    // ty/đơn vị chứa mã HTML/script (không giới hạn ký tự khi tạo) trước đây
+    // sẽ thực thi được khi hiển thị badge Phạm vi.
     function roundScopeLabel(r) {
       if (!r || !r.scopeType) return null;
       if (r.scopeType === 'COMPANY') {
         const c = licenseDB.companies.find(x => x.id === r.scopeId);
-        return c ? `Toàn bộ ${c.name}` : null;
+        return c ? `Toàn bộ ${escapeHtml(c.name)}` : null;
       }
       const u = licenseDB.orgUnits.find(x => x.id === r.scopeId);
       if (!u) return null;
       const c = licenseDB.companies.find(x => x.id === u.companyId);
-      return `${u.name}${c ? ` (${c.name})` : ''}`;
+      return `${escapeHtml(u.name)}${c ? ` (${escapeHtml(c.name)})` : ''}`;
     }
     function frontendScopeContainsCompany(scope, targetCompanyId) {
       if (!scope || !scope.type) return true;

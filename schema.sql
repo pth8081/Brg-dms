@@ -246,6 +246,12 @@ CREATE TABLE IF NOT EXISTS lic_employees (
     active BOOLEAN NOT NULL DEFAULT TRUE
 );
 CALL create_index_if_not_exists('lic_employees', 'idx_lic_employees_org_unit', 'org_unit_id');
+-- (L6 - License) employee_code được lọc trong mọi lần thêm/sửa nhân viên
+-- (kiểm tra trùng mã trong công ty) và email được join với ad_accounts.email
+-- ở báo cáo License (/api/reports/license) — thêm index tránh full scan khi
+-- bảng nhân viên lớn dần.
+CALL create_index_if_not_exists('lic_employees', 'idx_lic_employees_code', 'employee_code');
+CALL create_index_if_not_exists('lic_employees', 'idx_lic_employees_email', 'email');
 
 CREATE TABLE IF NOT EXISTS lic_software_catalog (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -509,6 +515,15 @@ CALL create_index_if_not_exists('lic_budget_registrations', 'idx_lic_budget_reg_
 -- Người tạo dự trù — dùng để chặn tự duyệt dự trù của chính mình (server
 -- kiểm tra created_by === người đang duyệt), giống lic_bulk_allocation_requests.
 CALL add_column_if_not_exists('lic_budget_registrations', 'created_by', 'VARCHAR(100) NULL DEFAULT NULL');
+-- Chặn race condition tạo trùng dự trù PENDING (xác nhận qua kiểm thử thật:
+-- 2 request gần như đồng thời cho cùng round+round_item+org_unit đều lọt
+-- qua bước kiểm tra SELECT-rồi-INSERT phía trên nếu không có ràng buộc CSDL
+-- thật đứng sau) — pending_key chỉ được đặt giá trị khi status='PENDING'
+-- (NULL khi đã duyệt/từ chối, cho phép đăng ký lại đợt sau bình thường vì
+-- MySQL/MariaDB coi mỗi NULL là khác nhau trong unique index).
+CALL add_column_if_not_exists('lic_budget_registrations', 'pending_key', 'VARCHAR(150) NULL DEFAULT NULL');
+UPDATE lic_budget_registrations SET pending_key = CONCAT(round_id, ':', round_item_id, ':', org_unit_id) WHERE status = 'PENDING' AND pending_key IS NULL;
+CALL create_unique_index_if_not_exists('lic_budget_registrations', 'uq_lic_budget_reg_pending', 'pending_key');
 
 -- Snapshot tài khoản Active Directory lấy qua đồng bộ LDAP định kỳ — dùng để
 -- đối chiếu với nhân viên đang giữ license (khớp theo email) ở tab Phân bổ.
