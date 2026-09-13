@@ -12,6 +12,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 
 | Phiên bản | PR | Ngày merge | Nội dung |
 |---|---|---|---|
+| v6.54 | [#62](https://github.com/pth8081/Brg-dms/pull/62) | 2026-09-13 | Thêm tài liệu nghiệp vụ.md — mô tả toàn bộ nghiệp vụ ứng dụng (kiến trúc, vai trò/phân quyền, chi tiết từng module, quy ước mã lỗi HTTP + nguyên tắc thiết kế xuyên suốt) |
 | v6.53 | [#61](https://github.com/pth8081/Brg-dms/pull/61) | 2026-09-13 | Đợt 3+4: Nâng cấp nodemailer v10 + vá CVE uuid; sửa toàn bộ ~16 lỗi Low (Docs/Admin/bảo mật toàn ứng dụng) + lỗi Low License + các lỗi phát hiện mới qua kiểm thử nghiệp vụ chuyên sâu trên server thật (race condition dự trù ngân sách, validate độ dài CNTT, nội dung email nhắc hạn sai sự thật) |
 | v6.51 | [#60](https://github.com/pth8081/Brg-dms/pull/60) | 2026-09-11 | Đợt 2: Sửa toàn bộ ~29 lỗi Medium (thu hồi JWT khi đổi mật khẩu, xác thực lại mật khẩu hiện tại, ẩn systemLogs, transaction/FOR UPDATE cho License, soft-delete CNTT, chống race condition ngân sách, mở quyền báo cáo license) |
 | v6.50 | [#59](https://github.com/pth8081/Brg-dms/pull/59) | 2026-09-11 | Sửa 6 lỗi bảo mật mức Cao: CAPTCHA raster, khóa tài khoản, lộ dữ liệu bootstrap, transaction sync users/workflows, chặn admin ghi đè lịch sử duyệt |
