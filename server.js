@@ -4728,6 +4728,44 @@ app.post('/api/license/budget-rounds/:id/items', requireAuth, requireLicenseOrAd
     }
 });
 
+// Sửa 1 hạng mục kỳ ngân sách đã tạo (trước đây chỉ thêm/xóa được — 1 lỗi
+// nhập liệu như sai đơn giá/loại CAPEX-OPEX không thể sửa lại, phải xóa cả
+// hạng mục rồi tạo mới, mà xóa lại bị chặn ngay khi đã có đơn vị dự trù/mua
+// thực tế). Chỉ cho sửa capexOpex/unitPrice/description — KHÔNG cho đổi
+// itemType/phần mềm/hạng mục danh mục (đổi "bản chất" hạng mục nên coi như
+// xóa+tạo mới, đã có sẵn đường đó). Áp dụng đúng điều kiện chặn như xóa:
+// kỳ phải còn OPEN, và hạng mục chưa có dự trù/mua thực tế nào tham chiếu
+// (nếu đã có, số liệu dự trù/thực tế cũ sẽ không còn khớp với đơn giá mới).
+app.put('/api/license/budget-rounds/:roundId/items/:itemId', requireAuth, requireLicenseOrAdmin, async (req, res) => {
+    try {
+        const { roundId, itemId } = req.params;
+        const capexOpex = String((req.body && req.body.capexOpex) || '').trim().toUpperCase();
+        if (!['CAPEX', 'OPEX'].includes(capexOpex)) return res.status(400).json({ error: 'Vui lòng chọn CAPEX hoặc OPEX.' });
+        const unitPrice = Number(req.body && req.body.unitPrice);
+        if (!Number.isFinite(unitPrice) || unitPrice < 0) return res.status(400).json({ error: 'Đơn giá không hợp lệ.' });
+        const descriptionRaw = String((req.body && req.body.description) || '').trim();
+        if (descriptionRaw.length > 500) return res.status(400).json({ error: 'Mô tả quá dài (tối đa 500 ký tự).' });
+        const description = descriptionRaw || null;
+
+        const [itemRows] = await pool.query('SELECT id FROM lic_budget_round_items WHERE id = ? AND round_id = ?', [itemId, roundId]);
+        if (!itemRows[0]) return res.status(404).json({ error: 'Không tìm thấy hạng mục trong kỳ ngân sách.' });
+        const [roundRows] = await pool.query('SELECT status FROM lic_budget_rounds WHERE id = ?', [roundId]);
+        if (!roundRows[0]) return res.status(404).json({ error: 'Không tìm thấy kỳ ngân sách.' });
+        if (roundRows[0].status !== 'OPEN') return res.status(400).json({ error: 'Kỳ ngân sách đã đóng, không thể sửa hạng mục.' });
+        const [regRows] = await pool.query('SELECT COUNT(*) AS cnt FROM lic_budget_registrations WHERE round_item_id = ?', [itemId]);
+        if (regRows[0].cnt > 0) return res.status(400).json({ error: 'Không thể sửa — đã có đơn vị dự trù ngân sách cho hạng mục này trong kỳ.' });
+        const [actualRows] = await pool.query('SELECT COUNT(*) AS cnt FROM lic_budget_actuals WHERE round_item_id = ?', [itemId]);
+        if (actualRows[0].cnt > 0) return res.status(400).json({ error: 'Không thể sửa — đã có dòng mua thực tế ghi nhận cho hạng mục này.' });
+
+        await pool.query('UPDATE lic_budget_round_items SET capex_opex = ?, unit_price = ?, description = ? WHERE id = ?', [capexOpex, unitPrice, description, itemId]);
+        await writeAuditLog({ module: 'LICENSE', actionType: 'UPDATE_BUDGET_ROUND_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `Hạng mục #${itemId}`, description: `Cập nhật hạng mục #${itemId} trong kỳ ngân sách #${roundId}: ${capexOpex}, đơn giá ${unitPrice}.` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi sửa hạng mục kỳ ngân sách:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
 app.delete('/api/license/budget-rounds/:roundId/items/:itemId', requireAuth, requireLicenseOrAdmin, async (req, res) => {
     try {
         const { roundId, itemId } = req.params;
@@ -5655,7 +5693,12 @@ app.post('/api/budget2/lines/:id/approve', requireAuth, requireBudgetOrAdmin, as
         const line = rows[0];
         if (!line) { conn.release(); return res.status(404).json({ error: 'Không tìm thấy dòng ngân sách phê duyệt.' }); }
         if (line.status !== 'SUBMITTED') { conn.release(); return res.status(400).json({ error: 'Dòng này đã được xử lý trước đó.' }); }
-        if (line.created_by === req.user.username) { conn.release(); return res.status(400).json({ error: 'Không thể tự duyệt dòng ngân sách do chính mình tạo.' }); }
+        // (Chuẩn hóa mã lỗi) Chặn tự duyệt là quy tắc PHÂN QUYỀN (ai được phép
+        // thực hiện hành động), không phải lỗi dữ liệu đầu vào — đổi từ 400
+        // sang 403 cho nhất quán với 3 nơi chặn tự duyệt khác trong module
+        // License (bulk-allocation-requests, purchase registrations, budget
+        // registrations), vốn đều dùng 403.
+        if (line.created_by === req.user.username) { conn.release(); return res.status(403).json({ error: 'Không thể tự duyệt dòng ngân sách do chính mình tạo.' }); }
 
         await conn.beginTransaction();
         const now = new Date().toISOString();
@@ -5688,7 +5731,7 @@ app.post('/api/budget2/lines/:id/reject', requireAuth, requireBudgetOrAdmin, asy
         const line = rows[0];
         if (!line) return res.status(404).json({ error: 'Không tìm thấy dòng ngân sách phê duyệt.' });
         if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Dòng này đã được xử lý trước đó.' });
-        if (line.created_by === req.user.username) return res.status(400).json({ error: 'Không thể tự từ chối dòng ngân sách do chính mình tạo.' });
+        if (line.created_by === req.user.username) return res.status(403).json({ error: 'Không thể tự từ chối dòng ngân sách do chính mình tạo.' });
         const now = new Date().toISOString();
         await pool.query('UPDATE budget2_lines SET status = \'REJECTED\', decided_by = ?, decided_at = ? WHERE id = ?', [req.user.username, now, id]);
         await writeAuditLog({ module: 'BUDGET2', actionType: 'REJECT_BUDGET', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Từ chối dòng ngân sách phê duyệt [${line.content}].` });
