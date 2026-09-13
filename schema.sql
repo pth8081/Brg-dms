@@ -525,6 +525,13 @@ CALL add_column_if_not_exists('lic_budget_registrations', 'pending_key', 'VARCHA
 UPDATE lic_budget_registrations SET pending_key = CONCAT(round_id, ':', round_item_id, ':', org_unit_id) WHERE status = 'PENDING' AND pending_key IS NULL;
 CALL create_unique_index_if_not_exists('lic_budget_registrations', 'uq_lic_budget_reg_pending', 'pending_key');
 
+-- Cùng lý do/cơ chế như lic_budget_registrations.pending_key ở trên, áp dụng
+-- cho lic_purchase_registrations (đăng ký mua License) — xác nhận qua kiểm
+-- thử thật là race condition độc lập, chưa được chặn ở tầng CSDL trước đây.
+CALL add_column_if_not_exists('lic_purchase_registrations', 'pending_key', 'VARCHAR(150) NULL DEFAULT NULL');
+UPDATE lic_purchase_registrations SET pending_key = CONCAT(round_id, ':', round_item_id, ':', company_id) WHERE status = 'PENDING' AND pending_key IS NULL;
+CALL create_unique_index_if_not_exists('lic_purchase_registrations', 'uq_lic_purchase_reg_pending', 'pending_key');
+
 -- Snapshot tài khoản Active Directory lấy qua đồng bộ LDAP định kỳ — dùng để
 -- đối chiếu với nhân viên đang giữ license (khớp theo email) ở tab Phân bổ.
 -- disabled_at KHÔNG phải ngày AD thực sự disable account (AD không lưu sẵn

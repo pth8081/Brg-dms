@@ -1283,7 +1283,7 @@ app.post('/api/docs/:id/notify-next-approver', requireAuth, notifyLimiter, async
         const { id } = req.params;
         const [rows] = await pool.query('SELECT * FROM docs WHERE id = ? AND deleted_at IS NULL', [id]);
         const doc = rows[0];
-        if (!doc || doc.status !== 'PENDING') return res.json({ success: true, notified: false });
+        if (!doc) return res.json({ success: true, notified: false });
 
         const [cfgRows] = await pool.query("SELECT config_value FROM app_configs WHERE config_key = 'deptWorkflows'");
         const deptWorkflows = cfgRows[0]
@@ -1294,10 +1294,16 @@ app.post('/api/docs/:id/notify-next-approver', requireAuth, notifyLimiter, async
         // với id tài liệu bất kỳ — dùng lại đúng hàm phân quyền xem tài liệu
         // (admin/người tạo/người có quyền xem nháp/đúng người duyệt bước hiện
         // tại) để chặn dùng route này làm công cụ dội email hoặc dò trạng thái
-        // tài liệu ngoài phạm vi được xem.
+        // tài liệu ngoài phạm vi được xem. Kiểm tra quyền xem này phải đứng
+        // TRƯỚC kiểm tra status!=='PENDING' bên dưới — nếu không, 1 user không
+        // có quyền xem vẫn suy luận được "tài liệu X hiện có đang PENDING hay
+        // không" qua việc phân biệt 200 (không PENDING) và 403 (không có quyền,
+        // nhưng chỉ khi PENDING) — một oracle rò rỉ trạng thái nhẹ dù không lộ
+        // dữ liệu/gửi email thật.
         if (!canViewDocRow(req.user, doc, deptWorkflows)) {
             return res.status(403).json({ error: 'Bạn không có quyền thao tác trên tài liệu này.' });
         }
+        if (doc.status !== 'PENDING') return res.json({ success: true, notified: false });
 
         const cfg = deptWorkflows[doc.dept];
         const nextApproverUsername = cfg && cfg.approvers ? cfg.approvers[doc.current_step_order] : null;
@@ -2037,7 +2043,7 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                     return res.status(400).json({ error: `Thiếu mật khẩu cho tài khoản mới: ${username}` });
                 }
 
-                const active = u.active !== false;
+                const active = !(u.active === false || u.active === 0 || u.active === '0');
                 if (!active && username === 'admin') {
                     return res.status(400).json({ error: 'Không thể khóa tài khoản Admin gốc!' });
                 }
@@ -2537,8 +2543,19 @@ function userCanActOnTarget({ isAdmin, userScope, roundScope, allOrgUnits, targe
     // Kỳ chưa gán phạm vi (dữ liệu cũ) chỉ Admin thao tác được — tài khoản tự
     // phục vụ không được coi là "khớp" một Kỳ không có phạm vi xác định.
     if (!roundScope) return false;
-    return scopeContainsTarget(userScope, allOrgUnits, targetCompanyId, targetOrgUnitId)
-        && scopeContainsTarget(roundScope, allOrgUnits, targetCompanyId, targetOrgUnitId);
+    if (!scopeContainsTarget(userScope, allOrgUnits, targetCompanyId, targetOrgUnitId)) return false;
+    if (!scopeContainsTarget(roundScope, allOrgUnits, targetCompanyId, targetOrgUnitId)) return false;
+    // Khi target không mang theo org_unit_id cụ thể (VD: đăng ký mua License —
+    // lic_purchase_registrations chỉ có company_id, không có cột org_unit_id
+    // riêng), 2 kiểm tra ở trên chỉ xác nhận "cùng công ty" cho cả user lẫn Kỳ —
+    // không đủ để phát hiện user thuộc đơn vị X thao tác nhầm vào Kỳ giới hạn
+    // đúng đơn vị Y (khác nhánh, cùng công ty) — đây là lỗ hổng scope xác nhận
+    // qua kiểm thử thật. Khi cả 2 đều giới hạn ở mức ORG_UNIT, phải kiểm tra
+    // thêm: đơn vị của user phải nằm trong chính subtree của đơn vị mà Kỳ giới hạn.
+    if (targetOrgUnitId == null && userScope.type === 'ORG_UNIT' && roundScope.type === 'ORG_UNIT') {
+        return orgUnitSubtreeIds(allOrgUnits, roundScope.id).includes(Number(userScope.id));
+    }
+    return true;
 }
 
 // Đọc + validate scopeType/scopeId từ body khi Admin tạo Kỳ mua/Kỳ ngân sách.
@@ -2734,7 +2751,7 @@ app.get('/api/license/portal/bootstrap', requireAuth, async (req, res) => {
 
 // --- Module Báo cáo — tổng hợp số liệu cho 2 phân hệ nghiệp vụ (Tài liệu,
 // Bản quyền). Chỉ đọc, không có tham số lọc phức tạp ở bản đầu tiên này.
-app.get('/api/reports/docs', requireAuth, requireAdmin, async (req, res) => {
+app.get('/api/reports/docs', requireAuth, requireLicenseOrBudgetOrAdmin, async (req, res) => {
     try {
         const [allRows] = await pool.query('SELECT dept, status, created_at, history, doc_group_id, version_no FROM docs WHERE deleted_at IS NULL');
         // Tài liệu hỗ trợ nhiều phiên bản cùng doc_group_id (nộp lại/tạo version
@@ -2801,8 +2818,20 @@ function requireLicenseOrBudgetOrAdmin(req, res, next) {
 }
 app.get('/api/reports/license', requireAuth, requireLicenseOrBudgetOrAdmin, async (req, res) => {
     try {
-        const [[{ totalCodes }]] = await pool.query('SELECT COUNT(*) AS totalCodes FROM lic_license_codes');
-        const [[{ assignedCodes }]] = await pool.query('SELECT COUNT(DISTINCT code_id) AS assignedCodes FROM lic_license_code_assignments');
+        // (RPT-04) companyId lọc theo 1 công ty cụ thể — trước đây tham số này
+        // hoàn toàn bị bỏ qua (không có nơi nào đọc req.query.companyId), báo
+        // cáo luôn trả số liệu TOÀN HỆ THỐNG dù client có lọc hay không.
+        const companyIdFilter = req.query.companyId ? Number(req.query.companyId) : null;
+        const [[{ totalCodes }]] = await pool.query(
+            companyIdFilter ? 'SELECT COUNT(*) AS totalCodes FROM lic_license_codes WHERE company_id = ?' : 'SELECT COUNT(*) AS totalCodes FROM lic_license_codes',
+            companyIdFilter ? [companyIdFilter] : []
+        );
+        const [[{ assignedCodes }]] = await pool.query(
+            companyIdFilter
+                ? 'SELECT COUNT(DISTINCT a.code_id) AS assignedCodes FROM lic_license_code_assignments a JOIN lic_license_codes c ON c.id = a.code_id WHERE c.company_id = ?'
+                : 'SELECT COUNT(DISTINCT code_id) AS assignedCodes FROM lic_license_code_assignments',
+            companyIdFilter ? [companyIdFilter] : []
+        );
         const today = new Date().toISOString().slice(0, 10);
         const in30 = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
         const [[expiryCounts]] = await pool.query(
@@ -2811,13 +2840,15 @@ app.get('/api/reports/license', requireAuth, requireLicenseOrBudgetOrAdmin, asyn
                SUM(expiry_date IS NOT NULL AND expiry_date < ?) AS expiredCnt,
                SUM(expiry_date IS NOT NULL AND expiry_date >= ? AND expiry_date <= ?) AS expiringSoonCnt,
                SUM(expiry_date IS NOT NULL AND expiry_date > ?) AS validCnt
-             FROM lic_license_codes`,
-            [today, today, in30, in30]
+             FROM lic_license_codes${companyIdFilter ? ' WHERE company_id = ?' : ''}`,
+            companyIdFilter ? [today, today, in30, in30, companyIdFilter] : [today, today, in30, in30]
         );
         const [byCompanyRows] = await pool.query(
             `SELECT co.name AS companyName, COUNT(*) AS cnt
              FROM lic_license_codes c JOIN lic_companies co ON co.id = c.company_id
-             GROUP BY co.id ORDER BY cnt DESC LIMIT 6`
+             ${companyIdFilter ? 'WHERE co.id = ?' : ''}
+             GROUP BY co.id ORDER BY cnt DESC LIMIT 6`,
+            companyIdFilter ? [companyIdFilter] : []
         );
         const [latestRoundRows] = await pool.query('SELECT id, name FROM lic_budget_rounds ORDER BY id DESC LIMIT 1');
         let budgetVsUsage = [];
@@ -2832,14 +2863,16 @@ app.get('/api/reports/license', requireAuth, requireLicenseOrBudgetOrAdmin, asyn
                  JOIN lic_org_units u ON u.id = r.org_unit_id
                  JOIN lic_budget_round_items bi ON bi.id = r.round_item_id
                  LEFT JOIN lic_software_catalog sw ON sw.id = bi.software_id
-                 WHERE r.round_id = ? AND r.status = 'APPROVED' ORDER BY r.id`,
-                [latestRoundRows[0].id]
+                 WHERE r.round_id = ? AND r.status = 'APPROVED' ${companyIdFilter ? 'AND u.company_id = ?' : ''} ORDER BY r.id`,
+                companyIdFilter ? [latestRoundRows[0].id, companyIdFilter] : [latestRoundRows[0].id]
             );
             budgetVsUsage = regRows.map(r => ({ unitName: r.unitName, softwareName: r.softwareName, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity }));
         }
         // So sánh Kế hoạch (dự trù đã duyệt) vs Thực tế (sổ mua thực tế) theo
         // từng hạng mục ngân sách có ít nhất 1 trong 2 số liệu > 0, gộp lại theo
-        // CAPEX/OPEX ở tầng JS bên dưới.
+        // CAPEX/OPEX ở tầng JS bên dưới. Khi có companyIdFilter, cả 2 vế Kế
+        // hoạch (qua org_unit.company_id của dự trù) và Thực tế (qua company_id
+        // trực tiếp trên sổ mua thực tế) đều chỉ tính riêng công ty đó.
         const [budgetItemComparisonRows] = await pool.query(
             `SELECT bi.id AS itemId, bi.item_type AS itemType, bi.capex_opex AS capexOpex, br.name AS roundName,
                     COALESCE(sw.name, bi.item_name) AS itemLabel,
@@ -2847,10 +2880,20 @@ app.get('/api/reports/license', requireAuth, requireLicenseOrBudgetOrAdmin, asyn
              FROM lic_budget_round_items bi
              JOIN lic_budget_rounds br ON br.id = bi.round_id
              LEFT JOIN lic_software_catalog sw ON sw.id = bi.software_id
-             LEFT JOIN (SELECT round_item_id, SUM(total_amount) AS total FROM lic_budget_registrations WHERE status = 'APPROVED' GROUP BY round_item_id) planned ON planned.round_item_id = bi.id
-             LEFT JOIN (SELECT round_item_id, SUM(amount) AS total FROM lic_budget_actuals GROUP BY round_item_id) actual ON actual.round_item_id = bi.id
+             LEFT JOIN (
+               SELECT r.round_item_id, SUM(r.total_amount) AS total
+               FROM lic_budget_registrations r JOIN lic_org_units u ON u.id = r.org_unit_id
+               WHERE r.status = 'APPROVED' ${companyIdFilter ? 'AND u.company_id = ?' : ''}
+               GROUP BY r.round_item_id
+             ) planned ON planned.round_item_id = bi.id
+             LEFT JOIN (
+               SELECT round_item_id, SUM(amount) AS total FROM lic_budget_actuals
+               ${companyIdFilter ? 'WHERE company_id = ?' : ''}
+               GROUP BY round_item_id
+             ) actual ON actual.round_item_id = bi.id
              WHERE COALESCE(planned.total, 0) > 0 OR COALESCE(actual.total, 0) > 0
-             ORDER BY br.id DESC, bi.id`
+             ORDER BY br.id DESC, bi.id`,
+            companyIdFilter ? [companyIdFilter, companyIdFilter] : []
         );
         const budgetItemComparison = budgetItemComparisonRows.map(r => ({ itemId: r.itemId, itemType: r.itemType, capexOpex: r.capexOpex, roundName: r.roundName, itemLabel: r.itemLabel, planned: Number(r.planned) || 0, actual: Number(r.actual) || 0 }));
         const budgetCapexOpexSummary = ['CAPEX', 'OPEX'].map(kind => {
@@ -2866,10 +2909,14 @@ app.get('/api/reports/license', requireAuth, requireLicenseOrBudgetOrAdmin, asyn
              FROM lic_budget_registrations r
              JOIN lic_org_units u ON u.id = r.org_unit_id
              JOIN lic_companies co ON co.id = u.company_id
-             WHERE r.status = 'APPROVED'
-             GROUP BY co.id`
+             WHERE r.status = 'APPROVED' ${companyIdFilter ? 'AND co.id = ?' : ''}
+             GROUP BY co.id`,
+            companyIdFilter ? [companyIdFilter] : []
         );
-        const [actualByCompanyRows] = await pool.query('SELECT company_id AS companyId, SUM(amount) AS total FROM lic_budget_actuals GROUP BY company_id');
+        const [actualByCompanyRows] = await pool.query(
+            `SELECT company_id AS companyId, SUM(amount) AS total FROM lic_budget_actuals ${companyIdFilter ? 'WHERE company_id = ?' : ''} GROUP BY company_id`,
+            companyIdFilter ? [companyIdFilter] : []
+        );
         const companyNameMap = new Map(plannedByCompanyRows.map(r => [r.companyId, r.companyName]));
         const unnamedCompanyIds = actualByCompanyRows.filter(r => r.companyId != null && !companyNameMap.has(r.companyId)).map(r => r.companyId);
         if (unnamedCompanyIds.length > 0) {
@@ -2889,15 +2936,18 @@ app.get('/api/reports/license', requireAuth, requireLicenseOrBudgetOrAdmin, asyn
         const [spendRows] = await pool.query(
             `SELECT ro.id AS roundId, ro.name AS roundName, SUM(reg.total_amount) AS total
              FROM lic_purchase_registrations reg JOIN lic_purchase_rounds ro ON ro.id = reg.round_id
-             WHERE reg.status IN ('APPROVED', 'ISSUED')
-             GROUP BY ro.id ORDER BY ro.id DESC LIMIT 6`
+             WHERE reg.status IN ('APPROVED', 'ISSUED') ${companyIdFilter ? 'AND reg.company_id = ?' : ''}
+             GROUP BY ro.id ORDER BY ro.id DESC LIMIT 6`,
+            companyIdFilter ? [companyIdFilter] : []
         );
         const [controlRows] = await pool.query(
             `SELECT COUNT(DISTINCT e.id) AS cnt
              FROM ad_accounts a
              JOIN lic_employees e ON LOWER(e.email) = LOWER(a.email)
              JOIN lic_license_code_assignments asg ON asg.employee_id = e.id
-             WHERE a.active = 0 AND a.email IS NOT NULL AND a.email != ''`
+             ${companyIdFilter ? 'JOIN lic_org_units u3 ON u3.id = e.org_unit_id' : ''}
+             WHERE a.active = 0 AND a.email IS NOT NULL AND a.email != '' ${companyIdFilter ? 'AND u3.company_id = ?' : ''}`,
+            companyIdFilter ? [companyIdFilter] : []
         );
         res.json({
             totals: {
@@ -4144,15 +4194,34 @@ app.post('/api/license/bulk-allocation-requests/:id/approve', requireAuth, requi
             // Phân bổ tự lọc bỏ các dòng employee_id không tra được.
             const existingEmployeeIds = items.filter(it => it.employee_id).map(it => it.employee_id);
             const stillExistingIdSet = new Set();
+            const stillExistingNameById = new Map();
             if (existingEmployeeIds.length > 0) {
                 const [stillExistingRows] = await conn.query(
-                    `SELECT id FROM lic_employees WHERE id IN (${existingEmployeeIds.map(() => '?').join(',')})`,
+                    `SELECT id, full_name FROM lic_employees WHERE id IN (${existingEmployeeIds.map(() => '?').join(',')})`,
                     existingEmployeeIds
                 );
-                stillExistingRows.forEach(r => stillExistingIdSet.add(r.id));
+                stillExistingRows.forEach(r => { stillExistingIdSet.add(r.id); stillExistingNameById.set(r.id, r.full_name); });
                 const missingItem = items.find(it => it.employee_id && !stillExistingIdSet.has(it.employee_id));
                 if (missingItem) {
                     throw new BulkAllocApprovalError(400, `Dòng [${missingItem.employee_code}]: nhân viên đã khớp trước đó không còn tồn tại (có thể đã bị xóa) — vui lòng tải lại yêu cầu để đối chiếu lại.`);
+                }
+            }
+
+            // (PHANBO-03) Server phải TỰ đối chiếu lại tên file vs. tên nhân
+            // viên đã khớp employee_id — trước đây việc phát hiện "Lệch hồ sơ"
+            // (INFO_MISMATCH) chỉ nằm ở client (public/app.js, lúc xem trước),
+            // server chỉ dựa vào field `resolution` client tự gửi lên mà không
+            // tái kiểm tra — 1 client gọi thẳng API (bỏ qua bước xem trước) có
+            // thể gửi employeeId khớp đúng nhưng full_name khác hẳn, không kèm
+            // resolution, và server vẫn âm thầm gán license cho nhân viên đó mà
+            // không có cảnh báo/lỗi nào (vi phạm nguyên tắc Zero Trust). Nếu tên
+            // lệch mà không có resolution hợp lệ (USE_EXISTING/UPDATE_INFO), chặn.
+            for (const item of items) {
+                if (!item.employee_id) continue;
+                const actualName = stillExistingNameById.get(item.employee_id);
+                const mismatch = actualName != null && String(actualName).trim() !== String(item.full_name || '').trim();
+                if (mismatch && item.resolution !== 'USE_EXISTING' && item.resolution !== 'UPDATE_INFO') {
+                    throw new BulkAllocApprovalError(400, `Dòng [${item.employee_code}]: tên trong file ("${item.full_name}") khác với tên nhân viên đã có trong hệ thống ("${actualName}") — vui lòng chọn "Giữ hồ sơ cũ" hoặc "Cập nhật theo file" trước khi duyệt.`);
                 }
             }
 
@@ -4549,13 +4618,26 @@ app.post('/api/license/registrations', requireAuth, async (req, res) => {
             const unitPrice = Number(item.unit_price);
             const totalAmount = it.requestedQuantity * unitPrice;
             const budgetQuantity = roundRows[0].budget_round_id ? (budgetBySoftware.get(item.software_id) ?? 0) : null;
-            return [roundId, it.roundItemId, companyId, currentQuantity, it.requestedQuantity, unitPrice, totalAmount, item.expiry_date, 'PENDING', note || null, new Date().toISOString(), budgetQuantity, req.user.username];
+            const pendingKey = `${roundId}:${it.roundItemId}:${companyId}`;
+            return [roundId, it.roundItemId, companyId, currentQuantity, it.requestedQuantity, unitPrice, totalAmount, item.expiry_date, 'PENDING', note || null, new Date().toISOString(), budgetQuantity, req.user.username, pendingKey];
         });
 
-        await pool.query(
-            'INSERT INTO lic_purchase_registrations (round_id, round_item_id, company_id, current_quantity, requested_quantity, unit_price, total_amount, expiry_date, status, note, created_at, budget_quantity, created_by) VALUES ?',
-            [insertValues]
-        );
+        // Kiểm tra SELECT ở trên chỉ là "cản trước" cho UX nhanh — bảo đảm THẬT
+        // sự chống race condition nằm ở ràng buộc UNIQUE(pending_key) dưới đây
+        // (xác nhận qua kiểm thử tải đồng thời thật: request tuần tự cách nhau
+        // không phát hiện được, nhưng Promise.all đồng thời tạo nhiều bản ghi
+        // PENDING trùng nếu thiếu ràng buộc CSDL này).
+        try {
+            await pool.query(
+                'INSERT INTO lic_purchase_registrations (round_id, round_item_id, company_id, current_quantity, requested_quantity, unit_price, total_amount, expiry_date, status, note, created_at, budget_quantity, created_by, pending_key) VALUES ?',
+                [insertValues]
+            );
+        } catch (insertErr) {
+            if (insertErr.code === 'ER_DUP_ENTRY') {
+                return res.status(400).json({ error: 'Công ty này đã có đăng ký đang chờ duyệt cho (các) phần mềm đã chọn trong kỳ mua này — vui lòng chờ xử lý xong trước khi tạo đăng ký mới.' });
+            }
+            throw insertErr;
+        }
         await writeAuditLog({ module: 'LICENSE', actionType: 'CREATE_REGISTRATION', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: companyRows[0].name, description: `Công ty [${companyRows[0].name}] đăng ký mua ${normalizedItems.length} phần mềm (kỳ mua #${roundId}), chờ duyệt.` });
         res.json({ success: true, count: normalizedItems.length });
     } catch (err) {
@@ -4576,7 +4658,10 @@ app.post('/api/license/registrations/:id/approve', requireAuth, requireLicenseOr
         // PENDING trước khi cái nào ghi trước có thể ghi đè lẫn nhau. Thêm
         // `AND status = 'PENDING'` vào chính câu UPDATE để chỉ request đến
         // trước mới thắng, kiểm tra affectedRows để phát hiện request đến sau.
-        const [upd] = await pool.query("UPDATE lic_purchase_registrations SET status = ?, decided_by = ?, decided_at = ? WHERE id = ? AND status = 'PENDING'", ['APPROVED', req.user.username, new Date().toISOString(), id]);
+        // pending_key phải về NULL khi rời PENDING — nếu không, công ty này sẽ
+        // không bao giờ đăng ký lại được đúng phần mềm đó ở kỳ sau (ràng buộc
+        // UNIQUE(pending_key) coi bản ghi đã duyệt vẫn "đang chiếm" khóa).
+        const [upd] = await pool.query("UPDATE lic_purchase_registrations SET status = ?, decided_by = ?, decided_at = ?, pending_key = NULL WHERE id = ? AND status = 'PENDING'", ['APPROVED', req.user.username, new Date().toISOString(), id]);
         if (upd.affectedRows === 0) return res.status(409).json({ error: 'Đăng ký này vừa được xử lý bởi người khác, vui lòng tải lại trang.' });
         await writeAuditLog({ module: 'LICENSE', actionType: 'APPROVE_REGISTRATION', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `Đăng ký #${id}`, description: `Duyệt đăng ký mua bản quyền #${id}.` });
         res.json({ success: true });
@@ -4592,7 +4677,7 @@ app.post('/api/license/registrations/:id/reject', requireAuth, requireLicenseOrA
         const [rows] = await pool.query('SELECT * FROM lic_purchase_registrations WHERE id = ?', [id]);
         if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy đăng ký.' });
         if (rows[0].status !== 'PENDING') return res.status(400).json({ error: 'Đăng ký này đã được xử lý.' });
-        const [upd] = await pool.query("UPDATE lic_purchase_registrations SET status = ?, decided_by = ?, decided_at = ? WHERE id = ? AND status = 'PENDING'", ['REJECTED', req.user.username, new Date().toISOString(), id]);
+        const [upd] = await pool.query("UPDATE lic_purchase_registrations SET status = ?, decided_by = ?, decided_at = ?, pending_key = NULL WHERE id = ? AND status = 'PENDING'", ['REJECTED', req.user.username, new Date().toISOString(), id]);
         if (upd.affectedRows === 0) return res.status(409).json({ error: 'Đăng ký này vừa được xử lý bởi người khác, vui lòng tải lại trang.' });
         await writeAuditLog({ module: 'LICENSE', actionType: 'REJECT_REGISTRATION', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `Đăng ký #${id}`, description: `Từ chối đăng ký mua bản quyền #${id}.` });
         res.json({ success: true });
