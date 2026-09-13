@@ -28,7 +28,7 @@
     "ldapts": "^9.0.0",
     "multer": "^2.2.0",
     "mysql2": "^3.9.2",
-    "nodemailer": "^6.10.1",
+    "nodemailer": "^10.0.6",
     "pdf-lib": "^1.17.1"
   },
   "devDependencies": {
@@ -38,6 +38,7 @@
     "terser": "^5.51.2"
   },
   "overrides": {
-    "qs": "^6.16.0"
+    "qs": "^6.16.0",
+    "uuid": "^11.1.1"
   }
 }
