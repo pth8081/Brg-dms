@@ -12,6 +12,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 
 | Phiên bản | PR | Ngày merge | Nội dung |
 |---|---|---|---|
+| v6.53 | [#61](https://github.com/pth8081/Brg-dms/pull/61) | 2026-09-13 | Đợt 3+4: Nâng cấp nodemailer v10 + vá CVE uuid; sửa toàn bộ ~16 lỗi Low (Docs/Admin/bảo mật toàn ứng dụng) + lỗi Low License + các lỗi phát hiện mới qua kiểm thử nghiệp vụ chuyên sâu trên server thật (race condition dự trù ngân sách, validate độ dài CNTT, nội dung email nhắc hạn sai sự thật) |
 | v6.51 | [#60](https://github.com/pth8081/Brg-dms/pull/60) | 2026-09-11 | Đợt 2: Sửa toàn bộ ~29 lỗi Medium (thu hồi JWT khi đổi mật khẩu, xác thực lại mật khẩu hiện tại, ẩn systemLogs, transaction/FOR UPDATE cho License, soft-delete CNTT, chống race condition ngân sách, mở quyền báo cáo license) |
 | v6.50 | [#59](https://github.com/pth8081/Brg-dms/pull/59) | 2026-09-11 | Sửa 6 lỗi bảo mật mức Cao: CAPTCHA raster, khóa tài khoản, lộ dữ liệu bootstrap, transaction sync users/workflows, chặn admin ghi đè lịch sử duyệt |
 | v6.49 | [#58](https://github.com/pth8081/dms-prod/pull/58) | 2026-09-11 | Cập nhật version.md: thêm dòng v6.48 (PR #57) |
@@ -60,10 +61,12 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 | v6.1 | [#15](https://github.com/pth8081/dms-prod/pull/15) | 2026-08-21 | Thêm tab Phát hành license và Phân bổ license cho module Bản quyền |
 | v6.0 | [#1](https://github.com/pth8081/dms-prod/pull/1)–[#14](https://github.com/pth8081/dms-prod/pull/14) | 2026-08-14 → 2026-08-21 | Phiên bản nền tảng ban đầu: xác thực server-side + hash mật khẩu, vá XSS/upload PDF an toàn, quản lý phiên bản tài liệu (mã tự sinh, cây version), gộp Log/Quy trình vào Quản trị, xóa mềm (Thùng rác) + audit log, nâng cấp UI/UX, lưu file ra đĩa, đăng nhập LDAP/AD, và thêm nền tảng module Quản lý Bản quyền Phần mềm |
 
-> **Ghi chú:** các số phiên bản v6.13, v6.17, v6.19, v6.21, v6.23 bị nhảy cóc
-> trong lịch sử — không có Pull Request tương ứng để đối chiếu nội dung
-> (nhiều khả năng do chạy lại workflow tăng version hoặc sửa trực tiếp trên
-> `main` ngoài luồng PR). Không ảnh hưởng tới các phiên bản khác.
+> **Ghi chú:** các số phiên bản v6.13, v6.17, v6.19, v6.21, v6.23, v6.52 bị
+> nhảy cóc trong lịch sử — không có Pull Request tương ứng để đối chiếu nội
+> dung (nhiều khả năng do chạy lại workflow tăng version hoặc sửa trực tiếp
+> trên `main` ngoài luồng PR — ví dụ v6.52 phát sinh từ chính commit cập nhật
+> version.md cho v6.51 vô tình kích hoạt lại workflow tăng version). Không
+> ảnh hưởng tới các phiên bản khác.
 
 ## Cách cập nhật file này
 
