@@ -199,6 +199,16 @@ CREATE TABLE IF NOT EXISTS app_configs (
     config_value JSON
 );
 
+-- (CONCURRENCY-01) Số phiên bản hiện tại của từng bảng "ghi đè toàn bộ theo
+-- snapshot" (users/depts/cats/workflows/deptWorkflows/emailConfig/ldapConfig)
+-- — client phải gửi kèm đúng version đã đọc lúc bootstrap khi đồng bộ, server
+-- từ chối (409) nếu version đã bị người khác tăng lên trước đó, tránh 2 người
+-- sửa gần như đồng thời ghi đè mất thay đổi của nhau một cách im lặng.
+CREATE TABLE IF NOT EXISTS sync_versions (
+    table_name VARCHAR(50) PRIMARY KEY,
+    version BIGINT NOT NULL DEFAULT 1
+);
+
 -- 7. Bảng Log Hệ Thống
 CREATE TABLE IF NOT EXISTS system_logs (
     id BIGINT PRIMARY KEY,
@@ -525,6 +535,13 @@ CALL add_column_if_not_exists('lic_budget_registrations', 'pending_key', 'VARCHA
 UPDATE lic_budget_registrations SET pending_key = CONCAT(round_id, ':', round_item_id, ':', org_unit_id) WHERE status = 'PENDING' AND pending_key IS NULL;
 CALL create_unique_index_if_not_exists('lic_budget_registrations', 'uq_lic_budget_reg_pending', 'pending_key');
 
+-- Cùng lý do/cơ chế như lic_budget_registrations.pending_key ở trên, áp dụng
+-- cho lic_purchase_registrations (đăng ký mua License) — xác nhận qua kiểm
+-- thử thật là race condition độc lập, chưa được chặn ở tầng CSDL trước đây.
+CALL add_column_if_not_exists('lic_purchase_registrations', 'pending_key', 'VARCHAR(150) NULL DEFAULT NULL');
+UPDATE lic_purchase_registrations SET pending_key = CONCAT(round_id, ':', round_item_id, ':', company_id) WHERE status = 'PENDING' AND pending_key IS NULL;
+CALL create_unique_index_if_not_exists('lic_purchase_registrations', 'uq_lic_purchase_reg_pending', 'pending_key');
+
 -- Snapshot tài khoản Active Directory lấy qua đồng bộ LDAP định kỳ — dùng để
 -- đối chiếu với nhân viên đang giữ license (khớp theo email) ở tab Phân bổ.
 -- disabled_at KHÔNG phải ngày AD thực sự disable account (AD không lưu sẵn
@@ -793,7 +810,12 @@ INSERT INTO users (username, pass, name, email, phone, dept, perms) VALUES
 ('admin', '$2b$12$oMp2RrpBU3Yij0zky5NVGeWI5FUPjHKZh7Bi3zX/NHT5olFKfDLSW', 'Quản Trị Viên Hệ Thống', 'admin@company.com', '0901112223', 'Phòng IT', '{"admin": true, "uploadAll": true, "uploadDepts": [], "viewDraftAll": true, "viewDraftDepts": [], "viewApprovedAll": true, "viewApprovedDepts": [], "downloadAll": true, "downloadDepts": []}')
 ON DUPLICATE KEY UPDATE name=name;
 
-INSERT INTO workflows (id, name, steps) VALUES 
+INSERT INTO workflows (id, name, steps) VALUES
 ('WF_1STEP', 'Quy trình 1 bước (Lãnh đạo duyệt)', '[{"order": 1, "name": "Phê duyệt"}]'),
 ('WF_2STEP', 'Quy trình 2 bước (Trưởng phòng -> BGD)', '[{"order": 1, "name": "Trưởng Phòng"}, {"order": 2, "name": "Ban Giám Đốc"}]')
 ON DUPLICATE KEY UPDATE name=name;
+
+INSERT INTO sync_versions (table_name, version) VALUES
+('users', 1), ('depts', 1), ('cats', 1), ('workflows', 1),
+('deptWorkflows', 1), ('emailConfig', 1), ('ldapConfig', 1)
+ON DUPLICATE KEY UPDATE table_name=table_name;
