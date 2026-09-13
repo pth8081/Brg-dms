@@ -1069,6 +1069,12 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
         );
         const [workflows] = await pool.query('SELECT * FROM workflows');
         const [configs] = await pool.query('SELECT * FROM app_configs');
+        // (CONCURRENCY-01) Phiên bản hiện tại của từng bảng đồng bộ theo snapshot
+        // toàn bộ — client phải đọc và gửi lại đúng giá trị này (baseVersion) mỗi
+        // lần POST /api/sync/:table để server phát hiện ai đó khác đã ghi trước.
+        const [syncVersionRows] = await pool.query('SELECT table_name, version FROM sync_versions');
+        const syncVersions = {};
+        syncVersionRows.forEach(r => { syncVersions[r.table_name] = Number(r.version); });
         // Bảo mật: Nhật ký hệ thống (IP, hành vi chi tiết của MỌI nhân sự khác,
         // kể cả admin/license/ngân sách) trước đây trả cho bất kỳ user đã đăng
         // nhập nào, không chỉ Admin. Chỉ truy vấn khi thật sự cần (admin) để
@@ -1183,6 +1189,7 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
                 };
             })() : {},
             systemLogs: logs,
+            syncVersions,
             maxPdfSizeMB: MAX_PDF_SIZE_MB
         });
     } catch (err) {
@@ -1200,6 +1207,35 @@ const ADMIN_ONLY_TABLES = new Set(['users', 'workflows', 'depts', 'cats', 'deptW
 // (bootstrap chỉ tải 300 log mới nhất) — xem route mới bên dưới để biết lý do.
 const KNOWN_TABLES = new Set(['docs', 'users', 'depts', 'cats', 'workflows', 'deptWorkflows', 'emailConfig', 'ldapConfig']);
 const MAX_SYNC_ROWS = 5000;
+
+// (CONCURRENCY-01) Các bảng "xóa-chèn-lại/ghi đè toàn bộ theo snapshot client
+// đọc lúc bootstrap" (users/depts/cats/workflows/deptWorkflows/emailConfig/
+// ldapConfig) trước đây KHÔNG có bất kỳ kiểm tra xung đột nào — 2 admin (hoặc
+// cùng 1 admin mở 2 tab) sửa gần như đồng thời sẽ khiến người ghi SAU âm thầm
+// ghi đè mất thay đổi của người ghi TRƯỚC (kể cả khi thay đổi đó có ý nghĩa an
+// ninh, VD khóa 1 tài khoản) mà cả 2 đều nhận phản hồi "thành công". `docs` đã
+// tự có cơ chế đúng (FOR UPDATE + đối chiếu trạng thái kỳ vọng trước khi ghi,
+// xem nhánh `table === 'docs'` bên dưới) — áp dụng nguyên tắc tương tự nhưng ở
+// mức "phiên bản nguyên" cho các bảng còn lại, vì các bảng này ghi đè theo toàn
+// bộ snapshot chứ không theo từng dòng riêng lẻ như docs.
+const SYNC_VERSIONED_TABLES = new Set(['users', 'depts', 'cats', 'workflows', 'deptWorkflows', 'emailConfig', 'ldapConfig']);
+class SyncVersionConflictError extends Error {
+    constructor(message) { super(message); this.syncConflict = true; }
+}
+// Phải gọi bên trong transaction của chính bảng đang ghi (dùng chung connection
+// `conn`, không phải `pool`) — khóa FOR UPDATE đúng dòng version rồi mới ghi dữ
+// liệu thật ngay sau đó trong CÙNG transaction, để 2 request gần như đồng thời
+// không thể cùng đọc thấy version cũ trước khi cái nào ghi trước kịp tăng nó.
+async function checkAndBumpSyncVersion(conn, table, baseVersion) {
+    const [rows] = await conn.query('SELECT version FROM sync_versions WHERE table_name = ? FOR UPDATE', [table]);
+    const current = rows[0] ? Number(rows[0].version) : 1;
+    if (!Number.isInteger(baseVersion) || baseVersion !== current) {
+        throw new SyncVersionConflictError('Dữ liệu này vừa được người khác cập nhật — vui lòng tải lại trang trước khi lưu tiếp để tránh ghi đè mất thay đổi của nhau.');
+    }
+    const newVersion = current + 1;
+    await conn.query('INSERT INTO sync_versions (table_name, version) VALUES (?, ?) ON DUPLICATE KEY UPDATE version = ?', [table, newVersion, newVersion]);
+    return newVersion;
+}
 
 // --- API LẤY NỘI DUNG FILE THEO YÊU CẦU (không còn gửi kèm trong bootstrap) ---
 // Kiểm tra quyền xem/tải Zero Trust ngay tại đây — không tin việc client chỉ
@@ -1770,6 +1806,12 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
 }, async (req, res) => {
     const { table } = req.params;
     const data = req.body.data;
+    // (CONCURRENCY-01) baseVersion = version của bảng này mà client đã đọc lúc
+    // bootstrap/lần đồng bộ trước — bắt buộc với mọi bảng trong
+    // SYNC_VERSIONED_TABLES, đối chiếu+tăng bên trong transaction ghi thật của
+    // từng nhánh bên dưới (xem checkAndBumpSyncVersion).
+    const baseVersion = req.body.baseVersion !== undefined ? Number(req.body.baseVersion) : NaN;
+    let responseVersion;
 
     if (!KNOWN_TABLES.has(table)) {
         return res.status(400).json({ error: `Bảng dữ liệu không hợp lệ: ${table}` });
@@ -1777,6 +1819,9 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
     if (['docs', 'users', 'depts', 'cats', 'workflows'].includes(table)) {
         if (!Array.isArray(data)) return res.status(400).json({ error: 'Dữ liệu gửi lên phải là một mảng.' });
         if (data.length > MAX_SYNC_ROWS) return res.status(400).json({ error: 'Số lượng bản ghi vượt giới hạn cho phép.' });
+    }
+    if (SYNC_VERSIONED_TABLES.has(table) && !Number.isInteger(baseVersion)) {
+        return res.status(400).json({ error: 'Thiếu thông tin phiên bản dữ liệu (baseVersion) — vui lòng tải lại trang và thử lại.' });
     }
 
     try {
@@ -2073,6 +2118,7 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
             const usersConn = await pool.getConnection();
             try {
                 await usersConn.beginTransaction();
+                responseVersion = await checkAndBumpSyncVersion(usersConn, 'users', baseVersion);
                 await usersConn.query('DELETE FROM users');
                 for (let row of rowsToInsert) {
                     await usersConn.query(
@@ -2171,6 +2217,7 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
             const conn = await pool.getConnection();
             try {
                 await conn.beginTransaction();
+                responseVersion = await checkAndBumpSyncVersion(conn, table, baseVersion);
 
                 for (const u of toUpdate) {
                     await conn.query(`UPDATE ${table} SET name = ?, abbr = ? WHERE id = ?`, [u.name, u.abbr, u.id]);
@@ -2254,6 +2301,7 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
             const wfConn = await pool.getConnection();
             try {
                 await wfConn.beginTransaction();
+                responseVersion = await checkAndBumpSyncVersion(wfConn, 'workflows', baseVersion);
                 await wfConn.query('DELETE FROM workflows');
                 for (let w of data) {
                     await wfConn.query('INSERT INTO workflows (id, name, steps) VALUES (?, ?, ?)', [w.id, w.name, JSON.stringify(w.steps || [])]);
@@ -2358,13 +2406,25 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                     data.smtpPass = existingCfg.smtpPass || '';
                 }
             }
-            await pool.query(
-                'INSERT INTO app_configs (config_key, config_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE config_value = ?',
-                [table, JSON.stringify(data), JSON.stringify(data)]
-            );
+            const cfgConn = await pool.getConnection();
+            try {
+                await cfgConn.beginTransaction();
+                responseVersion = await checkAndBumpSyncVersion(cfgConn, table, baseVersion);
+                await cfgConn.query(
+                    'INSERT INTO app_configs (config_key, config_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE config_value = ?',
+                    [table, JSON.stringify(data), JSON.stringify(data)]
+                );
+                await cfgConn.commit();
+            } catch (e) {
+                await cfgConn.rollback();
+                throw e;
+            } finally {
+                cfgConn.release();
+            }
         }
-        res.json({ success: true });
+        res.json({ success: true, ...(responseVersion !== undefined ? { version: responseVersion } : {}) });
     } catch (err) {
+        if (err.syncConflict) return res.status(409).json({ error: err.message });
         console.error('❌ Lỗi đồng bộ dữ liệu:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
@@ -2376,6 +2436,26 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
 // nhầm là "xoá bớt" chỉ vì client chỉ giữ 300 log gần nhất trong bộ nhớ.
 // Danh tính (username/fullName) và IP do server tự xác định từ phiên đăng
 // nhập thật, không tin giá trị client gửi lên — dùng lại writeAuditLog().
+// (LOG-04) Bootstrap chỉ tải đúng 300 dòng log mới nhất (để không kéo cả 1
+// bảng log khổng lồ mỗi lần tải trang) — nhưng trước đây KHÔNG có cách nào
+// khác để xem log cũ hơn dòng #300, dù giao diện có phân trang thì cũng chỉ
+// đang phân trang lại trên đúng 300 dòng đã có sẵn trong bộ nhớ. Route này bổ
+// sung phân trang THẬT ở tầng CSDL (kiểu keyset, dùng `beforeId` thay vì
+// OFFSET để vẫn nhanh khi bảng log đã rất lớn) để xem tiếp các trang cũ hơn.
+app.get('/api/logs', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 300);
+        const beforeId = req.query.beforeId ? Number(req.query.beforeId) : null;
+        const [rows] = beforeId
+            ? await pool.query('SELECT * FROM system_logs WHERE id < ? ORDER BY id DESC LIMIT ?', [beforeId, limit])
+            : await pool.query('SELECT * FROM system_logs ORDER BY id DESC LIMIT ?', [limit]);
+        res.json({ logs: rows, hasMore: rows.length === limit });
+    } catch (err) {
+        console.error('❌ Lỗi tải thêm nhật ký hệ thống:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
 app.post('/api/logs', requireAuth, logsWriteLimiter, async (req, res) => {
     try {
         const module = String((req.body && req.body.module) || '').trim();

@@ -3,7 +3,7 @@
       depts: [], cats: [], users: [], docs: [],
       workflows: [], deptWorkflows: {},
       emailConfig: {}, systemLogs: [],
-      maxPdfSizeMB: 20, ldapConfig: {}
+      maxPdfSizeMB: 20, ldapConfig: {}, syncVersions: {}
     };
 
     // Dữ liệu module Quản Lý Bản Quyền — độc lập với DB ở trên, tải riêng khi
@@ -139,6 +139,10 @@
       DB.deptWorkflows = data.deptWorkflows || {};
       DB.emailConfig = data.emailConfig || {};
       DB.systemLogs = data.systemLogs || [];
+      // (LOG-04) Bootstrap chỉ tải đúng 300 dòng mới nhất — nếu vừa đúng 300,
+      // rất có thể còn log cũ hơn nữa, hiện nút "Tải thêm" để gọi GET /api/logs
+      // (phân trang thật ở CSDL) thay vì không có cách nào xem log cũ hơn nữa.
+      hasMoreOlderLogs = DB.systemLogs.length >= 300;
       DB.maxPdfSizeMB = data.maxPdfSizeMB || 20;
       DB.ldapConfig = data.ldapConfig || {};
       // Bootstrap chỉ trả mật khẩu tài khoản dịch vụ AD dạng che (••••••••) để
@@ -146,6 +150,11 @@
       // tình gửi lại chuỗi che này lên server như thể đó là mật khẩu mới (VD khi
       // lưu form đăng nhập LDAP ở trên, vốn không liên quan tới mật khẩu này).
       if (DB.ldapConfig.servicePassword) DB.ldapConfig.servicePassword = '';
+      // (CONCURRENCY-01) Phiên bản hiện tại của từng bảng đồng bộ toàn snapshot
+      // (users/depts/cats/workflows/deptWorkflows/emailConfig/ldapConfig) — gửi
+      // lại đúng giá trị này mỗi lần đồng bộ để server phát hiện ai đó khác đã
+      // ghi trước, tránh 2 người sửa gần như đồng thời ghi đè mất nhau.
+      DB.syncVersions = data.syncVersions || {};
     }
 
     async function syncStorage(key) {
@@ -154,13 +163,23 @@
       // sẽ luôn là undefined và server từ chối vì "dữ liệu không phải mảng".
       const dbKey = key === 'system_logs' ? 'systemLogs' : key;
       try {
-        await apiFetch(`/api/sync/${key}`, {
+        const body = { data: DB[dbKey] };
+        if (DB.syncVersions && DB.syncVersions[key] !== undefined) body.baseVersion = DB.syncVersions[key];
+        const result = await apiFetch(`/api/sync/${key}`, {
           method: 'POST',
-          body: JSON.stringify({ data: DB[dbKey] })
+          body: JSON.stringify(body)
         });
+        // Server trả version MỚI sau khi ghi thành công — cập nhật ngay để lần
+        // đồng bộ kế tiếp trong cùng phiên (không cần tải lại trang) dùng đúng
+        // giá trị mới nhất, tránh bị 409 oan với chính thay đổi mình vừa lưu.
+        if (result && result.version !== undefined && DB.syncVersions) DB.syncVersions[key] = result.version;
         return true;
       } catch (e) {
-        showToast('Lỗi đồng bộ dữ liệu: ' + e.message, 'danger');
+        if (e.status === 409) {
+          showToast(e.message, 'danger');
+        } else {
+          showToast('Lỗi đồng bộ dữ liệu: ' + e.message, 'danger');
+        }
         return false;
       }
     }
@@ -2425,9 +2444,15 @@
     }
 
     // --- LOG HỆ THỐNG ---
+    // (LOG-04) true khi có thể còn log cũ hơn những gì đã tải (300 dòng đầu từ
+    // bootstrap, hoặc trang kế tiếp qua loadOlderSystemLogs) — điều khiển hiện/
+    // ẩn nút "Tải thêm log cũ hơn".
+    let hasMoreOlderLogs = false;
     function renderSystemLogs() {
       const tbody = document.getElementById('systemLogTableBody');
       if (!tbody) return;
+      const loadOlderBtn = document.getElementById('loadOlderLogsBtn');
+      if (loadOlderBtn) loadOlderBtn.classList.toggle('hidden', !hasMoreOlderLogs);
 
       const mod = document.getElementById('filterLogModule').value;
       const status = document.getElementById('filterLogStatus').value;
@@ -2461,6 +2486,26 @@
       renderPaginationBar('systemLogPaginationBox', 'systemLogs', filtered.length, 'renderSystemLogs', { itemLabel: 'dòng log' });
     }
 
+    // (LOG-04) Tải tiếp trang log cũ hơn qua GET /api/logs (phân trang kiểu
+    // keyset bằng beforeId, thật ở tầng CSDL) — trước đây bootstrap chỉ tải
+    // đúng 300 dòng mới nhất và KHÔNG có cách nào khác để xem log cũ hơn.
+    async function loadOlderSystemLogs() {
+      const btn = document.getElementById('loadOlderLogsBtn');
+      const oldest = DB.systemLogs.length > 0 ? DB.systemLogs[DB.systemLogs.length - 1].id : null;
+      try {
+        if (btn) { btn.disabled = true; btn.textContent = 'Đang tải…'; }
+        const qs = oldest != null ? `?beforeId=${encodeURIComponent(oldest)}&limit=100` : '?limit=100';
+        const result = await apiFetch(`/api/logs${qs}`);
+        DB.systemLogs = DB.systemLogs.concat(result.logs || []);
+        hasMoreOlderLogs = !!result.hasMore;
+        renderSystemLogs();
+      } catch (e) {
+        showToast('Lỗi tải thêm log: ' + e.message, 'danger');
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Tải thêm log cũ hơn…'; }
+      }
+    }
+
     async function clearSystemLogs() {
       const ok = await showConfirm({
         title: 'Xóa toàn bộ log',
@@ -2471,6 +2516,7 @@
       try {
         await apiFetch('/api/logs', { method: 'DELETE' });
         DB.systemLogs = [];
+        hasMoreOlderLogs = false;
         showToast('Đã xóa toàn bộ log nhật ký hệ thống.', 'success');
         renderSystemLogs();
       } catch (e) {
