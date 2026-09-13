@@ -12,6 +12,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 
 | Phiên bản | PR | Ngày merge | Nội dung |
 |---|---|---|---|
+| v6.57 | [#63](https://github.com/pth8081/Brg-dms/pull/63) | 2026-09-13 | Đợt 5+6: Sửa 6 lỗi phát hiện qua kiểm thử chuyên sâu (race condition đăng ký mua License, lỗ hổng phạm vi tự phục vụ, bỏ qua đối chiếu tên khi duyệt cấp phát hàng loạt, lỗi ép kiểu mở khóa oan, quyền Báo cáo Tài liệu, bộ lọc công ty ở Báo cáo License) + thêm optimistic concurrency (sync_versions) cho các bảng đồng bộ toàn snapshot + phân trang thật cho System Logs |
 | v6.54 | [#62](https://github.com/pth8081/Brg-dms/pull/62) | 2026-09-13 | Thêm tài liệu nghiệp vụ.md — mô tả toàn bộ nghiệp vụ ứng dụng (kiến trúc, vai trò/phân quyền, chi tiết từng module, quy ước mã lỗi HTTP + nguyên tắc thiết kế xuyên suốt) |
 | v6.53 | [#61](https://github.com/pth8081/Brg-dms/pull/61) | 2026-09-13 | Đợt 3+4: Nâng cấp nodemailer v10 + vá CVE uuid; sửa toàn bộ ~16 lỗi Low (Docs/Admin/bảo mật toàn ứng dụng) + lỗi Low License + các lỗi phát hiện mới qua kiểm thử nghiệp vụ chuyên sâu trên server thật (race condition dự trù ngân sách, validate độ dài CNTT, nội dung email nhắc hạn sai sự thật) |
 | v6.51 | [#60](https://github.com/pth8081/Brg-dms/pull/60) | 2026-09-11 | Đợt 2: Sửa toàn bộ ~29 lỗi Medium (thu hồi JWT khi đổi mật khẩu, xác thực lại mật khẩu hiện tại, ẩn systemLogs, transaction/FOR UPDATE cho License, soft-delete CNTT, chống race condition ngân sách, mở quyền báo cáo license) |
@@ -62,12 +63,14 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 | v6.1 | [#15](https://github.com/pth8081/dms-prod/pull/15) | 2026-08-21 | Thêm tab Phát hành license và Phân bổ license cho module Bản quyền |
 | v6.0 | [#1](https://github.com/pth8081/dms-prod/pull/1)–[#14](https://github.com/pth8081/dms-prod/pull/14) | 2026-08-14 → 2026-08-21 | Phiên bản nền tảng ban đầu: xác thực server-side + hash mật khẩu, vá XSS/upload PDF an toàn, quản lý phiên bản tài liệu (mã tự sinh, cây version), gộp Log/Quy trình vào Quản trị, xóa mềm (Thùng rác) + audit log, nâng cấp UI/UX, lưu file ra đĩa, đăng nhập LDAP/AD, và thêm nền tảng module Quản lý Bản quyền Phần mềm |
 
-> **Ghi chú:** các số phiên bản v6.13, v6.17, v6.19, v6.21, v6.23, v6.52 bị
-> nhảy cóc trong lịch sử — không có Pull Request tương ứng để đối chiếu nội
-> dung (nhiều khả năng do chạy lại workflow tăng version hoặc sửa trực tiếp
-> trên `main` ngoài luồng PR — ví dụ v6.52 phát sinh từ chính commit cập nhật
-> version.md cho v6.51 vô tình kích hoạt lại workflow tăng version). Không
-> ảnh hưởng tới các phiên bản khác.
+> **Ghi chú:** các số phiên bản v6.13, v6.17, v6.19, v6.21, v6.23, v6.52,
+> v6.55, v6.56 bị nhảy cóc trong lịch sử — không có Pull Request tương ứng để
+> đối chiếu nội dung (nhiều khả năng do chạy lại workflow tăng version hoặc
+> sửa trực tiếp trên `main` ngoài luồng PR — ví dụ v6.52 phát sinh từ chính
+> commit cập nhật version.md cho v6.51, và v6.55/v6.56 phát sinh từ merge PR
+> #62 rồi 1 commit cập nhật version.md trực tiếp trên `main` vô tình kích hoạt
+> lại workflow tăng version thêm 1 lần nữa). Không ảnh hưởng tới các phiên bản
+> khác.
 
 ## Cách cập nhật file này
 
