@@ -12,6 +12,8 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 
 | Phiên bản | PR | Ngày merge | Nội dung |
 |---|---|---|---|
+| v6.62 | [#66](https://github.com/pth8081/Brg-dms/pull/66) | 2026-09-14 | Sửa cảnh báo sai "Vui lòng chọn công ty/đơn vị cho phạm vi tự phục vụ!" khi lưu user không hề đụng tới mục Phạm vi tự phục vụ — resetUserForm() trước đây chỉ reset select loại phạm vi khi licenseDB.loaded, để sót giá trị cũ từ lần sửa user trước |
+| v6.61 | [#65](https://github.com/pth8081/Brg-dms/pull/65) | 2026-09-14 | Đợt 7: Sửa lỗi nghiêm trọng — public/app.min.js (bundle JS production thật sự phục vụ) không được rebuild kể từ v6.48 dù mã nguồn đã qua 6 PR (bao gồm toàn bộ vá bảo mật Đợt 2 + cơ chế baseVersion Đợt 6), gây lỗi 400 ở mọi thao tác Lưu trong module Hệ thống; rebuild ngay bundle + workflow CI tự `npm run build` trên mọi lần merge từ nay + banner cảnh báo khi bundle trình duyệt lệch phiên bản server |
 | v6.59 | [#64](https://github.com/pth8081/Brg-dms/pull/64) | 2026-09-14 | Thêm script dọn dẹp dữ liệu test (reset-test-data.js) — xóa toàn bộ tài liệu/License/Ngân sách 1+2/CNTT/Nhật ký hệ thống, chỉ giữ lại cấu hình hệ thống và danh mục nền tảng |
 | v6.57 | [#63](https://github.com/pth8081/Brg-dms/pull/63) | 2026-09-13 | Đợt 5+6: Sửa 6 lỗi phát hiện qua kiểm thử chuyên sâu (race condition đăng ký mua License, lỗ hổng phạm vi tự phục vụ, bỏ qua đối chiếu tên khi duyệt cấp phát hàng loạt, lỗi ép kiểu mở khóa oan, quyền Báo cáo Tài liệu, bộ lọc công ty ở Báo cáo License) + thêm optimistic concurrency (sync_versions) cho các bảng đồng bộ toàn snapshot + phân trang thật cho System Logs |
 | v6.54 | [#62](https://github.com/pth8081/Brg-dms/pull/62) | 2026-09-13 | Thêm tài liệu nghiệp vụ.md — mô tả toàn bộ nghiệp vụ ứng dụng (kiến trúc, vai trò/phân quyền, chi tiết từng module, quy ước mã lỗi HTTP + nguyên tắc thiết kế xuyên suốt) |
@@ -65,14 +67,16 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 | v6.0 | [#1](https://github.com/pth8081/dms-prod/pull/1)–[#14](https://github.com/pth8081/dms-prod/pull/14) | 2026-08-14 → 2026-08-21 | Phiên bản nền tảng ban đầu: xác thực server-side + hash mật khẩu, vá XSS/upload PDF an toàn, quản lý phiên bản tài liệu (mã tự sinh, cây version), gộp Log/Quy trình vào Quản trị, xóa mềm (Thùng rác) + audit log, nâng cấp UI/UX, lưu file ra đĩa, đăng nhập LDAP/AD, và thêm nền tảng module Quản lý Bản quyền Phần mềm |
 
 > **Ghi chú:** các số phiên bản v6.13, v6.17, v6.19, v6.21, v6.23, v6.52,
-> v6.55, v6.56, v6.58 bị nhảy cóc trong lịch sử — không có Pull Request tương
-> ứng để đối chiếu nội dung (nhiều khả năng do chạy lại workflow tăng version
-> hoặc sửa trực tiếp trên `main` ngoài luồng PR — ví dụ v6.52 phát sinh từ
-> chính commit cập nhật version.md cho v6.51, v6.55/v6.56 phát sinh từ merge PR
-> #62 rồi 1 commit cập nhật version.md trực tiếp trên `main`, và v6.58 phát
-> sinh tương tự từ commit cập nhật version.md cho v6.57 — mỗi lần commit trực
-> tiếp cập nhật version.md trên `main` đều vô tình kích hoạt lại workflow tăng
-> version thêm 1 lần nữa). Không ảnh hưởng tới các phiên bản khác.
+> v6.55, v6.56, v6.58, v6.60 bị nhảy cóc trong lịch sử — không có Pull
+> Request tương ứng để đối chiếu nội dung (nhiều khả năng do chạy lại workflow
+> tăng version hoặc sửa trực tiếp trên `main` ngoài luồng PR — ví dụ v6.52
+> phát sinh từ chính commit cập nhật version.md cho v6.51, v6.55/v6.56/v6.58/
+> v6.60 phát sinh tương tự từ các commit cập nhật version.md trực tiếp trên
+> `main` sau mỗi lần merge — mỗi lần commit trực tiếp như vậy đều vô tình kích
+> hoạt lại workflow tăng version thêm 1 lần nữa). Từ PR #65 trở đi, workflow
+> còn tự rebuild `public/app.min.js`/`style.css` trên mỗi lần chạy (xem Đợt 7),
+> nên các lần nhảy cóc này không ảnh hưởng gì tới bundle production. Không ảnh
+> hưởng tới các phiên bản khác.
 
 ## Cách cập nhật file này
 
