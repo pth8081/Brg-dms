@@ -1601,7 +1601,7 @@
           <button data-evt-click="exportBudget2Xlsx" data-args='["PROPOSED"]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition">📤 Xuất Excel</button>
         </div>
       </div>
-      <p class="text-[11px] text-gray-500">Đề xuất ngân sách do các phòng ban gửi lên — có thể chỉnh sửa/xóa tự do, KHÔNG cần duyệt ở bước này. Bấm "➡️ Gửi duyệt" khi sẵn sàng để chuyển sang tab Ngân sách phê duyệt (bước duyệt thật sự chỉ diễn ra ở đó). Nhập hàng loạt: tải mẫu, điền dữ liệu (Năm ngân sách bắt buộc; Mã công ty/Đơn vị tùy chọn, phải nhập đúng như đã có trong hệ thống), rồi nhập lại Excel.</p>
+      <p class="text-[11px] text-gray-500">Đề xuất ngân sách do các phòng ban tự nhập, tự sửa/xóa khi còn "Chờ duyệt". Duyệt/Từ chối ngay tại dòng này chỉ đổi trạng thái — dòng ở lại vĩnh viễn trong tab Đề xuất, KHÔNG tạo bản sao hay chuyển sang tab Ngân sách phê duyệt (2 tab hoàn toàn độc lập, xem tab Phê duyệt). Không thể tự duyệt/từ chối đề xuất do chính mình tạo. Nhập hàng loạt: tải mẫu, điền dữ liệu (Năm ngân sách bắt buộc; Mã công ty/Đơn vị tùy chọn, phải nhập đúng như đã có trong hệ thống), rồi nhập lại Excel.</p>
       <div class="overflow-x-auto border rounded">
         <table class="w-full text-xs border-collapse">
           <thead>
@@ -1618,7 +1618,8 @@
               <th class="border p-2 text-center">Năm</th>
               <th class="border p-2">Công ty</th>
               <th class="border p-2">Khối/Ban/Phòng</th>
-              <th class="border p-2 text-center w-24">Thao tác</th>
+              <th class="border p-2 text-center">Trạng thái</th>
+              <th class="border p-2 text-center w-32">Thao tác</th>
             </tr>
           </thead>
           <tbody id="budget2ProposeTableBody"></tbody>
@@ -1638,14 +1639,14 @@
           <button data-evt-click="exportBudget2Xlsx" data-args='["APPROVED"]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition">📤 Xuất Excel</button>
         </div>
       </div>
-      <p class="text-[11px] text-gray-500">Đây là giai đoạn DUY NHẤT trong module cần duyệt/từ chối — dòng vào đây từ đề xuất được gửi sang, hoặc nhập trực tiếp/nhập Excel, đều bắt đầu ở trạng thái "Chờ duyệt". Duyệt xong sẽ tự động sinh 1 mục ở tab Ngân sách sử dụng; không thể tự duyệt dòng do chính mình tạo.</p>
+      <p class="text-[11px] text-gray-500">Đây là giai đoạn DUY NHẤT trong module cần duyệt/từ chối chính thức của công ty — hoàn toàn độc lập với tab Đề xuất (không tự lấy dữ liệu từ đó), luôn nhập trực tiếp hoặc nhập Excel tại đây, bắt đầu ở trạng thái "Chờ duyệt". Duyệt xong sẽ tự động sinh 1 mục ở tab Ngân sách sử dụng; không thể tự duyệt dòng do chính mình tạo.</p>
       <div id="budget2ApprovedContainer"></div>
     </div>
 
     <!-- Sub-tab: Ngân sách sử dụng -->
     <div id="budget2SubUsed" class="hidden space-y-3">
       <h2 class="text-lg font-bold text-gray-800">Ngân sách sử dụng</h2>
-      <p class="text-[11px] text-gray-500">Mỗi mục (sinh tự động từ Ngân sách phê duyệt) cho phép thêm các mục con ghi nhận từng lần sử dụng thực tế — thành tiền mục con tự trừ vào ngân sách mục cha, dòng cuối luôn là "Ngân sách còn lại". Nếu mục con dùng khác Loại ngân sách (OPEX/CAPEX) so với mục cha, bắt buộc nhập Lý do tái phân bổ.</p>
+      <p class="text-[11px] text-gray-500">Mỗi mục (sinh tự động từ Ngân sách phê duyệt) cho phép thêm các mục con ghi nhận từng lần sử dụng thực tế — Nội dung/Mô tả của mục con LUÔN kế thừa nguyên văn từ dòng Phê duyệt gốc (không tự gõ khác được, đảm bảo đúng dữ liệu), bắt buộc chọn Tháng mua thực tế để báo cáo so sánh chính xác theo tháng. Thành tiền mục con tự trừ vào ngân sách mục cha, dòng cuối luôn là "Ngân sách còn lại". Nếu mục con dùng khác Loại ngân sách (OPEX/CAPEX) so với mục cha, bắt buộc nhập Lý do tái phân bổ.</p>
       <div id="budget2UsedContainer"></div>
     </div>
 
@@ -1655,6 +1656,18 @@
         <h2 class="text-lg font-bold text-gray-800">Báo cáo ngân sách</h2>
         <button data-evt-click="exportBudget2ReportXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">📤 Xuất Excel báo cáo</button>
       </div>
+
+      <!-- 4 lát cắt nhanh: (a) Sử dụng vs Phê duyệt năm hiện tại theo Công ty,
+           (b)(c)(d) so sánh Sử dụng/Phê duyệt/Đề xuất giữa năm hiện tại và các
+           năm quá khứ — dựng từ cùng dữ liệu /api/budget2/reports, không cần
+           chỉnh bộ lọc bên dưới. Bộ lọc "Theo kỳ"/"So sánh nhiều kỳ" phía dưới
+           vẫn giữ nguyên để tra cứu chi tiết theo Tháng/Đơn vị/Loại ngân sách. -->
+      <div>
+        <h3 class="text-sm font-bold text-gray-700 mb-2">Bốn lát cắt nhanh</h3>
+        <div id="budget2QuickReports" class="grid grid-cols-1 lg:grid-cols-2 gap-3"></div>
+      </div>
+
+      <h3 class="text-sm font-bold text-gray-700 pt-2 border-t">Tra cứu chi tiết</h3>
       <div class="flex gap-1 border-b">
         <button id="btnBudget2ReportModeSingle" data-evt-click="onBudget2ReportModeChange" data-args='["single"]' class="px-3 py-1.5 text-xs font-bold border-b-2 border-teal-600 text-teal-700">📅 Theo kỳ (Tháng/Năm)</button>
         <button id="btnBudget2ReportModeCompare" data-evt-click="onBudget2ReportModeChange" data-args='["compare"]' class="px-3 py-1.5 text-xs font-bold border-b-2 border-transparent text-gray-500">📈 So sánh nhiều kỳ</button>
@@ -1915,12 +1928,12 @@
       <input type="hidden" id="budget2ChildParentId">
       <input type="hidden" id="budget2ChildEditId">
       <div>
-        <label class="block text-xs font-semibold text-gray-600 mb-1">Nội dung</label>
-        <input id="budget2ChildContent" type="text" class="w-full border p-2 rounded text-sm">
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Nội dung <span class="text-gray-400 font-normal">🔒 kế thừa từ dòng Phê duyệt gốc</span></label>
+        <input id="budget2ChildContent" type="text" disabled class="w-full border p-2 rounded text-sm bg-gray-100 text-gray-600 cursor-not-allowed">
       </div>
       <div>
-        <label class="block text-xs font-semibold text-gray-600 mb-1">Mô tả (tùy chọn)</label>
-        <textarea id="budget2ChildDescription" rows="2" class="w-full border p-2 rounded text-sm"></textarea>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Mô tả <span class="text-gray-400 font-normal">🔒 kế thừa từ dòng Phê duyệt gốc</span></label>
+        <textarea id="budget2ChildDescription" rows="2" disabled class="w-full border p-2 rounded text-sm bg-gray-100 text-gray-600 cursor-not-allowed"></textarea>
       </div>
       <div class="grid grid-cols-3 gap-3">
         <div>
@@ -1941,12 +1954,23 @@
           </select>
         </div>
       </div>
-      <div>
-        <label class="block text-xs font-semibold text-gray-600 mb-1">Loại ngân sách</label>
-        <select id="budget2ChildType" data-evt-change="toggleBudget2ChildReasonField" data-args='[]' class="w-full border p-2 rounded text-sm bg-white">
-          <option value="OPEX">OPEX</option>
-          <option value="CAPEX">CAPEX</option>
-        </select>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Loại ngân sách</label>
+          <select id="budget2ChildType" data-evt-change="toggleBudget2ChildReasonField" data-args='[]' class="w-full border p-2 rounded text-sm bg-white">
+            <option value="OPEX">OPEX</option>
+            <option value="CAPEX">CAPEX</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Tháng mua</label>
+          <select id="budget2ChildPurchaseMonth" class="w-full border p-2 rounded text-sm bg-white">
+            <option value="1">Tháng 1</option><option value="2">Tháng 2</option><option value="3">Tháng 3</option>
+            <option value="4">Tháng 4</option><option value="5">Tháng 5</option><option value="6">Tháng 6</option>
+            <option value="7">Tháng 7</option><option value="8">Tháng 8</option><option value="9">Tháng 9</option>
+            <option value="10">Tháng 10</option><option value="11">Tháng 11</option><option value="12">Tháng 12</option>
+          </select>
+        </div>
       </div>
       <div id="budget2ChildReasonWrap" class="hidden">
         <label class="block text-xs font-semibold text-red-600 mb-1">Lý do tái phân bổ (bắt buộc — mục con khác Loại ngân sách với mục cha)</label>

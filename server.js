@@ -5654,7 +5654,8 @@ function mapBudget2Line(l) {
         decidedBy: l.decided_by,
         decidedAt: l.decided_at,
         budgetYear: l.budget_year,
-        budgetMonth: l.budget_month
+        budgetMonth: l.budget_month,
+        purchaseMonth: l.purchase_month
     };
 }
 
@@ -5745,8 +5746,12 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
         if (!line) return res.status(404).json({ error: 'Không tìm thấy dòng ngân sách.' });
 
         if (line.stage === 'PROPOSED') {
-            const [sentRows] = await pool.query('SELECT id FROM budget2_lines WHERE stage = \'APPROVED\' AND source_line_id = ?', [id]);
-            if (sentRows.length) return res.status(400).json({ error: 'Đề xuất đã được gửi sang Phê duyệt, không thể sửa.' });
+            // (Tách biệt Đề xuất/Phê duyệt) Đề xuất không còn "gửi sang Phê
+            // duyệt" (tạo bản sao ở giai đoạn khác) — Duyệt/Từ chối nay đổi
+            // TRẠNG THÁI ngay trên chính dòng này (xem /approve-proposal,
+            // /reject-proposal bên dưới), nên điều kiện khóa sửa/xóa cũng đổi
+            // theo: chỉ còn sửa/xóa được khi CHƯA bị quyết định (SUBMITTED).
+            if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Đề xuất đã được duyệt/từ chối, không thể sửa.' });
             const v = validateBudget2LineInput(req.body || {});
             if (v.error) return res.status(400).json({ error: v.error });
             const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
@@ -5772,19 +5777,23 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
         }
 
         if (line.stage === 'USED' && line.parent_id) {
-            const v = validateBudget2LineInput(req.body || {}, { requireYear: false });
-            if (v.error) return res.status(400).json({ error: v.error });
             const [parentRows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ?', [line.parent_id]);
             const parent = parentRows[0];
             if (!parent) return res.status(404).json({ error: 'Không tìm thấy mục cha.' });
+            // (Khóa Nội dung/Mô tả) Giống hệt lúc tạo — sửa mục con cũng không
+            // được đổi Nội dung/Mô tả khác với dòng Phê duyệt gốc.
+            const v = validateBudget2LineInput({ ...req.body, content: parent.content, description: parent.description }, { requireYear: false });
+            if (v.error) return res.status(400).json({ error: v.error });
+            const pm = validateBudget2PurchaseMonth(req.body || {});
+            if (pm.error) return res.status(400).json({ error: pm.error });
             const reallocationReason = req.body && req.body.reallocationReason ? String(req.body.reallocationReason).trim() : null;
             if (v.budgetType !== parent.budget_type && !reallocationReason) {
                 return res.status(400).json({ error: 'Mục con khác loại ngân sách (OPEX/CAPEX) với mục cha — bắt buộc nhập lý do tái phân bổ.' });
             }
             const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
             await pool.query(
-                `UPDATE budget2_lines SET content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, note = ?, reallocation_reason = ? WHERE id = ?`,
-                [v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.note, reallocationReason, id]
+                `UPDATE budget2_lines SET content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, note = ?, reallocation_reason = ?, purchase_month = ? WHERE id = ?`,
+                [v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.note, reallocationReason, pm.purchaseMonth, id]
             );
             await recomputeBudget2ParentUsage(line.parent_id);
             await writeAuditLog({ module: 'BUDGET2', actionType: 'UPDATE_USAGE_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Cập nhật mục sử dụng con [${v.content}].` });
@@ -5808,8 +5817,7 @@ app.delete('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (r
         if (!line) return res.status(404).json({ error: 'Không tìm thấy dòng ngân sách.' });
 
         if (line.stage === 'PROPOSED') {
-            const [sentRows] = await pool.query('SELECT id FROM budget2_lines WHERE stage = \'APPROVED\' AND source_line_id = ?', [id]);
-            if (sentRows.length) return res.status(400).json({ error: 'Đề xuất đã được gửi sang Phê duyệt, không thể xóa.' });
+            if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Đề xuất đã được duyệt/từ chối, không thể xóa.' });
             await pool.query('DELETE FROM budget2_lines WHERE id = ?', [id]);
             await writeAuditLog({ module: 'BUDGET2', actionType: 'DELETE_PROPOSAL', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Xóa đề xuất ngân sách [${line.content}].` });
             return res.json({ success: true });
@@ -5836,29 +5844,47 @@ app.delete('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (r
     }
 });
 
-// --- Gửi 1 đề xuất sang chờ Phê duyệt — CHƯA phải là duyệt, chỉ chuyển dòng
-// sang giai đoạn Phê duyệt ở trạng thái chờ (SUBMITTED). Không chặn tự thực
-// hiện vì đây không phải hành động quyết định — quyết định thật (duyệt/từ
-// chối) chỉ có ở giai đoạn Phê duyệt bên dưới. ---
-app.post('/api/budget2/lines/:id/send-to-approval', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+// --- Duyệt/Từ chối 1 dòng Đề xuất — chỉ đổi TRẠNG THÁI ngay trên chính dòng
+// này, KHÔNG sinh dòng nào ở giai đoạn khác. Trước đây "Gửi duyệt" tạo 1 bản
+// sao ở giai đoạn Phê duyệt (source_line_id trỏ về đề xuất gốc); nay 2 giai
+// đoạn Đề xuất/Phê duyệt tách biệt hoàn toàn — Phê duyệt luôn nhập tay/Excel
+// độc lập (xem /api/budget2/lines/approved-direct, /api/budget2/import ở
+// dưới), không còn đọc dữ liệu từ Đề xuất nữa. Áp dụng đúng quy tắc chặn tự
+// duyệt như mọi luồng duyệt khác trong hệ thống. ---
+app.post('/api/budget2/lines/:id/approve-proposal', requireAuth, requireBudgetOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'PROPOSED\'', [id]);
         const line = rows[0];
         if (!line) return res.status(404).json({ error: 'Không tìm thấy đề xuất.' });
-        const [existing] = await pool.query('SELECT id FROM budget2_lines WHERE stage = \'APPROVED\' AND source_line_id = ?', [id]);
-        if (existing.length) return res.status(400).json({ error: 'Đề xuất này đã được gửi sang Phê duyệt trước đó.' });
+        if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Đề xuất này đã được xử lý trước đó.' });
+        if (line.created_by === req.user.username) return res.status(403).json({ error: 'Không thể tự duyệt đề xuất do chính mình tạo.' });
         const now = new Date().toISOString();
-        const [result] = await pool.query(
-            `INSERT INTO budget2_lines
-                (stage, source_line_id, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, status, note, created_by, created_at, budget_year, budget_month)
-             VALUES ('APPROVED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', ?, ?, ?, ?, ?)`,
-            [line.id, line.company_id, line.org_unit_id, line.content, line.description, line.quantity, line.unit_price, line.vat_percent, line.total_amount, line.budget_type, line.note, req.user.username, now, line.budget_year, line.budget_month]
-        );
-        await writeAuditLog({ module: 'BUDGET2', actionType: 'SEND_TO_APPROVAL', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Gửi đề xuất ngân sách [${line.content}] sang chờ Phê duyệt.` });
-        res.json({ success: true, id: result.insertId });
+        const [upd] = await pool.query("UPDATE budget2_lines SET status = 'APPROVED', decided_by = ?, decided_at = ? WHERE id = ? AND status = 'SUBMITTED'", [req.user.username, now, id]);
+        if (upd.affectedRows === 0) return res.status(409).json({ error: 'Đề xuất này vừa được xử lý bởi người khác, vui lòng tải lại trang.' });
+        await writeAuditLog({ module: 'BUDGET2', actionType: 'APPROVE_PROPOSAL', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Duyệt đề xuất ngân sách [${line.content}] — dòng ở lại giai đoạn Đề xuất, không sinh dòng nào ở Phê duyệt.` });
+        res.json({ success: true });
     } catch (err) {
-        console.error('❌ Lỗi gửi đề xuất sang Phê duyệt:', err.message);
+        console.error('❌ Lỗi duyệt đề xuất ngân sách:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.post('/api/budget2/lines/:id/reject-proposal', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'PROPOSED\'', [id]);
+        const line = rows[0];
+        if (!line) return res.status(404).json({ error: 'Không tìm thấy đề xuất.' });
+        if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Đề xuất này đã được xử lý trước đó.' });
+        if (line.created_by === req.user.username) return res.status(403).json({ error: 'Không thể tự từ chối đề xuất do chính mình tạo.' });
+        const now = new Date().toISOString();
+        const [upd] = await pool.query("UPDATE budget2_lines SET status = 'REJECTED', decided_by = ?, decided_at = ? WHERE id = ? AND status = 'SUBMITTED'", [req.user.username, now, id]);
+        if (upd.affectedRows === 0) return res.status(409).json({ error: 'Đề xuất này vừa được xử lý bởi người khác, vui lòng tải lại trang.' });
+        await writeAuditLog({ module: 'BUDGET2', actionType: 'REJECT_PROPOSAL', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Từ chối đề xuất ngân sách [${line.content}].` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi từ chối đề xuất ngân sách:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
@@ -6021,6 +6047,16 @@ app.post('/api/budget2/import', requireAuth, requireBudgetOrAdmin, async (req, r
     }
 });
 
+// Tháng mua thực tế của mục con Sử dụng — bắt buộc, 1-12, dùng cho báo cáo so
+// sánh theo tháng phát sinh mua thật (khác budget_month kế thừa từ mục cha).
+function validateBudget2PurchaseMonth(body) {
+    const purchaseMonth = Number(body && body.purchaseMonth);
+    if (!Number.isInteger(purchaseMonth) || purchaseMonth < 1 || purchaseMonth > 12) {
+        return { error: 'Vui lòng chọn Tháng mua hợp lệ (1-12).' };
+    }
+    return { purchaseMonth };
+}
+
 // --- Thêm mục con Sử dụng dưới 1 mục cha (dòng USED gốc, parent_id NULL) ---
 app.post('/api/budget2/lines/:id/children', requireAuth, requireBudgetOrAdmin, async (req, res) => {
     try {
@@ -6029,8 +6065,14 @@ app.post('/api/budget2/lines/:id/children', requireAuth, requireBudgetOrAdmin, a
         const parent = parentRows[0];
         if (!parent) return res.status(404).json({ error: 'Không tìm thấy mục ngân sách sử dụng.' });
 
-        const v = validateBudget2LineInput(req.body || {}, { requireYear: false });
+        // (Khóa Nội dung/Mô tả) Mục con LUÔN kế thừa nguyên văn Nội dung/Mô tả
+        // của dòng Phê duyệt gốc (qua mục cha) — không tin/chấp nhận giá trị
+        // client gửi lên cho 2 trường này, đảm bảo tính đúng đắn dữ liệu dù
+        // client có cố tình gửi khác đi.
+        const v = validateBudget2LineInput({ ...req.body, content: parent.content, description: parent.description }, { requireYear: false });
         if (v.error) return res.status(400).json({ error: v.error });
+        const pm = validateBudget2PurchaseMonth(req.body || {});
+        if (pm.error) return res.status(400).json({ error: pm.error });
         const reallocationReason = req.body && req.body.reallocationReason ? String(req.body.reallocationReason).trim() : null;
         if (v.budgetType !== parent.budget_type && !reallocationReason) {
             return res.status(400).json({ error: 'Mục con khác loại ngân sách (OPEX/CAPEX) với mục cha — bắt buộc nhập lý do tái phân bổ.' });
@@ -6039,12 +6081,12 @@ app.post('/api/budget2/lines/:id/children', requireAuth, requireBudgetOrAdmin, a
         const now = new Date().toISOString();
         await pool.query(
             `INSERT INTO budget2_lines
-                (stage, parent_id, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, usage_status, status, note, reallocation_reason, created_by, created_at, budget_year, budget_month)
-             VALUES ('USED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USED', 'APPROVED', ?, ?, ?, ?, ?, ?)`,
-            [id, parent.company_id, parent.org_unit_id, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.note, reallocationReason, req.user.username, now, parent.budget_year, parent.budget_month]
+                (stage, parent_id, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, usage_status, status, note, reallocation_reason, created_by, created_at, budget_year, budget_month, purchase_month)
+             VALUES ('USED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USED', 'APPROVED', ?, ?, ?, ?, ?, ?, ?)`,
+            [id, parent.company_id, parent.org_unit_id, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.note, reallocationReason, req.user.username, now, parent.budget_year, parent.budget_month, pm.purchaseMonth]
         );
         await recomputeBudget2ParentUsage(id);
-        await writeAuditLog({ module: 'BUDGET2', actionType: 'CREATE_USAGE_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Thêm mục sử dụng con [${v.content}] dưới mục cha [${parent.content}].` });
+        await writeAuditLog({ module: 'BUDGET2', actionType: 'CREATE_USAGE_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Thêm mục sử dụng con [${v.content}] dưới mục cha [${parent.content}], tháng mua ${pm.purchaseMonth}.` });
         res.json({ success: true });
     } catch (err) {
         console.error('❌ Lỗi thêm mục sử dụng con:', err.message);
