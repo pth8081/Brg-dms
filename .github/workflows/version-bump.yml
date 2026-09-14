@@ -22,14 +22,35 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Cài đặt dependencies
+        run: npm ci
+
+      # PHẢI chạy TRƯỚC bước build bên dưới — bump-version.js cập nhật hằng số
+      # CLIENT_BUILD_VERSION trong public/app.js khớp phiên bản mới; build lại
+      # SAU đó để giá trị mới được đóng gói đúng vào public/app.min.js (nếu
+      # build trước, app.min.js sẽ đóng băng CLIENT_BUILD_VERSION của phiên
+      # bản CŨ, khiến banner cảnh báo lệch phiên bản tự báo sai ngay sau khi
+      # vừa deploy bản mới nhất).
       - name: Tăng phiên bản
         run: node scripts/bump-version.js
+
+      # Build lại CSS/JS/vendor tĩnh (public/style.css, public/app.min.js +
+      # .map, public/vendor/exceljs.min.js) TRÊN MỌI LẦN MERGE VÀO MAIN, không
+      # phụ thuộc việc người merge có nhớ chạy `npm run build` tay hay không.
+      # Trước đây các file build sẵn này chỉ được rebuild thủ công — bị quên
+      # nhiều đợt liên tiếp khiến production (chạy `node server.js` trực tiếp,
+      # không qua `npm start` nên `prestart` không tự chạy) phục vụ đúng file
+      # app.min.js đã lỗi thời hàng chục phiên bản so với public/app.js thật,
+      # gây lỗi khó hiểu (client cũ gọi API theo hợp đồng cũ, server mới từ
+      # chối vì thiếu field mới — ví dụ thiếu baseVersion ở /api/sync/:table).
+      - name: Build tài nguyên tĩnh (CSS/JS/vendor)
+        run: npm run build
 
       - name: Commit & push
         run: |
           NEW_VERSION=$(node -p "require('./package.json').version")
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add package.json public/index.html
-          git commit -m "chore: bump version to v${NEW_VERSION%.0} [skip ci]"
+          git add package.json public/index.html public/app.js public/style.css public/app.min.js public/app.min.js.map public/vendor/exceljs.min.js
+          git commit -m "chore: bump version to v${NEW_VERSION%.0} [skip ci]" --allow-empty
           git push origin HEAD:main

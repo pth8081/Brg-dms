@@ -1,3 +1,25 @@
+    // (BUILD-VERSION) Giá trị này do scripts/bump-version.js tự cập nhật mỗi
+    // lần tăng phiên bản (giống cách nó sửa nhãn "DMS vX.Y" trong index.html)
+    // — KHÔNG sửa tay. Dùng để so sánh với /api/version lúc tải trang: nếu
+    // lệch nghĩa là bundle public/app.min.js đang chạy trong trình duyệt cũ
+    // hơn server thật (quên `npm run build` trước khi deploy, hoặc trình
+    // duyệt/CDN còn cache bản cũ) — hiện banner rõ ràng thay vì để lỗi khó
+    // hiểu (VD gọi API theo hợp đồng cũ bị server mới từ chối) không rõ nguyên nhân.
+    const CLIENT_BUILD_VERSION = '6.60.0';
+    async function checkClientBuildVersion() {
+      try {
+        const res = await fetch('/api/version');
+        const data = await res.json();
+        if (data.version && data.version !== CLIENT_BUILD_VERSION) {
+          const banner = document.createElement('div');
+          banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#b91c1c;color:#fff;padding:12px 16px;text-align:center;font-weight:600;font-size:14px;';
+          banner.textContent = `Giao diện đang dùng phiên bản cũ (bundle v${CLIENT_BUILD_VERSION}, máy chủ đang chạy v${data.version}) — vui lòng tải lại trang (Ctrl+Shift+R) để tránh lỗi thao tác.`;
+          document.body.prepend(banner);
+        }
+      } catch (e) { /* không chặn tải trang nếu kiểm tra này lỗi */ }
+    }
+    checkClientBuildVersion();
+
     // --- KHỞI TẠO STATE & CLIENT DATABASE ---
     const DB = {
       depts: [], cats: [], users: [], docs: [],

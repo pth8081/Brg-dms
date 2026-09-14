@@ -68,6 +68,13 @@ const bcrypt = require('bcrypt');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
 const fs = require('fs');
+// (BUILD-VERSION) Dùng để phát hiện lệch phiên bản giữa server (nguồn sự
+// thật, luôn đúng theo mã đang chạy) và bundle JS client (public/app.min.js)
+// — file build sẵn commit trong git, PHẢI được build lại (npm run build) mỗi
+// khi public/app.js đổi. Nếu quên (hoặc trình duyệt/CDN cache bản cũ), client
+// gọi API theo hợp đồng cũ trong khi server đã đổi, gây lỗi khó hiểu (VD
+// thiếu field mới ở request) mà không rõ nguyên nhân là do bundle lỗi thời.
+const APP_VERSION = require('./package.json').version;
 const { PDFDocument, rgb, degrees } = require('pdf-lib');
 const fontkit = require('@pdf-lib/fontkit');
 const multer = require('multer');
@@ -834,6 +841,14 @@ async function renderCaptchaImage(code) {
 
     return img.getBuffer('image/png');
 }
+
+// (BUILD-VERSION) Không yêu cầu đăng nhập — client gọi ngay từ màn hình đăng
+// nhập lẫn sau khi vào app để tự phát hiện bundle JS (public/app.min.js) của
+// mình có khớp phiên bản server đang chạy hay không (xem APP_VERSION ở đầu
+// file + CLIENT_BUILD_VERSION trong public/app.js).
+app.get('/api/version', (req, res) => {
+    res.json({ version: APP_VERSION });
+});
 
 app.get('/api/auth/captcha', captchaLimiter, async (req, res) => {
     try {
