@@ -12,6 +12,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 
 | Phiên bản | PR | Ngày merge | Nội dung |
 |---|---|---|---|
+| v6.67 | [#68](https://github.com/pth8081/Brg-dms/pull/68) | 2026-09-14 | Menu kéo (drawer) cho di động thay thế sidebar tràn thành khối dài trên mọi màn hình (appShell trước đây thiếu cơ chế thu gọn dưới breakpoint md) + thêm liên kết tùy chọn depts.org_unit_id sang lic_org_units để đối chiếu/báo cáo chính xác khi tên phòng ban giữa 2 module lệch nhau, không gộp 2 danh mục |
 | v6.64 | [#67](https://github.com/pth8081/Brg-dms/pull/67) | 2026-09-14 | Redesign module Ngân sách 2.0: Đề xuất — Duyệt/Từ chối chỉ đổi trạng thái tại chỗ, không tạo bản sao/không đẩy sang tab Phê duyệt; Phê duyệt — hoàn toàn độc lập, luôn nhập/upload trực tiếp, duyệt xong mới tự sinh dòng ở Sử dụng; Sử dụng — mục con khóa cứng Nội dung/Mô tả theo đúng dòng Phê duyệt gốc + bắt buộc Tháng mua; Báo cáo — thêm 4 lát cắt nhanh so sánh sử dụng/phê duyệt/đề xuất năm hiện tại vs quá khứ |
 | v6.62 | [#66](https://github.com/pth8081/Brg-dms/pull/66) | 2026-09-14 | Sửa cảnh báo sai "Vui lòng chọn công ty/đơn vị cho phạm vi tự phục vụ!" khi lưu user không hề đụng tới mục Phạm vi tự phục vụ — resetUserForm() trước đây chỉ reset select loại phạm vi khi licenseDB.loaded, để sót giá trị cũ từ lần sửa user trước |
 | v6.61 | [#65](https://github.com/pth8081/Brg-dms/pull/65) | 2026-09-14 | Đợt 7: Sửa lỗi nghiêm trọng — public/app.min.js (bundle JS production thật sự phục vụ) không được rebuild kể từ v6.48 dù mã nguồn đã qua 6 PR (bao gồm toàn bộ vá bảo mật Đợt 2 + cơ chế baseVersion Đợt 6), gây lỗi 400 ở mọi thao tác Lưu trong module Hệ thống; rebuild ngay bundle + workflow CI tự `npm run build` trên mọi lần merge từ nay + banner cảnh báo khi bundle trình duyệt lệch phiên bản server |
@@ -68,18 +69,21 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 | v6.0 | [#1](https://github.com/pth8081/dms-prod/pull/1)–[#14](https://github.com/pth8081/dms-prod/pull/14) | 2026-08-14 → 2026-08-21 | Phiên bản nền tảng ban đầu: xác thực server-side + hash mật khẩu, vá XSS/upload PDF an toàn, quản lý phiên bản tài liệu (mã tự sinh, cây version), gộp Log/Quy trình vào Quản trị, xóa mềm (Thùng rác) + audit log, nâng cấp UI/UX, lưu file ra đĩa, đăng nhập LDAP/AD, và thêm nền tảng module Quản lý Bản quyền Phần mềm |
 
 > **Ghi chú:** các số phiên bản v6.13, v6.17, v6.19, v6.21, v6.23, v6.52,
-> v6.55, v6.56, v6.58, v6.60, v6.63 bị nhảy cóc trong lịch sử — không có
-> Pull Request tương ứng để đối chiếu nội dung (nhiều khả năng do chạy lại
-> workflow tăng version hoặc sửa trực tiếp trên `main` ngoài luồng PR — ví
-> dụ v6.52 phát sinh từ chính commit cập nhật version.md cho v6.51,
+> v6.55, v6.56, v6.58, v6.60, v6.63, v6.65, v6.66 bị nhảy cóc trong lịch sử —
+> không có Pull Request tương ứng để đối chiếu nội dung (nhiều khả năng do
+> chạy lại workflow tăng version hoặc sửa trực tiếp trên `main` ngoài luồng
+> PR — ví dụ v6.52 phát sinh từ chính commit cập nhật version.md cho v6.51,
 > v6.55/v6.56/v6.58/v6.60 phát sinh tương tự từ các commit cập nhật
-> version.md trực tiếp trên `main` sau mỗi lần merge, và v6.63 phát sinh từ
+> version.md trực tiếp trên `main` sau mỗi lần merge, v6.63 phát sinh từ
 > commit merge nhánh `main` (đã có sẵn bump v6.63) ngược vào nhánh PR #67 để
-> giải quyết xung đột trước khi merge — mỗi lần commit trực tiếp/merge như
-> vậy đều vô tình kích hoạt lại workflow tăng version thêm 1 lần nữa). Từ PR
-> #65 trở đi, workflow còn tự rebuild `public/app.min.js`/`style.css` trên
-> mỗi lần chạy (xem Đợt 7), nên các lần nhảy cóc này không ảnh hưởng gì tới
-> bundle production. Không ảnh hưởng tới các phiên bản khác.
+> giải quyết xung đột trước khi merge, còn v6.65/v6.66 phát sinh từ 2 commit
+> liên tiếp sửa lại version.md sau PR #67 — commit đầu ghi nhầm nội dung do
+> lỗi thao tác kỹ thuật, commit thứ hai sửa lại đúng nội dung, mỗi commit
+> trực tiếp/merge như vậy đều vô tình kích hoạt lại workflow tăng version
+> thêm 1 lần nữa). Từ PR #65 trở đi, workflow còn tự rebuild
+> `public/app.min.js`/`style.css` trên mỗi lần chạy (xem Đợt 7), nên các lần
+> nhảy cóc này không ảnh hưởng gì tới bundle production. Không ảnh hưởng tới
+> các phiên bản khác.
 
 ## Cách cập nhật file này
 
