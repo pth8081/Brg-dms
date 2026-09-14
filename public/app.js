@@ -2271,6 +2271,23 @@
         document.querySelectorAll(`.${cls}`).forEach(cb => { cb.checked = false; cb.disabled = false; });
       });
 
+      // (FIX) Trước đây chỉ reset select "Phạm vi tự phục vụ" khi
+      // licenseDB.loaded === true (populateScopePicker vừa reset về "-- Không
+      // có phạm vi --" vừa nạp lại danh sách công ty/đơn vị) — nếu module
+      // License CHƯA từng tải trong phiên này, hoặc licenseDB.loaded vừa bị
+      // đặt lại false bởi 1 thao tác License khác (rất nhiều nơi làm vậy để
+      // buộc tải lại dữ liệu mới), điều kiện này bị bỏ qua HOÀN TOÀN — select
+      // loại phạm vi (COMPANY/ORG_UNIT) giữ nguyên giá trị còn sót lại từ lần
+      // sửa user TRƯỚC đó. Hệ quả: sửa 1 user khác (VD chỉ đổi Phòng ban) mà
+      // không hề đụng tới mục "Phạm vi tự phục vụ" vẫn bị chặn lưu vì
+      // getScopePayload() đọc thấy scopeType cũ còn đó nhưng scopeId rỗng
+      // (dropdown công ty/đơn vị tương ứng đã bị populateScopePicker xóa hết
+      // lựa chọn ở lần trước). Luôn reset đúng select loại phạm vi + ẩn 2
+      // khối con trước, bất kể licenseDB đã tải hay chưa; chỉ phần nạp lại
+      // DANH SÁCH công ty/đơn vị (cần dữ liệu licenseDB) mới phụ thuộc điều
+      // kiện loaded.
+      document.getElementById('userScopeType').value = '';
+      onScopeTypeChange('user');
       if (licenseDB.loaded) populateScopePicker('user');
     }
 
