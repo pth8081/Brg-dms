@@ -246,6 +246,16 @@ CREATE TABLE IF NOT EXISTS lic_org_units (
 CALL create_index_if_not_exists('lic_org_units', 'idx_lic_org_units_company', 'company_id');
 CALL create_index_if_not_exists('lic_org_units', 'idx_lic_org_units_parent', 'parent_id');
 
+-- Liên kết TÙY CHỌN từ Phòng ban (depts, module Tài liệu/Người dùng) sang
+-- đúng 1 Đơn vị tổ chức (lic_org_units, module Bản quyền/Ngân sách 2/CNTT) —
+-- CHỈ để đối chiếu/báo cáo chính xác khi 2 tên gọi khác nhau (VD: depts.name
+-- = "Phòng CNTT" nhưng lic_org_units.name = "Phòng DVCNTT"), KHÔNG gộp 2
+-- danh mục làm 1 vì bản chất khác nhau (nhân sự trong lic_employees không
+-- nhất thiết có tài khoản đăng nhập DMS, xem ghi chú ở CREATE TABLE
+-- lic_companies phía trên). NULL nghĩa là chưa gán/không cần đối chiếu.
+CALL add_column_if_not_exists('depts', 'org_unit_id', 'BIGINT NULL DEFAULT NULL');
+CALL create_index_if_not_exists('depts', 'idx_depts_org_unit', 'org_unit_id');
+
 CREATE TABLE IF NOT EXISTS lic_employees (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     org_unit_id BIGINT NOT NULL,
