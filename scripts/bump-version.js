@@ -6,6 +6,7 @@ const path = require('path');
 
 const pkgPath = path.join(__dirname, '..', 'package.json');
 const htmlPath = path.join(__dirname, '..', 'public', 'index.html');
+const appJsPath = path.join(__dirname, '..', 'public', 'app.js');
 
 const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
 const [major, minor] = pkg.version.split('.').map(Number);
@@ -23,5 +24,14 @@ let html = fs.readFileSync(htmlPath, 'utf8');
 // trong khi package.json đã lên tới 6.6.0).
 html = html.replace(/DMS v\d+\.\d+/g, `DMS ${newLabel}`);
 fs.writeFileSync(htmlPath, html);
+
+// (BUILD-VERSION) Đồng bộ CLIENT_BUILD_VERSION trong public/app.js với
+// package.json — dùng để client tự phát hiện lệch phiên bản với server (xem
+// checkClientBuildVersion() trong app.js) khi bundle build sẵn
+// (public/app.min.js) bị quên rebuild trước khi deploy. Workflow CI đã tự
+// chạy `npm run build` SAU bước này nên app.min.js luôn khớp giá trị mới.
+let appJs = fs.readFileSync(appJsPath, 'utf8');
+appJs = appJs.replace(/const CLIENT_BUILD_VERSION = '[^']*'/, `const CLIENT_BUILD_VERSION = '${newVersion}'`);
+fs.writeFileSync(appJsPath, appJs);
 
 console.log(`Đã tăng phiên bản: -> ${newLabel} (package.json: ${newVersion})`);
