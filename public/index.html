@@ -4,6 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Hệ Thống Quản Lý Tài Liệu - DMS v6.66</title>
+  <!-- (PWA) Cài đặt về màn hình chính — xem public/manifest.json + public/sw.js.
+       Chỉ cache "vỏ" tài nguyên tĩnh (JS/CSS/icon), KHÔNG cache API — mọi thao
+       tác vẫn luôn cần mạng, chỉ đổi lấy cài đặt được + tải nhanh hơn. -->
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#101a30">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="DMS">
   <link rel="stylesheet" href="/style.css">
   <!-- Font riêng cho trang Đăng Nhập (Spectral + Be Vietnam Pro) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -155,6 +164,10 @@
               <span id="loginSubmitText">Đăng nhập</span>
             </button>
           </form>
+
+          <button type="button" id="btnWebauthnLogin" data-evt-click="loginWithWebauthn" data-args='[]' class="hidden mt-3 w-full flex items-center justify-center gap-2 border-[1.5px] border-paper-200 text-gray-800 font-bold text-[15px] rounded-lg py-3.5 hover:bg-paper-100 transition-colors">
+            👆 <span id="webauthnLoginLabel">Đăng nhập bằng vân tay / Face ID</span>
+          </button>
 
           <div class="mt-7 pt-6 border-t border-paper-200 text-xs text-gray-500">
             Gặp sự cố khi đăng nhập? Liên hệ Quản trị viên hệ thống để được hỗ trợ.
@@ -2009,6 +2022,39 @@
     </div>
   </div>
 
+  <!-- MODAL: Sửa mục ngân sách sử dụng (dòng cha) — CHỈ Công ty/Đơn vị/Ghi
+       chú, vì Nội dung/Mô tả/Số tiền/Loại luôn phải khớp đúng dòng Phê duyệt
+       gốc (khóa cứng, xem server.js). -->
+  <div id="budget2UsedParentModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-lg w-full p-5 space-y-3 max-h-[90vh] overflow-y-auto">
+      <h3 class="font-bold text-gray-900 text-base">Sửa mục ngân sách sử dụng</h3>
+      <p class="text-[11px] text-gray-500">Chỉ sửa được Công ty/Đơn vị và Ghi chú — Nội dung/Mô tả/Số tiền/Loại luôn khớp đúng dòng Phê duyệt gốc.</p>
+      <input type="hidden" id="budget2UsedParentEditId">
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Nội dung <span class="text-gray-400 font-normal">🔒 kế thừa từ dòng Phê duyệt gốc</span></label>
+        <input id="budget2UsedParentContent" type="text" disabled class="w-full border p-2 rounded text-sm bg-gray-100 text-gray-600 cursor-not-allowed">
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Công ty (tùy chọn)</label>
+          <select id="budget2UsedParentCompany" data-evt-change="onBudget2UsedParentCompanyChange" data-args='[]' class="w-full border p-2 rounded text-sm bg-white"></select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Phòng/Ban/Khối (tùy chọn)</label>
+          <select id="budget2UsedParentOrgUnit" class="w-full border p-2 rounded text-sm bg-white"></select>
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Ghi chú (tùy chọn)</label>
+        <input id="budget2UsedParentNote" type="text" class="w-full border p-2 rounded text-sm">
+      </div>
+      <div class="flex justify-end gap-2 pt-1">
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["budget2UsedParentModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveBudget2UsedParent" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
+      </div>
+    </div>
+  </div>
+
   <!-- MODAL: Lập dự trù ngân sách qua Cổng tự phục vụ -->
   <div id="portalBudgetRegModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">
     <div class="bg-white rounded-lg shadow-2xl max-w-2xl w-full p-5 space-y-4 max-h-[90vh] overflow-y-auto">
@@ -2954,6 +3000,13 @@
           <button type="submit" class="bg-blue-600 text-white px-5 py-2 rounded font-bold hover:bg-blue-700">Lưu Thay Đổi</button>
         </div>
       </form>
+
+      <div class="border-t pt-3 space-y-2 text-xs">
+        <h4 class="font-bold text-gray-700">👆 Vân tay / Face ID</h4>
+        <p class="text-[11px] text-gray-500">Đăng ký thiết bị này để lần sau đăng nhập nhanh, không cần gõ mật khẩu/mã xác nhận trên đúng thiết bị này — mật khẩu vẫn dùng bình thường khi cần (thiết bị lạ, quên sinh trắc học...).</p>
+        <ul id="webauthnDeviceList" class="divide-y border rounded max-h-32 overflow-y-auto"></ul>
+        <button type="button" data-evt-click="registerWebauthnDevice" data-args='[]' class="btn-secondary px-3 py-1.5 rounded text-xs font-bold">+ Đăng ký thiết bị này</button>
+      </div>
     </div>
   </div>
 

@@ -135,6 +135,25 @@ CALL add_column_if_not_exists('users', 'locked_until', 'VARCHAR(100) NULL DEFAUL
 -- ngay cả khi chưa hết hạn 8h, thay vì chỉ dựa vào JWT tự hết hạn.
 CALL add_column_if_not_exists('users', 'token_version', 'INT NOT NULL DEFAULT 1');
 
+-- Đăng nhập vân tay/Face ID (WebAuthn/passkey) — LỐI VÀO NHANH bổ sung, KHÔNG
+-- thay thế mật khẩu (mật khẩu vẫn dùng được bình thường, ví dụ khi đổi thiết
+-- bị mới hoặc quên sinh trắc học). Mỗi thiết bị đăng ký 1 dòng riêng (1 người
+-- dùng có thể đăng ký nhiều thiết bị). credential_id là ID trình duyệt/hệ điều
+-- hành tự sinh (base64url), public_key là khóa công khai COSE (base64url) —
+-- không lưu bất kỳ dữ liệu sinh trắc học thật nào, đúng chuẩn WebAuthn.
+CREATE TABLE IF NOT EXISTS webauthn_credentials (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(100) NOT NULL,
+    credential_id VARCHAR(255) UNIQUE NOT NULL,
+    public_key TEXT NOT NULL,
+    counter BIGINT NOT NULL DEFAULT 0,
+    device_label VARCHAR(255) NULL DEFAULT NULL,
+    transports VARCHAR(255) NULL DEFAULT NULL,
+    created_at VARCHAR(100) NOT NULL,
+    last_used_at VARCHAR(100) NULL DEFAULT NULL
+);
+CALL create_index_if_not_exists('webauthn_credentials', 'idx_webauthn_username', 'username');
+
 -- 4. Bảng Tài Liệu
 CREATE TABLE IF NOT EXISTS docs (
     id BIGINT PRIMARY KEY,
