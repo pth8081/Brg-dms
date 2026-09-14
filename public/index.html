@@ -166,10 +166,28 @@
 
   <div id="appShell" class="hidden md:flex min-h-screen bg-gray-50">
 
+    <!-- Thanh trên cùng chỉ hiện ở di động — chứa nút ☰ mở menu kéo (drawer),
+         vì #appSidebar bên dưới chỉ cố định/luôn hiện từ breakpoint md trở lên
+         (md:sticky), dưới md nó là 1 drawer ẩn/hiện qua translate-x. -->
+    <div class="md:hidden sticky top-0 z-30 bg-white border-b flex items-center gap-3 px-4 py-3">
+      <button data-evt-click="openSidebarDrawer" data-args='[]' class="text-2xl leading-none text-gray-700" aria-label="Mở menu điều hướng">☰</button>
+      <span class="sidebar-brand text-base text-gray-900">DMS</span>
+    </div>
+
+    <!-- Lớp phủ tối phía sau drawer, chỉ hiện khi drawer mở ở di động — bấm vào
+         để đóng lại, giống hành vi các modal khác trong ứng dụng. -->
+    <div id="sidebarBackdrop" data-evt-click="closeSidebarDrawer" data-args='[]' class="hidden fixed inset-0 bg-black/50 z-40 md:hidden"></div>
+
     <!-- Sidebar điều hướng chính — thay thanh menu ngang cũ, gom mọi module
-         vào 1 cột dọc cố định bên trái (xem CLAUDE.md phần lịch sử UI/UX). -->
-    <nav id="appSidebar" class="sidebar-shell w-56 shrink-0 flex flex-col gap-0.5 px-3 py-5 md:sticky md:top-0 md:h-screen md:overflow-y-auto">
-      <div class="sidebar-brand text-base px-2 pb-4">DMS</div>
+         vào 1 cột dọc cố định bên trái (xem CLAUDE.md phần lịch sử UI/UX).
+         Dưới md: drawer cố định (fixed) trượt vào/ra bằng translate-x, ẩn mặc
+         định (-translate-x-full). Từ md trở lên: quay lại cột tĩnh trong luồng
+         (md:static) luôn hiện, y như trước đây. -->
+    <nav id="appSidebar" class="sidebar-shell w-64 md:w-56 shrink-0 flex flex-col gap-0.5 px-3 py-5 fixed inset-y-0 left-0 z-50 -translate-x-full transition-transform duration-200 overflow-y-auto md:static md:translate-x-0 md:sticky md:top-0 md:h-screen">
+      <div class="flex items-center justify-between px-2 pb-4">
+        <div class="sidebar-brand text-base">DMS</div>
+        <button data-evt-click="closeSidebarDrawer" data-args='[]' class="md:hidden text-white/70 hover:text-white text-xl leading-none px-1" aria-label="Đóng menu điều hướng">✕</button>
+      </div>
       <button id="btnHomeTab" data-evt-click="switchTab" data-args='["home"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">🏠</span><span>Trang chủ</span></button>
       <button id="btnDocTab" data-evt-click="switchTab" data-args='["doc"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">📂</span><span>Quản lý tài liệu</span></button>
       <button id="btnLicenseTab" data-evt-click="switchTab" data-args='["license"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">🔑</span><span>Quản lý Bản quyền</span></button>
@@ -476,13 +494,17 @@
         <div class="bg-indigo-50 p-4 rounded border border-indigo-200 space-y-3">
           <h3 class="font-bold text-indigo-900 text-sm flex items-center gap-1">🏢 Quản Lý Phòng Ban</h3>
           <p class="text-[11px] text-indigo-700">Viết tắt dùng để tự sinh mã tài liệu (VD: IT, NS...), chỉ chữ/số không dấu, tối đa 10 ký tự.</p>
-          <form data-evt-submit="saveDept" data-args='[{"__live__":"event"}]' class="flex gap-2">
+          <form data-evt-submit="saveDept" data-args='[{"__live__":"event"}]' class="flex flex-wrap gap-2">
             <input id="editDeptId" type="hidden">
-            <input id="txtDeptName" placeholder="Tên phòng ban mới..." class="border p-1.5 rounded text-xs flex-1" required>
+            <input id="txtDeptName" placeholder="Tên phòng ban mới..." class="border p-1.5 rounded text-xs flex-1 min-w-[10rem]" required>
             <input id="txtDeptAbbr" placeholder="Viết tắt (VD: IT)" maxlength="10" class="border p-1.5 rounded text-xs w-24" required>
             <button id="btnCancelDept" type="button" data-evt-click="resetDeptForm" data-args='[]' class="hidden bg-gray-400 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-gray-500">Hủy</button>
             <button id="btnSaveDept" type="submit" class="btn-primary px-3 py-1.5 rounded text-xs font-bold">Thêm</button>
           </form>
+          <div>
+            <label class="block text-[10px] font-semibold text-indigo-800 mb-1">Đối chiếu với Đơn vị tổ chức (tùy chọn — chỉ để báo cáo chính xác khi tên gọi 2 bên khác nhau, xem module Bản quyền &gt; Tổ chức công ty)</label>
+            <select id="txtDeptOrgUnit" class="w-full border p-1.5 rounded text-xs bg-white"><option value="">-- Chưa gán --</option></select>
+          </div>
           <div class="max-h-36 overflow-y-auto bg-white rounded border">
             <ul id="deptList" class="divide-y text-xs"></ul>
           </div>

@@ -557,7 +557,22 @@
       document.getElementById('txtPass').value = '';
     }
 
+    // --- Menu kéo (drawer) cho di động — #appSidebar dưới md là 1 drawer cố
+    // định trượt vào/ra bằng translate-x (xem index.html), từ md trở lên luôn
+    // hiện như cột tĩnh cũ nên các hàm này chỉ có tác dụng quan sát được dưới md. ---
+    function openSidebarDrawer() {
+      document.getElementById('appSidebar').classList.remove('-translate-x-full');
+      document.getElementById('sidebarBackdrop').classList.remove('hidden');
+    }
+    function closeSidebarDrawer() {
+      document.getElementById('appSidebar').classList.add('-translate-x-full');
+      document.getElementById('sidebarBackdrop').classList.add('hidden');
+    }
+    window.addEventListener('keydown', e => { if (e.key === 'Escape') closeSidebarDrawer(); });
+    window.addEventListener('resize', () => { if (window.innerWidth >= 768) closeSidebarDrawer(); });
+
     function switchTab(tabName) {
+      closeSidebarDrawer();
       if (!currentUser) return logout();
 
       document.getElementById('homeSection').classList.toggle('hidden', tabName !== 'home');
@@ -717,7 +732,8 @@
       const wasLoaded = licenseDB.loaded;
       if (!wasLoaded) await loadLicenseBootstrapData();
       populateScopePicker('user');
-      if (!wasLoaded) renderUsers();
+      populateDeptOrgUnitOptions();
+      if (!wasLoaded) { renderUsers(); renderDeptList(); }
     }
 
     function populateDropdowns() {
@@ -1818,12 +1834,28 @@
     }
 
     // --- QUẢN TRỊ ADMIN ---
+    // Đơn vị tổ chức (licenseDB.orgUnits) tải riêng/lười (xem
+    // ensureUserScopePickerReady) nên ô chọn chỉ có dữ liệu SAU khi đã tải —
+    // gọi lại hàm này mỗi khi licenseDB sẵn sàng để không hiện ô chọn rỗng.
+    function populateDeptOrgUnitOptions() {
+      const sel = document.getElementById('txtDeptOrgUnit');
+      if (!sel) return;
+      const prevValue = sel.value;
+      const options = licenseDB.orgUnits.map(u => {
+        const company = companyOfOrgUnit(u.id);
+        const label = (company ? company.name + ' — ' : '') + orgUnitPath(u.id);
+        return `<option value="${u.id}">${escapeHtml(label)}</option>`;
+      }).join('');
+      sel.innerHTML = '<option value="">-- Chưa gán --</option>' + options;
+      sel.value = prevValue;
+    }
+
     function renderDeptList() {
       const ul = document.getElementById('deptList');
       if (!ul) return;
       ul.innerHTML = DB.depts.map(d => `
         <li class="p-2 flex justify-between items-center hover:bg-gray-50">
-          <span>${escapeHtml(d.name)} <span class="text-gray-400 font-mono">(${escapeHtml(d.abbr)})</span></span>
+          <span>${escapeHtml(d.name)} <span class="text-gray-400 font-mono">(${escapeHtml(d.abbr)})</span>${d.orgUnitId && licenseDB.loaded ? ` <span class="text-indigo-500">— ${escapeHtml(orgUnitPath(d.orgUnitId))}</span>` : ''}</span>
           <span class="space-x-2">
             <button ${dc('editDept', d.id)} class="text-xs text-blue-600 font-bold hover:underline">Sửa</button>
             <button ${dc('deleteDept', `${escapeJsAttr(d.name)}`)} class="text-xs text-red-600 font-bold hover:underline">Xóa</button>
@@ -1838,6 +1870,7 @@
       document.getElementById('editDeptId').value = d.id;
       document.getElementById('txtDeptName').value = d.name;
       document.getElementById('txtDeptAbbr').value = d.abbr;
+      document.getElementById('txtDeptOrgUnit').value = d.orgUnitId || '';
       document.getElementById('btnSaveDept').innerText = 'Cập Nhật';
       document.getElementById('btnCancelDept').classList.remove('hidden');
     }
@@ -1846,6 +1879,7 @@
       document.getElementById('editDeptId').value = '';
       document.getElementById('txtDeptName').value = '';
       document.getElementById('txtDeptAbbr').value = '';
+      document.getElementById('txtDeptOrgUnit').value = '';
       document.getElementById('btnSaveDept').innerText = 'Thêm';
       document.getElementById('btnCancelDept').classList.add('hidden');
     }
@@ -1876,6 +1910,7 @@
       const editId = document.getElementById('editDeptId').value;
       const val = document.getElementById('txtDeptName').value.trim();
       const abbr = document.getElementById('txtDeptAbbr').value.trim().toUpperCase();
+      const orgUnitId = document.getElementById('txtDeptOrgUnit').value || null;
       if (!val || !abbr) return;
       if (!/^[A-Z0-9]{1,10}$/.test(abbr)) return showToast('Viết tắt chỉ gồm chữ/số không dấu, tối đa 10 ký tự!', 'warning');
       if (DB.depts.some(d => d.name === val && String(d.id) !== String(editId))) return showToast('Phòng ban đã tồn tại!', 'danger');
@@ -1884,9 +1919,9 @@
       const prevDepts = DB.depts;
       const isRename = editId && DB.depts.some(d => String(d.id) === String(editId) && d.name !== val);
       if (editId) {
-        DB.depts = DB.depts.map(d => String(d.id) === String(editId) ? { id: d.id, name: val, abbr } : d);
+        DB.depts = DB.depts.map(d => String(d.id) === String(editId) ? { id: d.id, name: val, abbr, orgUnitId } : d);
       } else {
-        DB.depts = [...DB.depts, { name: val, abbr }];
+        DB.depts = [...DB.depts, { name: val, abbr, orgUnitId }];
       }
       const ok = await syncStorage('depts');
       if (!ok) { DB.depts = prevDepts; return; }

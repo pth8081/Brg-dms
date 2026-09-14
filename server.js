@@ -1068,7 +1068,7 @@ app.post('/api/profile', requireAuth, async (req, res) => {
 // --- API BOOTSTRAP (Lấy toàn bộ dữ liệu khởi tạo cho 4 Module) ---
 app.get('/api/bootstrap', requireAuth, async (req, res) => {
     try {
-        const [depts] = await pool.query('SELECT id, name, abbr FROM depts');
+        const [depts] = await pool.query('SELECT id, name, abbr, org_unit_id FROM depts');
         const [cats] = await pool.query('SELECT id, name, abbr FROM cats');
         const [users] = await pool.query('SELECT * FROM users');
         // Không lấy cột file_data (nội dung PDF dạng base64) ở đây — với nhiều
@@ -1131,7 +1131,7 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
             : users.map(u => ({ id: u.id, username: u.username, name: u.name, active: !!u.active }));
 
         res.json({
-            depts: depts.map(d => ({ id: d.id, name: d.name, abbr: d.abbr })),
+            depts: depts.map(d => ({ id: d.id, name: d.name, abbr: d.abbr, orgUnitId: d.org_unit_id })),
             cats: cats.map(c => ({ id: c.id, name: c.name, abbr: c.abbr })),
             users: visibleUsers,
             // Bảng docs lưu cột dạng snake_case (file_name, current_step_order...) nhưng
@@ -2161,11 +2161,17 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
             const label = table === 'depts' ? 'phòng ban' : 'phân loại';
             const [existingRows] = await pool.query(`SELECT id, name, abbr FROM ${table}`);
             const existingById = new Map(existingRows.map(r => [String(r.id), r]));
+            // depts (chỉ depts, cats không có khái niệm này) có thể liên kết TÙY
+            // CHỌN sang 1 đơn vị tổ chức thật trong lic_org_units — chỉ để đối
+            // chiếu/báo cáo, không bắt buộc, không gộp 2 danh mục (xem schema.sql).
+            const validOrgUnitIds = table === 'depts'
+                ? new Set((await pool.query('SELECT id FROM lic_org_units'))[0].map(r => String(r.id)))
+                : null;
 
             const names = new Set();
             const abbrs = new Set();
-            const toUpdate = []; // { id, name, abbr, oldName }
-            const toInsert = []; // { name, abbr }
+            const toUpdate = []; // { id, name, abbr, oldName, orgUnitId }
+            const toInsert = []; // { name, abbr, orgUnitId }
             for (const item of data) {
                 const name = String((item && item.name) || '').trim();
                 const abbr = String((item && item.abbr) || '').trim().toUpperCase();
@@ -2179,11 +2185,19 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                 names.add(name);
                 abbrs.add(abbr);
 
+                let orgUnitId = null;
+                if (table === 'depts' && item && item.orgUnitId != null && item.orgUnitId !== '') {
+                    orgUnitId = String(item.orgUnitId);
+                    if (!validOrgUnitIds.has(orgUnitId)) {
+                        return res.status(400).json({ error: `Đơn vị tổ chức được gán cho phòng ban [${name}] không tồn tại.` });
+                    }
+                }
+
                 const existing = id ? existingById.get(id) : null;
                 if (existing) {
-                    toUpdate.push({ id: existing.id, name, abbr, oldName: existing.name });
+                    toUpdate.push({ id: existing.id, name, abbr, oldName: existing.name, orgUnitId });
                 } else {
-                    toInsert.push({ name, abbr });
+                    toInsert.push({ name, abbr, orgUnitId });
                 }
             }
 
@@ -2235,10 +2249,18 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                 responseVersion = await checkAndBumpSyncVersion(conn, table, baseVersion);
 
                 for (const u of toUpdate) {
-                    await conn.query(`UPDATE ${table} SET name = ?, abbr = ? WHERE id = ?`, [u.name, u.abbr, u.id]);
+                    if (table === 'depts') {
+                        await conn.query('UPDATE depts SET name = ?, abbr = ?, org_unit_id = ? WHERE id = ?', [u.name, u.abbr, u.orgUnitId, u.id]);
+                    } else {
+                        await conn.query(`UPDATE ${table} SET name = ?, abbr = ? WHERE id = ?`, [u.name, u.abbr, u.id]);
+                    }
                 }
                 for (const ins of toInsert) {
-                    await conn.query(`INSERT INTO ${table} (name, abbr) VALUES (?, ?)`, [ins.name, ins.abbr]);
+                    if (table === 'depts') {
+                        await conn.query('INSERT INTO depts (name, abbr, org_unit_id) VALUES (?, ?, ?)', [ins.name, ins.abbr, ins.orgUnitId]);
+                    } else {
+                        await conn.query(`INSERT INTO ${table} (name, abbr) VALUES (?, ?)`, [ins.name, ins.abbr]);
+                    }
                 }
                 if (toDeleteIds.length > 0) {
                     await conn.query(`DELETE FROM ${table} WHERE id IN (${toDeleteIds.map(() => '?').join(',')})`, toDeleteIds);
