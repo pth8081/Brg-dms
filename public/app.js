@@ -6683,22 +6683,21 @@ function isPerpetualSoftware(softwareId) {
     // chỉ đơn thuần là danh sách gửi lên, không cần duyệt. Một đề xuất "đã gửi
     // sang Phê duyệt" khi có 1 dòng stage=APPROVED nào đó trỏ source_line_id
     // về nó (không phân biệt dòng đó đã được quyết định hay còn đang chờ).
-    function budget2ProposalSentSet() {
-      return new Set(budget2DB.lines.filter(l => l.stage === 'APPROVED' && l.sourceLineId).map(l => l.sourceLineId));
-    }
+    // (Tách biệt Đề xuất/Phê duyệt) Đề xuất không còn "Gửi duyệt" sang giai
+    // đoạn khác — Duyệt/Từ chối đổi TRẠNG THÁI ngay trên dòng này, dòng ở lại
+    // vĩnh viễn trong bảng Đề xuất. Chỉ còn sửa/xóa được khi "Chờ duyệt".
     function renderBudget2ProposedTable() {
       const tbody = document.getElementById('budget2ProposeTableBody');
       if (!tbody) return;
       const rows = budget2DB.lines.filter(l => l.stage === 'PROPOSED').sort((a, b) => b.id - a.id);
-      const sentIds = budget2ProposalSentSet();
-      if (!rows.length) { tbody.innerHTML = '<tr><td colspan="13" class="text-center p-4 text-gray-400 italic">Chưa có đề xuất ngân sách nào.</td></tr>'; return; }
+      if (!rows.length) { tbody.innerHTML = '<tr><td colspan="14" class="text-center p-4 text-gray-400 italic">Chưa có đề xuất ngân sách nào.</td></tr>'; return; }
       tbody.innerHTML = rows.map((l, i) => {
-        const sent = sentIds.has(l.id);
-        const actions = sent
-          ? '<span class="text-gray-400 italic">Đã gửi duyệt</span>'
-          : `<button ${dc('openBudget2LineModal', 'PROPOSED', l.id)} class="text-blue-600 hover:underline mr-1" title="Sửa">✏️</button>`
+        const actions = l.status === 'SUBMITTED'
+          ? `<button ${dc('openBudget2LineModal', 'PROPOSED', l.id)} class="text-blue-600 hover:underline mr-1" title="Sửa">✏️</button>`
             + `<button ${dc('deleteBudget2Line', l.id)} class="text-red-600 hover:underline mr-1" title="Xóa">🗑️</button>`
-            + `<button ${dc('sendBudget2ToApproval', l.id)} class="text-emerald-700 hover:underline font-bold whitespace-nowrap" title="Gửi sang Phê duyệt">➡️ Gửi duyệt</button>`;
+            + `<button ${dc('approveBudget2Proposal', l.id)} class="text-emerald-700 hover:underline font-bold whitespace-nowrap" title="Duyệt">✓ Duyệt</button>`
+            + `<button ${dc('rejectBudget2Proposal', l.id)} class="text-red-700 hover:underline font-bold whitespace-nowrap" title="Từ chối">✕ Từ chối</button>`
+          : `<span class="text-gray-400 italic">Đã xử lý${l.decidedBy ? ' bởi ' + escapeHtml(l.decidedBy) : ''}</span>`;
         return `<tr>
           <td class="border p-2 text-center">${i + 1}</td>
           <td class="border p-2">${escapeHtml(l.content)}</td>
@@ -6712,20 +6711,30 @@ function isPerpetualSoftware(softwareId) {
           <td class="border p-2 text-center">${l.budgetYear || '—'}</td>
           <td class="border p-2">${budget2CompanyCell(l)}</td>
           <td class="border p-2">${budget2OrgUnitCell(l)}</td>
+          <td class="border p-2 text-center">${budget2StatusBadge(l.status)}</td>
           <td class="border p-2 text-center whitespace-nowrap">${actions}</td>
         </tr>`;
       }).join('');
     }
 
-    async function sendBudget2ToApproval(id) {
-      if (!confirm('Gửi đề xuất này sang chờ Phê duyệt?')) return;
+    async function approveBudget2Proposal(id) {
+      if (!confirm('Duyệt đề xuất này? Dòng vẫn ở lại tab Đề xuất, không sinh dòng nào ở tab Phê duyệt.')) return;
       try {
-        await apiFetch(`/api/budget2/lines/${id}/send-to-approval`, { method: 'POST' });
+        await apiFetch(`/api/budget2/lines/${id}/approve-proposal`, { method: 'POST' });
         budget2DB.loaded = false;
         await loadBudget2BootstrapData();
         renderBudget2ProposedTable();
-        renderBudget2ApprovedTable();
-        showToast('Đã gửi sang Phê duyệt.', 'success');
+        showToast('Đã duyệt đề xuất.', 'success');
+      } catch (err) { showToast(err.message, 'danger'); }
+    }
+    async function rejectBudget2Proposal(id) {
+      if (!confirm('Từ chối đề xuất này?')) return;
+      try {
+        await apiFetch(`/api/budget2/lines/${id}/reject-proposal`, { method: 'POST' });
+        budget2DB.loaded = false;
+        await loadBudget2BootstrapData();
+        renderBudget2ProposedTable();
+        showToast('Đã từ chối đề xuất.', 'success');
       } catch (err) { showToast(err.message, 'danger'); }
     }
     async function approveBudget2Line(id) {
@@ -6919,7 +6928,7 @@ function isPerpetualSoftware(softwareId) {
               <thead><tr class="bg-gray-100 text-left">
                 <th class="border p-2 w-10">#</th><th class="border p-2">Nội dung</th><th class="border p-2">Mô tả</th>
                 <th class="border p-2 text-right">SL</th><th class="border p-2 text-right">Đơn giá</th><th class="border p-2 text-right">VAT</th>
-                <th class="border p-2 text-right">Thành tiền</th><th class="border p-2 text-center">Loại</th><th class="border p-2">Lý do tái phân bổ</th><th class="border p-2 text-center w-16">Thao tác</th>
+                <th class="border p-2 text-right">Thành tiền</th><th class="border p-2 text-center">Loại</th><th class="border p-2 text-center">Tháng mua</th><th class="border p-2">Lý do tái phân bổ</th><th class="border p-2 text-center w-16">Thao tác</th>
               </tr></thead>
               <tbody>
                 ${children.length ? children.map((c, i) => `<tr>
@@ -6931,13 +6940,14 @@ function isPerpetualSoftware(softwareId) {
                   <td class="border p-2 text-right">${c.vatPercent}%</td>
                   <td class="border p-2 text-right font-bold">${formatMoney(c.totalAmount)}</td>
                   <td class="border p-2 text-center">${budget2TypeBadge(c.budgetType)}</td>
+                  <td class="border p-2 text-center">${c.purchaseMonth || '—'}</td>
                   <td class="border p-2">${escapeHtml(c.reallocationReason || '')}</td>
                   <td class="border p-2 text-center whitespace-nowrap">
                     <button ${dc('openBudget2ChildModal', p.id, c.id)} class="text-blue-600 hover:underline mr-1" title="Sửa">✏️</button>
                     <button ${dc('deleteBudget2Line', c.id)} class="text-red-600 hover:underline" title="Xóa">🗑️</button>
                   </td>
-                </tr>`).join('') : '<tr><td colspan="10" class="text-center p-3 text-gray-400 italic">Chưa có mục sử dụng con nào.</td></tr>'}
-                <tr class="bg-emerald-50 font-bold"><td colspan="6" class="border p-2 text-right">Ngân sách còn lại</td><td class="border p-2 text-right ${remaining < 0 ? 'text-red-600' : 'text-emerald-700'}">${formatMoney(remaining)}</td><td colspan="3" class="border p-2"></td></tr>
+                </tr>`).join('') : '<tr><td colspan="11" class="text-center p-3 text-gray-400 italic">Chưa có mục sử dụng con nào.</td></tr>'}
+                <tr class="bg-emerald-50 font-bold"><td colspan="6" class="border p-2 text-right">Ngân sách còn lại</td><td class="border p-2 text-right ${remaining < 0 ? 'text-red-600' : 'text-emerald-700'}">${formatMoney(remaining)}</td><td colspan="4" class="border p-2"></td></tr>
               </tbody>
             </table>
           </div>
@@ -6952,12 +6962,13 @@ function isPerpetualSoftware(softwareId) {
       document.getElementById('budget2ChildEditId').value = editId || '';
       document.getElementById('budget2ChildModalTitle').textContent = (editId ? 'Sửa mục sử dụng con — ' : 'Thêm mục sử dụng con — ') + parent.content;
       const child = editId ? budget2DB.lines.find(l => l.id === editId) : null;
-      document.getElementById('budget2ChildContent').value = child ? child.content : '';
-      document.getElementById('budget2ChildDescription').value = child ? (child.description || '') : '';
+      document.getElementById('budget2ChildContent').value = parent.content;
+      document.getElementById('budget2ChildDescription').value = parent.description || '';
       document.getElementById('budget2ChildQuantity').value = child ? child.quantity : 1;
       document.getElementById('budget2ChildUnitPrice').value = child ? child.unitPrice : 0;
       document.getElementById('budget2ChildVat').value = child ? child.vatPercent : 0;
       document.getElementById('budget2ChildType').value = child ? child.budgetType : parent.budgetType;
+      document.getElementById('budget2ChildPurchaseMonth').value = child ? (child.purchaseMonth || new Date().getMonth() + 1) : (new Date().getMonth() + 1);
       document.getElementById('budget2ChildNote').value = child ? (child.note || '') : '';
       document.getElementById('budget2ChildReason').value = child ? (child.reallocationReason || '') : '';
       toggleBudget2ChildReasonField();
@@ -6984,6 +6995,7 @@ function isPerpetualSoftware(softwareId) {
         unitPrice: Number(document.getElementById('budget2ChildUnitPrice').value),
         vatPercent: Number(document.getElementById('budget2ChildVat').value),
         budgetType: document.getElementById('budget2ChildType').value,
+        purchaseMonth: Number(document.getElementById('budget2ChildPurchaseMonth').value),
         note: document.getElementById('budget2ChildNote').value.trim(),
         reallocationReason: document.getElementById('budget2ChildReason').value.trim()
       };
@@ -7008,7 +7020,131 @@ function isPerpetualSoftware(softwareId) {
         budget2ReportsData = data;
         populateBudget2ReportYearSelect();
         renderBudget2ReportTable();
+        renderBudget2QuickReports();
       }).catch(err => showToast(err.message || 'Không thể tải báo cáo ngân sách.', 'danger'));
+    }
+
+    // (Đợt Ngân sách 2.0 — mục 4) 4 lát cắt nhanh dựng trực tiếp từ dữ liệu
+    // /api/budget2/reports đã tải (total theo năm cho b/c/d, byCompany lọc
+    // đúng năm hiện tại cho a) — không cần gọi thêm API, không cần chỉnh bộ
+    // lọc "Theo kỳ"/"So sánh nhiều kỳ" bên dưới.
+    function budget2QuickBarChart(series, color, currentYear) {
+      const w = 460, h = 190, padL = 40, padR = 10, padT = 14, padB = 26;
+      const innerW = w - padL - padR, innerH = h - padT - padB;
+      const max = Math.max(1, Math.ceil(Math.max(...series.map(d => d.v), 1) / 100) * 100);
+      const gridN = 4;
+      let grid = '';
+      for (let i = 0; i <= gridN; i++) {
+        const gy = padT + innerH - (innerH * i / gridN);
+        grid += `<line x1="${padL}" x2="${w - padR}" y1="${gy}" y2="${gy}" stroke="#e5e7eb" stroke-width="1"/>`;
+        grid += `<text x="${padL - 6}" y="${gy + 3}" text-anchor="end" font-size="9" fill="#9ca3af">${Math.round(max * i / gridN)}</text>`;
+      }
+      const bw = innerW / series.length * 0.5;
+      const bars = series.map((d, i) => {
+        const slot = innerW / series.length;
+        const x = padL + slot * i + (slot - bw) / 2;
+        const bh = innerH * (d.v / max);
+        const y = padT + innerH - bh;
+        const isCur = d.y === currentYear;
+        return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="3" fill="${isCur ? color : '#c7ccd4'}"/>`
+          + `<text x="${(x + bw / 2).toFixed(1)}" y="${(y - 5).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="700" fill="#1f2937">${Math.round(d.v).toLocaleString('vi-VN')}</text>`
+          + `<text x="${(x + bw / 2).toFixed(1)}" y="${padT + innerH + 15}" text-anchor="middle" font-size="9" fill="#6b7280">${d.y}</text>`;
+      }).join('');
+      return `<svg viewBox="0 0 ${w} ${h}" width="100%" role="img">${grid}${bars}</svg>`;
+    }
+    function budget2QuickGroupedChart(data) {
+      const w = 460, h = 200, padL = 44, padR = 10, padT = 14, padB = 40;
+      const innerW = w - padL - padR, innerH = h - padT - padB;
+      const max = Math.max(1, Math.ceil(Math.max(...data.map(d => Math.max(d.approved, d.used)), 1) / 100) * 100);
+      const groupW = innerW / data.length;
+      const barW = groupW * 0.28;
+      const gridN = 4;
+      let grid = '';
+      for (let i = 0; i <= gridN; i++) {
+        const gy = padT + innerH - (innerH * i / gridN);
+        grid += `<line x1="${padL}" x2="${w - padR}" y1="${gy}" y2="${gy}" stroke="#e5e7eb" stroke-width="1"/>`;
+        grid += `<text x="${padL - 6}" y="${gy + 3}" text-anchor="end" font-size="9" fill="#9ca3af">${Math.round(max * i / gridN)}</text>`;
+      }
+      const bars = data.map((d, i) => {
+        const cx = padL + groupW * i + groupW / 2;
+        const ah = innerH * (d.approved / max), uh = innerH * (d.used / max);
+        const ax = cx - barW - 2, ux = cx + 2;
+        const ay = padT + innerH - ah, uy = padT + innerH - uh;
+        return `<rect x="${ax.toFixed(1)}" y="${ay.toFixed(1)}" width="${barW.toFixed(1)}" height="${ah.toFixed(1)}" rx="3" fill="#0284c7"/>`
+          + `<text x="${(ax + barW / 2).toFixed(1)}" y="${(ay - 5).toFixed(1)}" text-anchor="middle" font-size="9.5" font-weight="700" fill="#1f2937">${Math.round(d.approved).toLocaleString('vi-VN')}</text>`
+          + `<rect x="${ux.toFixed(1)}" y="${uy.toFixed(1)}" width="${barW.toFixed(1)}" height="${uh.toFixed(1)}" rx="3" fill="#0d9488"/>`
+          + `<text x="${(ux + barW / 2).toFixed(1)}" y="${(uy - 5).toFixed(1)}" text-anchor="middle" font-size="9.5" font-weight="700" fill="#1f2937">${Math.round(d.used).toLocaleString('vi-VN')}</text>`
+          + `<text x="${cx.toFixed(1)}" y="${padT + innerH + 15}" text-anchor="middle" font-size="9" fill="#6b7280">${escapeHtml(d.label)}</text>`;
+      }).join('');
+      return `<svg viewBox="0 0 ${w} ${h}" width="100%" role="img">${grid}${bars}</svg>`;
+    }
+    function renderBudget2QuickReports() {
+      const box = document.getElementById('budget2QuickReports');
+      if (!box || !budget2ReportsData) return;
+      const currentYear = new Date().getFullYear();
+
+      // (a) Sử dụng vs Phê duyệt — năm hiện tại, theo Công ty
+      const byCompanyCur = (budget2ReportsData.byCompany || []).filter(r => r.budgetYear === currentYear);
+      const companyMap = new Map();
+      byCompanyCur.forEach(r => {
+        const key = r.groupKey ?? 'null';
+        if (!companyMap.has(key)) companyMap.set(key, { label: budget2CompanyName(r.groupKey) || '(Chưa gán công ty)', approved: 0, used: 0 });
+        const agg = companyMap.get(key);
+        agg.approved += r.approved; agg.used += r.used;
+      });
+      const companyData = [...companyMap.values()].filter(d => d.approved > 0 || d.used > 0).sort((a, b) => b.approved - a.approved).slice(0, 6);
+
+      // (b)(c)(d) so sánh theo năm — dùng "total" (đã gộp toàn công ty)
+      function sumByYear(metric) {
+        const map = new Map();
+        (budget2ReportsData.total || []).forEach(r => {
+          if (!r.budgetYear) return;
+          map.set(r.budgetYear, (map.get(r.budgetYear) || 0) + Number(r[metric] || 0));
+        });
+        return [...map.entries()].map(([y, v]) => ({ y, v })).sort((a, b) => a.y - b.y);
+      }
+      const usedByYear = sumByYear('used');
+      const approvedByYear = sumByYear('approved');
+      const proposedByYear = sumByYear('proposed');
+
+      const totalApproved = companyData.reduce((s, d) => s + d.approved, 0);
+      const totalUsed = companyData.reduce((s, d) => s + d.used, 0);
+      const pct = totalApproved > 0 ? Math.round(totalUsed / totalApproved * 100) : 0;
+
+      function card(title, sub, chartHtml, legendHtml) {
+        return `<div class="bg-white border rounded-lg p-3">
+          <h4 class="text-sm font-bold text-gray-800">${title}</h4>
+          <div class="text-[11px] text-gray-500 mb-2">${sub}</div>
+          ${chartHtml}
+          <div class="flex gap-3 text-[11px] text-gray-600 mt-1">${legendHtml}</div>
+        </div>`;
+      }
+      const dot = c => `<span class="inline-block w-2.5 h-2.5 rounded-sm mr-1" style="background:${c}"></span>`;
+
+      box.innerHTML =
+        (companyData.length
+          ? card(`a. Sử dụng vs Ngân sách phê duyệt — năm ${currentYear}`,
+              `Theo công ty · tổng ${formatMoney(totalUsed)} / ${formatMoney(totalApproved)} được duyệt (${pct}%)`,
+              budget2QuickGroupedChart(companyData),
+              `<span>${dot('#0284c7')}Ngân sách phê duyệt</span><span>${dot('#0d9488')}Đã sử dụng</span>`)
+          : card(`a. Sử dụng vs Ngân sách phê duyệt — năm ${currentYear}`, 'Chưa có dữ liệu năm nay.', '', ''))
+        + (usedByYear.length
+          ? card('b. Ngân sách sử dụng theo năm', `${currentYear} so với các năm trước · đơn vị tiền tệ hệ thống`,
+              budget2QuickBarChart(usedByYear, '#0d9488', currentYear),
+              `<span>${dot('#0d9488')}Năm ${currentYear}</span><span>${dot('#c7ccd4')}Năm quá khứ</span>`)
+          : '')
+        + (approvedByYear.length
+          ? card('c. Ngân sách phê duyệt theo năm', `${currentYear} so với các năm trước · đơn vị tiền tệ hệ thống`,
+              budget2QuickBarChart(approvedByYear, '#0284c7', currentYear),
+              `<span>${dot('#0284c7')}Năm ${currentYear}</span><span>${dot('#c7ccd4')}Năm quá khứ</span>`)
+          : '')
+        + (proposedByYear.length
+          ? card('d. Ngân sách đề xuất theo năm', `${currentYear} so với các năm trước · đơn vị tiền tệ hệ thống`,
+              budget2QuickBarChart(proposedByYear, '#7c3aed', currentYear),
+              `<span>${dot('#7c3aed')}Năm ${currentYear}</span><span>${dot('#c7ccd4')}Năm quá khứ</span>`)
+          : '');
+
+      if (!box.innerHTML.trim()) box.innerHTML = '<div class="text-xs text-gray-400 italic p-3 border rounded col-span-2">Chưa có đủ dữ liệu để hiển thị báo cáo nhanh.</div>';
     }
     // Danh sách năm hiển thị trong bộ lọc "Theo kỳ" — lấy từ toàn bộ dữ liệu
     // đang có (không phụ thuộc dimension đang chọn) để không bỏ sót năm nào.

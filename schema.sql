@@ -791,6 +791,12 @@ CALL create_index_if_not_exists('budget2_lines', 'idx_budget2_year', 'budget_yea
 CALL add_column_if_not_exists('budget2_lines', 'budget_month', 'TINYINT NOT NULL DEFAULT 1');
 CALL create_index_if_not_exists('budget2_lines', 'idx_budget2_month', 'budget_month');
 
+-- Tháng mua THỰC TẾ của mục con Sử dụng (khác budget_month kế thừa từ mục
+-- cha là tháng dự trù/phê duyệt) — chỉ có ý nghĩa với mục con (parent_id IS
+-- NOT NULL), dùng để báo cáo so sánh giá trị chính xác theo đúng thời điểm
+-- phát sinh mua thay vì theo tháng dự trù ban đầu.
+CALL add_column_if_not_exists('budget2_lines', 'purchase_month', 'TINYINT NULL DEFAULT NULL');
+
 -- Dọn dẹp: xóa các thủ tục tạm sau khi dùng xong, không để lại trong CSDL thật.
 DROP PROCEDURE IF EXISTS create_index_if_not_exists;
 DROP PROCEDURE IF EXISTS create_unique_index_if_not_exists;
