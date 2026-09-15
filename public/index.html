@@ -1649,10 +1649,12 @@
               <th class="border p-2 text-right">VAT</th>
               <th class="border p-2 text-right">Thành tiền</th>
               <th class="border p-2 text-center">Loại</th>
+              <th class="border p-2 text-center">Danh mục</th>
               <th class="border p-2 text-center">Tháng</th>
               <th class="border p-2 text-center">Năm</th>
               <th class="border p-2">Công ty</th>
               <th class="border p-2">Khối/Ban/Phòng</th>
+              <th class="border p-2">Ghi chú</th>
               <th class="border p-2 text-center">Trạng thái</th>
               <th class="border p-2 text-center w-32">Thao tác</th>
             </tr>
@@ -1718,6 +1720,7 @@
             <option value="total">Toàn công ty (tổng hợp)</option>
             <option value="company">Công ty</option>
             <option value="orgUnit">Phòng/Ban/Khối</option>
+            <option value="category">Danh mục (Phần mềm/Phần cứng/Dịch vụ/Hệ thống)</option>
             <option value="variance">Chênh lệch Phê duyệt vs Sử dụng</option>
           </select>
         </div>
@@ -1765,6 +1768,7 @@
             <option value="total">Tổng toàn công ty</option>
             <option value="company">Công ty</option>
             <option value="orgUnit">Phòng/Ban/Khối</option>
+            <option value="category">Danh mục</option>
           </select>
         </div>
         <div>
@@ -1905,7 +1909,7 @@
           </select>
         </div>
       </div>
-      <div class="grid grid-cols-3 gap-3">
+      <div class="grid grid-cols-2 gap-3">
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Loại ngân sách</label>
           <select id="budget2LineType" class="w-full border p-2 rounded text-sm bg-white">
@@ -1913,6 +1917,17 @@
             <option value="CAPEX">CAPEX</option>
           </select>
         </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Danh mục</label>
+          <select id="budget2LineCategory" class="w-full border p-2 rounded text-sm bg-white">
+            <option value="SOFTWARE">Phần mềm</option>
+            <option value="HARDWARE">Phần cứng</option>
+            <option value="SERVICE">Dịch vụ</option>
+            <option value="SYSTEM">Hệ thống</option>
+          </select>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Tháng ngân sách</label>
           <select id="budget2LineMonth" class="w-full border p-2 rounded text-sm bg-white">

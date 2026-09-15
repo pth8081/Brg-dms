@@ -6870,6 +6870,16 @@ function isPerpetualSoftware(softwareId) {
       };
       return map[status] || status;
     }
+    const BUDGET2_CATEGORY_LABELS = { SOFTWARE: 'Phần mềm', HARDWARE: 'Phần cứng', SERVICE: 'Dịch vụ', SYSTEM: 'Hệ thống' };
+    function budget2CategoryBadge(cat) {
+      const map = {
+        SOFTWARE: '<span class="text-[10px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full whitespace-nowrap">Phần mềm</span>',
+        HARDWARE: '<span class="text-[10px] font-bold text-orange-700 bg-orange-100 px-2 py-0.5 rounded-full whitespace-nowrap">Phần cứng</span>',
+        SERVICE: '<span class="text-[10px] font-bold text-teal-700 bg-teal-100 px-2 py-0.5 rounded-full whitespace-nowrap">Dịch vụ</span>',
+        SYSTEM: '<span class="text-[10px] font-bold text-violet-700 bg-violet-100 px-2 py-0.5 rounded-full whitespace-nowrap">Hệ thống</span>'
+      };
+      return map[cat] || '<span class="text-gray-400 italic">—</span>';
+    }
     function budget2UsageStatusBadge(status) {
       const map = {
         NOT_USED: '<span class="text-[10px] font-bold text-gray-700 bg-gray-100 px-2 py-0.5 rounded-full whitespace-nowrap">Chưa sử dụng</span>',
@@ -6892,14 +6902,14 @@ function isPerpetualSoftware(softwareId) {
     }
 
     // --- Nhập/Xuất Excel (dùng chung cho cả Đề xuất và Phê duyệt) ---
-    const BUDGET2_XLSX_HEADER_LABELS = ['Nội dung', 'Mô tả', 'Số lượng', 'Đơn giá', 'VAT (%)', 'Loại (OPEX/CAPEX)', 'Tháng ngân sách', 'Năm ngân sách', 'Mã công ty', 'Đơn vị'];
-    const BUDGET2_XLSX_HEADER_KEYS = ['content', 'description', 'quantity', 'unitPrice', 'vatPercent', 'budgetType', 'budgetMonth', 'budgetYear', 'companyCode', 'orgUnitName'];
+    const BUDGET2_XLSX_HEADER_LABELS = ['Nội dung', 'Mô tả', 'Số lượng', 'Đơn giá', 'VAT (%)', 'Loại (OPEX/CAPEX)', 'Danh mục (Phần mềm/Phần cứng/Dịch vụ/Hệ thống)', 'Tháng ngân sách', 'Năm ngân sách', 'Mã công ty', 'Đơn vị'];
+    const BUDGET2_XLSX_HEADER_KEYS = ['content', 'description', 'quantity', 'unitPrice', 'vatPercent', 'budgetType', 'itemCategory', 'budgetMonth', 'budgetYear', 'companyCode', 'orgUnitName'];
     function downloadBudget2Template() {
       const thisYear = new Date().getFullYear();
       const thisMonth = new Date().getMonth() + 1;
       downloadXlsxFile('mau_ngan_sach.xlsx', BUDGET2_XLSX_HEADER_LABELS, [
-        ['Mua laptop Dell cho phòng KD', 'Laptop Dell Latitude 5440', 5, 20000000, 10, 'OPEX', thisMonth, thisYear, 'TA', 'Phòng Kinh doanh'],
-        ['Ngân sách CAPEX Quý 1', '', 1, 200000000, 0, 'CAPEX', thisMonth, thisYear, '', '']
+        ['Mua laptop Dell cho phòng KD', 'Laptop Dell Latitude 5440', 5, 20000000, 10, 'OPEX', 'Phần cứng', thisMonth, thisYear, 'TA', 'Phòng Kinh doanh'],
+        ['Ngân sách CAPEX Quý 1', '', 1, 200000000, 0, 'CAPEX', 'Hệ thống', thisMonth, thisYear, '', '']
       ]);
     }
     async function importBudget2Xlsx(e, stage) {
@@ -6920,11 +6930,11 @@ function isPerpetualSoftware(softwareId) {
     }
     function exportBudget2Xlsx(stage) {
       const rows = budget2DB.lines.filter(l => l.stage === stage).sort((a, b) => a.id - b.id);
-      const header = ['STT', 'Nội dung', 'Mô tả', 'Số lượng', 'Đơn giá', 'VAT (%)', 'Thành tiền', 'Loại', 'Tháng ngân sách', 'Năm ngân sách', 'Công ty', 'Khối/Ban/Phòng'];
+      const header = ['STT', 'Nội dung', 'Mô tả', 'Số lượng', 'Đơn giá', 'VAT (%)', 'Thành tiền', 'Loại', 'Danh mục', 'Tháng ngân sách', 'Năm ngân sách', 'Công ty', 'Khối/Ban/Phòng', 'Ghi chú'];
       if (stage === 'APPROVED') header.push('Trạng thái');
       const statusLabel = { SUBMITTED: 'Chờ duyệt', APPROVED: 'Đã duyệt', REJECTED: 'Từ chối' };
       const data = rows.map((l, i) => {
-        const row = [i + 1, l.content, l.description || '', l.quantity, l.unitPrice, l.vatPercent, l.totalAmount, l.budgetType, l.budgetMonth, l.budgetYear, budget2CompanyName(l.companyId), budget2OrgUnitName(l.orgUnitId)];
+        const row = [i + 1, l.content, l.description || '', l.quantity, l.unitPrice, l.vatPercent, l.totalAmount, l.budgetType, BUDGET2_CATEGORY_LABELS[l.itemCategory] || '', l.budgetMonth, l.budgetYear, budget2CompanyName(l.companyId), budget2OrgUnitName(l.orgUnitId), l.note || ''];
         if (stage === 'APPROVED') row.push(statusLabel[l.status] || l.status);
         return row;
       });
@@ -6944,7 +6954,7 @@ function isPerpetualSoftware(softwareId) {
       const tbody = document.getElementById('budget2ProposeTableBody');
       if (!tbody) return;
       const rows = budget2DB.lines.filter(l => l.stage === 'PROPOSED').sort((a, b) => b.id - a.id);
-      if (!rows.length) { tbody.innerHTML = '<tr><td colspan="14" class="text-center p-4 text-gray-400 italic">Chưa có đề xuất ngân sách nào.</td></tr>'; return; }
+      if (!rows.length) { tbody.innerHTML = '<tr><td colspan="16" class="text-center p-4 text-gray-400 italic">Chưa có đề xuất ngân sách nào.</td></tr>'; return; }
       tbody.innerHTML = rows.map((l, i) => {
         const actions = l.status === 'SUBMITTED'
           ? `<button ${dc('openBudget2LineModal', 'PROPOSED', l.id)} class="text-blue-600 hover:underline mr-1" title="Sửa">✏️</button>`
@@ -6961,10 +6971,12 @@ function isPerpetualSoftware(softwareId) {
           <td class="border p-2 text-right">${l.vatPercent}%</td>
           <td class="border p-2 text-right font-bold">${formatMoney(l.totalAmount)}</td>
           <td class="border p-2 text-center">${budget2TypeBadge(l.budgetType)}</td>
+          <td class="border p-2 text-center">${budget2CategoryBadge(l.itemCategory)}</td>
           <td class="border p-2 text-center">${l.budgetMonth || '—'}</td>
           <td class="border p-2 text-center">${l.budgetYear || '—'}</td>
           <td class="border p-2">${budget2CompanyCell(l)}</td>
           <td class="border p-2">${budget2OrgUnitCell(l)}</td>
+          <td class="border p-2">${escapeHtml(l.note || '')}</td>
           <td class="border p-2 text-center">${budget2StatusBadge(l.status)}</td>
           <td class="border p-2 text-center whitespace-nowrap">${actions}</td>
         </tr>`;
@@ -7041,6 +7053,7 @@ function isPerpetualSoftware(softwareId) {
       document.getElementById('budget2LineUnitPrice').value = line ? line.unitPrice : 0;
       document.getElementById('budget2LineVat').value = line ? line.vatPercent : 0;
       document.getElementById('budget2LineType').value = line ? line.budgetType : 'OPEX';
+      document.getElementById('budget2LineCategory').value = line ? (line.itemCategory || 'SOFTWARE') : 'SOFTWARE';
       document.getElementById('budget2LineMonth').value = line ? line.budgetMonth : (new Date().getMonth() + 1);
       document.getElementById('budget2LineYear').value = line ? line.budgetYear : new Date().getFullYear();
       document.getElementById('budget2LineNote').value = line ? (line.note || '') : '';
@@ -7067,6 +7080,7 @@ function isPerpetualSoftware(softwareId) {
         unitPrice: Number(document.getElementById('budget2LineUnitPrice').value),
         vatPercent: Number(document.getElementById('budget2LineVat').value),
         budgetType: document.getElementById('budget2LineType').value,
+        itemCategory: document.getElementById('budget2LineCategory').value,
         budgetMonth: Number(document.getElementById('budget2LineMonth').value),
         budgetYear: Number(document.getElementById('budget2LineYear').value),
         companyId: document.getElementById('budget2LineCompany').value || null,
@@ -7108,8 +7122,8 @@ function isPerpetualSoftware(softwareId) {
             <thead><tr class="bg-gray-100 text-left">
               <th class="border p-2 w-10">#</th><th class="border p-2">Nội dung</th><th class="border p-2">Mô tả</th>
               <th class="border p-2 text-right">SL</th><th class="border p-2 text-right">Đơn giá</th><th class="border p-2 text-right">VAT</th>
-              <th class="border p-2 text-right">Thành tiền</th><th class="border p-2 text-center">Tháng</th><th class="border p-2 text-center">Năm</th>
-              <th class="border p-2">Công ty</th><th class="border p-2">Khối/Ban/Phòng</th>
+              <th class="border p-2 text-right">Thành tiền</th><th class="border p-2 text-center">Danh mục</th><th class="border p-2 text-center">Tháng</th><th class="border p-2 text-center">Năm</th>
+              <th class="border p-2">Công ty</th><th class="border p-2">Khối/Ban/Phòng</th><th class="border p-2">Ghi chú</th>
               <th class="border p-2 text-center">Trạng thái</th><th class="border p-2 text-center w-24">Thao tác</th>
             </tr></thead>
             <tbody>${groupRows.map((l, i) => {
@@ -7127,15 +7141,17 @@ function isPerpetualSoftware(softwareId) {
                 <td class="border p-2 text-right">${formatMoney(l.unitPrice)}</td>
                 <td class="border p-2 text-right">${l.vatPercent}%</td>
                 <td class="border p-2 text-right font-bold">${formatMoney(l.totalAmount)}</td>
+                <td class="border p-2 text-center">${budget2CategoryBadge(l.itemCategory)}</td>
                 <td class="border p-2 text-center">${l.budgetMonth || '—'}</td>
                 <td class="border p-2 text-center">${l.budgetYear || '—'}</td>
                 <td class="border p-2">${budget2CompanyCell(l)}</td>
                 <td class="border p-2">${budget2OrgUnitCell(l)}</td>
+                <td class="border p-2">${escapeHtml(l.note || '')}</td>
                 <td class="border p-2 text-center">${budget2StatusBadge(l.status)}</td>
                 <td class="border p-2 text-center whitespace-nowrap">${actions}</td>
               </tr>`;
             }).join('')}
-            <tr class="bg-gray-50 font-bold"><td colspan="6" class="border p-2 text-right">Tổng ${type} đã duyệt</td><td class="border p-2 text-right">${formatMoney(subtotal)}</td><td class="border p-2" colspan="6"></td></tr>
+            <tr class="bg-gray-50 font-bold"><td colspan="6" class="border p-2 text-right">Tổng ${type} đã duyệt</td><td class="border p-2 text-right">${formatMoney(subtotal)}</td><td class="border p-2" colspan="8"></td></tr>
             </tbody>
           </table>
         </div>`;
@@ -7168,7 +7184,7 @@ function isPerpetualSoftware(softwareId) {
           <div class="flex flex-wrap justify-between items-center gap-2 bg-gray-50 p-2 border-b">
             <div>
               <span class="font-bold text-gray-800 text-sm">${escapeHtml(p.content)}</span>
-              ${budget2TypeBadge(p.budgetType)} ${budget2UsageStatusBadge(p.usageStatus)}
+              ${budget2TypeBadge(p.budgetType)} ${budget2CategoryBadge(p.itemCategory)} ${budget2UsageStatusBadge(p.usageStatus)}
               <span class="text-[10px] font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full ml-1">Tháng ${p.budgetMonth || '—'}/${p.budgetYear || '—'}</span>
               <span class="text-[11px] text-gray-500 ml-2">${budget2CompanyOrgLabel(p)}</span>
             </div>
@@ -7184,7 +7200,7 @@ function isPerpetualSoftware(softwareId) {
               <thead><tr class="bg-gray-100 text-left">
                 <th class="border p-2 w-10">#</th><th class="border p-2">Nội dung</th><th class="border p-2">Mô tả</th>
                 <th class="border p-2 text-right">SL</th><th class="border p-2 text-right">Đơn giá</th><th class="border p-2 text-right">VAT</th>
-                <th class="border p-2 text-right">Thành tiền</th><th class="border p-2 text-center">Loại</th><th class="border p-2 text-center">Tháng mua</th><th class="border p-2">Lý do tái phân bổ</th><th class="border p-2 text-center w-16">Thao tác</th>
+                <th class="border p-2 text-right">Thành tiền</th><th class="border p-2 text-center">Loại</th><th class="border p-2 text-center">Tháng mua</th><th class="border p-2">Lý do tái phân bổ</th><th class="border p-2">Ghi chú</th><th class="border p-2 text-center w-16">Thao tác</th>
               </tr></thead>
               <tbody>
                 ${children.length ? children.map((c, i) => `<tr>
@@ -7198,12 +7214,13 @@ function isPerpetualSoftware(softwareId) {
                   <td class="border p-2 text-center">${budget2TypeBadge(c.budgetType)}</td>
                   <td class="border p-2 text-center">${c.purchaseMonth || '—'}</td>
                   <td class="border p-2">${escapeHtml(c.reallocationReason || '')}</td>
+                  <td class="border p-2">${escapeHtml(c.note || '')}</td>
                   <td class="border p-2 text-center whitespace-nowrap">
                     <button ${dc('openBudget2ChildModal', p.id, c.id)} class="text-blue-600 hover:underline mr-1" title="Sửa">✏️</button>
                     <button ${dc('deleteBudget2Line', c.id)} class="text-red-600 hover:underline" title="Xóa">🗑️</button>
                   </td>
-                </tr>`).join('') : '<tr><td colspan="11" class="text-center p-3 text-gray-400 italic">Chưa có mục sử dụng con nào.</td></tr>'}
-                <tr class="bg-emerald-50 font-bold"><td colspan="6" class="border p-2 text-right">Ngân sách còn lại</td><td class="border p-2 text-right ${remaining < 0 ? 'text-red-600' : 'text-emerald-700'}">${formatMoney(remaining)}</td><td colspan="4" class="border p-2"></td></tr>
+                </tr>`).join('') : '<tr><td colspan="12" class="text-center p-3 text-gray-400 italic">Chưa có mục sử dụng con nào.</td></tr>'}
+                <tr class="bg-emerald-50 font-bold"><td colspan="6" class="border p-2 text-right">Ngân sách còn lại</td><td class="border p-2 text-right ${remaining < 0 ? 'text-red-600' : 'text-emerald-700'}">${formatMoney(remaining)}</td><td colspan="5" class="border p-2"></td></tr>
               </tbody>
             </table>
           </div>
@@ -7517,7 +7534,7 @@ function isPerpetualSoftware(softwareId) {
         return;
       }
 
-      const dataSetMap = { company: budget2ReportsData.byCompany, orgUnit: budget2ReportsData.byOrgUnit, total: budget2ReportsData.total };
+      const dataSetMap = { company: budget2ReportsData.byCompany, orgUnit: budget2ReportsData.byOrgUnit, category: budget2ReportsData.byCategory, total: budget2ReportsData.total };
       let rows = dataSetMap[dim] || [];
       if (typeFilter) rows = rows.filter(r => r.budgetType === typeFilter);
       if (yearFilter) rows = rows.filter(r => r.budgetYear === Number(yearFilter));
@@ -7534,8 +7551,8 @@ function isPerpetualSoftware(softwareId) {
         agg.proposed += r.proposed; agg.approved += r.approved; agg.used += r.used;
       });
       rows = [...map.values()];
-      const labelFor = (r) => dim === 'company' ? (budget2CompanyName(r.groupKey) || '(Chưa gán công ty)') : (dim === 'orgUnit' ? (budget2OrgUnitName(r.groupKey) || '(Chưa gán đơn vị)') : 'Toàn công ty');
-      const dimLabel = dim === 'company' ? 'Công ty' : (dim === 'orgUnit' ? 'Phòng/Ban/Khối' : 'Phạm vi');
+      const labelFor = (r) => dim === 'company' ? (budget2CompanyName(r.groupKey) || '(Chưa gán công ty)') : (dim === 'orgUnit' ? (budget2OrgUnitName(r.groupKey) || '(Chưa gán đơn vị)') : (dim === 'category' ? (BUDGET2_CATEGORY_LABELS[r.groupKey] || '(Chưa gán danh mục)') : 'Toàn công ty'));
+      const dimLabel = dim === 'company' ? 'Công ty' : (dim === 'orgUnit' ? 'Phòng/Ban/Khối' : (dim === 'category' ? 'Danh mục' : 'Phạm vi'));
 
       budget2ReportExport = {
         header: [dimLabel, 'Loại', 'Đề xuất', 'Phê duyệt', 'Sử dụng'],
@@ -7567,15 +7584,15 @@ function isPerpetualSoftware(softwareId) {
       const dim = budget2ReportFilters.compareDimension;
       const metric = budget2ReportFilters.compareMetric;
       const typeFilter = budget2ReportFilters.compareType;
-      const dataSetMap = { company: budget2ReportsData.byCompany, orgUnit: budget2ReportsData.byOrgUnit, total: budget2ReportsData.total };
+      const dataSetMap = { company: budget2ReportsData.byCompany, orgUnit: budget2ReportsData.byOrgUnit, category: budget2ReportsData.byCategory, total: budget2ReportsData.total };
       let rows = dataSetMap[dim] || [];
       if (typeFilter) rows = rows.filter(r => r.budgetType === typeFilter);
 
       const periodKey = (r) => `${r.budgetYear}-${String(r.budgetMonth).padStart(2, '0')}`;
       const periodLabel = (key) => { const [y, m] = key.split('-'); return `Tháng ${Number(m)}/${y}`; };
       const periods = [...new Set(rows.filter(r => r.budgetYear && r.budgetMonth).map(periodKey))].sort();
-      const labelFor = (r) => dim === 'company' ? (budget2CompanyName(r.groupKey) || '(Chưa gán công ty)') : (dim === 'orgUnit' ? (budget2OrgUnitName(r.groupKey) || '(Chưa gán đơn vị)') : 'Toàn công ty');
-      const dimLabel = dim === 'company' ? 'Công ty' : (dim === 'orgUnit' ? 'Phòng/Ban/Khối' : 'Phạm vi');
+      const labelFor = (r) => dim === 'company' ? (budget2CompanyName(r.groupKey) || '(Chưa gán công ty)') : (dim === 'orgUnit' ? (budget2OrgUnitName(r.groupKey) || '(Chưa gán đơn vị)') : (dim === 'category' ? (BUDGET2_CATEGORY_LABELS[r.groupKey] || '(Chưa gán danh mục)') : 'Toàn công ty'));
+      const dimLabel = dim === 'company' ? 'Công ty' : (dim === 'orgUnit' ? 'Phòng/Ban/Khối' : (dim === 'category' ? 'Danh mục' : 'Phạm vi'));
       const metricLabel = { proposed: 'Ngân sách đề xuất', approved: 'Ngân sách phê duyệt', used: 'Ngân sách chi tiêu' }[metric];
 
       const groupMap = new Map();
