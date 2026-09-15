@@ -5870,20 +5870,33 @@ function computeBudget2Total(quantity, unitPrice, vatPercent) {
 // bắt buộc chọn ở dòng gốc (Đề xuất/Phê duyệt), mục con Sử dụng LUÔN kế thừa
 // nguyên văn từ dòng cha (giống Nội dung/Mô tả) vì cùng là 1 khoản ngân sách,
 // không tự phân loại lại khi ghi nhận từng lần sử dụng.
-const VALID_BUDGET2_ITEM_CATEGORIES = ['SOFTWARE', 'HARDWARE', 'SERVICE', 'SYSTEM'];
-const BUDGET2_ITEM_CATEGORY_LABELS = { SOFTWARE: 'Phần mềm', HARDWARE: 'Phần cứng', SERVICE: 'Dịch vụ', SYSTEM: 'Hệ thống' };
+// (Đợt gộp danh mục) Trước đây đây là 1 mảng/object viết cứng (chỉ đúng 4
+// giá trị SOFTWARE/HARDWARE/SERVICE/SYSTEM) — nay đọc từ bảng
+// budget2_item_categories (Hệ thống > Quản lý danh mục) để Admin tự thêm
+// được danh mục mới mà không cần sửa mã nguồn. Mỗi route gọi
+// getBudget2CategoryCatalog() đúng 1 lần rồi truyền kết quả xuống các hàm
+// bên dưới, tránh mỗi dòng Excel/mỗi lần validate lại tự query DB riêng.
+async function getBudget2CategoryCatalog(includeInactive = false) {
+    const [rows] = await pool.query(
+        includeInactive
+            ? 'SELECT code, name FROM budget2_item_categories ORDER BY sort_order, name'
+            : 'SELECT code, name FROM budget2_item_categories WHERE active = 1 ORDER BY sort_order, name'
+    );
+    return rows;
+}
 // Nhập Excel: người dùng gõ/copy đúng nhãn tiếng Việt hiển thị trong file mẫu
-// (VD "Phần mềm"), không gõ mã ENUM nội bộ — chuẩn hóa cả 2 chiều (nhãn hoặc
-// mã đều chấp nhận, không phân biệt hoa/thường) trước khi đối chiếu.
-function normalizeBudget2ItemCategory(raw) {
+// (VD "Phần mềm"), không gõ mã nội bộ — chuẩn hóa cả 2 chiều (nhãn hoặc mã
+// đều chấp nhận, không phân biệt hoa/thường) trước khi đối chiếu.
+function normalizeBudget2ItemCategory(raw, catalog) {
     const s = String(raw || '').trim();
     if (!s) return null;
-    if (VALID_BUDGET2_ITEM_CATEGORIES.includes(s.toUpperCase())) return s.toUpperCase();
-    const found = Object.entries(BUDGET2_ITEM_CATEGORY_LABELS).find(([, label]) => label.toLowerCase() === s.toLowerCase());
-    return found ? found[0] : null;
+    const upper = s.toUpperCase();
+    if (catalog.some(c => c.code === upper)) return upper;
+    const found = catalog.find(c => c.name.toLowerCase() === s.toLowerCase());
+    return found ? found.code : null;
 }
 
-function validateBudget2LineInput(body, opts = {}) {
+function validateBudget2LineInput(body, opts = {}, categoryCatalog = []) {
     const requireYear = opts.requireYear !== false;
     const content = String((body && body.content) || '').trim();
     if (!content) return { error: 'Nội dung không được để trống.' };
@@ -5895,8 +5908,8 @@ function validateBudget2LineInput(body, opts = {}) {
     if (!Number.isFinite(vatPercent) || vatPercent < 0 || vatPercent > 100) return { error: 'VAT% không hợp lệ (0-100).' };
     const budgetType = body.budgetType === 'CAPEX' ? 'CAPEX' : (body.budgetType === 'OPEX' ? 'OPEX' : null);
     if (!budgetType) return { error: 'Loại ngân sách phải là OPEX hoặc CAPEX.' };
-    const itemCategory = VALID_BUDGET2_ITEM_CATEGORIES.includes(body.itemCategory) ? body.itemCategory : null;
-    if (requireYear && !itemCategory) return { error: 'Vui lòng chọn Danh mục (Phần mềm/Phần cứng/Dịch vụ/Hệ thống).' };
+    const itemCategory = categoryCatalog.some(c => c.code === body.itemCategory) ? body.itemCategory : null;
+    if (requireYear && !itemCategory) return { error: 'Vui lòng chọn Danh mục.' };
     const companyId = body.companyId ? Number(body.companyId) : null;
     const orgUnitId = body.orgUnitId ? Number(body.orgUnitId) : null;
     const description = body.description ? String(body.description).trim() : null;
@@ -5919,10 +5932,12 @@ app.get('/api/budget2/bootstrap', requireAuth, requireBudgetOrAdmin, async (req,
         const [lines] = await pool.query('SELECT * FROM budget2_lines ORDER BY id DESC');
         const [companies] = await pool.query('SELECT id, name, code FROM lic_companies WHERE active = 1 ORDER BY name');
         const [orgUnits] = await pool.query('SELECT id, company_id AS companyId, parent_id AS parentId, name, level_label AS levelLabel FROM lic_org_units ORDER BY name');
+        const categories = await getBudget2CategoryCatalog();
         res.json({
             lines: lines.map(mapBudget2Line),
             companies,
-            orgUnits
+            orgUnits,
+            categories: categories.map(c => ({ code: c.code, name: c.name }))
         });
     } catch (err) {
         console.error('❌ Lỗi tải dữ liệu module Quản lý Ngân sách:', err.message);
@@ -5930,10 +5945,85 @@ app.get('/api/budget2/bootstrap', requireAuth, requireBudgetOrAdmin, async (req,
     }
 });
 
+// --- Quản lý Danh mục hệ thống (budget2_item_categories) — CRUD dành cho
+// Hệ thống > Quản lý danh mục, CHỈ Admin (không mở cho budgetManager, khác
+// với các route /api/budget2/* khác) vì đây là danh mục nền tảng dùng chung,
+// không phải nghiệp vụ ngân sách hàng ngày. code sinh tự động từ name (bỏ
+// dấu, viết hoa, thay ký tự khác chữ/số bằng "_") để người dùng chỉ cần gõ
+// đúng 1 ô Tên danh mục, không cần hiểu khái niệm "mã nội bộ". code KHÔNG
+// đổi được sau khi tạo — mọi budget2_lines.item_category đang trỏ theo code,
+// đổi code sẽ làm mất liên kết dữ liệu cũ.
+function slugifyBudget2CategoryCode(name, existingCodes) {
+    let base = String(name || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+        .replace(/đ/gi, 'd').toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    if (!base) base = 'DANH_MUC';
+    let code = base;
+    let n = 1;
+    while (existingCodes.includes(code)) { code = `${base}_${++n}`; }
+    return code;
+}
+app.get('/api/budget2/categories', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT id, code, name, active FROM budget2_item_categories ORDER BY sort_order, name');
+        res.json({ categories: rows.map(r => ({ id: r.id, code: r.code, name: r.name, active: !!r.active })) });
+    } catch (err) {
+        console.error('❌ Lỗi tải danh mục hệ thống:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+app.post('/api/budget2/categories', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const name = String((req.body && req.body.name) || '').trim();
+        if (!name) return res.status(400).json({ error: 'Tên danh mục không được để trống.' });
+        if (name.length > 100) return res.status(400).json({ error: 'Tên danh mục quá dài (tối đa 100 ký tự).' });
+        const [existing] = await pool.query('SELECT code FROM budget2_item_categories');
+        const code = slugifyBudget2CategoryCode(name, existing.map(r => r.code));
+        const [maxRow] = await pool.query('SELECT COALESCE(MAX(sort_order), 0) AS m FROM budget2_item_categories');
+        const [result] = await pool.query('INSERT INTO budget2_item_categories (code, name, active, sort_order) VALUES (?, ?, 1, ?)', [code, name, maxRow[0].m + 1]);
+        await writeAuditLog({ module: 'SYSTEM', actionType: 'CREATE_BUDGET2_CATEGORY', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: name, description: `Thêm danh mục hệ thống [${name}] (mã ${code}) cho Ngân sách.` });
+        res.json({ success: true, id: result.insertId, code });
+    } catch (err) {
+        if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Danh mục này đã tồn tại.' });
+        console.error('❌ Lỗi thêm danh mục hệ thống:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+app.put('/api/budget2/categories/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const name = String((req.body && req.body.name) || '').trim();
+        if (!name) return res.status(400).json({ error: 'Tên danh mục không được để trống.' });
+        if (name.length > 100) return res.status(400).json({ error: 'Tên danh mục quá dài (tối đa 100 ký tự).' });
+        const active = req.body && req.body.active !== undefined ? !!req.body.active : true;
+        const [result] = await pool.query('UPDATE budget2_item_categories SET name = ?, active = ? WHERE id = ?', [name, active, id]);
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Không tìm thấy danh mục.' });
+        await writeAuditLog({ module: 'SYSTEM', actionType: 'UPDATE_BUDGET2_CATEGORY', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: name, description: `Cập nhật danh mục hệ thống [${name}].` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi cập nhật danh mục hệ thống:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+app.delete('/api/budget2/categories/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query('SELECT code, name FROM budget2_item_categories WHERE id = ?', [id]);
+        if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy danh mục.' });
+        const [used] = await pool.query('SELECT COUNT(*) AS cnt FROM budget2_lines WHERE item_category = ?', [rows[0].code]);
+        if (used[0].cnt > 0) return res.status(400).json({ error: 'Không thể xóa — danh mục này đang được dùng ở dòng Ngân sách. Có thể tắt "Đang dùng" thay vì xóa.' });
+        await pool.query('DELETE FROM budget2_item_categories WHERE id = ?', [id]);
+        await writeAuditLog({ module: 'SYSTEM', actionType: 'DELETE_BUDGET2_CATEGORY', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: rows[0].name, description: `Xóa danh mục hệ thống [${rows[0].name}].` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi xóa danh mục hệ thống:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
 // --- Tạo dòng Đề xuất mới ---
 app.post('/api/budget2/lines', requireAuth, requireBudgetOrAdmin, async (req, res) => {
     try {
-        const v = validateBudget2LineInput(req.body || {});
+        const v = validateBudget2LineInput(req.body || {}, {}, await getBudget2CategoryCatalog());
         if (v.error) return res.status(400).json({ error: v.error });
         const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
         const now = new Date().toISOString();
@@ -5972,7 +6062,7 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
             if (line.status !== 'SUBMITTED' && !req.user.perms.admin) {
                 return res.status(400).json({ error: 'Đề xuất đã được duyệt/từ chối, không thể sửa.' });
             }
-            const v = validateBudget2LineInput(req.body || {});
+            const v = validateBudget2LineInput(req.body || {}, {}, await getBudget2CategoryCatalog());
             if (v.error) return res.status(400).json({ error: v.error });
             const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
             await pool.query(
@@ -5992,7 +6082,7 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
             if (line.status !== 'SUBMITTED' && !req.user.perms.admin) {
                 return res.status(400).json({ error: 'Dòng ngân sách phê duyệt đã được duyệt/từ chối, không thể sửa.' });
             }
-            const v = validateBudget2LineInput(req.body || {});
+            const v = validateBudget2LineInput(req.body || {}, {}, await getBudget2CategoryCatalog());
             if (v.error) return res.status(400).json({ error: v.error });
             const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
             if (line.status === 'APPROVED') {
@@ -6048,8 +6138,11 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
             const parent = parentRows[0];
             if (!parent) return res.status(404).json({ error: 'Không tìm thấy mục cha.' });
             // (Khóa Nội dung/Mô tả) Giống hệt lúc tạo — sửa mục con cũng không
-            // được đổi Nội dung/Mô tả khác với dòng Phê duyệt gốc.
-            const v = validateBudget2LineInput({ ...req.body, content: parent.content, description: parent.description, itemCategory: parent.item_category }, { requireYear: false });
+            // được đổi Nội dung/Mô tả khác với dòng Phê duyệt gốc. itemCategory
+            // kế thừa nguyên văn nên đối chiếu với TOÀN BỘ danh mục (kể cả đã ẩn)
+            // — 1 danh mục cũ bị Admin ẩn đi vẫn phải giữ nguyên trên các dòng
+            // lịch sử đã dùng nó, không được tự ý null hóa.
+            const v = validateBudget2LineInput({ ...req.body, content: parent.content, description: parent.description, itemCategory: parent.item_category }, { requireYear: false }, await getBudget2CategoryCatalog(true));
             if (v.error) return res.status(400).json({ error: v.error });
             const pm = validateBudget2PurchaseMonth(req.body || {});
             if (pm.error) return res.status(400).json({ error: pm.error });
@@ -6284,7 +6377,7 @@ app.post('/api/budget2/lines/:id/reject', requireAuth, requireBudgetOrAdmin, asy
 // dụng ngay — chờ ai đó duyệt qua endpoint /approve ở trên). ---
 app.post('/api/budget2/lines/approved-direct', requireAuth, requireBudgetOrAdmin, async (req, res) => {
     try {
-        const v = validateBudget2LineInput(req.body || {});
+        const v = validateBudget2LineInput(req.body || {}, {}, await getBudget2CategoryCatalog());
         if (v.error) return res.status(400).json({ error: v.error });
         const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
         const now = new Date().toISOString();
@@ -6318,6 +6411,7 @@ app.post('/api/budget2/import', requireAuth, requireBudgetOrAdmin, async (req, r
         const [companies] = await pool.query('SELECT * FROM lic_companies');
         const companyByCode = new Map(companies.map(c => [c.code, c]));
         const [units] = await pool.query('SELECT * FROM lic_org_units');
+        const categoryCatalog = await getBudget2CategoryCatalog();
 
         const errors = [];
         let created = 0;
@@ -6352,12 +6446,12 @@ app.post('/api/budget2/import', requireAuth, requireBudgetOrAdmin, async (req, r
                 unitPrice: r.unitPrice,
                 vatPercent: r.vatPercent,
                 budgetType: String(r.budgetType || '').trim().toUpperCase(),
-                itemCategory: normalizeBudget2ItemCategory(r.itemCategory),
+                itemCategory: normalizeBudget2ItemCategory(r.itemCategory, categoryCatalog),
                 companyId,
                 orgUnitId,
                 budgetYear: r.budgetYear,
                 budgetMonth: r.budgetMonth
-            });
+            }, {}, categoryCatalog);
             if (v.error) { errors.push(`Dòng ${rowNo}: ${v.error}`); continue; }
 
             const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
@@ -6399,8 +6493,9 @@ app.post('/api/budget2/lines/:id/children', requireAuth, requireBudgetOrAdmin, a
         // (Khóa Nội dung/Mô tả) Mục con LUÔN kế thừa nguyên văn Nội dung/Mô tả
         // của dòng Phê duyệt gốc (qua mục cha) — không tin/chấp nhận giá trị
         // client gửi lên cho 2 trường này, đảm bảo tính đúng đắn dữ liệu dù
-        // client có cố tình gửi khác đi.
-        const v = validateBudget2LineInput({ ...req.body, content: parent.content, description: parent.description, itemCategory: parent.item_category }, { requireYear: false });
+        // client có cố tình gửi khác đi. itemCategory đối chiếu TOÀN BỘ danh
+        // mục kể cả đã ẩn — xem chú thích ở nhánh sửa mục con phía trên.
+        const v = validateBudget2LineInput({ ...req.body, content: parent.content, description: parent.description, itemCategory: parent.item_category }, { requireYear: false }, await getBudget2CategoryCatalog(true));
         if (v.error) return res.status(400).json({ error: v.error });
         const pm = validateBudget2PurchaseMonth(req.body || {});
         if (pm.error) return res.status(400).json({ error: pm.error });
