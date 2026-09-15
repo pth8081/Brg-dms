@@ -84,6 +84,18 @@ const { Jimp } = require('jimp');
 const { generateRegistrationOptions, verifyRegistrationResponse, generateAuthenticationOptions, verifyAuthenticationResponse } = require('@simplewebauthn/server');
 const { authenticator } = require('otplib');
 const QRCode = require('qrcode');
+// Mặc định otplib KHÔNG cho sai lệch thời gian nào cả (window: 0) — mã chỉ
+// đúng trong ĐÚNG 30 giây hiện tại theo đồng hồ server, không chấp nhận cả
+// bước liền trước/sau. Trên thực tế, đồng hồ điện thoại lệch vài giây với
+// server (rất phổ biến, kể cả khi cả 2 đều đồng bộ NTP) CỘNG với thời gian
+// đọc mã + gõ 6 số + bấm nút hoàn toàn có thể vượt qua ranh giới 30 giây —
+// khiến người dùng nhập ĐÚNG mã hiển thị nhưng vẫn bị từ chối liên tục,
+// không có cách nào tự sửa được (đã xác nhận qua báo cáo Admin bị kẹt hoàn
+// toàn ở màn đăng ký 2FA). window: 1 chấp nhận thêm 1 bước liền trước/sau
+// (tổng dung sai ~30-60 giây tùy thời điểm), vẫn đủ chặt về bảo mật (thực tế
+// GitHub/Google cũng dùng dung sai tương đương) nhưng chịu được sai lệch
+// đồng hồ + độ trễ thao tác thực tế.
+authenticator.options = { window: 1 };
 
 const app = express();
 const isProd = process.env.NODE_ENV === 'production';
