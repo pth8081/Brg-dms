@@ -7,6 +7,7 @@ const path = require('path');
 const pkgPath = path.join(__dirname, '..', 'package.json');
 const htmlPath = path.join(__dirname, '..', 'public', 'index.html');
 const appJsPath = path.join(__dirname, '..', 'public', 'app.js');
+const swJsPath = path.join(__dirname, '..', 'public', 'sw.js');
 
 const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
 const [major, minor] = pkg.version.split('.').map(Number);
@@ -33,5 +34,16 @@ fs.writeFileSync(htmlPath, html);
 let appJs = fs.readFileSync(appJsPath, 'utf8');
 appJs = appJs.replace(/const CLIENT_BUILD_VERSION = '[^']*'/, `const CLIENT_BUILD_VERSION = '${newVersion}'`);
 fs.writeFileSync(appJsPath, appJs);
+
+// (PWA) Đồng bộ CACHE_NAME trong public/sw.js với version mới — bắt buộc để
+// trình duyệt luôn phát hiện service worker "đổi byte" sau mỗi lần deploy và
+// tự cài bản mới + xóa cache vỏ ứng dụng cũ (xem "activate" trong sw.js),
+// tránh PWA bị kẹt vỏ ứng dụng ở bản cũ giống lỗi app.min.js quên rebuild
+// trước đây (Đợt 7).
+if (fs.existsSync(swJsPath)) {
+    let swJs = fs.readFileSync(swJsPath, 'utf8');
+    swJs = swJs.replace(/const CACHE_NAME = 'dms-shell-v[^']*'/, `const CACHE_NAME = 'dms-shell-v${newVersion}'`);
+    fs.writeFileSync(swJsPath, swJs);
+}
 
 console.log(`Đã tăng phiên bản: -> ${newLabel} (package.json: ${newVersion})`);

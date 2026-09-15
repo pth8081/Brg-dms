@@ -81,6 +81,7 @@ const multer = require('multer');
 const { Client: LdapClient } = require('ldapts');
 const nodemailer = require('nodemailer');
 const { Jimp } = require('jimp');
+const { generateRegistrationOptions, verifyRegistrationResponse, generateAuthenticationOptions, verifyAuthenticationResponse } = require('@simplewebauthn/server');
 
 const app = express();
 const isProd = process.env.NODE_ENV === 'production';
@@ -992,6 +993,178 @@ app.post('/api/auth/logout', async (req, res) => {
 
 app.get('/api/auth/me', requireAuth, (req, res) => {
     res.json({ user: sanitizeUser(req.user) });
+});
+
+// --- ĐĂNG NHẬP VÂN TAY / FACE ID (WebAuthn/passkey) — LỐI VÀO NHANH bổ sung,
+// KHÔNG thay thế mật khẩu (mật khẩu vẫn dùng bình thường, ví dụ thiết bị lạ
+// hoặc quên sinh trắc học). Challenge tạm lưu trong cookie ký JWT (giống cơ
+// chế CAPTCHA ở trên) thay vì session server-side vì toàn app đã thiết kế
+// stateless (JWT-only, không có session store). Không dùng discoverable/
+// usernameless credential — vẫn cần biết TRƯỚC username (client tự nhớ
+// username đăng nhập gần nhất) để giữ đúng UI "tài khoản đã nhớ". ---
+const WEBAUTHN_CHALLENGE_COOKIE = 'dms_webauthn_challenge';
+const WEBAUTHN_RP_NAME = 'DMS - Hệ thống Quản lý Tài liệu';
+function webauthnRpId(req) { return process.env.WEBAUTHN_RP_ID || req.hostname; }
+function webauthnOrigin(req) { return process.env.WEBAUTHN_ORIGIN || `${req.protocol}://${req.get('host')}`; }
+
+app.post('/api/webauthn/register/options', requireAuth, async (req, res) => {
+    try {
+        const [existing] = await pool.query('SELECT credential_id, transports FROM webauthn_credentials WHERE username = ?', [req.user.username]);
+        const options = await generateRegistrationOptions({
+            rpName: WEBAUTHN_RP_NAME,
+            rpID: webauthnRpId(req),
+            userName: req.user.username,
+            userDisplayName: req.user.name,
+            attestationType: 'none',
+            excludeCredentials: existing.map(c => ({ id: c.credential_id, transports: c.transports ? c.transports.split(',') : undefined })),
+            authenticatorSelection: { residentKey: 'preferred', userVerification: 'required', authenticatorAttachment: 'platform' }
+        });
+        const challengeToken = jwt.sign({ challenge: options.challenge, username: req.user.username }, JWT_SECRET, { expiresIn: '5m' });
+        res.cookie(WEBAUTHN_CHALLENGE_COOKIE, challengeToken, { httpOnly: true, secure: isProd, sameSite: 'strict', maxAge: 5 * 60 * 1000 });
+        res.json(options);
+    } catch (err) {
+        console.error('❌ Lỗi sinh tùy chọn đăng ký vân tay/Face ID:', err.message);
+        res.status(500).json({ error: 'Không thể khởi tạo đăng ký sinh trắc học, vui lòng thử lại.' });
+    }
+});
+
+app.post('/api/webauthn/register/verify', requireAuth, async (req, res) => {
+    try {
+        const challengeTokenCookie = req.cookies[WEBAUTHN_CHALLENGE_COOKIE];
+        res.clearCookie(WEBAUTHN_CHALLENGE_COOKIE, { httpOnly: true, secure: isProd, sameSite: 'strict' });
+        if (!challengeTokenCookie) return res.status(400).json({ error: 'Phiên đăng ký đã hết hạn, vui lòng thử lại.' });
+        let challengePayload;
+        try { challengePayload = jwt.verify(challengeTokenCookie, JWT_SECRET, { algorithms: ['HS256'] }); }
+        catch (e) { return res.status(400).json({ error: 'Phiên đăng ký đã hết hạn, vui lòng thử lại.' }); }
+        if (challengePayload.username !== req.user.username) return res.status(400).json({ error: 'Phiên đăng ký không hợp lệ.' });
+
+        const verification = await verifyRegistrationResponse({
+            response: req.body.credential,
+            expectedChallenge: challengePayload.challenge,
+            expectedOrigin: webauthnOrigin(req),
+            expectedRPID: webauthnRpId(req)
+        });
+        if (!verification.verified || !verification.registrationInfo) {
+            return res.status(400).json({ error: 'Không xác thực được thiết bị, vui lòng thử lại.' });
+        }
+        const { credential } = verification.registrationInfo;
+        const deviceLabel = String((req.body && req.body.deviceLabel) || '').trim().slice(0, 255) || 'Thiết bị chưa đặt tên';
+        const now = new Date().toISOString();
+        await pool.query(
+            'INSERT INTO webauthn_credentials (username, credential_id, public_key, counter, device_label, transports, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [req.user.username, credential.id, Buffer.from(credential.publicKey).toString('base64url'), credential.counter, deviceLabel, (credential.transports || []).join(','), now]
+        );
+        await writeAuditLog({ module: 'USER_MGM', actionType: 'WEBAUTHN_REGISTER', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: req.user.username, description: `Đăng ký vân tay/Face ID cho thiết bị [${deviceLabel}].` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi xác thực đăng ký vân tay/Face ID:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.get('/api/webauthn/credentials', requireAuth, async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT id, device_label, created_at, last_used_at FROM webauthn_credentials WHERE username = ? ORDER BY created_at DESC', [req.user.username]);
+        res.json({ credentials: rows.map(r => ({ id: r.id, deviceLabel: r.device_label, createdAt: r.created_at, lastUsedAt: r.last_used_at })) });
+    } catch (err) {
+        console.error('❌ Lỗi tải danh sách thiết bị vân tay/Face ID:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.delete('/api/webauthn/credentials/:id', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query('SELECT id FROM webauthn_credentials WHERE id = ? AND username = ?', [id, req.user.username]);
+        if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy thiết bị.' });
+        await pool.query('DELETE FROM webauthn_credentials WHERE id = ?', [id]);
+        await writeAuditLog({ module: 'USER_MGM', actionType: 'WEBAUTHN_DELETE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: req.user.username, description: `Gỡ đăng ký vân tay/Face ID (ID thiết bị nội bộ #${id}).` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi xóa thiết bị vân tay/Face ID:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.post('/api/webauthn/login/options', loginLimiter, async (req, res) => {
+    try {
+        const { username } = req.body || {};
+        if (!username) return res.status(400).json({ error: 'Thiếu tên đăng nhập.' });
+        const [userRows] = await pool.query('SELECT id, active FROM users WHERE username = ?', [username]);
+        const user = userRows[0];
+        // Không tiết lộ tài khoản có tồn tại/có đăng ký sinh trắc học hay không
+        // qua thông báo lỗi khác nhau — luôn trả về 1 bộ options hợp lệ (dù
+        // allowCredentials rỗng) để tránh dò quét username, giống nguyên tắc
+        // timing đã áp dụng ở /api/auth/login.
+        let allowCredentials = [];
+        if (user && user.active) {
+            const [credRows] = await pool.query('SELECT credential_id, transports FROM webauthn_credentials WHERE username = ?', [username]);
+            allowCredentials = credRows.map(c => ({ id: c.credential_id, transports: c.transports ? c.transports.split(',') : undefined }));
+        }
+        const options = await generateAuthenticationOptions({
+            rpID: webauthnRpId(req),
+            userVerification: 'required',
+            allowCredentials
+        });
+        const challengeToken = jwt.sign({ challenge: options.challenge, username }, JWT_SECRET, { expiresIn: '5m' });
+        res.cookie(WEBAUTHN_CHALLENGE_COOKIE, challengeToken, { httpOnly: true, secure: isProd, sameSite: 'strict', maxAge: 5 * 60 * 1000 });
+        res.json(options);
+    } catch (err) {
+        console.error('❌ Lỗi sinh tùy chọn đăng nhập vân tay/Face ID:', err.message);
+        res.status(500).json({ error: 'Không thể khởi tạo đăng nhập sinh trắc học, vui lòng thử lại.' });
+    }
+});
+
+app.post('/api/webauthn/login/verify', loginLimiter, async (req, res) => {
+    try {
+        const challengeTokenCookie = req.cookies[WEBAUTHN_CHALLENGE_COOKIE];
+        res.clearCookie(WEBAUTHN_CHALLENGE_COOKIE, { httpOnly: true, secure: isProd, sameSite: 'strict' });
+        if (!challengeTokenCookie) return res.status(400).json({ error: 'Phiên đăng nhập đã hết hạn, vui lòng thử lại bằng mật khẩu.' });
+        let challengePayload;
+        try { challengePayload = jwt.verify(challengeTokenCookie, JWT_SECRET, { algorithms: ['HS256'] }); }
+        catch (e) { return res.status(400).json({ error: 'Phiên đăng nhập đã hết hạn, vui lòng thử lại bằng mật khẩu.' }); }
+
+        const { username } = challengePayload;
+        const [userRows] = await pool.query('SELECT * FROM users WHERE username = ?', [username]);
+        const user = userRows[0];
+        if (!user || !user.active) return res.status(401).json({ error: 'Không xác thực được, vui lòng đăng nhập bằng mật khẩu.' });
+
+        const credentialResponse = req.body && req.body.credential;
+        const credentialId = credentialResponse && credentialResponse.id;
+        if (!credentialId) return res.status(400).json({ error: 'Yêu cầu không hợp lệ.' });
+        const [credRows] = await pool.query('SELECT * FROM webauthn_credentials WHERE credential_id = ? AND username = ?', [credentialId, username]);
+        const cred = credRows[0];
+        if (!cred) return res.status(401).json({ error: 'Không xác thực được, vui lòng đăng nhập bằng mật khẩu.' });
+
+        const verification = await verifyAuthenticationResponse({
+            response: credentialResponse,
+            expectedChallenge: challengePayload.challenge,
+            expectedOrigin: webauthnOrigin(req),
+            expectedRPID: webauthnRpId(req),
+            credential: {
+                id: cred.credential_id,
+                publicKey: Buffer.from(cred.public_key, 'base64url'),
+                counter: Number(cred.counter),
+                transports: cred.transports ? cred.transports.split(',') : undefined
+            }
+        });
+        if (!verification.verified) {
+            await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_FAILED', status: 'FAILED', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: 'Đăng nhập vân tay/Face ID thất bại: không xác thực được.' });
+            return res.status(401).json({ error: 'Không xác thực được, vui lòng đăng nhập bằng mật khẩu.' });
+        }
+
+        const now = new Date().toISOString();
+        await pool.query('UPDATE webauthn_credentials SET counter = ?, last_used_at = ? WHERE id = ?', [verification.authenticationInfo.newCounter, now, cred.id]);
+
+        const token = signToken(user);
+        setAuthCookie(res, token);
+        await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_SUCCESS', status: 'SUCCESS', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: 'Đăng nhập hệ thống thành công qua vân tay/Face ID.' });
+        const perms = typeof user.perms === 'string' ? JSON.parse(user.perms || '{}') : user.perms;
+        res.json({ user: sanitizeUser({ ...user, perms }) });
+    } catch (err) {
+        console.error('❌ Lỗi xác thực đăng nhập vân tay/Face ID:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
 });
 
 // Tra cứu nhanh 1 tài khoản trong snapshot ad_accounts (đã đồng bộ từ AD) để
@@ -5798,6 +5971,21 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
             return res.json({ success: true });
         }
 
+        if (line.stage === 'USED' && !line.parent_id) {
+            // (Khóa cứng) Dòng cha Sử dụng do hệ thống tự sinh khi duyệt dòng
+            // Phê duyệt gốc — Nội dung/Mô tả/Số tiền/Loại PHẢI luôn đúng y hệt
+            // dòng Phê duyệt gốc để đảm bảo đối chiếu số liệu chính xác (yêu
+            // cầu #2 khi thiết kế lại module). Chỉ cho sửa Công ty/Đơn vị +
+            // Ghi chú — thông tin phân loại/hành chính, không phải số liệu
+            // tài chính, nên không phá vỡ nguyên tắc khóa cứng.
+            const companyId = req.body && req.body.companyId ? Number(req.body.companyId) : null;
+            const orgUnitId = req.body && req.body.orgUnitId ? Number(req.body.orgUnitId) : null;
+            const note = req.body && req.body.note ? String(req.body.note).trim() : null;
+            await pool.query('UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, note = ? WHERE id = ?', [companyId, orgUnitId, note, id]);
+            await writeAuditLog({ module: 'BUDGET2', actionType: 'UPDATE_USAGE_PARENT', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Cập nhật Công ty/Đơn vị/Ghi chú của mục ngân sách sử dụng [${line.content}].` });
+            return res.json({ success: true });
+        }
+
         if (line.stage === 'USED' && line.parent_id) {
             const [parentRows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ?', [line.parent_id]);
             const parent = parentRows[0];
@@ -5856,6 +6044,35 @@ app.delete('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (r
             await pool.query('DELETE FROM budget2_lines WHERE id = ?', [id]);
             await recomputeBudget2ParentUsage(line.parent_id);
             await writeAuditLog({ module: 'BUDGET2', actionType: 'DELETE_USAGE_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Xóa mục sử dụng con [${line.content}].` });
+            return res.json({ success: true });
+        }
+
+        if (line.stage === 'USED' && !line.parent_id) {
+            // Chỉ cho xóa dòng cha khi CHƯA có mục con nào (chưa ghi nhận sử
+            // dụng thực tế gì) — có mục con rồi thì xóa sẽ mất luôn lịch sử sử
+            // dụng thật, không chấp nhận được.
+            const [childRows] = await pool.query('SELECT COUNT(*) AS cnt FROM budget2_lines WHERE parent_id = ?', [id]);
+            if (childRows[0].cnt > 0) {
+                return res.status(400).json({ error: 'Không thể xóa vì đã có mục sử dụng con — xóa hết mục con trước.' });
+            }
+            const conn = await pool.getConnection();
+            try {
+                await conn.beginTransaction();
+                await conn.query('DELETE FROM budget2_lines WHERE id = ?', [id]);
+                if (line.source_line_id) {
+                    // Mở lại đúng dòng Phê duyệt gốc để có thể duyệt lại (VD lỡ
+                    // duyệt nhầm) — không xóa dòng Phê duyệt, chỉ đưa về đúng
+                    // trạng thái chờ duyệt ban đầu.
+                    await conn.query("UPDATE budget2_lines SET status = 'SUBMITTED', decided_by = NULL, decided_at = NULL WHERE id = ?", [line.source_line_id]);
+                }
+                await conn.commit();
+            } catch (e) {
+                await conn.rollback().catch(() => {});
+                throw e;
+            } finally {
+                conn.release();
+            }
+            await writeAuditLog({ module: 'BUDGET2', actionType: 'DELETE_USAGE_PARENT', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Xóa mục ngân sách sử dụng [${line.content}] (chưa có mục con) — mở lại dòng Phê duyệt gốc để duyệt lại.` });
             return res.json({ success: true });
         }
 

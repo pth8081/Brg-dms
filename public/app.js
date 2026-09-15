@@ -20,6 +20,15 @@
     }
     checkClientBuildVersion();
 
+    // (PWA) Đăng ký service worker "vỏ ứng dụng" — xem public/sw.js. Chỉ chạy
+    // khi trình duyệt hỗ trợ, và tự bỏ qua lỗi (VD trang mở qua file://, hoặc
+    // môi trường không hỗ trợ) — không chặn tải trang.
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      });
+    }
+
     // --- KHỞI TẠO STATE & CLIENT DATABASE ---
     const DB = {
       depts: [], cats: [], users: [], docs: [],
@@ -474,6 +483,160 @@
       if (captchaInput) captchaInput.value = '';
     }
 
+    // --- Đăng nhập vân tay/Face ID (WebAuthn/passkey) — LỐI VÀO NHANH bổ
+    // sung, KHÔNG thay thế mật khẩu (nút "Đăng nhập" bằng mật khẩu/CAPTCHA ở
+    // trên vẫn luôn dùng được). Chỉ hiện nút này khi: (1) trình duyệt/thiết bị
+    // hỗ trợ xác thực sinh trắc học nền tảng (Touch ID/Face ID/vân tay Android),
+    // VÀ (2) đã từng đăng nhập thành công trên chính trình duyệt này trước đó
+    // (username lưu ở localStorage — KHÔNG gửi lên server, chỉ để tự điền lại
+    // form và biết cần xin assertion cho ai). Không dùng thư viện ngoài — chỉ
+    // 2 hàm chuyển đổi base64url<->ArrayBuffer là đủ để gọi thẳng WebAuthn API
+    // gốc của trình duyệt (navigator.credentials).
+    const WEBAUTHN_REMEMBERED_USERNAME_KEY = 'dms_remembered_username';
+    function base64urlToBuffer(base64url) {
+      const padding = '='.repeat((4 - (base64url.length % 4)) % 4);
+      const base64 = (base64url + padding).replace(/-/g, '+').replace(/_/g, '/');
+      const raw = atob(base64);
+      const buffer = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) buffer[i] = raw.charCodeAt(i);
+      return buffer.buffer;
+    }
+    function bufferToBase64url(buffer) {
+      const bytes = new Uint8Array(buffer);
+      let str = '';
+      for (const b of bytes) str += String.fromCharCode(b);
+      return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+    function guessWebauthnDeviceLabel() {
+      const ua = navigator.userAgent;
+      let os = 'Thiết bị';
+      if (/iPhone/.test(ua)) os = 'iPhone';
+      else if (/iPad/.test(ua)) os = 'iPad';
+      else if (/Android/.test(ua)) os = 'Android';
+      else if (/Mac OS X/.test(ua)) os = 'Mac';
+      else if (/Windows/.test(ua)) os = 'Windows';
+      let browser = '';
+      if (/Edg\//.test(ua)) browser = 'Edge';
+      else if (/Chrome\//.test(ua)) browser = 'Chrome';
+      else if (/Firefox\//.test(ua)) browser = 'Firefox';
+      else if (/Safari\//.test(ua)) browser = 'Safari';
+      return browser ? `${browser} trên ${os}` : os;
+    }
+    async function initWebauthnLoginButton() {
+      const btn = document.getElementById('btnWebauthnLogin');
+      if (!btn) return;
+      const remembered = localStorage.getItem(WEBAUTHN_REMEMBERED_USERNAME_KEY);
+      if (!remembered || !window.PublicKeyCredential || !PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable) return;
+      try {
+        const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+        if (!available) return;
+      } catch (e) { return; }
+      const userInput = document.getElementById('txtUser');
+      if (userInput && !userInput.value) userInput.value = remembered;
+      const label = document.getElementById('webauthnLoginLabel');
+      if (label) label.textContent = `Đăng nhập nhanh — ${remembered}`;
+      btn.classList.remove('hidden');
+    }
+    initWebauthnLoginButton();
+
+    async function loginWithWebauthn() {
+      const username = (document.getElementById('txtUser').value || localStorage.getItem(WEBAUTHN_REMEMBERED_USERNAME_KEY) || '').trim();
+      if (!username) return showToast('Vui lòng nhập tên đăng nhập trước.', 'warning');
+      const btn = document.getElementById('btnWebauthnLogin');
+      btn.disabled = true;
+      try {
+        const options = await apiFetch('/api/webauthn/login/options', { method: 'POST', body: JSON.stringify({ username }) });
+        const publicKey = {
+          ...options,
+          challenge: base64urlToBuffer(options.challenge),
+          allowCredentials: (options.allowCredentials || []).map(c => ({ ...c, id: base64urlToBuffer(c.id) }))
+        };
+        const assertion = await navigator.credentials.get({ publicKey });
+        const credentialForServer = {
+          id: assertion.id,
+          rawId: bufferToBase64url(assertion.rawId),
+          type: assertion.type,
+          response: {
+            clientDataJSON: bufferToBase64url(assertion.response.clientDataJSON),
+            authenticatorData: bufferToBase64url(assertion.response.authenticatorData),
+            signature: bufferToBase64url(assertion.response.signature),
+            userHandle: assertion.response.userHandle ? bufferToBase64url(assertion.response.userHandle) : undefined
+          },
+          clientExtensionResults: assertion.getClientExtensionResults ? assertion.getClientExtensionResults() : {}
+        };
+        const data = await apiFetch('/api/webauthn/login/verify', { method: 'POST', body: JSON.stringify({ credential: credentialForServer }) });
+        localStorage.setItem(WEBAUTHN_REMEMBERED_USERNAME_KEY, username);
+        await enterApp(data.user);
+      } catch (e) {
+        if (e && e.name === 'NotAllowedError') {
+          showToast('Đã hủy hoặc không xác thực được vân tay/Face ID.', 'warning');
+        } else {
+          showToast(e.message || 'Không đăng nhập được bằng vân tay/Face ID, vui lòng dùng mật khẩu.', 'danger');
+        }
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function registerWebauthnDevice() {
+      if (!window.PublicKeyCredential) return showToast('Trình duyệt này không hỗ trợ vân tay/Face ID.', 'warning');
+      try {
+        const options = await apiFetch('/api/webauthn/register/options', { method: 'POST' });
+        const publicKey = {
+          ...options,
+          challenge: base64urlToBuffer(options.challenge),
+          user: { ...options.user, id: base64urlToBuffer(options.user.id) },
+          excludeCredentials: (options.excludeCredentials || []).map(c => ({ ...c, id: base64urlToBuffer(c.id) }))
+        };
+        const credential = await navigator.credentials.create({ publicKey });
+        const attestationResponse = credential.response;
+        const credentialForServer = {
+          id: credential.id,
+          rawId: bufferToBase64url(credential.rawId),
+          type: credential.type,
+          response: {
+            clientDataJSON: bufferToBase64url(attestationResponse.clientDataJSON),
+            attestationObject: bufferToBase64url(attestationResponse.attestationObject),
+            transports: attestationResponse.getTransports ? attestationResponse.getTransports() : undefined
+          },
+          clientExtensionResults: credential.getClientExtensionResults ? credential.getClientExtensionResults() : {}
+        };
+        await apiFetch('/api/webauthn/register/verify', { method: 'POST', body: JSON.stringify({ credential: credentialForServer, deviceLabel: guessWebauthnDeviceLabel() }) });
+        localStorage.setItem(WEBAUTHN_REMEMBERED_USERNAME_KEY, currentUser.username);
+        showToast('Đã đăng ký vân tay/Face ID cho thiết bị này.', 'success');
+        loadWebauthnDeviceList();
+      } catch (e) {
+        if (e && e.name === 'NotAllowedError') {
+          showToast('Đã hủy đăng ký hoặc không xác thực được.', 'warning');
+        } else {
+          showToast(e.message || 'Không đăng ký được vân tay/Face ID.', 'danger');
+        }
+      }
+    }
+
+    async function loadWebauthnDeviceList() {
+      const ul = document.getElementById('webauthnDeviceList');
+      if (!ul) return;
+      try {
+        const data = await apiFetch('/api/webauthn/credentials');
+        const list = data.credentials || [];
+        ul.innerHTML = list.length ? list.map(c => `
+          <li class="p-2 flex justify-between items-center">
+            <span>${escapeHtml(c.deviceLabel)}<span class="text-gray-400 block text-[10px]">Đăng ký ${escapeHtml(new Date(c.createdAt).toLocaleDateString('vi-VN'))}${c.lastUsedAt ? ' · dùng gần nhất ' + escapeHtml(new Date(c.lastUsedAt).toLocaleDateString('vi-VN')) : ''}</span></span>
+            <button ${dc('deleteWebauthnDevice', c.id)} class="text-red-600 hover:underline font-bold">Gỡ</button>
+          </li>
+        `).join('') : '<li class="p-2 text-gray-400 italic">Chưa đăng ký thiết bị nào.</li>';
+      } catch (e) { ul.innerHTML = '<li class="p-2 text-red-500">Không tải được danh sách.</li>'; }
+    }
+    async function deleteWebauthnDevice(id) {
+      if (!confirm('Gỡ đăng ký vân tay/Face ID cho thiết bị này?')) return;
+      try {
+        await apiFetch(`/api/webauthn/credentials/${id}`, { method: 'DELETE' });
+        showToast('Đã gỡ.', 'success');
+        loadWebauthnDeviceList();
+      } catch (e) { showToast(e.message, 'danger'); }
+    }
+
     async function login(e) {
       if (e) e.preventDefault();
       const u = document.getElementById('txtUser').value.trim();
@@ -495,6 +658,7 @@
           method: 'POST',
           body: JSON.stringify({ username: u, password: p, captcha })
         });
+        localStorage.setItem(WEBAUTHN_REMEMBERED_USERNAME_KEY, u);
         await enterApp(data.user);
       } catch (e) {
         showToast(e.message || 'Tài khoản hoặc mật khẩu không chính xác!', 'danger');
@@ -548,6 +712,7 @@
       document.getElementById('itAssetsSection').classList.add('hidden');
       document.getElementById('budget2Section').classList.add('hidden');
       document.getElementById('userHeader').classList.add('hidden');
+      initWebauthnLoginButton();
     }
 
     async function logout() {
@@ -634,6 +799,39 @@
       });
       const pendingDocsForMe = latestDocs.filter(d => canUserApproveDoc(currentUser, d));
 
+      // 3 module chính của toàn hệ thống — luôn hiện Tài liệu (mọi tài khoản
+      // đều có), License/CNTT chỉ hiện đúng theo quyền y hệt sidebar (xem
+      // showApp()) để không dẫn người dùng vào module họ không có quyền.
+      const moduleCards = [{
+        label: 'Quản lý Tài liệu', desc: 'Soạn thảo, phê duyệt, lưu trữ văn bản/hợp đồng.',
+        statValue: latestDocs.length, statLabel: 'tài liệu', icon: '📂', accent: 'blue',
+        action: () => switchTab('doc')
+      }];
+      if (canManageLicense) {
+        moduleCards.push({
+          label: 'Quản lý Bản quyền', desc: 'Phần mềm, kỳ mua, cấp phát license theo nhân viên.',
+          statValue: (licenseDB.softwareCatalog || []).length, statLabel: 'phần mềm', icon: '🔑', accent: 'amber',
+          action: () => switchTab('license')
+        });
+      }
+      if (isAdmin) {
+        moduleCards.push({
+          label: 'Dịch vụ CNTT', desc: 'Theo dõi hạn dịch vụ/bản quyền, nhắc hạn tự động.',
+          statValue: (itAssetsDB.items || []).filter(i => i.active).length, statLabel: 'đầu mục', icon: '🖥️', accent: 'teal',
+          action: () => switchTab('itAssets')
+        });
+      }
+      window.__homeModuleCardActions = moduleCards.map(c => c.action);
+      window.invokeHomeModuleCardAction = function (idx) {
+        const f = window.__homeModuleCardActions[idx];
+        if (typeof f === 'function') f();
+      };
+      const moduleAccentClasses = {
+        blue: { bg: 'bg-blue-50', ring: 'border-blue-200', icon: 'bg-blue-100 text-blue-600', stat: 'text-blue-700' },
+        amber: { bg: 'bg-amber-50', ring: 'border-amber-200', icon: 'bg-amber-100 text-amber-600', stat: 'text-amber-700' },
+        teal: { bg: 'bg-teal-50', ring: 'border-teal-200', icon: 'bg-teal-100 text-teal-600', stat: 'text-teal-700' }
+      };
+
       const cards = [{
         label: 'Tài liệu chờ duyệt', value: pendingDocsForMe.length, icon: '📂',
         tone: pendingDocsForMe.length ? 'amber' : 'brand',
@@ -687,7 +885,27 @@
       container.innerHTML = `
         <div>
           <h2 class="text-lg font-bold text-gray-800">Chào ${escapeHtml(currentUser.name)} 👋</h2>
-          <p class="text-sm text-gray-500">Tổng quan các việc đang chờ bạn xử lý.</p>
+          <p class="text-sm text-gray-500">Hệ thống quản lý tài liệu · bản quyền phần mềm · dịch vụ CNTT.</p>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          ${moduleCards.map((c, i) => {
+            const a = moduleAccentClasses[c.accent];
+            return `
+            <div ${dc('invokeHomeModuleCardAction', i)} class="${a.bg} border ${a.ring} rounded-lg p-5 shadow-sm cursor-pointer transition-all hover:scale-[1.02] flex flex-col gap-3">
+              <div class="flex items-center gap-3">
+                <div class="${a.icon} p-3 rounded-full text-xl leading-none">${c.icon}</div>
+                <h3 class="font-bold text-gray-800 text-base">${escapeHtml(c.label)}</h3>
+              </div>
+              <p class="text-xs text-gray-600 flex-1">${escapeHtml(c.desc)}</p>
+              <div class="flex items-baseline gap-1.5">
+                <span class="text-2xl font-bold ${a.stat}">${c.statValue}</span>
+                <span class="text-xs text-gray-500">${escapeHtml(c.statLabel)}</span>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+        <div>
+          <h3 class="text-sm font-bold text-gray-700 pt-2 border-t">Việc đang chờ bạn xử lý</h3>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           ${cards.map((c, i) => {
@@ -2622,6 +2840,7 @@
       document.getElementById('pfNewPass').value = '';
       document.getElementById('pfConfirmPass').value = '';
       document.getElementById('profileModal').classList.remove('hidden');
+      loadWebauthnDeviceList();
     }
 
     function closeProfileModal() {
@@ -6955,6 +7174,8 @@ function isPerpetualSoftware(softwareId) {
             </div>
             <div class="flex items-center gap-2">
               <span class="text-xs font-semibold text-gray-600">Ngân sách được duyệt: ${formatMoney(p.totalAmount)}</span>
+              <button ${dc('openBudget2UsedParentModal', p.id)} class="text-blue-600 hover:underline text-xs font-bold" title="Sửa Công ty/Đơn vị/Ghi chú">✏️ Sửa</button>
+              <button ${dc('deleteBudget2Line', p.id)} class="text-red-600 hover:underline text-xs font-bold" title="Chỉ xóa được khi chưa có mục con">🗑️ Xóa</button>
               <button ${dc('openBudget2ChildModal', p.id, null)} class="btn-primary px-2 py-1 rounded text-[11px] font-bold">+ Mục con</button>
             </div>
           </div>
@@ -6988,6 +7209,44 @@ function isPerpetualSoftware(softwareId) {
           </div>
         </div>`;
       }).join('');
+    }
+
+    // --- Sửa dòng cha Ngân sách sử dụng — CHỈ Công ty/Đơn vị/Ghi chú (xem
+    // ghi chú khóa cứng ở server.js, PUT .../lines/:id nhánh USED && !parent_id) ---
+    function openBudget2UsedParentModal(id) {
+      const p = budget2DB.lines.find(l => l.id === id);
+      if (!p) return;
+      document.getElementById('budget2UsedParentEditId').value = id;
+      document.getElementById('budget2UsedParentContent').value = p.content;
+      const companySel = document.getElementById('budget2UsedParentCompany');
+      companySel.innerHTML = '<option value="">-- Không chọn --</option>' + budget2DB.companies.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+      companySel.value = p.companyId || '';
+      onBudget2UsedParentCompanyChange();
+      if (p.orgUnitId) document.getElementById('budget2UsedParentOrgUnit').value = p.orgUnitId;
+      document.getElementById('budget2UsedParentNote').value = p.note || '';
+      openLicenseModal('budget2UsedParentModal');
+    }
+    function onBudget2UsedParentCompanyChange() {
+      const companyId = Number(document.getElementById('budget2UsedParentCompany').value) || null;
+      const sel = document.getElementById('budget2UsedParentOrgUnit');
+      const units = companyId ? budget2DB.orgUnits.filter(u => u.companyId === companyId) : budget2DB.orgUnits;
+      sel.innerHTML = '<option value="">-- Không chọn --</option>' + units.map(u => `<option value="${u.id}">${escapeHtml(u.name)}</option>`).join('');
+    }
+    async function saveBudget2UsedParent() {
+      const id = document.getElementById('budget2UsedParentEditId').value;
+      const body = {
+        companyId: document.getElementById('budget2UsedParentCompany').value || null,
+        orgUnitId: document.getElementById('budget2UsedParentOrgUnit').value || null,
+        note: document.getElementById('budget2UsedParentNote').value.trim()
+      };
+      try {
+        await apiFetch(`/api/budget2/lines/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+        closeLicenseModal('budget2UsedParentModal');
+        budget2DB.loaded = false;
+        await loadBudget2BootstrapData();
+        renderBudget2UsedTable();
+        showToast('Đã lưu.', 'success');
+      } catch (err) { showToast(err.message, 'danger'); }
     }
 
     function openBudget2ChildModal(parentId, editId) {
