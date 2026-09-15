@@ -969,8 +969,8 @@
     function switchAdminSubTab(subName) {
       if (!currentUser || !currentUser.perms.admin) return;
 
-      const subs = { users: 'adminSubUsers', workflow: 'adminSubWorkflow', log: 'adminSubLog', trash: 'adminSubTrash' };
-      const btns = { users: 'btnAdminSubUsers', workflow: 'btnAdminSubWorkflow', log: 'btnAdminSubLog', trash: 'btnAdminSubTrash' };
+      const subs = { users: 'adminSubUsers', workflow: 'adminSubWorkflow', processDocs: 'adminSubProcessDocs', log: 'adminSubLog', trash: 'adminSubTrash' };
+      const btns = { users: 'btnAdminSubUsers', workflow: 'btnAdminSubWorkflow', processDocs: 'btnAdminSubProcessDocs', log: 'btnAdminSubLog', trash: 'btnAdminSubTrash' };
 
       Object.keys(subs).forEach(key => {
         document.getElementById(subs[key]).classList.toggle('hidden', key !== subName);
