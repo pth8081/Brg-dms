@@ -826,6 +826,16 @@ CALL create_index_if_not_exists('budget2_lines', 'idx_budget2_month', 'budget_mo
 -- phát sinh mua thay vì theo tháng dự trù ban đầu.
 CALL add_column_if_not_exists('budget2_lines', 'purchase_month', 'TINYINT NULL DEFAULT NULL');
 
+-- Danh mục phân loại NGÂN SÁCH theo ĐỐI TƯỢNG mua/chi (Phần mềm/Phần cứng/
+-- Dịch vụ/Hệ thống) — KHÁC budget_type (OPEX/CAPEX, phân loại theo bản chất
+-- kế toán) — phục vụ báo cáo nhóm theo danh mục. Bắt buộc chọn ở dòng gốc
+-- (PROPOSED/APPROVED), mục con Sử dụng LUÔN kế thừa nguyên văn từ mục cha
+-- (giống content/description) nên vẫn có cột này ở mục con để báo cáo group
+-- theo danh mục dùng chung 1 câu GROUP BY đơn giản cho cả 3 giai đoạn, không
+-- cần JOIN riêng cho USED. NULL = dữ liệu cũ tạo trước khi có cột này.
+CALL add_column_if_not_exists('budget2_lines', 'item_category', 'ENUM(''SOFTWARE'',''HARDWARE'',''SERVICE'',''SYSTEM'') NULL DEFAULT NULL');
+CALL create_index_if_not_exists('budget2_lines', 'idx_budget2_item_category', 'item_category');
+
 -- Dọn dẹp: xóa các thủ tục tạm sau khi dùng xong, không để lại trong CSDL thật.
 DROP PROCEDURE IF EXISTS create_index_if_not_exists;
 DROP PROCEDURE IF EXISTS create_unique_index_if_not_exists;
