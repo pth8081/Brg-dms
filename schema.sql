@@ -663,6 +663,12 @@ CREATE TABLE IF NOT EXISTS lic_budget_item_catalog (
     active TINYINT(1) NOT NULL DEFAULT 1,
     UNIQUE KEY uniq_budget_item_catalog_type_name (item_type, name)
 );
+-- Gắn thêm (tùy chọn, KHÔNG thay thế item_type ở trên — item_type vẫn quyết
+-- định cơ chế xử lý Kỳ ngân sách License như cũ) 1 tag tham chiếu sang Danh
+-- mục hệ thống (Ngân sách) — budget2_item_categories.code — để đối chiếu/báo
+-- cáo thống nhất giữa 2 module mà không đụng vào luồng Kỳ ngân sách đang chạy
+-- tốt. NULL nghĩa là chưa gắn danh mục hệ thống nào.
+CALL add_column_if_not_exists('lic_budget_item_catalog', 'system_category_code', 'VARCHAR(30) NULL DEFAULT NULL');
 -- catalog_item_id thay thế item_name tự do cho hạng mục HARDWARE/SERVICE/
 -- OTHER kể từ tính năng này (item_name vẫn giữ cột lại để không mất dữ liệu
 -- tên tự do đã nhập từ trước khi có danh mục — bản ghi mới sẽ để NULL).

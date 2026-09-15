@@ -39,7 +39,7 @@
 
     // Dữ liệu module Quản Lý Bản Quyền — độc lập với DB ở trên, tải riêng khi
     // admin mở module (không tải kèm bootstrap chính vì chỉ admin dùng tới).
-    const licenseDB = { companies: [], orgUnits: [], employees: [], softwareCatalog: [], licenseBatches: [], licenseCodes: [], licenseCodeAssignments: [], purchaseRounds: [], purchaseRoundItems: [], purchaseRegistrations: [], budgetRounds: [], budgetRoundItems: [], budgetRegistrations: [], budgetActuals: [], budgetItemCatalog: [], adAccounts: [], adLastSyncAt: null, bulkAllocationRequests: [], bulkAllocationItems: [], loaded: false };
+    const licenseDB = { companies: [], orgUnits: [], employees: [], softwareCatalog: [], licenseBatches: [], licenseCodes: [], licenseCodeAssignments: [], purchaseRounds: [], purchaseRoundItems: [], purchaseRegistrations: [], budgetRounds: [], budgetRoundItems: [], budgetRegistrations: [], budgetActuals: [], budgetItemCatalog: [], adAccounts: [], adLastSyncAt: null, bulkAllocationRequests: [], bulkAllocationItems: [], licenseControlConfig: null, licenseControlRunState: null, loaded: false };
     // Dữ liệu Cổng tự phục vụ (Ngân sách + Kỳ mua) — dành cho tài khoản có
     // phạm vi công ty/đơn vị, tải từ endpoint riêng chỉ trả về đúng phạm vi.
     const licensePortalDB = { scope: null, companies: [], orgUnits: [], softwareCatalog: [], purchaseRounds: [], purchaseRoundItems: [], purchaseRegistrations: [], budgetRounds: [], budgetRoundItems: [], budgetRegistrations: [], budgetItemCatalog: [], licenseUsage: [], loaded: false };
@@ -1001,7 +1001,7 @@
       if (subName === 'dept') { renderDeptList(); }
       if (subName === 'doccat') { renderCatList(); }
       if (subName === 'org') { loadLicenseBootstrapData().then(renderCompanyList).catch(err => showToast(err.message || 'Không thể tải dữ liệu.', 'danger')); }
-      if (subName === 'hcdv') { loadLicenseBootstrapData().then(renderBudgetItemCatalogTable).catch(err => showToast(err.message || 'Không thể tải dữ liệu.', 'danger')); }
+      if (subName === 'hcdv') { Promise.all([loadLicenseBootstrapData(), loadAllBudget2CategoriesForAdmin()]).then(renderBudgetItemCatalogTable).catch(err => showToast(err.message || 'Không thể tải dữ liệu.', 'danger')); }
       if (subName === 'budgetcat') { loadAllBudget2CategoriesForAdmin().then(renderBudget2CategoryTable).catch(err => showToast(err.message || 'Không thể tải dữ liệu.', 'danger')); }
     }
     // Ô chọn Phạm vi trong form Quản lý người dùng cần dữ liệu companies/orgUnits
@@ -2969,6 +2969,8 @@
       licenseDB.budgetItemCatalog = data.budgetItemCatalog || [];
       licenseDB.bulkAllocationRequests = data.bulkAllocationRequests || [];
       licenseDB.bulkAllocationItems = data.bulkAllocationItems || [];
+      licenseDB.licenseControlConfig = data.licenseControlConfig || null;
+      licenseDB.licenseControlRunState = data.licenseControlRunState || null;
       licenseDB.loaded = true;
       // Chỉ đặt mặc định (mở các đơn vị cấp cao nhất) ở lần tải đầu tiên — các
       // lần tải lại sau (sau khi thêm/sửa/xóa) phải GIỮ NGUYÊN trạng thái
@@ -4381,7 +4383,47 @@ function isPerpetualSoftware(softwareId) {
     }
 
     // --- Kiểm soát: đối chiếu nhân viên đang giữ license với tài khoản AD disable ---
+    function renderLicenseControlAutomationBox() {
+      const box = document.getElementById('licenseControlAutomationBox');
+      const isAdmin = !!(currentUser && currentUser.perms && currentUser.perms.admin);
+      box.classList.toggle('hidden', !isAdmin);
+      if (!isAdmin) return;
+      const cfg = licenseDB.licenseControlConfig || { enabled: false, autoRevoke: false, runHours: [8, 20], extraRecipientEmails: [] };
+      document.getElementById('lcAutoEnabled').checked = !!cfg.enabled;
+      document.getElementById('lcAutoRevoke').checked = !!cfg.autoRevoke;
+      document.getElementById('lcRunHours').value = (cfg.runHours || []).join(', ');
+      document.getElementById('lcExtraEmails').value = (cfg.extraRecipientEmails || []).join(', ');
+      const state = licenseDB.licenseControlRunState;
+      const lastResult = state && state.lastResult;
+      document.getElementById('lcLastRunInfo').textContent = lastResult
+        ? `Lần chạy gần nhất (${new Date(lastResult.at).toLocaleString('vi-VN')}): ${lastResult.checked} trường hợp, thu hồi ${lastResult.revoked}, đã gửi ${lastResult.emailsSent} email.`
+        : 'Chưa có lượt chạy nào (tự động hoặc thủ công).';
+    }
+    async function saveLicenseControlConfig() {
+      const enabled = document.getElementById('lcAutoEnabled').checked;
+      const autoRevoke = document.getElementById('lcAutoRevoke').checked;
+      const runHours = document.getElementById('lcRunHours').value.split(',').map(s => Number(s.trim())).filter(n => Number.isInteger(n) && n >= 0 && n <= 23);
+      const extraRecipientEmails = document.getElementById('lcExtraEmails').value.split(',').map(s => s.trim()).filter(Boolean);
+      try {
+        const result = await apiFetch('/api/license/control-config', { method: 'PUT', body: JSON.stringify({ enabled, autoRevoke, runHours, extraRecipientEmails }) });
+        licenseDB.licenseControlConfig = result.licenseControlConfig;
+        showToast('Đã lưu cấu hình Kiểm soát License tự động.', 'success');
+        renderLicenseControlAutomationBox();
+      } catch (err) { showToast(err.message, 'danger'); }
+    }
+    async function runLicenseControlCheckNow() {
+      if (!confirm('Chạy kiểm tra Kiểm soát License ngay bây giờ? Nếu đang bật "Tự động thu hồi", license của các trường hợp phát hiện được sẽ bị thu hồi thật.')) return;
+      try {
+        const result = await apiFetch('/api/license/control-check-now', { method: 'POST' });
+        showToast(`Đã chạy: ${result.checked} trường hợp, thu hồi ${result.revoked}, gửi ${result.emailsSent} email.`, 'success');
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        renderLicenseControlAutomationBox();
+        openControlReportModal();
+      } catch (err) { showToast(err.message, 'danger'); }
+    }
     function openControlReportModal() {
+      renderLicenseControlAutomationBox();
       const disabledEmails = new Map(
         licenseDB.adAccounts.filter(a => !a.active && a.email).map(a => [a.email.toLowerCase(), a])
       );
@@ -5287,7 +5329,7 @@ function isPerpetualSoftware(softwareId) {
       const filterType = document.getElementById('itemCatalogFilterType').value;
       const rows = licenseDB.budgetItemCatalog.filter(c => !filterType || c.itemType === filterType);
       if (rows.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="5" class="text-center text-gray-400 p-4">Chưa có hạng mục nào trong danh mục — bấm "+ Thêm hạng mục" để bắt đầu.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" class="text-center text-gray-400 p-4">Chưa có hạng mục nào trong danh mục — bấm "+ Thêm hạng mục" để bắt đầu.</td></tr>`;
         return;
       }
       tbody.innerHTML = rows.map(c => `
@@ -5295,6 +5337,7 @@ function isPerpetualSoftware(softwareId) {
           <td class="border p-2">${escapeHtml(c.name)}</td>
           <td class="border p-2">${BUDGET_ITEM_TYPE_LABELS[c.itemType] || c.itemType}</td>
           <td class="border p-2">${escapeHtml(c.unit || '—')}</td>
+          <td class="border p-2">${c.systemCategoryCode ? escapeHtml((budget2AdminCategories.find(x => x.code === c.systemCategoryCode) || {}).name || c.systemCategoryCode) : '—'}</td>
           <td class="border p-2 text-center">${c.active ? '✅' : '—'}</td>
           <td class="border p-2 text-center whitespace-nowrap">
             <button ${dc('openBudgetItemCatalogModal', c.id)} class="px-1.5 py-0.5 rounded hover:bg-brand-100 text-brand-700">✏️ Sửa</button>
@@ -5312,6 +5355,10 @@ function isPerpetualSoftware(softwareId) {
       typeSelect.disabled = !!item; // không cho đổi Loại sau khi tạo — tránh lệch dữ liệu với các kỳ ngân sách đã dùng hạng mục này
       document.getElementById('budgetItemCatalogName').value = item ? item.name : '';
       document.getElementById('budgetItemCatalogUnit').value = item ? (item.unit || '') : '';
+      const sysCatSelect = document.getElementById('budgetItemCatalogSystemCategory');
+      sysCatSelect.innerHTML = '<option value="">-- Không gắn --</option>'
+        + budget2AdminCategories.map(c => `<option value="${escapeHtml(c.code)}">${escapeHtml(c.name)}${c.active ? '' : ' (đã ẩn)'}</option>`).join('');
+      sysCatSelect.value = item && item.systemCategoryCode ? item.systemCategoryCode : '';
       document.getElementById('budgetItemCatalogActiveWrap').classList.toggle('hidden', !item);
       document.getElementById('budgetItemCatalogActive').checked = item ? item.active : true;
       openLicenseModal('budgetItemCatalogModal');
@@ -5321,15 +5368,16 @@ function isPerpetualSoftware(softwareId) {
       const itemType = document.getElementById('budgetItemCatalogType').value;
       const name = document.getElementById('budgetItemCatalogName').value.trim();
       const unit = document.getElementById('budgetItemCatalogUnit').value.trim();
+      const systemCategoryCode = document.getElementById('budgetItemCatalogSystemCategory').value || null;
       const active = document.getElementById('budgetItemCatalogActive').checked;
       if (!name) return showToast('Vui lòng nhập Tên hạng mục.', 'warning');
       try {
         let newId = null;
         if (id) {
-          await apiFetch(`/api/license/budget-item-catalog/${id}`, { method: 'PUT', body: JSON.stringify({ name, unit, active }) });
+          await apiFetch(`/api/license/budget-item-catalog/${id}`, { method: 'PUT', body: JSON.stringify({ name, unit, active, systemCategoryCode }) });
           showToast('Đã cập nhật hạng mục trong danh mục.', 'success');
         } else {
-          const created = await apiFetch('/api/license/budget-item-catalog', { method: 'POST', body: JSON.stringify({ itemType, name, unit }) });
+          const created = await apiFetch('/api/license/budget-item-catalog', { method: 'POST', body: JSON.stringify({ itemType, name, unit, systemCategoryCode }) });
           newId = created && created.id;
           showToast('Đã thêm hạng mục vào danh mục.', 'success');
         }
@@ -6006,6 +6054,28 @@ function isPerpetualSoftware(softwareId) {
         ]);
     }
 
+    function exportOrgUnitsXlsx() {
+      const rows = [];
+      licenseDB.companies.forEach(co => {
+        const unitsOfCompany = licenseDB.orgUnits.filter(u => u.companyId === co.id);
+        const byId = new Map(unitsOfCompany.map(u => [u.id, u]));
+        function depth(u) {
+          let d = 0, cur = u;
+          while (cur && cur.parentId && byId.has(cur.parentId)) { cur = byId.get(cur.parentId); d++; if (d > 20) break; }
+          return d;
+        }
+        const sorted = [...unitsOfCompany].sort((a, b) => depth(a) - depth(b));
+        if (sorted.length === 0) {
+          rows.push([co.code, co.name, '', '', '']);
+        } else {
+          sorted.forEach(u => {
+            const parent = u.parentId ? byId.get(u.parentId) : null;
+            rows.push([co.code, co.name, u.name, u.levelLabel, parent ? parent.name : '']);
+          });
+        }
+      });
+      downloadXlsxFile(`to_chuc_cong_ty_export_${Date.now()}.xlsx`, ['ma_cong_ty', 'ten_cong_ty', 'ten_don_vi', 'cap', 'don_vi_cha'], rows);
+    }
     async function importOrgUnitsXlsx(e) {
       const file = e.target.files[0];
       if (!file) return;
@@ -7216,14 +7286,67 @@ function isPerpetualSoftware(softwareId) {
         <span id="budget2BulkBar_${key}" class="ml-auto"></span>
       </div>`;
     }
+    // Duyệt/Từ chối hàng loạt chỉ áp dụng tab Đề xuất + Phê duyệt (dòng còn
+    // "Chờ duyệt") — tab Sử dụng không có bước duyệt nên không có 2 nút này.
+    const BUDGET2_BULK_DECIDE_ENDPOINTS = {
+      propose: { approve: 'approve-proposal', reject: 'reject-proposal' },
+      approved: { approve: 'approve', reject: 'reject' }
+    };
     function budget2RenderBulkBar(key) {
       const el = document.getElementById(`budget2BulkBar_${key}`);
       if (!el) return;
       const isAdmin = !!(currentUser && currentUser.perms && currentUser.perms.admin);
-      const count = budget2SelectedIds[key].size;
-      el.innerHTML = (isAdmin && count > 0)
-        ? `<button ${dc('bulkDeleteBudget2Lines', key)} class="text-xs font-bold text-white bg-red-600 hover:bg-red-700 px-3 py-1.5 rounded">🗑️ Xóa đã chọn (${count})</button>`
-        : '';
+      const canDecide = !!(currentUser && currentUser.perms && (currentUser.perms.admin || currentUser.perms.budgetManager)) && BUDGET2_BULK_DECIDE_ENDPOINTS[key];
+      const selectedIds = [...budget2SelectedIds[key]];
+      const count = selectedIds.length;
+      if (count === 0) { el.innerHTML = ''; return; }
+      let buttons = '';
+      if (canDecide) {
+        const pendingCount = selectedIds.filter(id => {
+          const l = budget2DB.lines.find(x => x.id === id);
+          return l && l.status === 'SUBMITTED';
+        }).length;
+        if (pendingCount > 0) {
+          buttons += `<button ${dc('bulkDecideBudget2Lines', key, 'approve')} class="text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded">✅ Duyệt đã chọn (${pendingCount})</button>`;
+          buttons += `<button ${dc('bulkDecideBudget2Lines', key, 'reject')} class="text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 px-3 py-1.5 rounded">❌ Từ chối đã chọn (${pendingCount})</button>`;
+        }
+      }
+      if (isAdmin) {
+        buttons += `<button ${dc('bulkDeleteBudget2Lines', key)} class="text-xs font-bold text-white bg-red-600 hover:bg-red-700 px-3 py-1.5 rounded">🗑️ Xóa đã chọn (${count})</button>`;
+      }
+      el.innerHTML = buttons;
+    }
+    async function bulkDecideBudget2Lines(key, decision) {
+      const endpointMap = BUDGET2_BULK_DECIDE_ENDPOINTS[key];
+      if (!endpointMap) return;
+      const ids = [...budget2SelectedIds[key]].filter(id => {
+        const l = budget2DB.lines.find(x => x.id === id);
+        return l && l.status === 'SUBMITTED';
+      });
+      if (!ids.length) return;
+      const verb = decision === 'approve' ? 'Duyệt' : 'Từ chối';
+      if (!confirm(`${verb} ${ids.length} dòng đang chờ duyệt đã chọn?`)) return;
+      let okCount = 0;
+      const failMsgs = [];
+      for (const id of ids) {
+        try {
+          await apiFetch(`/api/budget2/lines/${id}/${endpointMap[decision]}`, { method: 'POST' });
+          okCount++;
+        } catch (err) {
+          failMsgs.push(`#${id}: ${err.message}`);
+        }
+      }
+      budget2SelectedIds[key].clear();
+      budget2DB.loaded = false;
+      await loadBudget2BootstrapData();
+      renderBudget2ProposedTable();
+      renderBudget2ApprovedTable();
+      renderBudget2UsedTable();
+      if (failMsgs.length) {
+        showToast(`Đã ${verb.toLowerCase()} ${okCount}/${ids.length} dòng — ${failMsgs.length} dòng lỗi: ${failMsgs.join('; ')}`, okCount ? 'warning' : 'danger');
+      } else {
+        showToast(`Đã ${verb.toLowerCase()} ${okCount} dòng.`, 'success');
+      }
     }
     function onBudget2RowCheckToggle(key, id, checked) {
       if (checked) budget2SelectedIds[key].add(id); else budget2SelectedIds[key].delete(id);

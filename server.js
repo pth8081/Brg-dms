@@ -771,6 +771,142 @@ if (isScheduledJobOwner) {
     setTimeout(maybeRunScheduledExpiryCheck, 15000);
 }
 
+// --- Kiểm soát License tự động: đối chiếu nhân viên đang giữ license với
+// tài khoản AD đã bị disable (đúng logic báo cáo "Kiểm soát" thủ công ở tab
+// Phân bổ, nay tính ở server để job tự động và nút bấm thủ công dùng chung 1
+// nguồn sự thật), tùy cấu hình mà tự động thu hồi license, rồi LUÔN gửi email
+// báo cáo cho Người quản lý License + Admin (kể cả khi không có vi phạm nào —
+// để biết job đã thực sự chạy, không phải im lặng vì lỗi). Lịch chạy N
+// lần/ngày theo giờ tự cấu hình (mặc định 8h/20h) — dùng cơ chế "kiểm tra mỗi
+// giờ, tự bắt kịp giờ đã lỡ" giống hệt đồng bộ AD + nhắc hạn CNTT ở trên,
+// không cần thêm hạ tầng cron riêng; state lưu (ngày, các giờ đã chạy trong
+// ngày) để mỗi giờ cấu hình chỉ chạy đúng 1 lần/ngày dù tick mỗi giờ.
+async function getLicenseControlConfig() {
+    const [rows] = await pool.query("SELECT config_value FROM app_configs WHERE config_key = 'licenseControlConfig'");
+    const raw = rows[0] ? (typeof rows[0].config_value === 'string' ? JSON.parse(rows[0].config_value) : rows[0].config_value) : {};
+    const hours = Array.isArray(raw.runHours) ? raw.runHours.map(Number).filter(n => Number.isInteger(n) && n >= 0 && n <= 23) : [];
+    const extraEmails = Array.isArray(raw.extraRecipientEmails)
+        ? raw.extraRecipientEmails.map(e => String(e || '').trim()).filter(e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)).slice(0, 20)
+        : [];
+    return {
+        enabled: raw.enabled === true,
+        // Mặc định TẮT tự động thu hồi — job vẫn chạy và gửi email cảnh báo
+        // đầy đủ, nhưng chỉ thực sự xóa phân bổ license khi Admin chủ động
+        // bật, tránh thu hồi nhầm hàng loạt trước khi xác nhận đối chiếu
+        // email AD/nhân viên đang khớp đúng dữ liệu thật của công ty.
+        autoRevoke: raw.autoRevoke === true,
+        runHours: hours.length ? [...new Set(hours)].sort((a, b) => a - b) : [8, 20],
+        extraRecipientEmails: extraEmails
+    };
+}
+async function saveLicenseControlConfig(value) {
+    const payload = JSON.stringify(value);
+    await pool.query('INSERT INTO app_configs (config_key, config_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE config_value = ?', ['licenseControlConfig', payload, payload]);
+}
+async function getLicenseControlRunState() {
+    const [rows] = await pool.query("SELECT config_value FROM app_configs WHERE config_key = 'licenseControlRunState'");
+    if (!rows[0]) return { date: '', ranHours: [], lastResult: null };
+    const v = typeof rows[0].config_value === 'string' ? JSON.parse(rows[0].config_value) : rows[0].config_value;
+    return { date: v.date || '', ranHours: Array.isArray(v.ranHours) ? v.ranHours : [], lastResult: v.lastResult || null };
+}
+async function setLicenseControlRunState(state) {
+    const payload = JSON.stringify(state);
+    await pool.query('INSERT INTO app_configs (config_key, config_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE config_value = ?', ['licenseControlRunState', payload, payload]);
+}
+async function computeLicenseControlCases() {
+    const [rows] = await pool.query(`
+        SELECT a.code_id AS codeId, a.employee_id AS employeeId, e.full_name AS employeeName, e.email AS employeeEmail,
+               c.code AS licenseCode, sw.name AS softwareName, co.name AS companyName,
+               ad.username AS adUsername, ad.disabled_at AS disabledAt
+        FROM lic_license_code_assignments a
+        JOIN lic_employees e ON e.id = a.employee_id
+        JOIN lic_license_codes c ON c.id = a.code_id
+        JOIN lic_software_catalog sw ON sw.id = c.software_id
+        JOIN lic_companies co ON co.id = c.company_id
+        JOIN ad_accounts ad ON LOWER(ad.email) = LOWER(e.email)
+        WHERE ad.active = 0 AND e.email IS NOT NULL AND e.email <> ''
+        ORDER BY e.full_name, sw.name
+    `);
+    return rows;
+}
+async function getLicenseManagerEmails() {
+    const [rows] = await pool.query('SELECT email, perms FROM users WHERE active = 1');
+    const emails = rows
+        .filter(u => {
+            const p = typeof u.perms === 'string' ? JSON.parse(u.perms || '{}') : (u.perms || {});
+            return p.admin || p.licenseManager;
+        })
+        .map(u => u.email)
+        .filter(Boolean);
+    return [...new Set(emails)];
+}
+async function runLicenseControlCheck() {
+    const config = await getLicenseControlConfig();
+    // Đồng bộ AD ngay trước khi đối chiếu để có dữ liệu disable mới nhất —
+    // không chặn cả lượt kiểm soát nếu AD sync chưa cấu hình/lỗi tạm thời,
+    // vẫn dùng tạm dữ liệu ad_accounts hiện có (đã đồng bộ theo lịch 24h riêng).
+    try { await ldapSyncAccounts(); } catch (e) { /* chưa cấu hình AD sync hoặc lỗi tạm thời — dùng dữ liệu ad_accounts hiện có */ }
+
+    const cases = await computeLicenseControlCases();
+    let revokedCount = 0;
+    if (config.autoRevoke && cases.length) {
+        const pairs = cases.map(c => [c.codeId, c.employeeId]);
+        const placeholders = pairs.map(() => '(a.code_id = ? AND a.employee_id = ?)').join(' OR ');
+        const [delResult] = await pool.query(`DELETE a FROM lic_license_code_assignments a WHERE ${placeholders}`, pairs.flat());
+        revokedCount = delResult.affectedRows;
+        await writeAuditLog({
+            module: 'LICENSE', actionType: 'AUTO_REVOKE_DISABLED_AD', status: 'SUCCESS', username: 'system', fullName: 'Hệ Thống (Kiểm soát License tự động)', ip: '',
+            targetObject: `${revokedCount} lượt phân bổ`,
+            description: `Tự động thu hồi ${revokedCount} lượt phân bổ license của nhân viên có tài khoản AD đã bị vô hiệu hóa: ${cases.map(c => `${c.employeeName} (${c.softwareName})`).join(', ')}.`
+        });
+    }
+
+    const recipients = new Set([...(await getLicenseManagerEmails()), ...config.extraRecipientEmails]);
+    const toList = [...recipients].filter(Boolean);
+    if (toList.length) {
+        const subject = cases.length
+            ? `[DMS] Kiểm soát License: ${cases.length} trường hợp tài khoản AD đã bị vô hiệu hóa${config.autoRevoke ? ` (đã tự động thu hồi ${revokedCount})` : ''}`
+            : '[DMS] Kiểm soát License: không phát hiện trường hợp nào';
+        const html = cases.length
+            ? `<p>Phát hiện <b>${cases.length}</b> trường hợp nhân viên đang giữ license nhưng tài khoản AD đã bị vô hiệu hóa`
+                + `${config.autoRevoke ? `, hệ thống đã <b>tự động thu hồi ${revokedCount}</b> lượt phân bổ:` : ', hiện CHƯA tự động thu hồi (đang ở chế độ chỉ cảnh báo):'}</p>`
+                + `<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:13px">`
+                + `<tr style="background:#f3f4f6"><th>Nhân viên</th><th>Email</th><th>Phần mềm</th><th>Công ty</th><th>Tài khoản AD</th><th>Ngày disable</th></tr>`
+                + cases.map(c => `<tr><td>${escapeHtmlServer(c.employeeName)}</td><td>${escapeHtmlServer(c.employeeEmail)}</td><td>${escapeHtmlServer(c.softwareName)}</td><td>${escapeHtmlServer(c.companyName)}</td><td>${escapeHtmlServer(c.adUsername)}</td><td>${c.disabledAt ? fmtDate(c.disabledAt) : '—'}</td></tr>`).join('')
+                + `</table>`
+            : `<p>Lượt kiểm soát License tự động vừa chạy không phát hiện nhân viên nào đang giữ license mà tài khoản AD đã bị vô hiệu hóa.</p>`;
+        for (const to of toList) {
+            await sendRealEmail(to, subject, html, { module: 'LICENSE', actionPrefix: 'LICENSE_CONTROL_EMAIL' });
+        }
+    }
+    return { checked: cases.length, revoked: revokedCount, emailsSent: toList.length, at: new Date().toISOString() };
+}
+async function maybeRunScheduledLicenseControl() {
+    try {
+        const config = await getLicenseControlConfig();
+        if (!config.enabled) return;
+        const now = new Date();
+        const todayStr = fmtDate(now);
+        const currentHour = now.getHours();
+        let state = await getLicenseControlRunState();
+        if (state.date !== todayStr) state = { date: todayStr, ranHours: [], lastResult: state.lastResult };
+        const dueHours = config.runHours.filter(h => currentHour >= h && !state.ranHours.includes(h));
+        for (const h of dueHours) {
+            const result = await runLicenseControlCheck();
+            state.ranHours.push(h);
+            state.lastResult = result;
+            await setLicenseControlRunState(state);
+            console.log(`🔍 Kiểm soát License tự động (mốc ${h}h): ${result.checked} trường hợp, thu hồi ${result.revoked}, gửi ${result.emailsSent} email.`);
+        }
+    } catch (e) {
+        console.error('❌ Lỗi kiểm soát License theo lịch:', e.message);
+    }
+}
+if (isScheduledJobOwner) {
+    setInterval(maybeRunScheduledLicenseControl, 60 * 60 * 1000);
+    setTimeout(maybeRunScheduledLicenseControl, 20000);
+}
+
 // --- API AUTH ---
 const CAPTCHA_COOKIE = 'dms_captcha';
 
@@ -2763,7 +2899,7 @@ function mapRoundItem(i) { return { id: i.id, roundId: i.round_id, softwareId: i
 function mapRegistration(r) { return { id: r.id, roundId: r.round_id, roundItemId: r.round_item_id, companyId: r.company_id, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity, budgetQuantity: r.budget_quantity === null || r.budget_quantity === undefined ? null : Number(r.budget_quantity), unitPrice: Number(r.unit_price), totalAmount: Number(r.total_amount), expiryDate: fmtDate(r.expiry_date), status: r.status, note: r.note, createdAt: r.created_at, createdBy: r.created_by, decidedBy: r.decided_by, decidedAt: r.decided_at, issuedBatchId: r.issued_batch_id, issuedQuantity: r.issued_quantity, issuedAt: r.issued_at }; }
 function mapBudgetRound(r) { return { id: r.id, name: r.name, note: r.note, status: r.status, createdAt: r.created_at, scopeType: r.scope_type, scopeId: r.scope_id }; }
 function mapBudgetRoundItem(i) { return { id: i.id, roundId: i.round_id, softwareId: i.software_id, itemType: i.item_type || 'SOFTWARE', itemName: i.item_name, catalogItemId: i.catalog_item_id, capexOpex: i.capex_opex || 'OPEX', unitPrice: Number(i.unit_price), description: i.description }; }
-function mapBudgetItemCatalog(c) { return { id: c.id, itemType: c.item_type, name: c.name, unit: c.unit, active: !!c.active }; }
+function mapBudgetItemCatalog(c) { return { id: c.id, itemType: c.item_type, name: c.name, unit: c.unit, active: !!c.active, systemCategoryCode: c.system_category_code || null }; }
 function mapBudgetActual(a) { return { id: a.id, roundItemId: a.round_item_id, companyId: a.company_id, purchaseDate: fmtDate(a.purchase_date), vendor: a.vendor, quantity: Number(a.quantity), unitPrice: Number(a.unit_price), amount: Number(a.amount), note: a.note, createdBy: a.created_by, createdAt: a.created_at }; }
 function mapBudgetRegistration(r) { return { id: r.id, roundId: r.round_id, roundItemId: r.round_item_id, orgUnitId: r.org_unit_id, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity, unitPrice: Number(r.unit_price), totalAmount: Number(r.total_amount), status: r.status, note: r.note, createdAt: r.created_at, createdBy: r.created_by, decidedBy: r.decided_by, decidedAt: r.decided_at }; }
 function mapBulkAllocationRequest(r) { return { id: r.id, companyId: r.company_id, orgUnitId: r.org_unit_id, softwareId: r.software_id, issuedDate: fmtDate(r.issued_date), expiryDate: fmtDate(r.expiry_date), note: r.note, status: r.status, requestedBy: r.requested_by, requestedAt: r.requested_at, approvedBy: r.approved_by, approvedAt: r.approved_at, rejectReason: r.reject_reason }; }
@@ -2917,6 +3053,8 @@ app.get('/api/license/bootstrap', requireAuth, requireLicenseOrAdmin, async (req
         const adLastSyncAt = await getAdLastSyncAt();
         const [bulkAllocRequests] = await pool.query('SELECT * FROM lic_bulk_allocation_requests ORDER BY id DESC');
         const [bulkAllocItems] = await pool.query('SELECT * FROM lic_bulk_allocation_items ORDER BY id');
+        const licenseControlConfig = await getLicenseControlConfig();
+        const licenseControlRunState = await getLicenseControlRunState();
         res.json({
             companies: companies.map(mapCompany),
             orgUnits: orgUnits.map(mapOrgUnit),
@@ -2936,7 +3074,9 @@ app.get('/api/license/bootstrap', requireAuth, requireLicenseOrAdmin, async (req
             adAccounts: adAccounts.map(mapAdAccount),
             adLastSyncAt: adLastSyncAt || null,
             bulkAllocationRequests: bulkAllocRequests.map(mapBulkAllocationRequest),
-            bulkAllocationItems: bulkAllocItems.map(mapBulkAllocationItem)
+            bulkAllocationItems: bulkAllocItems.map(mapBulkAllocationItem),
+            licenseControlConfig,
+            licenseControlRunState
         });
     } catch (err) {
         console.error('❌ Lỗi tải dữ liệu module Bản quyền:', err.message);
@@ -3600,7 +3740,14 @@ app.post('/api/license/budget-item-catalog', requireAuth, requireLicenseOrAdmin,
         if (!name) return res.status(400).json({ error: 'Tên hạng mục không được để trống.' });
         if (name.length > 255) return res.status(400).json({ error: 'Tên hạng mục quá dài (tối đa 255 ký tự).' });
         const unit = String((req.body && req.body.unit) || '').trim() || null;
-        const [result] = await pool.query('INSERT INTO lic_budget_item_catalog (item_type, name, unit, active) VALUES (?, ?, ?, 1)', [itemType, name, unit]);
+        // Tag tùy chọn sang Danh mục hệ thống (Ngân sách) — chỉ để đối chiếu/báo
+        // cáo, KHÔNG thay thế itemType (xem chú thích ở schema.sql).
+        let systemCategoryCode = String((req.body && req.body.systemCategoryCode) || '').trim().toUpperCase() || null;
+        if (systemCategoryCode) {
+            const catalog = await getBudget2CategoryCatalog(true);
+            if (!catalog.some(c => c.code === systemCategoryCode)) return res.status(400).json({ error: 'Danh mục hệ thống không hợp lệ.' });
+        }
+        const [result] = await pool.query('INSERT INTO lic_budget_item_catalog (item_type, name, unit, active, system_category_code) VALUES (?, ?, ?, 1, ?)', [itemType, name, unit, systemCategoryCode]);
         await writeAuditLog({ module: 'LICENSE', actionType: 'CREATE_BUDGET_ITEM_CATALOG', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: name, description: `Thêm hạng mục [${name}] (${itemType}) vào danh mục ngân sách.` });
         res.json({ success: true, id: result.insertId });
     } catch (err) {
@@ -3618,7 +3765,12 @@ app.put('/api/license/budget-item-catalog/:id', requireAuth, requireLicenseOrAdm
         if (name.length > 255) return res.status(400).json({ error: 'Tên hạng mục quá dài (tối đa 255 ký tự).' });
         const unit = String((req.body && req.body.unit) || '').trim() || null;
         const active = req.body && req.body.active !== undefined ? !!req.body.active : true;
-        const [result] = await pool.query('UPDATE lic_budget_item_catalog SET name = ?, unit = ?, active = ? WHERE id = ?', [name, unit, active, id]);
+        let systemCategoryCode = String((req.body && req.body.systemCategoryCode) || '').trim().toUpperCase() || null;
+        if (systemCategoryCode) {
+            const catalog = await getBudget2CategoryCatalog(true);
+            if (!catalog.some(c => c.code === systemCategoryCode)) return res.status(400).json({ error: 'Danh mục hệ thống không hợp lệ.' });
+        }
+        const [result] = await pool.query('UPDATE lic_budget_item_catalog SET name = ?, unit = ?, active = ?, system_category_code = ? WHERE id = ?', [name, unit, active, systemCategoryCode, id]);
         if (result.affectedRows === 0) return res.status(404).json({ error: 'Không tìm thấy hạng mục.' });
         await writeAuditLog({ module: 'LICENSE', actionType: 'UPDATE_BUDGET_ITEM_CATALOG', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: name, description: `Cập nhật hạng mục [${name}] trong danh mục ngân sách.` });
         res.json({ success: true });
@@ -3641,6 +3793,50 @@ app.delete('/api/license/budget-item-catalog/:id', requireAuth, requireLicenseOr
         res.json({ success: true });
     } catch (err) {
         console.error('❌ Lỗi xóa hạng mục danh mục:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Kiểm soát License tự động: cấu hình + chạy thủ công ngay (dùng để kiểm
+// tra/demo cơ chế mà không phải chờ tới giờ chạy theo lịch) ---
+app.put('/api/license/control-config', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const enabled = !!(req.body && req.body.enabled);
+        const autoRevoke = !!(req.body && req.body.autoRevoke);
+        const runHoursRaw = Array.isArray(req.body && req.body.runHours) ? req.body.runHours : [];
+        const runHours = runHoursRaw.map(Number).filter(n => Number.isInteger(n) && n >= 0 && n <= 23);
+        if (!runHours.length) return res.status(400).json({ error: 'Phải chọn ít nhất 1 giờ chạy trong ngày.' });
+        const extraRecipientEmailsRaw = Array.isArray(req.body && req.body.extraRecipientEmails) ? req.body.extraRecipientEmails : [];
+        const extraRecipientEmails = extraRecipientEmailsRaw.map(e => String(e || '').trim()).filter(Boolean);
+        for (const e of extraRecipientEmails) {
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return res.status(400).json({ error: `Email không hợp lệ: ${e}` });
+        }
+        const value = { enabled, autoRevoke, runHours: [...new Set(runHours)].sort((a, b) => a - b), extraRecipientEmails: [...new Set(extraRecipientEmails)].slice(0, 20) };
+        await saveLicenseControlConfig(value);
+        await writeAuditLog({
+            module: 'LICENSE', actionType: 'UPDATE_LICENSE_CONTROL_CONFIG', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip,
+            targetObject: 'Cấu hình Kiểm soát License',
+            description: `Cập nhật cấu hình Kiểm soát License tự động: ${enabled ? 'bật' : 'tắt'}, tự động thu hồi ${autoRevoke ? 'BẬT' : 'tắt'}, chạy lúc [${value.runHours.join('h, ')}h]${value.extraRecipientEmails.length ? `, thêm ${value.extraRecipientEmails.length} email nhận` : ''}.`
+        });
+        res.json({ success: true, licenseControlConfig: value });
+    } catch (err) {
+        console.error('❌ Lỗi cập nhật cấu hình Kiểm soát License:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+app.post('/api/license/control-check-now', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const result = await runLicenseControlCheck();
+        const state = await getLicenseControlRunState();
+        state.lastResult = result;
+        await setLicenseControlRunState(state);
+        await writeAuditLog({
+            module: 'LICENSE', actionType: 'LICENSE_CONTROL_CHECK_NOW', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip,
+            targetObject: 'Kiểm soát License', description: `Kiểm tra thủ công: ${result.checked} trường hợp, thu hồi ${result.revoked}, gửi ${result.emailsSent} email.`
+        });
+        res.json({ success: true, ...result });
+    } catch (err) {
+        console.error('❌ Lỗi kiểm tra Kiểm soát License thủ công:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });

@@ -747,6 +747,7 @@
               <label class="btn-secondary px-2.5 py-1.5 rounded font-semibold cursor-pointer transition">
                 📥 Nhập Excel <input type="file" accept=".xlsx" data-evt-change="importOrgUnitsXlsx" data-args='[{"__live__":"event"}]' class="hidden">
               </label>
+              <button data-evt-click="exportOrgUnitsXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition">📤 Xuất Excel</button>
             </div>
             <span class="text-[11px] text-gray-500">Bấm "+ Con" trong từng đơn vị để thêm bất kỳ cấp nào — không giới hạn số cấp. Dữ liệu dùng chung cho cả module Bản quyền và Ngân sách.</span>
           </div>
@@ -768,12 +769,13 @@
             <span class="text-[11px] text-gray-500">Danh mục chuẩn dùng khi thêm hạng mục vào Kỳ ngân sách (module Bản quyền) — tránh gõ tay tự do gây trùng lặp/không đồng nhất.</span>
           </div>
           <div class="overflow-x-auto">
-            <table class="w-full border-collapse border bg-white text-xs max-w-2xl">
+            <table class="w-full border-collapse border bg-white text-xs max-w-3xl">
               <thead>
                 <tr class="bg-gray-100 text-left">
                   <th class="border p-2">Tên hạng mục</th>
                   <th class="border p-2">Loại</th>
                   <th class="border p-2">Đơn vị tính</th>
+                  <th class="border p-2">Danh mục hệ thống</th>
                   <th class="border p-2 text-center">Đang dùng</th>
                   <th class="border p-2 text-center whitespace-nowrap">Thao tác</th>
                 </tr>
@@ -1116,11 +1118,13 @@
               <label class="block font-semibold text-gray-600 mb-1">Lọc Theo Phân Hệ</label>
               <select id="filterLogModule" data-evt-change="resetPageAndRerender" data-args='["systemLogs","renderSystemLogs"]' class="w-full border p-1.5 rounded bg-white font-semibold">
                 <option value="">-- Tất cả phân hệ --</option>
-                <option value="EMAIL">Log Gửi Email (EMAIL)</option>
-                <option value="CONFIG">Log Cấu Hình Hệ Thống (CONFIG)</option>
-                <option value="USER_MGM">Log Quản Lý User (USER_MGM)</option>
-                <option value="PERMISSION">Log Đổi Phân Quyền (PERMISSION)</option>
-                <option value="INTERACTION">Log Tương Tác Tài Liệu (INTERACTION)</option>
+                <option value="LICENSE">Module Bản Quyền (LICENSE)</option>
+                <option value="BUDGET2">Module Ngân Sách (BUDGET2)</option>
+                <option value="IT_ASSETS">Module Dịch Vụ CNTT (IT_ASSETS)</option>
+                <option value="USER_MGM">Quản Lý User (USER_MGM)</option>
+                <option value="INTERACTION">Tương Tác Tài Liệu (INTERACTION)</option>
+                <option value="CONFIG">Cấu Hình Hệ Thống (CONFIG)</option>
+                <option value="SYSTEM">Hệ Thống (SYSTEM)</option>
               </select>
             </div>
             <div>
@@ -2763,6 +2767,36 @@
     <div class="bg-white rounded-lg shadow-2xl max-w-3xl w-full p-5 space-y-4 max-h-[90vh] overflow-y-auto">
       <h3 class="font-bold text-gray-900 text-base">🔍 Kiểm soát — đối chiếu với tài khoản AD</h3>
       <p class="text-xs text-gray-500">Danh sách nhân viên đang giữ ít nhất 1 mã license mà tài khoản AD tương ứng (khớp theo email) đã bị Disable — có thể là nhân viên đã nghỉ nhưng chưa được thu hồi license.</p>
+
+      <div id="licenseControlAutomationBox" class="hidden border border-brand-200 bg-brand-50 rounded p-3 space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="font-bold text-sm text-brand-900">⚙️ Tự động hóa Kiểm soát License</div>
+          <label class="flex items-center gap-1.5 text-xs font-semibold text-gray-700">
+            <input id="lcAutoEnabled" type="checkbox" class="rounded"> Bật chạy tự động theo lịch
+          </label>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Giờ chạy trong ngày (0-23, cách nhau dấu phẩy)</label>
+            <input id="lcRunHours" type="text" class="w-full border p-1.5 rounded text-sm" placeholder="VD: 8, 20">
+          </div>
+          <div>
+            <label class="flex items-center gap-1.5 font-semibold text-gray-700 mt-5">
+              <input id="lcAutoRevoke" type="checkbox" class="rounded"> Tự động thu hồi license (không chỉ cảnh báo)
+            </label>
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Email nhận thêm (ngoài Admin/Người quản lý License, cách nhau dấu phẩy)</label>
+            <input id="lcExtraEmails" type="text" class="w-full border p-1.5 rounded text-sm" placeholder="VD: it-manager@company.com">
+          </div>
+        </div>
+        <div class="text-[11px] text-gray-500" id="lcLastRunInfo"></div>
+        <div class="flex gap-2">
+          <button type="button" data-evt-click="saveLicenseControlConfig" data-args='[]' class="btn-primary px-3 py-1.5 rounded text-xs font-bold">Lưu cấu hình</button>
+          <button type="button" data-evt-click="runLicenseControlCheckNow" data-args='[]' class="btn-secondary px-3 py-1.5 rounded text-xs font-bold">▶️ Chạy kiểm tra ngay</button>
+        </div>
+      </div>
+
       <div class="overflow-x-auto">
         <table class="w-full border-collapse border bg-white text-xs">
           <thead>
@@ -3058,6 +3092,13 @@
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn vị tính (tùy chọn)</label>
         <input id="budgetItemCatalogUnit" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Cái, Tháng, Gói">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Danh mục hệ thống (tùy chọn)</label>
+        <select id="budgetItemCatalogSystemCategory" class="w-full border p-2 rounded text-sm bg-white">
+          <option value="">-- Không gắn --</option>
+        </select>
+        <div class="text-[11px] text-gray-500 mt-0.5">Gắn thêm để đối chiếu/báo cáo thống nhất với Danh mục hệ thống bên Ngân sách — không ảnh hưởng trường "Loại" ở trên.</div>
       </div>
       <label id="budgetItemCatalogActiveWrap" class="hidden flex items-center gap-2 text-xs font-semibold text-gray-600">
         <input id="budgetItemCatalogActive" type="checkbox" class="rounded"> Đang dùng (bỏ chọn để ẩn khỏi danh sách chọn, không xóa lịch sử)
