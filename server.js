@@ -3061,7 +3061,12 @@ app.delete('/api/logs', requireAuth, requireAdmin, async (req, res) => {
 // Độc lập hoàn toàn với depts/users của module Quản lý Tài liệu (quyết định
 // đã thống nhất với người dùng). Toàn bộ module chỉ Admin được truy cập.
 // ============================================================
-function mapCompany(c) { return { id: c.id, name: c.name, code: c.code, active: !!c.active }; }
+function mapCompany(c) { return { id: c.id, name: c.name, code: c.code, active: !!c.active, companyType: c.company_type || 'KHAC' }; }
+const VALID_COMPANY_TYPES = ['BRGGROUP', 'CTTV', 'KHAC'];
+function parseCompanyType(raw) {
+    const v = String(raw || 'KHAC').trim().toUpperCase();
+    return VALID_COMPANY_TYPES.includes(v) ? v : null;
+}
 function mapOrgUnit(u) { return { id: u.id, companyId: u.company_id, parentId: u.parent_id, name: u.name, level: u.level_label, sortOrder: u.sort_order }; }
 function mapEmployee(e) { return { id: e.id, orgUnitId: e.org_unit_id, fullName: e.full_name, title: e.title, employeeCode: e.employee_code, email: e.email, active: !!e.active }; }
 const LICENSE_TYPES = ['PERPETUAL', 'TERM', 'MAINTENANCE'];
@@ -3646,8 +3651,10 @@ app.post('/api/license/companies', requireAuth, requireLicenseOrAdmin, async (re
         if (!name) return res.status(400).json({ error: 'Tên công ty không được để trống.' });
         if (name.length > 255) return res.status(400).json({ error: 'Tên công ty quá dài (tối đa 255 ký tự).' });
         if (!validCode(code, 20)) return res.status(400).json({ error: 'Mã công ty không hợp lệ (chỉ chữ/số không dấu, tối đa 20 ký tự).' });
-        const [result] = await pool.query('INSERT INTO lic_companies (name, code, active) VALUES (?, ?, TRUE)', [name, code]);
-        await writeAuditLog({ module: 'LICENSE', actionType: 'CREATE_COMPANY', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: name, description: `Thêm công ty [${name}] (mã ${code}) vào module Bản quyền.` });
+        const companyType = parseCompanyType(req.body && req.body.companyType);
+        if (!companyType) return res.status(400).json({ error: 'Loại công ty không hợp lệ.' });
+        const [result] = await pool.query('INSERT INTO lic_companies (name, code, active, company_type) VALUES (?, ?, TRUE, ?)', [name, code, companyType]);
+        await writeAuditLog({ module: 'LICENSE', actionType: 'CREATE_COMPANY', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: name, description: `Thêm công ty [${name}] (mã ${code}, loại ${companyType}) vào module Bản quyền.` });
         res.json({ success: true, id: result.insertId });
     } catch (err) {
         if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Tên công ty đã tồn tại.' });
@@ -3664,9 +3671,11 @@ app.put('/api/license/companies/:id', requireAuth, requireLicenseOrAdmin, async 
         if (!name) return res.status(400).json({ error: 'Tên công ty không được để trống.' });
         if (name.length > 255) return res.status(400).json({ error: 'Tên công ty quá dài (tối đa 255 ký tự).' });
         if (!validCode(code, 20)) return res.status(400).json({ error: 'Mã công ty không hợp lệ (chỉ chữ/số không dấu, tối đa 20 ký tự).' });
-        const [result] = await pool.query('UPDATE lic_companies SET name = ?, code = ? WHERE id = ?', [name, code, id]);
+        const companyType = parseCompanyType(req.body && req.body.companyType);
+        if (!companyType) return res.status(400).json({ error: 'Loại công ty không hợp lệ.' });
+        const [result] = await pool.query('UPDATE lic_companies SET name = ?, code = ?, company_type = ? WHERE id = ?', [name, code, companyType, id]);
         if (result.affectedRows === 0) return res.status(404).json({ error: 'Không tìm thấy công ty.' });
-        await writeAuditLog({ module: 'LICENSE', actionType: 'UPDATE_COMPANY', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: name, description: `Cập nhật công ty [${name}] (mã ${code}).` });
+        await writeAuditLog({ module: 'LICENSE', actionType: 'UPDATE_COMPANY', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: name, description: `Cập nhật công ty [${name}] (mã ${code}, loại ${companyType}).` });
         res.json({ success: true });
     } catch (err) {
         if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Tên công ty đã tồn tại.' });
@@ -6342,7 +6351,7 @@ function validateBudget2LineInput(body, opts = {}, categoryCatalog = []) {
 app.get('/api/budget2/bootstrap', requireAuth, requireBudgetOrAdmin, async (req, res) => {
     try {
         const [lines] = await pool.query('SELECT * FROM budget2_lines ORDER BY id DESC');
-        const [companies] = await pool.query('SELECT id, name, code FROM lic_companies WHERE active = 1 ORDER BY name');
+        const [companies] = await pool.query('SELECT id, name, code, company_type AS companyType FROM lic_companies WHERE active = 1 ORDER BY name');
         const [orgUnits] = await pool.query('SELECT id, company_id AS companyId, parent_id AS parentId, name, level_label AS levelLabel FROM lic_org_units ORDER BY name');
         const categories = await getBudget2CategoryCatalog();
         res.json({
@@ -6840,6 +6849,20 @@ app.post('/api/budget2/import', requireAuth, requireBudgetOrAdmin, async (req, r
                 const company = companyByCode.get(companyCode);
                 if (!company) { errors.push(`Dòng ${rowNo}: không tìm thấy công ty mã [${companyCode}].`); continue; }
                 companyId = company.id;
+                // "Loại công ty" trong file chỉ để ĐỐI CHIẾU (tùy chọn, để trống
+                // vẫn nhập bình thường) — giá trị THẬT luôn lấy từ chính công ty
+                // (company.company_type), không ghi đè/lưu riêng theo dòng. Nếu
+                // điền mà không khớp, báo lỗi dòng đó để bắt sớm khả năng gõ
+                // nhầm mã công ty.
+                const companyTypeInput = String(r.companyType || '').trim();
+                if (companyTypeInput) {
+                    const inputType = parseCompanyType(companyTypeInput) || (companyTypeInput.toUpperCase() === 'KHÁC' ? 'KHAC' : null);
+                    if (!inputType) { errors.push(`Dòng ${rowNo}: Loại công ty [${companyTypeInput}] không hợp lệ (chỉ BRGGROUP/CTTV/Khác) — có thể để trống nếu không chắc.`); continue; }
+                    if (inputType !== (company.company_type || 'KHAC')) {
+                        errors.push(`Dòng ${rowNo}: Loại công ty ghi trong file [${companyTypeInput}] không khớp với loại thật của công ty [${companyCode}] (đang là ${company.company_type || 'KHAC'}) — kiểm tra lại mã công ty.`);
+                        continue;
+                    }
+                }
                 if (orgUnitName) {
                     const candidates = units.filter(u => u.company_id === company.id && u.name === orgUnitName);
                     if (candidates.length === 0) { errors.push(`Dòng ${rowNo}: không tìm thấy đơn vị [${orgUnitName}] trong công ty [${companyCode}].`); continue; }
@@ -6958,23 +6981,23 @@ app.get('/api/budget2/reports', requireAuth, requireBudgetOrAdmin, async (req, r
         // client vừa lọc 1 kỳ Tháng/Năm cụ thể ("theo kỳ"), vừa dựng bảng so
         // sánh nhiều kỳ Tháng-Năm cạnh nhau ("so sánh nhiều kỳ") từ CÙNG 1 tập
         // dữ liệu, không cần gọi lại API.
-        const stageSum = async (stage, groupCol) => {
+        const stageSum = async (stage, groupCol, joinSql = '') => {
             // Đề xuất/Sử dụng không qua bước duyệt (module chỉ giai đoạn Phê
             // duyệt mới có duyệt/từ chối) nên không cần lọc status; riêng
             // APPROVED phải lọc status='APPROVED' để KHÔNG tính nhầm các dòng
             // đang chờ duyệt (SUBMITTED) hoặc đã bị từ chối (REJECTED).
             const extraWhere = stage === 'APPROVED' ? "AND status = 'APPROVED'" : (stage === 'USED' ? 'AND parent_id IS NOT NULL' : '');
             const sql = `SELECT ${groupCol} AS groupKey, budget_type AS budgetType, budget_year AS budgetYear, budget_month AS budgetMonth, SUM(total_amount) AS total
-                         FROM budget2_lines WHERE stage = ? ${extraWhere} GROUP BY ${groupCol}, budget_type, budget_year, budget_month`;
+                         FROM budget2_lines ${joinSql} WHERE stage = ? ${extraWhere} GROUP BY ${groupCol}, budget_type, budget_year, budget_month`;
             const [rows] = await pool.query(sql, [stage]);
             return rows;
         };
 
-        const buildDimension = async (groupCol) => {
+        const buildDimension = async (groupCol, joinSql = '') => {
             const [proposed, approved, used] = await Promise.all([
-                stageSum('PROPOSED', groupCol),
-                stageSum('APPROVED', groupCol),
-                stageSum('USED', groupCol)
+                stageSum('PROPOSED', groupCol, joinSql),
+                stageSum('APPROVED', groupCol, joinSql),
+                stageSum('USED', groupCol, joinSql)
             ]);
             const map = new Map();
             const addRows = (rows, key) => rows.forEach(r => {
@@ -6988,10 +7011,14 @@ app.get('/api/budget2/reports', requireAuth, requireBudgetOrAdmin, async (req, r
             return [...map.values()];
         };
 
-        const [byCompany, byOrgUnit, byCategory, total] = await Promise.all([
+        // Loại công ty (BRGGROUP/CTTV/KHAC) không nằm trên budget2_lines mà
+        // trên lic_companies (1 thuộc tính cố định của công ty, xem
+        // schema.sql) — JOIN sang để nhóm theo đó thay vì group cột thường.
+        const [byCompany, byOrgUnit, byCategory, byCompanyType, total] = await Promise.all([
             buildDimension('company_id'),
             buildDimension('org_unit_id'),
             buildDimension('item_category'),
+            buildDimension('COALESCE(co.company_type, \'KHAC\')', 'LEFT JOIN lic_companies co ON co.id = budget2_lines.company_id'),
             buildDimension('1')
         ]);
 
@@ -7009,6 +7036,7 @@ app.get('/api/budget2/reports', requireAuth, requireBudgetOrAdmin, async (req, r
             byCompany,
             byOrgUnit,
             byCategory,
+            byCompanyType,
             total,
             variance: variance.map(v => ({
                 approvedId: v.approvedId,
