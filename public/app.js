@@ -6996,15 +6996,26 @@ function isPerpetualSoftware(softwareId) {
     function renderBudget2ProposedTable() {
       const tbody = document.getElementById('budget2ProposeTableBody');
       if (!tbody) return;
+      const isAdmin = !!(currentUser && currentUser.perms && currentUser.perms.admin);
       const rows = budget2DB.lines.filter(l => l.stage === 'PROPOSED').sort((a, b) => b.id - a.id);
       if (!rows.length) { tbody.innerHTML = '<tr><td colspan="16" class="text-center p-4 text-gray-400 italic">Chưa có đề xuất ngân sách nào.</td></tr>'; return; }
       tbody.innerHTML = rows.map((l, i) => {
-        const actions = l.status === 'SUBMITTED'
-          ? `<button ${dc('openBudget2LineModal', 'PROPOSED', l.id)} class="text-blue-600 hover:underline mr-1" title="Sửa">✏️</button>`
-            + `<button ${dc('deleteBudget2Line', l.id)} class="text-red-600 hover:underline mr-1" title="Xóa">🗑️</button>`
+        const editBtn = `<button ${dc('openBudget2LineModal', 'PROPOSED', l.id)} class="text-blue-600 hover:underline mr-1" title="Sửa">✏️</button>`;
+        const deleteBtn = `<button ${dc('deleteBudget2Line', l.id)} class="text-red-600 hover:underline mr-1" title="Xóa">🗑️</button>`;
+        const decidedNote = `<span class="text-gray-400 italic text-[11px] block">Đã xử lý${l.decidedBy ? ' bởi ' + escapeHtml(l.decidedBy) : ''}</span>`;
+        let actions;
+        if (l.status === 'SUBMITTED') {
+          // Chờ duyệt: Người quản lý Ngân sách sửa được, nhưng chỉ Admin mới
+          // thấy nút Xóa (server cũng chặn xóa với người không phải Admin).
+          actions = editBtn + (isAdmin ? deleteBtn : '')
             + `<button ${dc('approveBudget2Proposal', l.id)} class="text-emerald-700 hover:underline font-bold whitespace-nowrap" title="Duyệt">✓ Duyệt</button>`
-            + `<button ${dc('rejectBudget2Proposal', l.id)} class="text-red-700 hover:underline font-bold whitespace-nowrap" title="Từ chối">✕ Từ chối</button>`
-          : `<span class="text-gray-400 italic">Đã xử lý${l.decidedBy ? ' bởi ' + escapeHtml(l.decidedBy) : ''}</span>`;
+            + `<button ${dc('rejectBudget2Proposal', l.id)} class="text-red-700 hover:underline font-bold whitespace-nowrap" title="Từ chối">✕ Từ chối</button>`;
+        } else if (isAdmin) {
+          // Đã duyệt/từ chối: chỉ Admin được sửa/xóa lại (VD lỡ nhập sai).
+          actions = editBtn + deleteBtn + decidedNote;
+        } else {
+          actions = decidedNote;
+        }
         return `<tr>
           <td class="border p-2 text-center">${i + 1}</td>
           <td class="border p-2">${escapeHtml(l.content)}</td>
@@ -7084,12 +7095,20 @@ function isPerpetualSoftware(softwareId) {
     function openBudget2LineModal(stage, editId) {
       document.getElementById('budget2LineModalStage').value = stage;
       document.getElementById('budget2LineEditId').value = editId || '';
-      document.getElementById('budget2LineModalTitle').textContent = editId
-        ? (stage === 'PROPOSED' ? 'Sửa đề xuất ngân sách' : 'Sửa dòng ngân sách phê duyệt (chờ duyệt)')
-        : (stage === 'PROPOSED' ? 'Thêm đề xuất ngân sách' : 'Thêm dòng ngân sách phê duyệt (chờ duyệt)');
       const companySel = document.getElementById('budget2LineCompany');
       companySel.innerHTML = '<option value="">-- Không chọn --</option>' + budget2DB.companies.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
       const line = editId ? budget2DB.lines.find(l => l.id === editId) : null;
+      let title;
+      if (!editId) {
+        title = stage === 'PROPOSED' ? 'Thêm đề xuất ngân sách' : 'Thêm dòng ngân sách phê duyệt (chờ duyệt)';
+      } else if (line && line.status && line.status !== 'SUBMITTED') {
+        // Admin sửa lại dòng đã duyệt/từ chối — ghi rõ trên tiêu đề để tránh
+        // nhầm với việc sửa dòng đang chờ duyệt bình thường.
+        title = `Sửa ${stage === 'PROPOSED' ? 'đề xuất' : 'dòng phê duyệt'} đã ${line.status === 'APPROVED' ? 'duyệt' : 'từ chối'} (Admin)`;
+      } else {
+        title = stage === 'PROPOSED' ? 'Sửa đề xuất ngân sách' : 'Sửa dòng ngân sách phê duyệt (chờ duyệt)';
+      }
+      document.getElementById('budget2LineModalTitle').textContent = title;
       document.getElementById('budget2LineContent').value = line ? line.content : '';
       document.getElementById('budget2LineDescription').value = line ? (line.description || '') : '';
       document.getElementById('budget2LineQuantity').value = line ? line.quantity : 1;
@@ -7155,6 +7174,7 @@ function isPerpetualSoftware(softwareId) {
     function renderBudget2ApprovedTable() {
       const container = document.getElementById('budget2ApprovedContainer');
       if (!container) return;
+      const isAdmin = !!(currentUser && currentUser.perms && currentUser.perms.admin);
       const rows = budget2DB.lines.filter(l => l.stage === 'APPROVED').sort((a, b) => b.id - a.id);
       const renderGroup = (type) => {
         const groupRows = rows.filter(l => l.budgetType === type);
@@ -7170,12 +7190,26 @@ function isPerpetualSoftware(softwareId) {
               <th class="border p-2 text-center">Trạng thái</th><th class="border p-2 text-center w-24">Thao tác</th>
             </tr></thead>
             <tbody>${groupRows.map((l, i) => {
-              const actions = l.status === 'SUBMITTED'
-                ? `<button ${dc('openBudget2LineModal', 'APPROVED', l.id)} class="text-blue-600 hover:underline mr-1" title="Sửa">✏️</button>`
-                  + `<button ${dc('deleteBudget2Line', l.id)} class="text-red-600 hover:underline mr-1" title="Xóa">🗑️</button>`
+              const editBtn = `<button ${dc('openBudget2LineModal', 'APPROVED', l.id)} class="text-blue-600 hover:underline mr-1" title="Sửa">✏️</button>`;
+              const deleteBtn = `<button ${dc('deleteBudget2Line', l.id)} class="text-red-600 hover:underline mr-1" title="Xóa">🗑️</button>`;
+              const decidedNote = `<span class="text-gray-400 italic text-[11px] block">${escapeHtml(l.decidedBy || '')}</span>`;
+              let actions;
+              if (l.status === 'SUBMITTED') {
+                // Chờ duyệt: Người quản lý Ngân sách sửa được, nhưng chỉ Admin
+                // mới thấy nút Xóa (server cũng chặn xóa với người không phải
+                // Admin).
+                actions = editBtn + (isAdmin ? deleteBtn : '')
                   + `<button ${dc('approveBudget2Line', l.id)} class="text-green-600 hover:underline mr-1" title="Duyệt">✔️</button>`
-                  + `<button ${dc('rejectBudget2Line', l.id)} class="text-red-600 hover:underline" title="Từ chối">✖️</button>`
-                : escapeHtml(l.decidedBy || '');
+                  + `<button ${dc('rejectBudget2Line', l.id)} class="text-red-600 hover:underline" title="Từ chối">✖️</button>`;
+              } else if (isAdmin) {
+                // Đã duyệt/từ chối: chỉ Admin được sửa/xóa lại. Sửa dòng đã
+                // DUYỆT sẽ tự đồng bộ luôn dòng Sử dụng tương ứng (server lo);
+                // xóa dòng đã DUYỆT chỉ được nếu dòng Sử dụng đó chưa có mục
+                // con (server tự kiểm tra, báo lỗi rõ nếu không được).
+                actions = editBtn + deleteBtn + decidedNote;
+              } else {
+                actions = decidedNote;
+              }
               return `<tr>
                 <td class="border p-2 text-center">${i + 1}</td>
                 <td class="border p-2">${escapeHtml(l.content)}</td>
