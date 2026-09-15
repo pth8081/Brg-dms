@@ -696,7 +696,14 @@
         localStorage.setItem(WEBAUTHN_REMEMBERED_USERNAME_KEY, u);
         await enterApp(data.user);
       } catch (e) {
-        showToast(e.message || 'Tài khoản hoặc mật khẩu không chính xác!', 'danger');
+        // Khi chip "tài khoản được nhớ" đang hiện (ô nhập username bị ẩn),
+        // người dùng có thể không để ý là mật khẩu vừa gõ đang được kiểm tra
+        // cho tài khoản CŨ (vd: định đăng nhập admin nhưng chip vẫn đang là
+        // tài khoản khác) — nhắc rõ đang thử tài khoản nào + cách đổi, để
+        // tránh gõ sai mật khẩu liên tục làm khóa tạm nhầm tài khoản.
+        const chipShowing = !document.getElementById('rememberedAccountChip').classList.contains('hidden');
+        const baseMsg = e.message || 'Tài khoản hoặc mật khẩu không chính xác!';
+        showToast(chipShowing ? `${baseMsg} (đang thử tài khoản "${u}" — không phải tài khoản của bạn? bấm "Tài khoản khác")` : baseMsg, 'danger');
         refreshCaptcha();
       } finally {
         submitBtn.disabled = false;
