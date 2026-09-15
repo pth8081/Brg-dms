@@ -701,7 +701,8 @@
         // cho tài khoản CŨ (vd: định đăng nhập admin nhưng chip vẫn đang là
         // tài khoản khác) — nhắc rõ đang thử tài khoản nào + cách đổi, để
         // tránh gõ sai mật khẩu liên tục làm khóa tạm nhầm tài khoản.
-        const chipShowing = !document.getElementById('rememberedAccountChip').classList.contains('hidden');
+        const chipEl = document.getElementById('rememberedAccountChip');
+        const chipShowing = !!chipEl && !chipEl.classList.contains('hidden');
         const baseMsg = e.message || 'Tài khoản hoặc mật khẩu không chính xác!';
         showToast(chipShowing ? `${baseMsg} (đang thử tài khoản "${u}" — không phải tài khoản của bạn? bấm "Tài khoản khác")` : baseMsg, 'danger');
         refreshCaptcha();
