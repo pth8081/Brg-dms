@@ -6099,6 +6099,32 @@ function isPerpetualSoftware(softwareId) {
       link.click();
       link.remove();
     }
+    // Giống downloadXlsxFile nhưng ghi nhiều sheet trong CÙNG 1 file — dùng
+    // cho các báo cáo có nhiều lát cắt số liệu (VD: báo cáo đa chiều theo
+    // Loại công ty/Tháng/OPEX-CAPEX) để người dùng có 1 file Excel duy nhất
+    // gửi đi thay vì tải rời từng biểu đồ. sheets = [{name, header, rows}].
+    async function downloadMultiSheetXlsxFile(filename, sheets) {
+      const wb = new ExcelJS.Workbook();
+      sheets.forEach(({ name, header, rows }) => {
+        const ws = wb.addWorksheet(String(name).slice(0, 31)); // Excel giới hạn tên sheet tối đa 31 ký tự
+        ws.addRow(header.map(sanitizeXlsxCellValue));
+        ws.getRow(1).font = { bold: true };
+        rows.forEach(r => ws.addRow(Array.isArray(r) ? r.map(sanitizeXlsxCellValue) : r));
+        ws.columns.forEach(col => {
+          let maxLen = 10;
+          col.eachCell({ includeEmpty: true }, cell => { maxLen = Math.max(maxLen, String(cell.value ?? '').length); });
+          col.width = Math.min(maxLen + 2, 60);
+        });
+      });
+      const buf = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    }
     // ExcelJS không luôn trả về chuỗi/số thuần cho cell.value — Excel hay tự
     // động biến ô email/URL thành hyperlink (VD gõ "a@b.com" rồi Excel tự
     // format thành link mailto:), khi đó .value là OBJECT dạng {text,
@@ -8246,18 +8272,67 @@ function isPerpetualSoftware(softwareId) {
     }
 
     const BUDGET2_MONTH_LABELS = Array.from({ length: 12 }, (_, i) => `T${i + 1}`);
+    const BUDGET2_COMPANY_TYPE_ORDER = ['BRGGROUP', 'CTTV', 'KHAC'];
+    // Các hàm tính số liệu đa chiều (Loại công ty x Tháng x OPEX/CAPEX) dùng
+    // CHUNG cho cả phần vẽ biểu đồ (renderBudget2CompanyTypeAndMonthReports)
+    // và phần xuất Excel (exportBudget2CompanyTypeMonthReportXlsx) — tránh 2
+    // nơi tính trùng logic rồi lệch số liệu với nhau. Nguồn: budget2ReportsData
+    // đã tải sẵn (byCompanyType + total, xem /api/budget2/reports).
+    function budget2ByCompanyTypeOfYear(year) {
+      return (budget2ReportsData?.byCompanyType || []).filter(r => r.budgetYear === year);
+    }
+    function budget2CompanyTypeTotalData(byCompanyTypeCur) {
+      const map = new Map(BUDGET2_COMPANY_TYPE_ORDER.map(t => [t, { type: t, label: BUDGET2_COMPANY_TYPE_LABELS[t], proposed: 0, approved: 0 }]));
+      byCompanyTypeCur.forEach(r => {
+        const key = r.groupKey || 'KHAC';
+        if (!map.has(key)) return;
+        const agg = map.get(key);
+        agg.approved += r.approved; agg.proposed += r.proposed;
+      });
+      return [...map.values()];
+    }
+    function budget2CompanyTypeOpexCapex(byCompanyTypeCur, metric) {
+      const map = new Map(BUDGET2_COMPANY_TYPE_ORDER.map(t => [t, { type: t, label: BUDGET2_COMPANY_TYPE_LABELS[t], opex: 0, capex: 0 }]));
+      byCompanyTypeCur.forEach(r => {
+        const key = r.groupKey || 'KHAC';
+        if (!map.has(key)) return;
+        const agg = map.get(key);
+        if (r.budgetType === 'CAPEX') agg.capex += Number(r[metric] || 0); else agg.opex += Number(r[metric] || 0);
+      });
+      return [...map.values()];
+    }
+    // Gộp mọi công ty (dùng "total", đã gộp sẵn toàn công ty theo tháng).
+    function budget2MonthOpexCapex(year, metric) {
+      const arr = BUDGET2_MONTH_LABELS.map(label => ({ label, opex: 0, capex: 0 }));
+      (budget2ReportsData?.total || []).forEach(r => {
+        if (r.budgetYear !== year || !r.budgetMonth) return;
+        const bucket = arr[r.budgetMonth - 1];
+        if (!bucket) return;
+        if (r.budgetType === 'CAPEX') bucket.capex += Number(r[metric] || 0); else bucket.opex += Number(r[metric] || 0);
+      });
+      return arr;
+    }
+    function budget2MonthByCompanyTypeOpexCapex(byCompanyTypeCur, companyType, metric) {
+      const arr = BUDGET2_MONTH_LABELS.map(label => ({ label, opex: 0, capex: 0 }));
+      byCompanyTypeCur.forEach(r => {
+        const key = r.groupKey || 'KHAC';
+        if (key !== companyType || !r.budgetMonth) return;
+        const bucket = arr[r.budgetMonth - 1];
+        if (!bucket) return;
+        if (r.budgetType === 'CAPEX') bucket.capex += Number(r[metric] || 0); else bucket.opex += Number(r[metric] || 0);
+      });
+      return arr;
+    }
     // Báo cáo theo Loại công ty + theo Tháng (đa chiều: Loại công ty x Tháng x
-    // OPEX/CAPEX) — năm hiện tại, dùng chung nguồn dữ liệu budget2ReportsData
-    // đã tải (byCompanyType + total, xem /api/budget2/reports), không gọi
-    // thêm API. "Tổng" luôn = chiều cao cả cột chồng OPEX+CAPEX (xem
-    // budget2StackedOpexCapexChart) — không vẽ thêm 1 cột "Tổng" riêng vì đó
-    // là số thừa (suy ra được từ 2 cột kia), tránh 1 chart có quá nhiều cột.
+    // OPEX/CAPEX) — năm hiện tại. "Tổng" luôn = chiều cao cả cột chồng
+    // OPEX+CAPEX (xem budget2StackedOpexCapexChart) — không vẽ thêm 1 cột
+    // "Tổng" riêng vì đó là số thừa (suy ra được từ 2 cột kia), tránh 1 chart
+    // có quá nhiều cột.
     function renderBudget2CompanyTypeAndMonthReports() {
       const box = document.getElementById('budget2CompanyTypeMonthReports');
       if (!box || !budget2ReportsData) return;
       const currentYear = new Date().getFullYear();
-      const companyTypeOrder = ['BRGGROUP', 'CTTV', 'KHAC'];
-      const byCompanyTypeCur = (budget2ReportsData.byCompanyType || []).filter(r => r.budgetYear === currentYear);
+      const byCompanyTypeCur = budget2ByCompanyTypeOfYear(currentYear);
 
       function card(title, sub, chartHtml, legendHtml) {
         return `<div class="bg-white border rounded-lg p-3">
@@ -8269,63 +8344,18 @@ function isPerpetualSoftware(softwareId) {
       }
       const dot = c => `<span class="inline-block w-2.5 h-2.5 rounded-sm mr-1" style="background:${c}"></span>`;
 
-      // --- 1. Theo Loại công ty — Tổng (Đề xuất vs Phê duyệt) ---
-      const companyTypeTotalMap = new Map(companyTypeOrder.map(t => [t, { label: BUDGET2_COMPANY_TYPE_LABELS[t], proposed: 0, approved: 0 }]));
-      byCompanyTypeCur.forEach(r => {
-        const key = r.groupKey || 'KHAC';
-        if (!companyTypeTotalMap.has(key)) return;
-        const agg = companyTypeTotalMap.get(key);
-        agg.approved += r.approved; agg.proposed += r.proposed;
-      });
-      const companyTypeTotalData = [...companyTypeTotalMap.values()].map(d => ({ ...d, used: 0 }));
+      const companyTypeTotalData = budget2CompanyTypeTotalData(byCompanyTypeCur).map(d => ({ ...d, used: 0 }));
       const hasCompanyTypeTotal = companyTypeTotalData.some(d => d.approved > 0 || d.proposed > 0);
 
-      // --- 2. Theo Loại công ty — OPEX/CAPEX (Phê duyệt & Đề xuất riêng) ---
-      function companyTypeOpexCapex(metric) {
-        const map = new Map(companyTypeOrder.map(t => [t, { label: BUDGET2_COMPANY_TYPE_LABELS[t], opex: 0, capex: 0 }]));
-        byCompanyTypeCur.forEach(r => {
-          const key = r.groupKey || 'KHAC';
-          if (!map.has(key)) return;
-          const agg = map.get(key);
-          if (r.budgetType === 'CAPEX') agg.capex += Number(r[metric] || 0); else agg.opex += Number(r[metric] || 0);
-        });
-        return [...map.values()];
-      }
-      const companyTypeApprovedOC = companyTypeOpexCapex('approved');
-      const companyTypeProposedOC = companyTypeOpexCapex('proposed');
+      const companyTypeApprovedOC = budget2CompanyTypeOpexCapex(byCompanyTypeCur, 'approved');
+      const companyTypeProposedOC = budget2CompanyTypeOpexCapex(byCompanyTypeCur, 'proposed');
 
-      // --- 3. Theo Tháng — OPEX/CAPEX (Phê duyệt & Đề xuất) — năm hiện tại,
-      // gộp mọi công ty (dùng "total", đã gộp sẵn toàn công ty theo tháng). ---
-      function monthOpexCapex(metric) {
-        const arr = BUDGET2_MONTH_LABELS.map(label => ({ label, opex: 0, capex: 0 }));
-        (budget2ReportsData.total || []).forEach(r => {
-          if (r.budgetYear !== currentYear || !r.budgetMonth) return;
-          const bucket = arr[r.budgetMonth - 1];
-          if (!bucket) return;
-          if (r.budgetType === 'CAPEX') bucket.capex += Number(r[metric] || 0); else bucket.opex += Number(r[metric] || 0);
-        });
-        return arr;
-      }
-      const monthProposedOC = monthOpexCapex('proposed');
-      const monthApprovedOC = monthOpexCapex('approved');
-
-      // --- 4. Theo Tháng x Loại công ty — OPEX/CAPEX (nhiều-biểu-đồ-nhỏ, 1
-      // biểu đồ/Loại công ty, cho cả Đề xuất và Phê duyệt) ---
-      function monthByCompanyTypeOpexCapex(companyType, metric) {
-        const arr = BUDGET2_MONTH_LABELS.map(label => ({ label, opex: 0, capex: 0 }));
-        byCompanyTypeCur.forEach(r => {
-          const key = r.groupKey || 'KHAC';
-          if (key !== companyType || !r.budgetMonth) return;
-          const bucket = arr[r.budgetMonth - 1];
-          if (!bucket) return;
-          if (r.budgetType === 'CAPEX') bucket.capex += Number(r[metric] || 0); else bucket.opex += Number(r[metric] || 0);
-        });
-        return arr;
-      }
+      const monthProposedOC = budget2MonthOpexCapex(currentYear, 'proposed');
+      const monthApprovedOC = budget2MonthOpexCapex(currentYear, 'approved');
 
       function smallMultiplesRow(stageLabel, metric) {
-        const charts = companyTypeOrder.map(t => {
-          const data = monthByCompanyTypeOpexCapex(t, metric);
+        const charts = BUDGET2_COMPANY_TYPE_ORDER.map(t => {
+          const data = budget2MonthByCompanyTypeOpexCapex(byCompanyTypeCur, t, metric);
           const hasData = data.some(d => d.opex > 0 || d.capex > 0);
           return `<div class="border rounded p-2">
             <div class="text-xs font-bold text-gray-700 mb-1">${escapeHtml(BUDGET2_COMPANY_TYPE_LABELS[t])}</div>
@@ -8362,6 +8392,62 @@ function isPerpetualSoftware(softwareId) {
             ${smallMultiplesRow('Ngân sách Phê duyệt', 'approved')}
           </div>
         </div>`;
+    }
+    // Xuất TOÀN BỘ số liệu đứng sau các biểu đồ đa chiều (Loại công ty / Tháng
+    // / OPEX-CAPEX) ở trên thành 1 file Excel duy nhất — nhiều sheet, mỗi sheet
+    // ứng với 1 lát cắt — để gửi số liệu qua Excel thay vì chỉ xem trên màn
+    // hình. Dùng lại đúng các hàm tính số liệu của renderBudget2CompanyTypeAndMonthReports
+    // (budget2CompanyTypeTotalData/OpexCapex, budget2MonthOpexCapex,
+    // budget2MonthByCompanyTypeOpexCapex) nên số trong file luôn khớp với số
+    // trên biểu đồ.
+    async function exportBudget2CompanyTypeMonthReportXlsx() {
+      if (!budget2ReportsData) return showToast('Chưa có dữ liệu báo cáo để xuất.', 'warning');
+      const currentYear = new Date().getFullYear();
+      const byCompanyTypeCur = budget2ByCompanyTypeOfYear(currentYear);
+      const typeLabel = t => BUDGET2_COMPANY_TYPE_LABELS[t] || t;
+
+      const totalData = budget2CompanyTypeTotalData(byCompanyTypeCur);
+      const sheetCompanyTypeTotal = {
+        name: 'Loại công ty - Tổng',
+        header: ['Loại công ty', 'Ngân sách đề xuất', 'Ngân sách phê duyệt'],
+        rows: totalData.map(d => [d.label, d.proposed, d.approved])
+      };
+
+      const sheetCompanyTypeOC = {
+        name: 'Loại công ty - OPEX-CAPEX',
+        header: ['Loại công ty', 'Giai đoạn', 'OPEX', 'CAPEX', 'Tổng'],
+        rows: [
+          ...budget2CompanyTypeOpexCapex(byCompanyTypeCur, 'proposed').map(d => [d.label, 'Đề xuất', d.opex, d.capex, d.opex + d.capex]),
+          ...budget2CompanyTypeOpexCapex(byCompanyTypeCur, 'approved').map(d => [d.label, 'Phê duyệt', d.opex, d.capex, d.opex + d.capex]),
+        ]
+      };
+
+      const sheetMonthOC = {
+        name: 'Theo Tháng - OPEX-CAPEX',
+        header: ['Tháng', 'Giai đoạn', 'OPEX', 'CAPEX', 'Tổng'],
+        rows: [
+          ...budget2MonthOpexCapex(currentYear, 'proposed').map(d => [d.label, 'Đề xuất', d.opex, d.capex, d.opex + d.capex]),
+          ...budget2MonthOpexCapex(currentYear, 'approved').map(d => [d.label, 'Phê duyệt', d.opex, d.capex, d.opex + d.capex]),
+        ]
+      };
+
+      const monthByTypeRows = [];
+      ['proposed', 'approved'].forEach(metric => {
+        const stageLabel = metric === 'proposed' ? 'Đề xuất' : 'Phê duyệt';
+        BUDGET2_COMPANY_TYPE_ORDER.forEach(t => {
+          budget2MonthByCompanyTypeOpexCapex(byCompanyTypeCur, t, metric).forEach(d => {
+            monthByTypeRows.push([d.label, typeLabel(t), stageLabel, d.opex, d.capex, d.opex + d.capex]);
+          });
+        });
+      });
+      const sheetMonthByType = {
+        name: 'Theo Tháng x Loại công ty',
+        header: ['Tháng', 'Loại công ty', 'Giai đoạn', 'OPEX', 'CAPEX', 'Tổng'],
+        rows: monthByTypeRows
+      };
+
+      await downloadMultiSheetXlsxFile(`bao_cao_da_chieu_ngan_sach_${currentYear}.xlsx`,
+        [sheetCompanyTypeTotal, sheetCompanyTypeOC, sheetMonthOC, sheetMonthByType]);
     }
     // Danh sách năm hiển thị trong bộ lọc "Theo kỳ" — lấy từ toàn bộ dữ liệu
     // đang có (không phụ thuộc dimension đang chọn) để không bỏ sót năm nào.

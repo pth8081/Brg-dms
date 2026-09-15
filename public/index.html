@@ -2006,7 +2006,11 @@
 
       <!-- Báo cáo đa chiều: Loại công ty x Tháng x OPEX/CAPEX — xem chú thích
            chi tiết tại renderBudget2CompanyTypeAndMonthReports() trong app.js. -->
-      <div id="budget2CompanyTypeMonthReports" class="pt-3 border-t space-y-4"></div>
+      <div class="pt-3 border-t flex flex-wrap justify-between items-center gap-2">
+        <h3 class="text-sm font-bold text-gray-700">Báo cáo đa chiều (Loại công ty / Tháng / OPEX-CAPEX)</h3>
+        <button data-evt-click="exportBudget2CompanyTypeMonthReportXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">📤 Xuất Excel số liệu biểu đồ</button>
+      </div>
+      <div id="budget2CompanyTypeMonthReports" class="space-y-4"></div>
 
       <h3 class="text-sm font-bold text-gray-700 pt-2 border-t">Tra cứu chi tiết</h3>
       <div class="flex gap-1 border-b">
