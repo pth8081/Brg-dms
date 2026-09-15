@@ -119,7 +119,14 @@ input[type="date"] {
     position: fixed;
     top: 1rem;
     right: 1rem;
-    z-index: 100;
+    /* PHẢI cao hơn z-index cao nhất trong toàn bộ ứng dụng (hiện là 100, ở
+       #loginSection) — trước đây cả 2 cùng z-index:100 nên #loginSection
+       (đứng SAU trong DOM, cùng ngữ cảnh stacking gốc position:fixed) VẼ ĐÈ
+       LÊN toast, khiến mọi thông báo lỗi/thành công trong lúc đăng nhập (kể
+       cả sai mật khẩu, sai mã 2FA...) không bao giờ hiển thị được — người
+       dùng tưởng bấm không có phản hồi gì. Xác nhận qua báo cáo thực tế: bị
+       kẹt ở màn thiết lập 2FA vì không thấy thông báo mã sai. */
+    z-index: 200;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
