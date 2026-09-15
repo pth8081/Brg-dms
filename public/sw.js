@@ -11,7 +11,7 @@
 // duyệt tự phát hiện file sw.js đổi byte sau mỗi lần deploy, cài bản mới, và
 // "activate" bên dưới tự xóa cache phiên bản cũ ngay, tránh vỏ ứng dụng bị kẹt
 // ở bản cũ giống lỗi app.min.js quên rebuild trước đây (xem Đợt 7).
-const CACHE_NAME = 'dms-shell-v6.87.0';
+const CACHE_NAME = 'dms-shell-v6.88.0';
 const SHELL_ASSETS = ['/', '/app.min.js', '/style.css', '/vendor/exceljs.min.js', '/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', (event) => {
