@@ -537,6 +537,41 @@
       if (label) label.textContent = `Đăng nhập nhanh — ${remembered}`;
       btn.classList.remove('hidden');
     }
+    // Tự nhớ tài khoản đã đăng nhập gần nhất (giống mẫu "Đào Phan Anh | Tài
+    // khoản khác") — thay ô nhập tên đăng nhập bằng 1 chip hiển thị sẵn tên
+    // tài khoản, người dùng chỉ cần gõ mật khẩu (hoặc bấm vân tay/Face ID).
+    // Chỉ đổi sang tài khoản khác khi tự bấm "Tài khoản khác".
+    function initRememberedAccountUI() {
+      const chip = document.getElementById('rememberedAccountChip');
+      const fieldWrap = document.getElementById('usernameFieldWrap');
+      const userInput = document.getElementById('txtUser');
+      if (!chip || !fieldWrap || !userInput) return;
+      const remembered = localStorage.getItem(WEBAUTHN_REMEMBERED_USERNAME_KEY);
+      if (remembered) {
+        userInput.value = remembered;
+        const nameEl = document.getElementById('rememberedAccountName');
+        const avatarEl = document.getElementById('rememberedAccountAvatar');
+        if (nameEl) nameEl.textContent = remembered;
+        if (avatarEl) avatarEl.textContent = remembered.charAt(0).toUpperCase();
+        chip.classList.remove('hidden');
+        fieldWrap.classList.add('hidden');
+      } else {
+        userInput.value = '';
+        chip.classList.add('hidden');
+        fieldWrap.classList.remove('hidden');
+      }
+    }
+    function switchRememberedAccount() {
+      localStorage.removeItem(WEBAUTHN_REMEMBERED_USERNAME_KEY);
+      const passInput = document.getElementById('txtPass');
+      if (passInput) passInput.value = '';
+      const webauthnBtn = document.getElementById('btnWebauthnLogin');
+      if (webauthnBtn) webauthnBtn.classList.add('hidden');
+      initRememberedAccountUI();
+      const userInput = document.getElementById('txtUser');
+      if (userInput) userInput.focus();
+    }
+    initRememberedAccountUI();
     initWebauthnLoginButton();
 
     async function loginWithWebauthn() {
@@ -712,13 +747,13 @@
       document.getElementById('itAssetsSection').classList.add('hidden');
       document.getElementById('budget2Section').classList.add('hidden');
       document.getElementById('userHeader').classList.add('hidden');
+      initRememberedAccountUI();
       initWebauthnLoginButton();
     }
 
     async function logout() {
       try { await apiFetch('/api/auth/logout', { method: 'POST' }); } catch (e) { /* ignore */ }
       showLoginScreen();
-      document.getElementById('txtUser').value = '';
       document.getElementById('txtPass').value = '';
     }
 
