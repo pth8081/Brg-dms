@@ -804,7 +804,7 @@
       if (tabName === 'home') { renderHomeDashboard(); }
       if (tabName === 'doc') { renderDocs(); updateUploadDeptDropdown(); }
       if (tabName === 'admin' && currentUser.perms.admin) { switchAdminSubTab('users'); }
-      if (tabName === 'license' && (currentUser.perms.admin || currentUser.perms.licenseManager)) { switchLicenseSubTab('org'); }
+      if (tabName === 'license' && (currentUser.perms.admin || currentUser.perms.licenseManager)) { switchLicenseSubTab('emp'); }
       if (tabName === 'reports' && currentUser.perms.admin) { switchReportsSubsystem('doc'); }
       if (tabName === 'licensePortal' && !currentUser.perms.admin && currentUser.perms.licenseScopeType) { switchPortalSubTab('budget'); }
       if (tabName === 'itAssets' && currentUser.perms.admin) { switchItAssetsSubTab('items'); }
@@ -969,8 +969,8 @@
     function switchAdminSubTab(subName) {
       if (!currentUser || !currentUser.perms.admin) return;
 
-      const subs = { users: 'adminSubUsers', workflow: 'adminSubWorkflow', processDocs: 'adminSubProcessDocs', log: 'adminSubLog', trash: 'adminSubTrash' };
-      const btns = { users: 'btnAdminSubUsers', workflow: 'btnAdminSubWorkflow', processDocs: 'btnAdminSubProcessDocs', log: 'btnAdminSubLog', trash: 'btnAdminSubTrash' };
+      const subs = { users: 'adminSubUsers', catalog: 'adminSubCatalog', workflow: 'adminSubWorkflow', processDocs: 'adminSubProcessDocs', log: 'adminSubLog', trash: 'adminSubTrash' };
+      const btns = { users: 'btnAdminSubUsers', catalog: 'btnAdminSubCatalog', workflow: 'btnAdminSubWorkflow', processDocs: 'btnAdminSubProcessDocs', log: 'btnAdminSubLog', trash: 'btnAdminSubTrash' };
 
       Object.keys(subs).forEach(key => {
         document.getElementById(subs[key]).classList.toggle('hidden', key !== subName);
@@ -981,10 +981,28 @@
         btn.classList.toggle('text-gray-700', key !== subName);
       });
 
-      if (subName === 'users') { renderDeptList(); renderCatList(); renderDeptCheckboxes(); renderUsers(); renderPendingUsers(); loadEmailConfigToForm(); loadLdapConfigToForm(); ensureUserScopePickerReady(); }
+      if (subName === 'users') { renderDeptCheckboxes(); renderUsers(); renderPendingUsers(); loadEmailConfigToForm(); loadLdapConfigToForm(); ensureUserScopePickerReady(); }
+      if (subName === 'catalog') { switchCatalogSubTab(catalogSubTabState || 'dept'); }
       if (subName === 'workflow') { renderWorkflowTab(); }
       if (subName === 'log') { renderSystemLogs(); }
       if (subName === 'trash') { loadAndRenderTrash(); }
+    }
+    // Nhớ lại đúng mục con Quản lý danh mục đang xem — tránh việc mỗi lần
+    // quay lại tab "Hệ thống" đều bị nhảy về "Phòng ban" dù đang xem dở mục khác.
+    let catalogSubTabState = null;
+    function switchCatalogSubTab(subName) {
+      catalogSubTabState = subName;
+      const subs = { dept: 'catalogSubDept', doccat: 'catalogSubDoccat', org: 'catalogSubOrg', hcdv: 'catalogSubHcdv', budgetcat: 'catalogSubBudgetcat' };
+      const btns = { dept: 'btnCatalogSubDept', doccat: 'btnCatalogSubDoccat', org: 'btnCatalogSubOrg', hcdv: 'btnCatalogSubHcdv', budgetcat: 'btnCatalogSubBudgetcat' };
+      Object.keys(subs).forEach(key => {
+        document.getElementById(subs[key]).classList.toggle('hidden', key !== subName);
+        document.getElementById(btns[key]).classList.toggle('active', key === subName);
+      });
+      if (subName === 'dept') { renderDeptList(); }
+      if (subName === 'doccat') { renderCatList(); }
+      if (subName === 'org') { loadLicenseBootstrapData().then(renderCompanyList).catch(err => showToast(err.message || 'Không thể tải dữ liệu.', 'danger')); }
+      if (subName === 'hcdv') { loadLicenseBootstrapData().then(renderBudgetItemCatalogTable).catch(err => showToast(err.message || 'Không thể tải dữ liệu.', 'danger')); }
+      if (subName === 'budgetcat') { loadAllBudget2CategoriesForAdmin().then(renderBudget2CategoryTable).catch(err => showToast(err.message || 'Không thể tải dữ liệu.', 'danger')); }
     }
     // Ô chọn Phạm vi trong form Quản lý người dùng cần dữ liệu companies/orgUnits
     // của module Bản quyền — Admin có thể chưa từng mở tab Bản quyền trong
@@ -2968,18 +2986,16 @@
     function switchLicenseSubTab(subName) {
       if (!currentUser || !(currentUser.perms.admin || currentUser.perms.licenseManager)) return;
 
-      const subs = { org: 'licenseSubOrg', emp: 'licenseSubEmp', software: 'licenseSubSoftware', itemCatalog: 'licenseSubItemCatalog', batch: 'licenseSubBatch', alloc: 'licenseSubAlloc', revokeEmp: 'licenseSubRevokeEmp', ad: 'licenseSubAD', purchase: 'licenseSubPurchase', rounds: 'licenseSubRounds', budget: 'licenseSubBudget' };
-      const btns = { org: 'btnLicenseSubOrg', emp: 'btnLicenseSubEmp', software: 'btnLicenseSubSoftware', itemCatalog: 'btnLicenseSubItemCatalog', batch: 'btnLicenseSubBatch', alloc: 'btnLicenseSubAlloc', revokeEmp: 'btnLicenseSubRevokeEmp', ad: 'btnLicenseSubAD', purchase: 'btnLicenseSubPurchase', rounds: 'btnLicenseSubRounds', budget: 'btnLicenseSubBudget' };
+      const subs = { emp: 'licenseSubEmp', software: 'licenseSubSoftware', batch: 'licenseSubBatch', alloc: 'licenseSubAlloc', revokeEmp: 'licenseSubRevokeEmp', ad: 'licenseSubAD', purchase: 'licenseSubPurchase', rounds: 'licenseSubRounds', budget: 'licenseSubBudget' };
+      const btns = { emp: 'btnLicenseSubEmp', software: 'btnLicenseSubSoftware', batch: 'btnLicenseSubBatch', alloc: 'btnLicenseSubAlloc', revokeEmp: 'btnLicenseSubRevokeEmp', ad: 'btnLicenseSubAD', purchase: 'btnLicenseSubPurchase', rounds: 'btnLicenseSubRounds', budget: 'btnLicenseSubBudget' };
       Object.keys(subs).forEach(key => {
         document.getElementById(subs[key]).classList.toggle('hidden', key !== subName);
         document.getElementById(btns[key]).classList.toggle('active', key === subName);
       });
 
       loadLicenseBootstrapData().then(() => {
-        if (subName === 'org') renderCompanyList();
         if (subName === 'emp') { populateCompanyFilterSelects(); renderLicenseEmployees(); }
         if (subName === 'software') renderSoftwareTable();
-        if (subName === 'itemCatalog') renderBudgetItemCatalogTable();
         if (subName === 'batch') renderBatchTable();
         if (subName === 'alloc') { populateAllocFilterSelects(); renderAllocTable(); renderBulkAllocRequestsTable(); }
         if (subName === 'revokeEmp') { resetRevokeEmpPanel(); }
@@ -6853,7 +6869,7 @@ function isPerpetualSoftware(softwareId) {
     // trình 3 giai đoạn Đề xuất -> Phê duyệt -> Sử dụng. Xem chú thích chi
     // tiết ở schema.sql / server.js.
     // =====================================================================
-    const budget2DB = { lines: [], companies: [], orgUnits: [], loaded: false };
+    const budget2DB = { lines: [], companies: [], orgUnits: [], categories: [], loaded: false };
     let budget2ReportsData = null;
     const budget2ReportFilters = {
       mode: 'single',
@@ -6872,6 +6888,7 @@ function isPerpetualSoftware(softwareId) {
       budget2DB.lines = data.lines || [];
       budget2DB.companies = data.companies || [];
       budget2DB.orgUnits = data.orgUnits || [];
+      budget2DB.categories = data.categories || [];
       budget2DB.loaded = true;
     }
 
@@ -6913,15 +6930,101 @@ function isPerpetualSoftware(softwareId) {
       };
       return map[status] || status;
     }
-    const BUDGET2_CATEGORY_LABELS = { SOFTWARE: 'Phần mềm', HARDWARE: 'Phần cứng', SERVICE: 'Dịch vụ', SYSTEM: 'Hệ thống' };
+    // (Đợt gộp danh mục) "Danh mục" của Ngân sách trước đây là 4 giá trị viết
+    // cứng — nay đọc từ budget2DB.categories (Hệ thống > Quản lý danh mục),
+    // Admin thêm được danh mục mới ngoài 4 mã gốc. 4 mã gốc vẫn giữ đúng màu
+    // cũ cho quen mắt; danh mục MỚI (không nằm trong 4 mã gốc) dùng 1 màu
+    // trung tính chung — không tự sinh màu ngẫu nhiên để tránh lặp/khó phân biệt.
+    const BUDGET2_CATEGORY_BADGE_COLORS = {
+      SOFTWARE: 'text-blue-700 bg-blue-100', HARDWARE: 'text-orange-700 bg-orange-100',
+      SERVICE: 'text-teal-700 bg-teal-100', SYSTEM: 'text-violet-700 bg-violet-100'
+    };
+    function budget2CategoryLabel(code) {
+      const c = budget2DB.categories.find(x => x.code === code);
+      return c ? c.name : '';
+    }
     function budget2CategoryBadge(cat) {
-      const map = {
-        SOFTWARE: '<span class="text-[10px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full whitespace-nowrap">Phần mềm</span>',
-        HARDWARE: '<span class="text-[10px] font-bold text-orange-700 bg-orange-100 px-2 py-0.5 rounded-full whitespace-nowrap">Phần cứng</span>',
-        SERVICE: '<span class="text-[10px] font-bold text-teal-700 bg-teal-100 px-2 py-0.5 rounded-full whitespace-nowrap">Dịch vụ</span>',
-        SYSTEM: '<span class="text-[10px] font-bold text-violet-700 bg-violet-100 px-2 py-0.5 rounded-full whitespace-nowrap">Hệ thống</span>'
-      };
-      return map[cat] || '<span class="text-gray-400 italic">—</span>';
+      const label = budget2CategoryLabel(cat);
+      if (!label) return '<span class="text-gray-400 italic">—</span>';
+      const color = BUDGET2_CATEGORY_BADGE_COLORS[cat] || 'text-slate-700 bg-slate-100';
+      return `<span class="text-[10px] font-bold ${color} px-2 py-0.5 rounded-full whitespace-nowrap">${escapeHtml(label)}</span>`;
+    }
+    // --- Hệ thống > Quản lý danh mục > Danh mục hệ thống (Ngân sách) — CRUD
+    // cho budget2_item_categories, dùng chung logic tải dữ liệu với module
+    // Ngân sách (budget2DB) vì cùng 1 nguồn dữ liệu, chỉ khác nơi hiển thị. ---
+    // Danh sách RIÊNG cho màn quản lý này (Admin, kể cả danh mục đã ẩn) — KHÔNG
+    // dùng chung biến budget2DB.categories, vì biến đó chỉ chứa danh mục đang
+    // active (phục vụ ô chọn khi tạo dòng ngân sách) — ghi đè nó ở đây sẽ làm
+    // sai lệch mọi ô chọn Danh mục ở module Ngân sách nếu Admin từng mở qua
+    // tab Quản lý danh mục trong cùng phiên làm việc.
+    let budget2AdminCategories = [];
+    function renderBudget2CategoryTable() {
+      const tbody = document.getElementById('budget2CategoryTableBody');
+      if (!tbody) return;
+      if (!budget2AdminCategories.length) {
+        tbody.innerHTML = `<tr><td colspan="4" class="text-center text-gray-400 p-4">Chưa có danh mục nào — bấm "+ Thêm danh mục" để bắt đầu.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = budget2AdminCategories.map(c => `
+        <tr class="${c.active ? '' : 'opacity-50'}">
+          <td class="border p-2">${escapeHtml(c.name)}</td>
+          <td class="border p-2 font-mono text-[11px]">${escapeHtml(c.code)}</td>
+          <td class="border p-2 text-center">${c.active ? '✅' : '—'}</td>
+          <td class="border p-2 text-center whitespace-nowrap">
+            <button ${dc('openBudget2CategoryModal', c.id)} class="px-1.5 py-0.5 rounded hover:bg-brand-100 text-brand-700">✏️ Sửa</button>
+            <button ${dc('deleteBudget2Category', c.id, `${escapeJsAttr(c.name)}`)} class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600">🗑️ Xóa</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+    // GET /api/budget2/categories trả về TOÀN BỘ (kể cả đã ẩn) — riêng cho màn
+    // quản lý này; budget2DB.categories (từ bootstrap Ngân sách) chỉ có danh
+    // mục đang active, dùng cho các ô chọn/lọc khi tạo dòng ngân sách, không
+    // đủ để hiển thị đúng ở đây (sẽ thiếu các danh mục đã ẩn).
+    async function loadAllBudget2CategoriesForAdmin() {
+      const data = await apiFetch('/api/budget2/categories');
+      budget2AdminCategories = data.categories || [];
+    }
+    function openBudget2CategoryModal(id) {
+      const item = id ? budget2AdminCategories.find(c => c.id === id) : null;
+      document.getElementById('budget2CategoryModalTitle').textContent = item ? 'Sửa danh mục' : 'Thêm danh mục';
+      document.getElementById('budget2CategoryId').value = item ? item.id : '';
+      document.getElementById('budget2CategoryName').value = item ? item.name : '';
+      document.getElementById('budget2CategoryActiveWrap').classList.toggle('hidden', !item);
+      document.getElementById('budget2CategoryActive').checked = item ? item.active : true;
+      openLicenseModal('budget2CategoryModal');
+    }
+    async function saveBudget2Category() {
+      const id = document.getElementById('budget2CategoryId').value;
+      const name = document.getElementById('budget2CategoryName').value.trim();
+      const active = document.getElementById('budget2CategoryActive').checked;
+      if (!name) return showToast('Vui lòng nhập Tên danh mục.', 'warning');
+      try {
+        if (id) {
+          await apiFetch(`/api/budget2/categories/${id}`, { method: 'PUT', body: JSON.stringify({ name, active }) });
+          showToast('Đã cập nhật danh mục.', 'success');
+        } else {
+          await apiFetch('/api/budget2/categories', { method: 'POST', body: JSON.stringify({ name }) });
+          showToast('Đã thêm danh mục.', 'success');
+        }
+        closeLicenseModal('budget2CategoryModal');
+        await loadAllBudget2CategoriesForAdmin();
+        renderBudget2CategoryTable();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+    async function deleteBudget2Category(id, name) {
+      const ok = await showConfirm({ title: 'Xóa danh mục', message: `Xóa hẳn "${name}"? Chỉ xóa được nếu chưa có dòng Ngân sách nào dùng danh mục này — nếu đã dùng, hãy sửa và bỏ chọn "Đang dùng" thay vì xóa.`, danger: true, confirmText: 'Xóa' });
+      if (!ok) return;
+      try {
+        await apiFetch(`/api/budget2/categories/${id}`, { method: 'DELETE' });
+        showToast(`Đã xóa "${name}".`, 'success');
+        await loadAllBudget2CategoriesForAdmin();
+        renderBudget2CategoryTable();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
     }
     function budget2UsageStatusBadge(status) {
       const map = {
@@ -6945,7 +7048,7 @@ function isPerpetualSoftware(softwareId) {
     }
 
     // --- Nhập/Xuất Excel (dùng chung cho cả Đề xuất và Phê duyệt) ---
-    const BUDGET2_XLSX_HEADER_LABELS = ['Nội dung', 'Mô tả', 'Số lượng', 'Đơn giá', 'VAT (%)', 'Loại (OPEX/CAPEX)', 'Danh mục (Phần mềm/Phần cứng/Dịch vụ/Hệ thống)', 'Tháng ngân sách', 'Năm ngân sách', 'Mã công ty', 'Đơn vị'];
+    const BUDGET2_XLSX_HEADER_LABELS = ['Nội dung', 'Mô tả', 'Số lượng', 'Đơn giá', 'VAT (%)', 'Loại (OPEX/CAPEX)', 'Danh mục (xem Hệ thống > Quản lý danh mục)', 'Tháng ngân sách', 'Năm ngân sách', 'Mã công ty', 'Đơn vị'];
     const BUDGET2_XLSX_HEADER_KEYS = ['content', 'description', 'quantity', 'unitPrice', 'vatPercent', 'budgetType', 'itemCategory', 'budgetMonth', 'budgetYear', 'companyCode', 'orgUnitName'];
     function downloadBudget2Template() {
       const thisYear = new Date().getFullYear();
@@ -6977,12 +7080,191 @@ function isPerpetualSoftware(softwareId) {
       if (stage === 'APPROVED') header.push('Trạng thái');
       const statusLabel = { SUBMITTED: 'Chờ duyệt', APPROVED: 'Đã duyệt', REJECTED: 'Từ chối' };
       const data = rows.map((l, i) => {
-        const row = [i + 1, l.content, l.description || '', l.quantity, l.unitPrice, l.vatPercent, l.totalAmount, l.budgetType, BUDGET2_CATEGORY_LABELS[l.itemCategory] || '', l.budgetMonth, l.budgetYear, budget2CompanyName(l.companyId), budget2OrgUnitName(l.orgUnitId), l.note || ''];
+        const row = [i + 1, l.content, l.description || '', l.quantity, l.unitPrice, l.vatPercent, l.totalAmount, l.budgetType, budget2CategoryLabel(l.itemCategory) || '', l.budgetMonth, l.budgetYear, budget2CompanyName(l.companyId), budget2OrgUnitName(l.orgUnitId), l.note || ''];
         if (stage === 'APPROVED') row.push(statusLabel[l.status] || l.status);
         return row;
       });
       const filename = stage === 'PROPOSED' ? 'ngan_sach_de_xuat.xlsx' : 'ngan_sach_phe_duyet.xlsx';
       downloadXlsxFile(filename, header, data);
+    }
+
+    // --- Bộ lọc + nhóm theo Năm + phân trang + chọn nhiều-xóa nhiều, dùng
+    // chung cho cả 3 tab Đề xuất/Phê duyệt/Sử dụng (mỗi tab 1 bộ state riêng
+    // theo key 'propose'/'approved'/'used'). Ngân sách lập theo năm nên số
+    // dòng dồn lại rất dài nếu không nhóm/phân trang — nhóm theo năm (gấp/mở
+    // được) rồi phân trang RIÊNG trong từng năm, vì số dòng/năm mới là con số
+    // người dùng thực sự cần duyệt qua, không phải tổng số dòng toàn bộ lịch sử.
+    const BUDGET2_PAGE_SIZE = 10;
+    const budget2FilterState = {
+      propose: { year: '', type: '', category: '', orgUnit: '', q: '' },
+      approved: { year: '', type: '', category: '', orgUnit: '', q: '' },
+      used: { year: '', type: '', category: '', orgUnit: '', q: '' }
+    };
+    const budget2PageState = { propose: {}, approved: {}, used: {} };
+    const budget2SelectedIds = { propose: new Set(), approved: new Set(), used: new Set() };
+
+    function budget2ApplyFilters(rows, key) {
+      const f = budget2FilterState[key];
+      const q = f.q.trim().toLowerCase();
+      return rows.filter(l =>
+        (!f.year || String(l.budgetYear) === f.year) &&
+        (!f.type || l.budgetType === f.type) &&
+        (!f.category || l.itemCategory === f.category) &&
+        (!f.orgUnit || String(l.orgUnitId) === f.orgUnit) &&
+        (!q || l.content.toLowerCase().includes(q))
+      );
+    }
+    function budget2GroupByYear(rows) {
+      const map = new Map();
+      rows.forEach(l => { const y = l.budgetYear || 0; if (!map.has(y)) map.set(y, []); map.get(y).push(l); });
+      return [...map.entries()].sort((a, b) => b[0] - a[0]);
+    }
+    // Sinh HTML: khối "Năm YYYY" gấp/mở + phân trang riêng — rowsHtmlFn(pageRows, startIdx) trả về chuỗi <tr> của trang hiện tại.
+    function budget2RenderYearGroups(key, allYearRows, colCount, rowsHtmlFn, theadHtml, footerHtmlFn) {
+      if (!allYearRows.length) return `<div class="text-xs text-gray-400 italic p-4 border rounded">Không có dòng nào khớp bộ lọc.</div>`;
+      return allYearRows.map(([year, rows]) => {
+        const pageState = budget2PageState[key];
+        const totalPages = Math.max(1, Math.ceil(rows.length / BUDGET2_PAGE_SIZE));
+        if (!pageState[year] || pageState[year] > totalPages) pageState[year] = 1;
+        const page = pageState[year];
+        const start = (page - 1) * BUDGET2_PAGE_SIZE;
+        const pageRows = rows.slice(start, start + BUDGET2_PAGE_SIZE);
+        let pagBtns = '';
+        for (let p = 1; p <= totalPages; p++) {
+          pagBtns += `<button ${dc('onBudget2PageChange', key, year, p)} class="text-[11px] font-bold px-2.5 py-1 rounded border ${p === page ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white text-gray-700'}">${p}</button>`;
+        }
+        return `<div class="border rounded mb-3 overflow-hidden">
+          <div ${dc('onBudget2YearToggle', key, year)} class="flex justify-between items-center bg-gray-800 text-white px-4 py-2 cursor-pointer select-none">
+            <span class="font-bold text-sm">▾ Năm ${year || '(chưa gán)'}</span>
+            <span class="text-[11px] text-gray-300">${rows.length} dòng</span>
+          </div>
+          <div data-budget2-year-body="${key}:${year}">
+            <div class="overflow-x-auto">
+              <table class="w-full text-xs border-collapse">
+                ${theadHtml}
+                <tbody>${rowsHtmlFn(pageRows, start)}</tbody>
+                ${footerHtmlFn ? `<tfoot>${footerHtmlFn(rows)}</tfoot>` : ''}
+              </table>
+            </div>
+            ${totalPages > 1 ? `<div class="flex justify-center gap-1 py-2 bg-gray-50">${pagBtns}</div>` : ''}
+          </div>
+        </div>`;
+      }).join('');
+    }
+    function onBudget2PageChange(key, year, page) {
+      budget2PageState[key][year] = page;
+      budget2RerenderTable(key);
+    }
+    function onBudget2YearToggle(key, year) {
+      const groups = document.querySelectorAll(`[data-budget2-year-body="${key}:${year}"]`);
+      groups.forEach(g => g.classList.toggle('hidden'));
+    }
+    // Gõ tìm theo nội dung re-render lại toàn bộ khối (kể cả chính ô input đó)
+    // mỗi phím gõ — innerHTML thay mới sẽ làm ô input mất focus giữa chừng nếu
+    // không tự khôi phục lại, gây trải nghiệm "gõ 1 chữ lại phải bấm lại vào ô".
+    function budget2RerenderTable(key) {
+      const active = document.activeElement;
+      const wasSearchFocused = active && active.getAttribute && active.getAttribute('data-budget2-search') === key;
+      const cursorPos = wasSearchFocused ? active.selectionStart : null;
+      if (key === 'propose') renderBudget2ProposedTable();
+      else if (key === 'approved') renderBudget2ApprovedTable();
+      else renderBudget2UsedTable();
+      if (wasSearchFocused) {
+        const el = document.querySelector(`[data-budget2-search="${key}"]`);
+        if (el) { el.focus(); el.setSelectionRange(cursorPos, cursorPos); }
+      }
+    }
+    function onBudget2FilterFieldChange(key, field, value) {
+      budget2FilterState[key][field] = value;
+      budget2PageState[key] = {};
+      budget2RerenderTable(key);
+    }
+    function clearBudget2Filters(key) {
+      budget2FilterState[key] = { year: '', type: '', category: '', orgUnit: '', q: '' };
+      budget2PageState[key] = {};
+      budget2RerenderTable(key);
+    }
+    function budget2RenderFilterBar(key) {
+      const yearOptions = [...new Set(budget2DB.lines.map(l => l.budgetYear).filter(Boolean))].sort((a, b) => b - a);
+      const orgUnitOptions = budget2DB.orgUnits.slice().sort((a, b) => a.name.localeCompare(b.name));
+      const f = budget2FilterState[key];
+      return `<div class="flex flex-wrap gap-2 items-end bg-gray-50 border rounded p-2.5 mb-2">
+        <div><label class="block text-[10px] font-bold text-gray-500 uppercase mb-0.5">Năm</label>
+          <select ${dchg('onBudget2FilterFieldChange', key, 'year', LIVE_VALUE)} class="border p-1.5 rounded text-xs bg-white">
+            <option value="">Tất cả</option>
+            ${yearOptions.map(y => `<option value="${y}" ${f.year === String(y) ? 'selected' : ''}>${y}</option>`).join('')}
+          </select></div>
+        <div><label class="block text-[10px] font-bold text-gray-500 uppercase mb-0.5">Loại ngân sách</label>
+          <select ${dchg('onBudget2FilterFieldChange', key, 'type', LIVE_VALUE)} class="border p-1.5 rounded text-xs bg-white">
+            <option value="">Tất cả</option>
+            <option value="OPEX" ${f.type === 'OPEX' ? 'selected' : ''}>OPEX</option>
+            <option value="CAPEX" ${f.type === 'CAPEX' ? 'selected' : ''}>CAPEX</option>
+          </select></div>
+        <div><label class="block text-[10px] font-bold text-gray-500 uppercase mb-0.5">Danh mục</label>
+          <select ${dchg('onBudget2FilterFieldChange', key, 'category', LIVE_VALUE)} class="border p-1.5 rounded text-xs bg-white">
+            <option value="">Tất cả</option>
+            ${budget2DB.categories.map(c => `<option value="${c.code}" ${f.category === c.code ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
+          </select></div>
+        <div><label class="block text-[10px] font-bold text-gray-500 uppercase mb-0.5">Khối/phòng ban</label>
+          <select ${dchg('onBudget2FilterFieldChange', key, 'orgUnit', LIVE_VALUE)} class="border p-1.5 rounded text-xs bg-white">
+            <option value="">Tất cả</option>
+            ${orgUnitOptions.map(u => `<option value="${u.id}" ${f.orgUnit === String(u.id) ? 'selected' : ''}>${escapeHtml(u.name)}</option>`).join('')}
+          </select></div>
+        <div class="flex-1 min-w-[160px]"><label class="block text-[10px] font-bold text-gray-500 uppercase mb-0.5">Nội dung</label>
+          <input ${din('onBudget2FilterFieldChange', key, 'q', LIVE_VALUE)} data-budget2-search="${key}" type="search" value="${escapeHtml(f.q)}" placeholder="Tìm theo nội dung…" class="w-full border p-1.5 rounded text-xs bg-white"></div>
+        <button ${dc('clearBudget2Filters', key)} class="text-xs font-bold text-gray-600 bg-white border px-3 py-1.5 rounded">✕ Xóa lọc</button>
+        <span id="budget2BulkBar_${key}" class="ml-auto"></span>
+      </div>`;
+    }
+    function budget2RenderBulkBar(key) {
+      const el = document.getElementById(`budget2BulkBar_${key}`);
+      if (!el) return;
+      const isAdmin = !!(currentUser && currentUser.perms && currentUser.perms.admin);
+      const count = budget2SelectedIds[key].size;
+      el.innerHTML = (isAdmin && count > 0)
+        ? `<button ${dc('bulkDeleteBudget2Lines', key)} class="text-xs font-bold text-white bg-red-600 hover:bg-red-700 px-3 py-1.5 rounded">🗑️ Xóa đã chọn (${count})</button>`
+        : '';
+    }
+    function onBudget2RowCheckToggle(key, id, checked) {
+      if (checked) budget2SelectedIds[key].add(id); else budget2SelectedIds[key].delete(id);
+      budget2RenderBulkBar(key);
+    }
+    // "Chọn tất cả" chỉ tác động các dòng ĐANG HIỂN THỊ trên trang (đúng những
+    // gì người dùng nhìn thấy) — không âm thầm chọn cả những dòng đang ở trang
+    // khác/năm đang gấp lại.
+    function onBudget2SelectAllToggle(key, checked) {
+      document.querySelectorAll(`[data-budget2-row-check="${key}"]`).forEach(cb => {
+        cb.checked = checked;
+        const id = Number(cb.getAttribute('data-id'));
+        if (checked) budget2SelectedIds[key].add(id); else budget2SelectedIds[key].delete(id);
+      });
+      budget2RenderBulkBar(key);
+    }
+    async function bulkDeleteBudget2Lines(key) {
+      const ids = [...budget2SelectedIds[key]];
+      if (!ids.length) return;
+      if (!confirm(`Xóa ${ids.length} dòng ngân sách đã chọn? Dòng nào bị chặn (VD đã có mục sử dụng con) sẽ được báo riêng, các dòng còn lại vẫn xóa bình thường.`)) return;
+      let okCount = 0;
+      const failMsgs = [];
+      for (const id of ids) {
+        try {
+          await apiFetch(`/api/budget2/lines/${id}`, { method: 'DELETE' });
+          okCount++;
+        } catch (err) {
+          failMsgs.push(`#${id}: ${err.message}`);
+        }
+      }
+      budget2SelectedIds[key].clear();
+      budget2DB.loaded = false;
+      await loadBudget2BootstrapData();
+      renderBudget2ProposedTable();
+      renderBudget2ApprovedTable();
+      renderBudget2UsedTable();
+      if (failMsgs.length) {
+        showToast(`Đã xóa ${okCount}/${ids.length} dòng — ${failMsgs.length} dòng bị chặn: ${failMsgs.join('; ')}`, okCount ? 'warning' : 'danger');
+      } else {
+        showToast(`Đã xóa ${okCount} dòng.`, 'success');
+      }
     }
 
     // --- Sub-tab: Ngân sách đề xuất ---
@@ -6994,12 +7276,32 @@ function isPerpetualSoftware(softwareId) {
     // đoạn khác — Duyệt/Từ chối đổi TRẠNG THÁI ngay trên dòng này, dòng ở lại
     // vĩnh viễn trong bảng Đề xuất. Chỉ còn sửa/xóa được khi "Chờ duyệt".
     function renderBudget2ProposedTable() {
-      const tbody = document.getElementById('budget2ProposeTableBody');
-      if (!tbody) return;
+      const container = document.getElementById('budget2ProposeContainer');
+      if (!container) return;
       const isAdmin = !!(currentUser && currentUser.perms && currentUser.perms.admin);
-      const rows = budget2DB.lines.filter(l => l.stage === 'PROPOSED').sort((a, b) => b.id - a.id);
-      if (!rows.length) { tbody.innerHTML = '<tr><td colspan="16" class="text-center p-4 text-gray-400 italic">Chưa có đề xuất ngân sách nào.</td></tr>'; return; }
-      tbody.innerHTML = rows.map((l, i) => {
+      const allRows = budget2DB.lines.filter(l => l.stage === 'PROPOSED').sort((a, b) => b.id - a.id);
+      const filtered = budget2ApplyFilters(allRows, 'propose');
+      const grouped = budget2GroupByYear(filtered);
+      const thead = `<thead><tr class="bg-gray-100 text-left">
+        <th class="border p-2 w-8"><input type="checkbox" ${dchg('onBudget2SelectAllToggle', 'propose', LIVE_CHECKED)}></th>
+        <th class="border p-2 w-10">STT</th>
+        <th class="border p-2">Nội dung</th>
+        <th class="border p-2">Mô tả</th>
+        <th class="border p-2 text-right">SL</th>
+        <th class="border p-2 text-right">Đơn giá</th>
+        <th class="border p-2 text-right">VAT</th>
+        <th class="border p-2 text-right">Thành tiền</th>
+        <th class="border p-2 text-center">Loại</th>
+        <th class="border p-2 text-center">Danh mục</th>
+        <th class="border p-2 text-center">Tháng</th>
+        <th class="border p-2 text-center">Năm</th>
+        <th class="border p-2">Công ty</th>
+        <th class="border p-2">Khối/Ban/Phòng</th>
+        <th class="border p-2">Ghi chú</th>
+        <th class="border p-2 text-center">Trạng thái</th>
+        <th class="border p-2 text-center w-32">Thao tác</th>
+      </tr></thead>`;
+      const rowsHtmlFn = (pageRows, startIdx) => pageRows.map((l, i) => {
         const editBtn = `<button ${dc('openBudget2LineModal', 'PROPOSED', l.id)} class="text-blue-600 hover:underline mr-1" title="Sửa">✏️</button>`;
         const deleteBtn = `<button ${dc('deleteBudget2Line', l.id)} class="text-red-600 hover:underline mr-1" title="Xóa">🗑️</button>`;
         const decidedNote = `<span class="text-gray-400 italic text-[11px] block">Đã xử lý${l.decidedBy ? ' bởi ' + escapeHtml(l.decidedBy) : ''}</span>`;
@@ -7017,7 +7319,8 @@ function isPerpetualSoftware(softwareId) {
           actions = decidedNote;
         }
         return `<tr>
-          <td class="border p-2 text-center">${i + 1}</td>
+          <td class="border p-2 text-center"><input type="checkbox" data-budget2-row-check="propose" data-id="${l.id}" ${budget2SelectedIds.propose.has(l.id) ? 'checked' : ''} ${dchg('onBudget2RowCheckToggle', 'propose', l.id, LIVE_CHECKED)}></td>
+          <td class="border p-2 text-center">${startIdx + i + 1}</td>
           <td class="border p-2">${escapeHtml(l.content)}</td>
           <td class="border p-2">${escapeHtml(l.description || '')}</td>
           <td class="border p-2 text-right">${l.quantity}</td>
@@ -7035,6 +7338,9 @@ function isPerpetualSoftware(softwareId) {
           <td class="border p-2 text-center whitespace-nowrap">${actions}</td>
         </tr>`;
       }).join('');
+      container.innerHTML = budget2RenderFilterBar('propose')
+        + (allRows.length ? budget2RenderYearGroups('propose', grouped, 17, rowsHtmlFn, thead) : '<div class="text-xs text-gray-400 italic p-4 border rounded">Chưa có đề xuất ngân sách nào.</div>');
+      budget2RenderBulkBar('propose');
     }
 
     async function approveBudget2Proposal(id) {
@@ -7085,6 +7391,7 @@ function isPerpetualSoftware(softwareId) {
         budget2DB.loaded = false;
         await loadBudget2BootstrapData();
         renderBudget2ProposedTable();
+        renderBudget2ApprovedTable();
         renderBudget2UsedTable();
         showToast('Đã xóa.', 'success');
       } catch (err) { showToast(err.message, 'danger'); }
@@ -7097,6 +7404,8 @@ function isPerpetualSoftware(softwareId) {
       document.getElementById('budget2LineEditId').value = editId || '';
       const companySel = document.getElementById('budget2LineCompany');
       companySel.innerHTML = '<option value="">-- Không chọn --</option>' + budget2DB.companies.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+      const categorySel = document.getElementById('budget2LineCategory');
+      categorySel.innerHTML = budget2DB.categories.map(c => `<option value="${c.code}">${escapeHtml(c.name)}</option>`).join('');
       const line = editId ? budget2DB.lines.find(l => l.id === editId) : null;
       let title;
       if (!editId) {
@@ -7115,7 +7424,7 @@ function isPerpetualSoftware(softwareId) {
       document.getElementById('budget2LineUnitPrice').value = line ? line.unitPrice : 0;
       document.getElementById('budget2LineVat').value = line ? line.vatPercent : 0;
       document.getElementById('budget2LineType').value = line ? line.budgetType : 'OPEX';
-      document.getElementById('budget2LineCategory').value = line ? (line.itemCategory || 'SOFTWARE') : 'SOFTWARE';
+      document.getElementById('budget2LineCategory').value = line ? (line.itemCategory || '') : (budget2DB.categories[0] ? budget2DB.categories[0].code : '');
       document.getElementById('budget2LineMonth').value = line ? line.budgetMonth : (new Date().getMonth() + 1);
       document.getElementById('budget2LineYear').value = line ? line.budgetYear : new Date().getFullYear();
       document.getElementById('budget2LineNote').value = line ? (line.note || '') : '';
@@ -7175,95 +7484,93 @@ function isPerpetualSoftware(softwareId) {
       const container = document.getElementById('budget2ApprovedContainer');
       if (!container) return;
       const isAdmin = !!(currentUser && currentUser.perms && currentUser.perms.admin);
-      const rows = budget2DB.lines.filter(l => l.stage === 'APPROVED').sort((a, b) => b.id - a.id);
-      const renderGroup = (type) => {
-        const groupRows = rows.filter(l => l.budgetType === type);
-        const subtotal = groupRows.filter(l => l.status === 'APPROVED').reduce((s, l) => s + l.totalAmount, 0);
-        if (!groupRows.length) return `<div class="text-xs text-gray-400 italic p-2 border rounded mb-3">Chưa có dòng ${type} nào.</div>`;
-        return `<div class="overflow-x-auto border rounded mb-3">
-          <table class="w-full text-xs border-collapse">
-            <thead><tr class="bg-gray-100 text-left">
-              <th class="border p-2 w-10">#</th><th class="border p-2">Nội dung</th><th class="border p-2">Mô tả</th>
-              <th class="border p-2 text-right">SL</th><th class="border p-2 text-right">Đơn giá</th><th class="border p-2 text-right">VAT</th>
-              <th class="border p-2 text-right">Thành tiền</th><th class="border p-2 text-center">Danh mục</th><th class="border p-2 text-center">Tháng</th><th class="border p-2 text-center">Năm</th>
-              <th class="border p-2">Công ty</th><th class="border p-2">Khối/Ban/Phòng</th><th class="border p-2">Ghi chú</th>
-              <th class="border p-2 text-center">Trạng thái</th><th class="border p-2 text-center w-24">Thao tác</th>
-            </tr></thead>
-            <tbody>${groupRows.map((l, i) => {
-              const editBtn = `<button ${dc('openBudget2LineModal', 'APPROVED', l.id)} class="text-blue-600 hover:underline mr-1" title="Sửa">✏️</button>`;
-              const deleteBtn = `<button ${dc('deleteBudget2Line', l.id)} class="text-red-600 hover:underline mr-1" title="Xóa">🗑️</button>`;
-              const decidedNote = `<span class="text-gray-400 italic text-[11px] block">${escapeHtml(l.decidedBy || '')}</span>`;
-              let actions;
-              if (l.status === 'SUBMITTED') {
-                // Chờ duyệt: Người quản lý Ngân sách sửa được, nhưng chỉ Admin
-                // mới thấy nút Xóa (server cũng chặn xóa với người không phải
-                // Admin).
-                actions = editBtn + (isAdmin ? deleteBtn : '')
-                  + `<button ${dc('approveBudget2Line', l.id)} class="text-green-600 hover:underline mr-1" title="Duyệt">✔️</button>`
-                  + `<button ${dc('rejectBudget2Line', l.id)} class="text-red-600 hover:underline" title="Từ chối">✖️</button>`;
-              } else if (isAdmin) {
-                // Đã duyệt/từ chối: chỉ Admin được sửa/xóa lại. Sửa dòng đã
-                // DUYỆT sẽ tự đồng bộ luôn dòng Sử dụng tương ứng (server lo);
-                // xóa dòng đã DUYỆT chỉ được nếu dòng Sử dụng đó chưa có mục
-                // con (server tự kiểm tra, báo lỗi rõ nếu không được).
-                actions = editBtn + deleteBtn + decidedNote;
-              } else {
-                actions = decidedNote;
-              }
-              return `<tr>
-                <td class="border p-2 text-center">${i + 1}</td>
-                <td class="border p-2">${escapeHtml(l.content)}</td>
-                <td class="border p-2">${escapeHtml(l.description || '')}</td>
-                <td class="border p-2 text-right">${l.quantity}</td>
-                <td class="border p-2 text-right">${formatMoney(l.unitPrice)}</td>
-                <td class="border p-2 text-right">${l.vatPercent}%</td>
-                <td class="border p-2 text-right font-bold">${formatMoney(l.totalAmount)}</td>
-                <td class="border p-2 text-center">${budget2CategoryBadge(l.itemCategory)}</td>
-                <td class="border p-2 text-center">${l.budgetMonth || '—'}</td>
-                <td class="border p-2 text-center">${l.budgetYear || '—'}</td>
-                <td class="border p-2">${budget2CompanyCell(l)}</td>
-                <td class="border p-2">${budget2OrgUnitCell(l)}</td>
-                <td class="border p-2">${escapeHtml(l.note || '')}</td>
-                <td class="border p-2 text-center">${budget2StatusBadge(l.status)}</td>
-                <td class="border p-2 text-center whitespace-nowrap">${actions}</td>
-              </tr>`;
-            }).join('')}
-            <tr class="bg-gray-50 font-bold"><td colspan="6" class="border p-2 text-right">Tổng ${type} đã duyệt</td><td class="border p-2 text-right">${formatMoney(subtotal)}</td><td class="border p-2" colspan="8"></td></tr>
-            </tbody>
-          </table>
-        </div>`;
+      const allRows = budget2DB.lines.filter(l => l.stage === 'APPROVED').sort((a, b) => b.id - a.id);
+      const filtered = budget2ApplyFilters(allRows, 'approved');
+      const grouped = budget2GroupByYear(filtered);
+      const thead = `<thead><tr class="bg-gray-100 text-left">
+        <th class="border p-2 w-8"><input type="checkbox" ${dchg('onBudget2SelectAllToggle', 'approved', LIVE_CHECKED)}></th>
+        <th class="border p-2 w-10">#</th><th class="border p-2">Nội dung</th><th class="border p-2">Mô tả</th>
+        <th class="border p-2 text-right">SL</th><th class="border p-2 text-right">Đơn giá</th><th class="border p-2 text-right">VAT</th>
+        <th class="border p-2 text-right">Thành tiền</th><th class="border p-2 text-center">Loại</th><th class="border p-2 text-center">Danh mục</th><th class="border p-2 text-center">Tháng</th><th class="border p-2 text-center">Năm</th>
+        <th class="border p-2">Công ty</th><th class="border p-2">Khối/Ban/Phòng</th><th class="border p-2">Ghi chú</th>
+        <th class="border p-2 text-center">Trạng thái</th><th class="border p-2 text-center w-24">Thao tác</th>
+      </tr></thead>`;
+      const rowsHtmlFn = (pageRows, startIdx) => pageRows.map((l, i) => {
+        const editBtn = `<button ${dc('openBudget2LineModal', 'APPROVED', l.id)} class="text-blue-600 hover:underline mr-1" title="Sửa">✏️</button>`;
+        const deleteBtn = `<button ${dc('deleteBudget2Line', l.id)} class="text-red-600 hover:underline mr-1" title="Xóa">🗑️</button>`;
+        const decidedNote = `<span class="text-gray-400 italic text-[11px] block">${escapeHtml(l.decidedBy || '')}</span>`;
+        let actions;
+        if (l.status === 'SUBMITTED') {
+          // Chờ duyệt: Người quản lý Ngân sách sửa được, nhưng chỉ Admin
+          // mới thấy nút Xóa (server cũng chặn xóa với người không phải
+          // Admin).
+          actions = editBtn + (isAdmin ? deleteBtn : '')
+            + `<button ${dc('approveBudget2Line', l.id)} class="text-green-600 hover:underline mr-1" title="Duyệt">✔️</button>`
+            + `<button ${dc('rejectBudget2Line', l.id)} class="text-red-600 hover:underline" title="Từ chối">✖️</button>`;
+        } else if (isAdmin) {
+          // Đã duyệt/từ chối: chỉ Admin được sửa/xóa lại. Sửa dòng đã
+          // DUYỆT sẽ tự đồng bộ luôn dòng Sử dụng tương ứng (server lo);
+          // xóa dòng đã DUYỆT chỉ được nếu dòng Sử dụng đó chưa có mục
+          // con (server tự kiểm tra, báo lỗi rõ nếu không được).
+          actions = editBtn + deleteBtn + decidedNote;
+        } else {
+          actions = decidedNote;
+        }
+        return `<tr>
+          <td class="border p-2 text-center"><input type="checkbox" data-budget2-row-check="approved" data-id="${l.id}" ${budget2SelectedIds.approved.has(l.id) ? 'checked' : ''} ${dchg('onBudget2RowCheckToggle', 'approved', l.id, LIVE_CHECKED)}></td>
+          <td class="border p-2 text-center">${startIdx + i + 1}</td>
+          <td class="border p-2">${escapeHtml(l.content)}</td>
+          <td class="border p-2">${escapeHtml(l.description || '')}</td>
+          <td class="border p-2 text-right">${l.quantity}</td>
+          <td class="border p-2 text-right">${formatMoney(l.unitPrice)}</td>
+          <td class="border p-2 text-right">${l.vatPercent}%</td>
+          <td class="border p-2 text-right font-bold">${formatMoney(l.totalAmount)}</td>
+          <td class="border p-2 text-center">${budget2TypeBadge(l.budgetType)}</td>
+          <td class="border p-2 text-center">${budget2CategoryBadge(l.itemCategory)}</td>
+          <td class="border p-2 text-center">${l.budgetMonth || '—'}</td>
+          <td class="border p-2 text-center">${l.budgetYear || '—'}</td>
+          <td class="border p-2">${budget2CompanyCell(l)}</td>
+          <td class="border p-2">${budget2OrgUnitCell(l)}</td>
+          <td class="border p-2">${escapeHtml(l.note || '')}</td>
+          <td class="border p-2 text-center">${budget2StatusBadge(l.status)}</td>
+          <td class="border p-2 text-center whitespace-nowrap">${actions}</td>
+        </tr>`;
+      }).join('');
+      const footerHtmlFn = (rows) => {
+        const subtotal = rows.filter(l => l.status === 'APPROVED').reduce((s, l) => s + l.totalAmount, 0);
+        return `<tr class="bg-gray-50 font-bold"><td colspan="8" class="border p-2 text-right">Tổng đã duyệt (năm này)</td><td class="border p-2 text-right">${formatMoney(subtotal)}</td><td class="border p-2" colspan="8"></td></tr>`;
       };
-      container.innerHTML = `
-        <div class="flex justify-end mb-2">
+      container.innerHTML = `<div class="flex justify-end mb-2">
           <button ${dc('openBudget2LineModal', 'APPROVED', null)} class="btn-primary px-3 py-1.5 rounded text-xs font-bold">+ Thêm dòng phê duyệt (chờ duyệt)</button>
-        </div>
-        <h3 class="font-bold text-sky-800 text-sm mb-1">💠 OPEX</h3>
-        ${renderGroup('OPEX')}
-        <h3 class="font-bold text-purple-800 text-sm mb-1">💠 CAPEX</h3>
-        ${renderGroup('CAPEX')}
-      `;
+        </div>`
+        + budget2RenderFilterBar('approved')
+        + (allRows.length ? budget2RenderYearGroups('approved', grouped, 17, rowsHtmlFn, thead, footerHtmlFn) : '<div class="text-xs text-gray-400 italic p-4 border rounded">Chưa có dòng ngân sách phê duyệt nào.</div>');
+      budget2RenderBulkBar('approved');
     }
 
     // --- Sub-tab: Ngân sách sử dụng (phân cấp mục cha/con) ---
     function renderBudget2UsedTable() {
       const container = document.getElementById('budget2UsedContainer');
       if (!container) return;
-      const parents = budget2DB.lines.filter(l => l.stage === 'USED' && !l.parentId).sort((a, b) => b.id - a.id);
-      if (!parents.length) {
-        container.innerHTML = '<div class="text-xs text-gray-400 italic p-4 border rounded">Chưa có mục ngân sách sử dụng nào — mục sẽ tự sinh khi duyệt đề xuất hoặc thêm dòng phê duyệt trực tiếp.</div>';
-        return;
-      }
-      container.innerHTML = parents.map(p => {
+      const allParents = budget2DB.lines.filter(l => l.stage === 'USED' && !l.parentId).sort((a, b) => b.id - a.id);
+      // Lọc ở CẤP MỤC CHA (giống Đề xuất/Phê duyệt) — mục con luôn đi kèm
+      // theo mục cha của nó, không lọc/phân trang riêng (thường không nhiều).
+      const filtered = budget2ApplyFilters(allParents, 'used');
+      const grouped = budget2GroupByYear(filtered);
+      const parentCardHtml = (p) => {
         const children = budget2DB.lines.filter(l => l.parentId === p.id).sort((a, b) => a.id - b.id);
         const usedSum = children.reduce((s, c) => s + c.totalAmount, 0);
         const remaining = p.totalAmount - usedSum;
         return `<div class="border rounded mb-3">
           <div class="flex flex-wrap justify-between items-center gap-2 bg-gray-50 p-2 border-b">
-            <div>
-              <span class="font-bold text-gray-800 text-sm">${escapeHtml(p.content)}</span>
-              ${budget2TypeBadge(p.budgetType)} ${budget2CategoryBadge(p.itemCategory)} ${budget2UsageStatusBadge(p.usageStatus)}
-              <span class="text-[10px] font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full ml-1">Tháng ${p.budgetMonth || '—'}/${p.budgetYear || '—'}</span>
-              <span class="text-[11px] text-gray-500 ml-2">${budget2CompanyOrgLabel(p)}</span>
+            <div class="flex items-start gap-2">
+              <input type="checkbox" class="mt-1" data-budget2-row-check="used" data-id="${p.id}" ${budget2SelectedIds.used.has(p.id) ? 'checked' : ''} ${dchg('onBudget2RowCheckToggle', 'used', p.id, LIVE_CHECKED)}>
+              <div>
+                <span class="font-bold text-gray-800 text-sm">${escapeHtml(p.content)}</span>
+                ${budget2TypeBadge(p.budgetType)} ${budget2CategoryBadge(p.itemCategory)} ${budget2UsageStatusBadge(p.usageStatus)}
+                <span class="text-[10px] font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full ml-1">Tháng ${p.budgetMonth || '—'}/${p.budgetYear || '—'}</span>
+                <span class="text-[11px] text-gray-500 ml-2">${budget2CompanyOrgLabel(p)}</span>
+              </div>
             </div>
             <div class="flex items-center gap-2">
               <span class="text-xs font-semibold text-gray-600">Ngân sách được duyệt: ${formatMoney(p.totalAmount)}</span>
@@ -7275,12 +7582,13 @@ function isPerpetualSoftware(softwareId) {
           <div class="overflow-x-auto">
             <table class="w-full text-xs border-collapse">
               <thead><tr class="bg-gray-100 text-left">
-                <th class="border p-2 w-10">#</th><th class="border p-2">Nội dung</th><th class="border p-2">Mô tả</th>
+                <th class="border p-2 w-8"></th><th class="border p-2 w-10">#</th><th class="border p-2">Nội dung</th><th class="border p-2">Mô tả</th>
                 <th class="border p-2 text-right">SL</th><th class="border p-2 text-right">Đơn giá</th><th class="border p-2 text-right">VAT</th>
                 <th class="border p-2 text-right">Thành tiền</th><th class="border p-2 text-center">Loại</th><th class="border p-2 text-center">Tháng mua</th><th class="border p-2">Lý do tái phân bổ</th><th class="border p-2">Ghi chú</th><th class="border p-2 text-center w-16">Thao tác</th>
               </tr></thead>
               <tbody>
                 ${children.length ? children.map((c, i) => `<tr>
+                  <td class="border p-2 text-center"><input type="checkbox" data-budget2-row-check="used" data-id="${c.id}" ${budget2SelectedIds.used.has(c.id) ? 'checked' : ''} ${dchg('onBudget2RowCheckToggle', 'used', c.id, LIVE_CHECKED)}></td>
                   <td class="border p-2 text-center">${i + 1}</td>
                   <td class="border p-2">${escapeHtml(c.content)}</td>
                   <td class="border p-2">${escapeHtml(c.description || '')}</td>
@@ -7296,10 +7604,47 @@ function isPerpetualSoftware(softwareId) {
                     <button ${dc('openBudget2ChildModal', p.id, c.id)} class="text-blue-600 hover:underline mr-1" title="Sửa">✏️</button>
                     <button ${dc('deleteBudget2Line', c.id)} class="text-red-600 hover:underline" title="Xóa">🗑️</button>
                   </td>
-                </tr>`).join('') : '<tr><td colspan="12" class="text-center p-3 text-gray-400 italic">Chưa có mục sử dụng con nào.</td></tr>'}
-                <tr class="bg-emerald-50 font-bold"><td colspan="6" class="border p-2 text-right">Ngân sách còn lại</td><td class="border p-2 text-right ${remaining < 0 ? 'text-red-600' : 'text-emerald-700'}">${formatMoney(remaining)}</td><td colspan="5" class="border p-2"></td></tr>
+                </tr>`).join('') : '<tr><td colspan="13" class="text-center p-3 text-gray-400 italic">Chưa có mục sử dụng con nào.</td></tr>'}
+                <tr class="bg-emerald-50 font-bold"><td colspan="7" class="border p-2 text-right">Ngân sách còn lại</td><td class="border p-2 text-right ${remaining < 0 ? 'text-red-600' : 'text-emerald-700'}">${formatMoney(remaining)}</td><td colspan="5" class="border p-2"></td></tr>
               </tbody>
             </table>
+          </div>
+        </div>`;
+      };
+      const rowsHtmlFn = (pageRows) => pageRows.map(parentCardHtml).join('');
+      // Khối "Năm" ở đây bọc các thẻ mục cha (mỗi thẻ tự có bảng con riêng)
+      // thay vì 1 bảng phẳng — dùng colCount=1 vì rowsHtmlFn không sinh <tr>.
+      container.innerHTML = budget2RenderFilterBar('used')
+        + (allParents.length
+            ? budget2RenderYearGroupsFreeform('used', grouped, rowsHtmlFn)
+            : '<div class="text-xs text-gray-400 italic p-4 border rounded">Chưa có mục ngân sách sử dụng nào — mục sẽ tự sinh khi duyệt đề xuất hoặc thêm dòng phê duyệt trực tiếp.</div>');
+      budget2RenderBulkBar('used');
+    }
+    // Biến thể của budget2RenderYearGroups cho nội dung KHÔNG phải bảng phẳng
+    // (Sử dụng: mỗi mục cha là 1 thẻ card có bảng con riêng bên trong) — vẫn
+    // gấp/mở + phân trang theo năm y hệt, chỉ khác phần thân là contentHtmlFn
+    // trả thẳng HTML card thay vì <tr>.
+    function budget2RenderYearGroupsFreeform(key, allYearRows, contentHtmlFn) {
+      if (!allYearRows.length) return `<div class="text-xs text-gray-400 italic p-4 border rounded">Không có mục nào khớp bộ lọc.</div>`;
+      return allYearRows.map(([year, rows]) => {
+        const pageState = budget2PageState[key];
+        const totalPages = Math.max(1, Math.ceil(rows.length / BUDGET2_PAGE_SIZE));
+        if (!pageState[year] || pageState[year] > totalPages) pageState[year] = 1;
+        const page = pageState[year];
+        const start = (page - 1) * BUDGET2_PAGE_SIZE;
+        const pageRows = rows.slice(start, start + BUDGET2_PAGE_SIZE);
+        let pagBtns = '';
+        for (let p = 1; p <= totalPages; p++) {
+          pagBtns += `<button ${dc('onBudget2PageChange', key, year, p)} class="text-[11px] font-bold px-2.5 py-1 rounded border ${p === page ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white text-gray-700'}">${p}</button>`;
+        }
+        return `<div class="mb-3">
+          <div ${dc('onBudget2YearToggle', key, year)} class="flex justify-between items-center bg-gray-800 text-white px-4 py-2 rounded-t cursor-pointer select-none">
+            <span class="font-bold text-sm">▾ Năm ${year || '(chưa gán)'}</span>
+            <span class="text-[11px] text-gray-300">${rows.length} mục</span>
+          </div>
+          <div data-budget2-year-body="${key}:${year}" class="border border-t-0 rounded-b p-2">
+            ${contentHtmlFn(pageRows)}
+            ${totalPages > 1 ? `<div class="flex justify-center gap-1 py-2">${pagBtns}</div>` : ''}
           </div>
         </div>`;
       }).join('');
@@ -7482,6 +7827,17 @@ function isPerpetualSoftware(softwareId) {
       });
       const companyData = [...companyMap.values()].filter(d => d.approved > 0 || d.used > 0).sort((a, b) => b.approved - a.approved).slice(0, 6);
 
+      // (e) Theo Danh mục — năm hiện tại (mới bổ sung, cùng cách tính như (a) nhưng nhóm theo Danh mục thay vì Công ty)
+      const byCategoryCur = (budget2ReportsData.byCategory || []).filter(r => r.budgetYear === currentYear);
+      const categoryMap = new Map();
+      byCategoryCur.forEach(r => {
+        const key = r.groupKey ?? 'null';
+        if (!categoryMap.has(key)) categoryMap.set(key, { label: budget2CategoryLabel(r.groupKey) || '(Chưa gán danh mục)', approved: 0, used: 0 });
+        const agg = categoryMap.get(key);
+        agg.approved += r.approved; agg.used += r.used;
+      });
+      const categoryData = [...categoryMap.values()].filter(d => d.approved > 0 || d.used > 0).sort((a, b) => b.approved - a.approved);
+
       // (b)(c)(d) so sánh theo năm — dùng "total" (đã gộp toàn công ty)
       function sumByYear(metric) {
         const map = new Map();
@@ -7530,6 +7886,12 @@ function isPerpetualSoftware(softwareId) {
           ? card('d. Ngân sách đề xuất theo năm', `${currentYear} so với các năm trước · đơn vị tiền tệ hệ thống`,
               budget2QuickBarChart(proposedByYear, '#7c3aed', currentYear),
               `<span>${dot('#7c3aed')}Năm ${currentYear}</span><span>${dot('#c7ccd4')}Năm quá khứ</span>`)
+          : '')
+        + (categoryData.length
+          ? card(`e. Sử dụng vs Ngân sách phê duyệt theo Danh mục — năm ${currentYear}`,
+              'Tỷ trọng chi theo từng loại đối tượng mua/chi',
+              budget2QuickGroupedChart(categoryData),
+              `<span>${dot('#0284c7')}Ngân sách phê duyệt</span><span>${dot('#0d9488')}Đã sử dụng</span>`)
           : '');
 
       if (!box.innerHTML.trim()) box.innerHTML = '<div class="text-xs text-gray-400 italic p-3 border rounded col-span-2">Chưa có đủ dữ liệu để hiển thị báo cáo nhanh.</div>';
@@ -7628,7 +7990,7 @@ function isPerpetualSoftware(softwareId) {
         agg.proposed += r.proposed; agg.approved += r.approved; agg.used += r.used;
       });
       rows = [...map.values()];
-      const labelFor = (r) => dim === 'company' ? (budget2CompanyName(r.groupKey) || '(Chưa gán công ty)') : (dim === 'orgUnit' ? (budget2OrgUnitName(r.groupKey) || '(Chưa gán đơn vị)') : (dim === 'category' ? (BUDGET2_CATEGORY_LABELS[r.groupKey] || '(Chưa gán danh mục)') : 'Toàn công ty'));
+      const labelFor = (r) => dim === 'company' ? (budget2CompanyName(r.groupKey) || '(Chưa gán công ty)') : (dim === 'orgUnit' ? (budget2OrgUnitName(r.groupKey) || '(Chưa gán đơn vị)') : (dim === 'category' ? (budget2CategoryLabel(r.groupKey) || '(Chưa gán danh mục)') : 'Toàn công ty'));
       const dimLabel = dim === 'company' ? 'Công ty' : (dim === 'orgUnit' ? 'Phòng/Ban/Khối' : (dim === 'category' ? 'Danh mục' : 'Phạm vi'));
 
       budget2ReportExport = {
@@ -7668,7 +8030,7 @@ function isPerpetualSoftware(softwareId) {
       const periodKey = (r) => `${r.budgetYear}-${String(r.budgetMonth).padStart(2, '0')}`;
       const periodLabel = (key) => { const [y, m] = key.split('-'); return `Tháng ${Number(m)}/${y}`; };
       const periods = [...new Set(rows.filter(r => r.budgetYear && r.budgetMonth).map(periodKey))].sort();
-      const labelFor = (r) => dim === 'company' ? (budget2CompanyName(r.groupKey) || '(Chưa gán công ty)') : (dim === 'orgUnit' ? (budget2OrgUnitName(r.groupKey) || '(Chưa gán đơn vị)') : (dim === 'category' ? (BUDGET2_CATEGORY_LABELS[r.groupKey] || '(Chưa gán danh mục)') : 'Toàn công ty'));
+      const labelFor = (r) => dim === 'company' ? (budget2CompanyName(r.groupKey) || '(Chưa gán công ty)') : (dim === 'orgUnit' ? (budget2OrgUnitName(r.groupKey) || '(Chưa gán đơn vị)') : (dim === 'category' ? (budget2CategoryLabel(r.groupKey) || '(Chưa gán danh mục)') : 'Toàn công ty'));
       const dimLabel = dim === 'company' ? 'Công ty' : (dim === 'orgUnit' ? 'Phòng/Ban/Khối' : (dim === 'category' ? 'Danh mục' : 'Phạm vi'));
       const metricLabel = { proposed: 'Ngân sách đề xuất', approved: 'Ngân sách phê duyệt', used: 'Ngân sách chi tiêu' }[metric];
 

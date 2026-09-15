@@ -374,6 +374,7 @@
     <div id="adminSection" class="hidden space-y-6">
       <div class="flex gap-2 border-b pb-2 flex-wrap">
         <button id="btnAdminSubUsers" data-evt-click="switchAdminSubTab" data-args='["users"]' class="text-xs px-3 py-1.5 rounded font-semibold">👤 Người Dùng & Phân Quyền</button>
+        <button id="btnAdminSubCatalog" data-evt-click="switchAdminSubTab" data-args='["catalog"]' class="text-xs px-3 py-1.5 rounded font-semibold">🗂️ Quản Lý Danh Mục</button>
         <button id="btnAdminSubWorkflow" data-evt-click="switchAdminSubTab" data-args='["workflow"]' class="text-xs px-3 py-1.5 rounded font-semibold">🔄 Quy Trình & Luồng Duyệt</button>
         <button id="btnAdminSubProcessDocs" data-evt-click="switchAdminSubTab" data-args='["processDocs"]' class="text-xs px-3 py-1.5 rounded font-semibold">📘 Quy Trình Nghiệp Vụ</button>
         <button id="btnAdminSubLog" data-evt-click="switchAdminSubTab" data-args='["log"]' class="text-xs px-3 py-1.5 rounded font-semibold">📊 Log Hệ Thống</button>
@@ -502,40 +503,8 @@
         </form>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div class="bg-indigo-50 p-4 rounded border border-indigo-200 space-y-3">
-          <h3 class="font-bold text-indigo-900 text-sm flex items-center gap-1">🏢 Quản Lý Phòng Ban</h3>
-          <p class="text-[11px] text-indigo-700">Viết tắt dùng để tự sinh mã tài liệu (VD: IT, NS...), chỉ chữ/số không dấu, tối đa 10 ký tự.</p>
-          <form data-evt-submit="saveDept" data-args='[{"__live__":"event"}]' class="flex flex-wrap gap-2">
-            <input id="editDeptId" type="hidden">
-            <input id="txtDeptName" placeholder="Tên phòng ban mới..." class="border p-1.5 rounded text-xs flex-1 min-w-[10rem]" required>
-            <input id="txtDeptAbbr" placeholder="Viết tắt (VD: IT)" maxlength="10" class="border p-1.5 rounded text-xs w-24" required>
-            <button id="btnCancelDept" type="button" data-evt-click="resetDeptForm" data-args='[]' class="hidden bg-gray-400 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-gray-500">Hủy</button>
-            <button id="btnSaveDept" type="submit" class="btn-primary px-3 py-1.5 rounded text-xs font-bold">Thêm</button>
-          </form>
-          <div>
-            <label class="block text-[10px] font-semibold text-indigo-800 mb-1">Đối chiếu với Đơn vị tổ chức (tùy chọn — chỉ để báo cáo chính xác khi tên gọi 2 bên khác nhau, xem module Bản quyền &gt; Tổ chức công ty)</label>
-            <select id="txtDeptOrgUnit" class="w-full border p-1.5 rounded text-xs bg-white"><option value="">-- Chưa gán --</option></select>
-          </div>
-          <div class="max-h-36 overflow-y-auto bg-white rounded border">
-            <ul id="deptList" class="divide-y text-xs"></ul>
-          </div>
-        </div>
-
-        <div class="bg-emerald-50 p-4 rounded border border-emerald-200 space-y-3">
-          <h3 class="font-bold text-emerald-900 text-sm flex items-center gap-1">🏷️ Quản Lý Phân Loại Tài Liệu</h3>
-          <p class="text-[11px] text-emerald-700">Viết tắt dùng để tự sinh mã tài liệu (VD: HD, BC...), chỉ chữ/số không dấu, tối đa 10 ký tự.</p>
-          <form data-evt-submit="saveCat" data-args='[{"__live__":"event"}]' class="flex gap-2">
-            <input id="editCatId" type="hidden">
-            <input id="txtCatName" placeholder="Tên loại tài liệu mới..." class="border p-1.5 rounded text-xs flex-1" required>
-            <input id="txtCatAbbr" placeholder="Viết tắt (VD: HD)" maxlength="10" class="border p-1.5 rounded text-xs w-24" required>
-            <button id="btnCancelCat" type="button" data-evt-click="resetCatForm" data-args='[]' class="hidden bg-gray-400 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-gray-500">Hủy</button>
-            <button id="btnSaveCat" type="submit" class="btn-primary px-3 py-1.5 rounded text-xs font-bold">Thêm</button>
-          </form>
-          <div class="max-h-36 overflow-y-auto bg-white rounded border">
-            <ul id="catList" class="divide-y text-xs"></ul>
-          </div>
-        </div>
+      <div class="bg-blue-50 border border-blue-200 rounded p-3 text-xs text-blue-900">
+        📘 Quản lý Phòng ban và Phân loại tài liệu đã chuyển sang tab <b>"🗂️ Quản Lý Danh Mục"</b> ở trên, cùng chỗ với các danh mục dùng chung khác.
       </div>
 
       <!-- CẤU HÌNH USER & PHÂN QUYỀN MATRIX -->
@@ -713,6 +682,131 @@
       </div>
       </div>
       <!-- /Sub-tab: Người Dùng & Phân Quyền -->
+
+      <!-- Sub-tab: Quản Lý Danh Mục — gộp tập trung mọi danh mục dùng chung
+           của hệ thống (trước đây nằm rải rác: Phòng ban/Phân loại tài liệu ở
+           "Người Dùng & Phân Quyền", Tổ chức công ty/Danh mục HC-DV-Khác ở
+           module Bản quyền — mang tính riêng tư, nhiều người không có quyền
+           vào). Các hàm render/save/delete của từng mục con GIỮ NGUYÊN không
+           đổi — chỉ đổi vị trí hiển thị trong DOM. -->
+      <div id="adminSubCatalog" class="hidden space-y-4">
+        <div class="flex gap-1.5 border-b pb-2 flex-wrap">
+          <button id="btnCatalogSubDept" data-evt-click="switchCatalogSubTab" data-args='["dept"]' class="nav-tab text-xs px-3 py-1.5 rounded font-semibold">🏢 Phòng ban</button>
+          <button id="btnCatalogSubDoccat" data-evt-click="switchCatalogSubTab" data-args='["doccat"]' class="nav-tab text-xs px-3 py-1.5 rounded font-semibold">🏷️ Phân loại tài liệu</button>
+          <button id="btnCatalogSubOrg" data-evt-click="switchCatalogSubTab" data-args='["org"]' class="nav-tab text-xs px-3 py-1.5 rounded font-semibold">🏬 Tổ chức công ty</button>
+          <button id="btnCatalogSubHcdv" data-evt-click="switchCatalogSubTab" data-args='["hcdv"]' class="nav-tab text-xs px-3 py-1.5 rounded font-semibold">🗄️ Danh mục HC/DV/Khác</button>
+          <button id="btnCatalogSubBudgetcat" data-evt-click="switchCatalogSubTab" data-args='["budgetcat"]' class="nav-tab text-xs px-3 py-1.5 rounded font-semibold">📁 Danh mục hệ thống (Ngân sách)</button>
+        </div>
+
+        <!-- Mục con: Phòng ban -->
+        <div id="catalogSubDept" class="hidden">
+          <div class="bg-indigo-50 p-4 rounded border border-indigo-200 space-y-3">
+            <h3 class="font-bold text-indigo-900 text-sm flex items-center gap-1">🏢 Quản Lý Phòng Ban</h3>
+            <p class="text-[11px] text-indigo-700">Viết tắt dùng để tự sinh mã tài liệu (VD: IT, NS...), chỉ chữ/số không dấu, tối đa 10 ký tự.</p>
+            <form data-evt-submit="saveDept" data-args='[{"__live__":"event"}]' class="flex flex-wrap gap-2">
+              <input id="editDeptId" type="hidden">
+              <input id="txtDeptName" placeholder="Tên phòng ban mới..." class="border p-1.5 rounded text-xs flex-1 min-w-[10rem]" required>
+              <input id="txtDeptAbbr" placeholder="Viết tắt (VD: IT)" maxlength="10" class="border p-1.5 rounded text-xs w-24" required>
+              <button id="btnCancelDept" type="button" data-evt-click="resetDeptForm" data-args='[]' class="hidden bg-gray-400 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-gray-500">Hủy</button>
+              <button id="btnSaveDept" type="submit" class="btn-primary px-3 py-1.5 rounded text-xs font-bold">Thêm</button>
+            </form>
+            <div>
+              <label class="block text-[10px] font-semibold text-indigo-800 mb-1">Đối chiếu với Đơn vị tổ chức (tùy chọn — chỉ để báo cáo chính xác khi tên gọi 2 bên khác nhau, xem tab Tổ chức công ty)</label>
+              <select id="txtDeptOrgUnit" class="w-full border p-1.5 rounded text-xs bg-white"><option value="">-- Chưa gán --</option></select>
+            </div>
+            <div class="max-h-64 overflow-y-auto bg-white rounded border">
+              <ul id="deptList" class="divide-y text-xs"></ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mục con: Phân loại tài liệu -->
+        <div id="catalogSubDoccat" class="hidden">
+          <div class="bg-emerald-50 p-4 rounded border border-emerald-200 space-y-3">
+            <h3 class="font-bold text-emerald-900 text-sm flex items-center gap-1">🏷️ Quản Lý Phân Loại Tài Liệu</h3>
+            <p class="text-[11px] text-emerald-700">Viết tắt dùng để tự sinh mã tài liệu (VD: HD, BC...), chỉ chữ/số không dấu, tối đa 10 ký tự.</p>
+            <form data-evt-submit="saveCat" data-args='[{"__live__":"event"}]' class="flex gap-2">
+              <input id="editCatId" type="hidden">
+              <input id="txtCatName" placeholder="Tên loại tài liệu mới..." class="border p-1.5 rounded text-xs flex-1" required>
+              <input id="txtCatAbbr" placeholder="Viết tắt (VD: HD)" maxlength="10" class="border p-1.5 rounded text-xs w-24" required>
+              <button id="btnCancelCat" type="button" data-evt-click="resetCatForm" data-args='[]' class="hidden bg-gray-400 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-gray-500">Hủy</button>
+              <button id="btnSaveCat" type="submit" class="btn-primary px-3 py-1.5 rounded text-xs font-bold">Thêm</button>
+            </form>
+            <div class="max-h-64 overflow-y-auto bg-white rounded border">
+              <ul id="catList" class="divide-y text-xs"></ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mục con: Tổ chức công ty (chuyển từ module Bản quyền) -->
+        <div id="catalogSubOrg" class="hidden space-y-3">
+          <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+            <div class="flex flex-wrap gap-2 text-xs">
+              <button data-evt-click="openCompanyModal" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition">+ Thêm công ty</button>
+              <button data-evt-click="downloadOrgUnitTemplate" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition">📄 Tải File Excel Mẫu</button>
+              <label class="btn-secondary px-2.5 py-1.5 rounded font-semibold cursor-pointer transition">
+                📥 Nhập Excel <input type="file" accept=".xlsx" data-evt-change="importOrgUnitsXlsx" data-args='[{"__live__":"event"}]' class="hidden">
+              </label>
+            </div>
+            <span class="text-[11px] text-gray-500">Bấm "+ Con" trong từng đơn vị để thêm bất kỳ cấp nào — không giới hạn số cấp. Dữ liệu dùng chung cho cả module Bản quyền và Ngân sách.</span>
+          </div>
+          <div id="companyListContainer" class="space-y-3"></div>
+        </div>
+
+        <!-- Mục con: Danh mục HC/DV/Khác (chuyển từ module Bản quyền) -->
+        <div id="catalogSubHcdv" class="hidden space-y-3">
+          <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+            <div class="flex flex-wrap gap-2 text-xs items-center">
+              <button data-evt-click="openBudgetItemCatalogModal" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition">+ Thêm hạng mục</button>
+              <select id="itemCatalogFilterType" data-evt-change="renderBudgetItemCatalogTable" data-args='[]' class="border p-1.5 rounded bg-white">
+                <option value="">-- Tất cả loại --</option>
+                <option value="HARDWARE">Phần cứng</option>
+                <option value="SERVICE">Dịch vụ</option>
+                <option value="OTHER">Khác</option>
+              </select>
+            </div>
+            <span class="text-[11px] text-gray-500">Danh mục chuẩn dùng khi thêm hạng mục vào Kỳ ngân sách (module Bản quyền) — tránh gõ tay tự do gây trùng lặp/không đồng nhất.</span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full border-collapse border bg-white text-xs max-w-2xl">
+              <thead>
+                <tr class="bg-gray-100 text-left">
+                  <th class="border p-2">Tên hạng mục</th>
+                  <th class="border p-2">Loại</th>
+                  <th class="border p-2">Đơn vị tính</th>
+                  <th class="border p-2 text-center">Đang dùng</th>
+                  <th class="border p-2 text-center whitespace-nowrap">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody id="budgetItemCatalogTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Mục con: Danh mục hệ thống (MỚI) — thay 4 giá trị viết cứng trước
+             đây của cột Danh mục ở Ngân sách 2.0 (Phần mềm/Phần cứng/Dịch
+             vụ/Hệ thống) bằng 1 danh mục thật, Admin tự Thêm/Sửa/Xóa được. -->
+        <div id="catalogSubBudgetcat" class="hidden space-y-3">
+          <div class="bg-amber-50 border border-amber-200 rounded p-3 text-xs text-amber-900">
+            ✨ Danh mục dùng cho cột "Danh mục" ở module Quản lý Ngân sách (Ngân sách 2.0) — trước đây là 4 lựa chọn viết cứng, nay tự thêm/sửa/xóa được. Danh mục đang có dòng ngân sách tham chiếu chỉ ẩn được (bỏ "Đang dùng"), không xóa được.
+          </div>
+          <button data-evt-click="openBudget2CategoryModal" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Thêm danh mục</button>
+          <div class="overflow-x-auto">
+            <table class="w-full border-collapse border bg-white text-xs max-w-xl">
+              <thead>
+                <tr class="bg-gray-100 text-left">
+                  <th class="border p-2">Tên danh mục</th>
+                  <th class="border p-2">Mã</th>
+                  <th class="border p-2 text-center">Đang dùng</th>
+                  <th class="border p-2 text-center whitespace-nowrap">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody id="budget2CategoryTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <!-- /Sub-tab: Quản Lý Danh Mục -->
 
       <!-- Sub-tab: Quy Trình & Luồng Duyệt -->
       <div id="adminSubWorkflow" class="hidden space-y-6">
@@ -1112,10 +1206,8 @@
          trước đây (Danh mục/Vận hành/Mua sắm & Ngân sách + tab con), vốn bị
          phản hồi là rối vì phải bấm 2 lần mới tới đúng mục. -->
     <div id="licenseSubNavRow" class="flex gap-1 border-b border-gray-200 flex-wrap">
-      <button id="btnLicenseSubOrg" data-evt-click="switchLicenseSubTab" data-args='["org"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🏢 Tổ chức công ty</button>
       <button id="btnLicenseSubEmp" data-evt-click="switchLicenseSubTab" data-args='["emp"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">👤 Nhân viên</button>
       <button id="btnLicenseSubSoftware" data-evt-click="switchLicenseSubTab" data-args='["software"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">💽 Phần mềm</button>
-      <button id="btnLicenseSubItemCatalog" data-evt-click="switchLicenseSubTab" data-args='["itemCatalog"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🗄️ Danh mục HC/DV/Khác</button>
       <button id="btnLicenseSubBatch" data-evt-click="switchLicenseSubTab" data-args='["batch"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📜 Phát hành license</button>
       <button id="btnLicenseSubAlloc" data-evt-click="switchLicenseSubTab" data-args='["alloc"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📦 Phân bổ</button>
       <button id="btnLicenseSubRevokeEmp" data-evt-click="switchLicenseSubTab" data-args='["revokeEmp"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🚪 Thu hồi theo nhân viên</button>
@@ -1123,21 +1215,6 @@
       <button id="btnLicenseSubPurchase" data-evt-click="switchLicenseSubTab" data-args='["purchase"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🛒 Đăng ký mua bản quyền</button>
       <button id="btnLicenseSubRounds" data-evt-click="switchLicenseSubTab" data-args='["rounds"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📋 Phát hành đăng ký mua</button>
       <button id="btnLicenseSubBudget" data-evt-click="switchLicenseSubTab" data-args='["budget"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">💰 Ngân sách</button>
-    </div>
-
-    <!-- Sub-tab: Tổ chức công ty -->
-    <div id="licenseSubOrg" class="space-y-3">
-      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-        <div class="flex flex-wrap gap-2 text-xs">
-          <button data-evt-click="openCompanyModal" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition">+ Thêm công ty</button>
-          <button data-evt-click="downloadOrgUnitTemplate" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition">📄 Tải File Excel Mẫu</button>
-          <label class="btn-secondary px-2.5 py-1.5 rounded font-semibold cursor-pointer transition">
-            📥 Nhập Excel <input type="file" accept=".xlsx" data-evt-change="importOrgUnitsXlsx" data-args='[{"__live__":"event"}]' class="hidden">
-          </label>
-        </div>
-        <span class="text-[11px] text-gray-500">Bấm "+ Con" trong từng đơn vị để thêm bất kỳ cấp nào — không giới hạn số cấp.</span>
-      </div>
-      <div id="companyListContainer" class="space-y-3"></div>
     </div>
 
     <!-- Sub-tab: Danh sách nhân viên -->
@@ -1206,37 +1283,6 @@
       </div>
     </div>
 
-    <!-- Sub-tab: Danh mục hạng mục Phần cứng/Dịch vụ/Khác (dùng khi thêm hạng
-         mục vào Kỳ ngân sách — chọn từ đây thay vì gõ tay tự do để tránh dữ
-         liệu rác/không đồng nhất). -->
-    <div id="licenseSubItemCatalog" class="hidden space-y-3">
-      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-        <div class="flex flex-wrap gap-2 text-xs items-center">
-          <button data-evt-click="openBudgetItemCatalogModal" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition">+ Thêm hạng mục</button>
-          <select id="itemCatalogFilterType" data-evt-change="renderBudgetItemCatalogTable" data-args='[]' class="border p-1.5 rounded bg-white">
-            <option value="">-- Tất cả loại --</option>
-            <option value="HARDWARE">Phần cứng</option>
-            <option value="SERVICE">Dịch vụ</option>
-            <option value="OTHER">Khác</option>
-          </select>
-        </div>
-        <span class="text-[11px] text-gray-500">Danh mục chuẩn dùng khi thêm hạng mục vào Kỳ ngân sách — tránh gõ tay tự do gây trùng lặp/không đồng nhất.</span>
-      </div>
-      <div class="overflow-x-auto">
-        <table class="w-full border-collapse border bg-white text-xs max-w-2xl">
-          <thead>
-            <tr class="bg-gray-100 text-left">
-              <th class="border p-2">Tên hạng mục</th>
-              <th class="border p-2">Loại</th>
-              <th class="border p-2">Đơn vị tính</th>
-              <th class="border p-2 text-center">Đang dùng</th>
-              <th class="border p-2 text-center whitespace-nowrap">Thao tác</th>
-            </tr>
-          </thead>
-          <tbody id="budgetItemCatalogTableBody"></tbody>
-        </table>
-      </div>
-    </div>
 
     <!-- Sub-tab: Phát hành license -->
     <div id="licenseSubBatch" class="hidden space-y-3">
@@ -1863,31 +1909,7 @@
         </div>
       </div>
       <p class="text-[11px] text-gray-500">Đề xuất ngân sách do các phòng ban tự nhập, tự sửa/xóa khi còn "Chờ duyệt". Duyệt/Từ chối ngay tại dòng này chỉ đổi trạng thái — dòng ở lại vĩnh viễn trong tab Đề xuất, KHÔNG tạo bản sao hay chuyển sang tab Ngân sách phê duyệt (2 tab hoàn toàn độc lập, xem tab Phê duyệt). Không thể tự duyệt/từ chối đề xuất do chính mình tạo. Nhập hàng loạt: tải mẫu, điền dữ liệu (Năm ngân sách bắt buộc; Mã công ty/Đơn vị tùy chọn, phải nhập đúng như đã có trong hệ thống), rồi nhập lại Excel.</p>
-      <div class="overflow-x-auto border rounded">
-        <table class="w-full text-xs border-collapse">
-          <thead>
-            <tr class="bg-gray-100 text-left">
-              <th class="border p-2 w-10">STT</th>
-              <th class="border p-2">Nội dung</th>
-              <th class="border p-2">Mô tả</th>
-              <th class="border p-2 text-right">SL</th>
-              <th class="border p-2 text-right">Đơn giá</th>
-              <th class="border p-2 text-right">VAT</th>
-              <th class="border p-2 text-right">Thành tiền</th>
-              <th class="border p-2 text-center">Loại</th>
-              <th class="border p-2 text-center">Danh mục</th>
-              <th class="border p-2 text-center">Tháng</th>
-              <th class="border p-2 text-center">Năm</th>
-              <th class="border p-2">Công ty</th>
-              <th class="border p-2">Khối/Ban/Phòng</th>
-              <th class="border p-2">Ghi chú</th>
-              <th class="border p-2 text-center">Trạng thái</th>
-              <th class="border p-2 text-center w-32">Thao tác</th>
-            </tr>
-          </thead>
-          <tbody id="budget2ProposeTableBody"></tbody>
-        </table>
-      </div>
+      <div id="budget2ProposeContainer"></div>
     </div>
 
     <!-- Sub-tab: Ngân sách phê duyệt -->
@@ -2145,12 +2167,7 @@
         </div>
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Danh mục</label>
-          <select id="budget2LineCategory" class="w-full border p-2 rounded text-sm bg-white">
-            <option value="SOFTWARE">Phần mềm</option>
-            <option value="HARDWARE">Phần cứng</option>
-            <option value="SERVICE">Dịch vụ</option>
-            <option value="SYSTEM">Hệ thống</option>
-          </select>
+          <select id="budget2LineCategory" class="w-full border p-2 rounded text-sm bg-white"></select>
         </div>
       </div>
       <div class="grid grid-cols-2 gap-3">
@@ -3048,6 +3065,25 @@
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" data-evt-click="closeLicenseModal" data-args='["budgetItemCatalogModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
         <button type="button" data-evt-click="saveBudgetItemCatalog" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Thêm/Sửa Danh mục hệ thống (Ngân sách) -->
+  <div id="budget2CategoryModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[70] p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-sm w-full p-5 space-y-4">
+      <h3 id="budget2CategoryModalTitle" class="font-bold text-gray-900 text-base">Thêm danh mục</h3>
+      <input type="hidden" id="budget2CategoryId">
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Tên danh mục</label>
+        <input id="budget2CategoryName" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Nhân sự thuê ngoài">
+      </div>
+      <label id="budget2CategoryActiveWrap" class="hidden flex items-center gap-2 text-xs font-semibold text-gray-600">
+        <input id="budget2CategoryActive" type="checkbox" class="rounded"> Đang dùng (bỏ chọn để ẩn khỏi danh sách chọn, không xóa lịch sử)
+      </label>
+      <div class="flex justify-end gap-2 pt-1">
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["budget2CategoryModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveBudget2Category" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
       </div>
     </div>
   </div>

@@ -836,6 +836,27 @@ CALL add_column_if_not_exists('budget2_lines', 'purchase_month', 'TINYINT NULL D
 CALL add_column_if_not_exists('budget2_lines', 'item_category', 'ENUM(''SOFTWARE'',''HARDWARE'',''SERVICE'',''SYSTEM'') NULL DEFAULT NULL');
 CALL create_index_if_not_exists('budget2_lines', 'idx_budget2_item_category', 'item_category');
 
+-- "Danh mục hệ thống" cho Ngân sách 2.0 — trước đây 4 lựa chọn (Phần mềm/
+-- Phần cứng/Dịch vụ/Hệ thống) bị viết cứng trong ENUM cột item_category +
+-- hằng số phía server, Admin không tự thêm/sửa/xóa được. Nay tách thành 1
+-- danh mục thật, quản lý tập trung ở Hệ thống > Quản lý danh mục. code vẫn
+-- giữ đúng 4 giá trị cũ để không phải hồi tố dữ liệu budget2_lines đã có.
+CREATE TABLE IF NOT EXISTS budget2_item_categories (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    code VARCHAR(30) NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    active TINYINT(1) NOT NULL DEFAULT 1,
+    sort_order INT NOT NULL DEFAULT 0,
+    UNIQUE KEY uniq_budget2_item_categories_code (code)
+);
+INSERT INTO budget2_item_categories (code, name, sort_order) VALUES
+    ('SOFTWARE', 'Phần mềm', 1), ('HARDWARE', 'Phần cứng', 2), ('SERVICE', 'Dịch vụ', 3), ('SYSTEM', 'Hệ thống', 4)
+ON DUPLICATE KEY UPDATE code=code;
+-- ENUM chỉ cho phép đúng 4 giá trị khai báo sẵn, không mở rộng được khi
+-- Admin thêm danh mục mới ở bảng trên — đổi sang VARCHAR, giữ nguyên dữ
+-- liệu cũ vì 4 chuỗi hiện có vẫn hợp lệ y hệt dưới dạng VARCHAR.
+ALTER TABLE budget2_lines MODIFY COLUMN item_category VARCHAR(30) NULL DEFAULT NULL;
+
 -- Dọn dẹp: xóa các thủ tục tạm sau khi dùng xong, không để lại trong CSDL thật.
 DROP PROCEDURE IF EXISTS create_index_if_not_exists;
 DROP PROCEDURE IF EXISTS create_unique_index_if_not_exists;
