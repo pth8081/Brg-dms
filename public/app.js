@@ -678,7 +678,7 @@
       // ghi được kể cả khi có ai gọi thẳng API mà không qua giao diện.
 
       document.getElementById('loginSection').classList.add('hidden');
-      document.getElementById('appShell').classList.remove('hidden');
+      document.getElementById('appShell').classList.remove('!hidden');
       document.getElementById('userHeader').classList.remove('hidden');
       document.getElementById('userInfo').innerText = `${user.name} (${user.dept})`;
       document.getElementById('userPhoneInfo').innerText = `📞 ${user.phone || 'Chưa có SĐT'} | ✉️ ${user.email || 'Chưa có Email'}`;
@@ -703,7 +703,7 @@
     function showLoginScreen() {
       currentUser = null;
       document.getElementById('loginSection').classList.remove('hidden');
-      document.getElementById('appShell').classList.add('hidden');
+      document.getElementById('appShell').classList.add('!hidden');
       document.getElementById('homeSection').classList.add('hidden');
       document.getElementById('docSection').classList.add('hidden');
       document.getElementById('adminSection').classList.add('hidden');

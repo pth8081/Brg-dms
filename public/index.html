@@ -57,7 +57,7 @@
        đăng nhập). Mặc định HIỆN (không có class hidden) vì đây là màn hình
        đầu tiên người dùng thấy trước khi restoreSession() xác định được có
        phiên đăng nhập cũ hay không. -->
-  <div id="loginSection" class="fixed inset-0 z-40 overflow-y-auto bg-paper-50 font-vietnam">
+  <div id="loginSection" class="fixed inset-0 z-[100] overflow-y-auto bg-paper-50 font-vietnam">
     <div class="min-h-full grid grid-cols-1 lg:grid-cols-[7fr_6fr]">
 
       <!-- Panel thương hiệu -->
@@ -177,7 +177,7 @@
     </div>
   </div>
 
-  <div id="appShell" class="hidden md:flex min-h-screen bg-gray-50">
+  <div id="appShell" class="!hidden md:flex min-h-screen bg-gray-50">
 
     <!-- Thanh trên cùng chỉ hiện ở di động — chứa nút ☰ mở menu kéo (drawer),
          vì #appSidebar bên dưới chỉ cố định/luôn hiện từ breakpoint md trở lên
@@ -196,7 +196,7 @@
          Dưới md: drawer cố định (fixed) trượt vào/ra bằng translate-x, ẩn mặc
          định (-translate-x-full). Từ md trở lên: quay lại cột tĩnh trong luồng
          (md:static) luôn hiện, y như trước đây. -->
-    <nav id="appSidebar" class="sidebar-shell w-64 md:w-56 shrink-0 flex flex-col gap-0.5 px-3 py-5 fixed inset-y-0 left-0 z-50 -translate-x-full transition-transform duration-200 overflow-y-auto md:static md:translate-x-0 md:sticky md:top-0 md:h-screen">
+    <nav id="appSidebar" class="sidebar-shell w-64 md:w-56 shrink-0 flex flex-col gap-0.5 px-3 py-5 fixed inset-y-0 left-0 z-50 -translate-x-full transition-transform duration-200 overflow-y-auto md:translate-x-0 md:sticky md:top-0 md:h-screen">
       <div class="flex items-center justify-between px-2 pb-4">
         <div class="sidebar-brand text-base">DMS</div>
         <button data-evt-click="closeSidebarDrawer" data-args='[]' class="md:hidden text-white/70 hover:text-white text-xl leading-none px-1" aria-label="Đóng menu điều hướng">✕</button>
