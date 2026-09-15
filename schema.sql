@@ -266,6 +266,12 @@ CREATE TABLE IF NOT EXISTS lic_companies (
     code VARCHAR(20) NOT NULL,
     active BOOLEAN NOT NULL DEFAULT TRUE
 );
+-- Loại công ty — thuộc tính CỐ ĐỊNH của công ty (không phải chọn lại mỗi dòng
+-- ngân sách), dùng để lọc/nhóm báo cáo Ngân sách theo BRGGROUP/Công ty thành
+-- viên (CTTV)/Khác. Đặt ở đây (không phải trên từng dòng budget2_lines) để
+-- chỉ cần sửa đúng 1 chỗ khi 1 công ty đổi loại, và tránh 1 công ty bị gán 2
+-- loại khác nhau ở 2 dòng ngân sách khác nhau.
+CALL add_column_if_not_exists('lic_companies', 'company_type', "ENUM('BRGGROUP','CTTV','KHAC') NOT NULL DEFAULT 'KHAC'");
 
 CREATE TABLE IF NOT EXISTS lic_org_units (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,

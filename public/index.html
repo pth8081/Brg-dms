@@ -1979,7 +1979,10 @@
 
     <!-- Sub-tab: Ngân sách sử dụng -->
     <div id="budget2SubUsed" class="hidden space-y-3">
-      <h2 class="text-lg font-bold text-gray-800">Ngân sách sử dụng</h2>
+      <div class="flex flex-wrap justify-between items-center gap-2">
+        <h2 class="text-lg font-bold text-gray-800">Ngân sách sử dụng</h2>
+        <button data-evt-click="exportBudget2UsedXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">📤 Xuất Excel</button>
+      </div>
       <p class="text-[11px] text-gray-500">Mỗi mục (sinh tự động từ Ngân sách phê duyệt) cho phép thêm các mục con ghi nhận từng lần sử dụng thực tế — Nội dung/Mô tả của mục con LUÔN kế thừa nguyên văn từ dòng Phê duyệt gốc (không tự gõ khác được, đảm bảo đúng dữ liệu), bắt buộc chọn Tháng mua thực tế để báo cáo so sánh chính xác theo tháng. Thành tiền mục con tự trừ vào ngân sách mục cha, dòng cuối luôn là "Ngân sách còn lại". Nếu mục con dùng khác Loại ngân sách (OPEX/CAPEX) so với mục cha, bắt buộc nhập Lý do tái phân bổ.</p>
       <div id="budget2UsedContainer"></div>
     </div>
@@ -2000,6 +2003,14 @@
         <h3 class="text-sm font-bold text-gray-700 mb-2">Bốn lát cắt nhanh</h3>
         <div id="budget2QuickReports" class="grid grid-cols-1 lg:grid-cols-2 gap-3"></div>
       </div>
+
+      <!-- Báo cáo đa chiều: Loại công ty x Tháng x OPEX/CAPEX — xem chú thích
+           chi tiết tại renderBudget2CompanyTypeAndMonthReports() trong app.js. -->
+      <div class="pt-3 border-t flex flex-wrap justify-between items-center gap-2">
+        <h3 class="text-sm font-bold text-gray-700">Báo cáo đa chiều (Loại công ty / Tháng / OPEX-CAPEX)</h3>
+        <button data-evt-click="exportBudget2CompanyTypeMonthReportXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">📤 Xuất Excel số liệu biểu đồ</button>
+      </div>
+      <div id="budget2CompanyTypeMonthReports" class="space-y-4"></div>
 
       <h3 class="text-sm font-bold text-gray-700 pt-2 border-t">Tra cứu chi tiết</h3>
       <div class="flex gap-1 border-b">
@@ -2457,6 +2468,15 @@
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Mã công ty</label>
         <input id="companyCode" type="text" maxlength="20" class="w-full border p-2 rounded text-sm" placeholder="VD: SV">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Loại công ty</label>
+        <select id="companyType" class="w-full border p-2 rounded text-sm bg-white">
+          <option value="BRGGROUP">BRGGROUP</option>
+          <option value="CTTV">CTTV (Công ty thành viên)</option>
+          <option value="KHAC">Khác</option>
+        </select>
+        <div class="text-[11px] text-gray-500 mt-0.5">Dùng để lọc/nhóm báo cáo Ngân sách theo loại công ty.</div>
       </div>
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" data-evt-click="closeLicenseModal" data-args='["companyModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
