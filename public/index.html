@@ -125,7 +125,14 @@
           <p class="text-[15px] text-gray-500 leading-relaxed mb-8">Nhập tên đăng nhập và mật khẩu được Quản trị viên cấp cho bạn.</p>
 
           <form data-evt-submit="login" data-args='[{"__live__":"event"}]' novalidate>
-            <div class="mb-4">
+            <div id="rememberedAccountChip" class="hidden mb-4 flex items-center justify-between gap-3 bg-paper-100 border-[1.5px] border-paper-200 rounded-lg px-3.5 py-2.5">
+              <div class="flex items-center gap-2.5 min-w-0">
+                <span id="rememberedAccountAvatar" class="w-8 h-8 rounded-full bg-brand-600 text-white flex items-center justify-center font-bold text-sm flex-none">A</span>
+                <span id="rememberedAccountName" class="font-semibold text-gray-900 text-[15px] truncate"></span>
+              </div>
+              <button type="button" data-evt-click="switchRememberedAccount" data-args='[]' class="text-brand-600 text-xs font-semibold hover:underline flex-none">Tài khoản khác</button>
+            </div>
+            <div id="usernameFieldWrap" class="mb-4">
               <label for="txtUser" class="block text-[13px] font-semibold text-gray-800 mb-1.5">Tên đăng nhập</label>
               <input id="txtUser" type="text" placeholder="vd: nguyen.van.a" autocomplete="username" class="w-full text-[15px] text-gray-900 bg-paper-100 border-[1.5px] border-paper-200 rounded-lg px-3.5 py-3 transition-colors focus:outline-none focus:border-brand-600 focus:ring-4 focus:ring-brand-600/20 focus:bg-paper-50">
             </div>
