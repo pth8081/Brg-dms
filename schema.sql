@@ -135,6 +135,19 @@ CALL add_column_if_not_exists('users', 'locked_until', 'VARCHAR(100) NULL DEFAUL
 -- ngay cả khi chưa hết hạn 8h, thay vì chỉ dựa vào JWT tự hết hạn.
 CALL add_column_if_not_exists('users', 'token_version', 'INT NOT NULL DEFAULT 1');
 
+-- Xác thực hai yếu tố (2FA/TOTP, chuẩn RFC 6238, tương thích Google
+-- Authenticator/Authy) — BẮT BUỘC với tài khoản có quyền Admin, không áp dụng
+-- cho tài khoản thường. totp_secret chỉ được ghi vào DB SAU KHI xác minh
+-- thành công mã đầu tiên lúc đăng ký (bí mật tạm thời trong lúc đăng ký nằm
+-- trong JWT ngắn hạn dms_mfa, không lưu DB nếu bỏ dở) — xem
+-- POST /api/auth/2fa/setup/verify. Do 2FA là bắt buộc và Admin không tự gỡ
+-- được (chỉ Admin KHÁC gỡ hộ qua POST /api/users/:id/2fa/reset), không cần
+-- cột "bắt buộc" riêng: cứ là Admin + chưa totp_enabled thì lần đăng nhập kế
+-- tiếp sẽ bị bắt đăng ký ngay (xem nhánh mfaSetupRequired trong /api/auth/login).
+CALL add_column_if_not_exists('users', 'totp_secret', 'VARCHAR(64) NULL DEFAULT NULL');
+CALL add_column_if_not_exists('users', 'totp_enabled', 'TINYINT(1) NOT NULL DEFAULT 0');
+CALL add_column_if_not_exists('users', 'totp_enrolled_at', 'VARCHAR(100) NULL DEFAULT NULL');
+
 -- Đăng nhập vân tay/Face ID (WebAuthn/passkey) — LỐI VÀO NHANH bổ sung, KHÔNG
 -- thay thế mật khẩu (mật khẩu vẫn dùng được bình thường, ví dụ khi đổi thiết
 -- bị mới hoặc quên sinh trắc học). Mỗi thiết bị đăng ký 1 dòng riêng (1 người
