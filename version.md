@@ -12,6 +12,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 
 | Phiên bản | PR | Ngày merge | Nội dung |
 |---|---|---|---|
+| v6.81 | [#75](https://github.com/pth8081/Brg-dms/pull/75) | 2026-09-15 | Gộp Phòng ban, Phân loại tài liệu, Tổ chức công ty, Danh mục HC/DV/Khác vào 1 tab "🗂️ Quản Lý Danh Mục" trong Hệ thống (tách khỏi module License mang tính riêng tư); thêm Danh mục hệ thống (bảng budget2_item_categories) cho Admin tự thêm/sửa/ẩn/xóa thay vì 4 giá trị viết cứng, chặn xóa khi danh mục đang dùng; Ngân sách Đề xuất/Phê duyệt/Sử dụng thêm lọc theo năm/loại/danh mục/nội dung/khối phòng ban + group theo năm kèm phân trang + chọn nhiều dòng xóa hàng loạt (chỉ Admin); thêm biểu đồ báo cáo "Sử dụng vs Ngân sách phê duyệt theo Danh mục" |
 | v6.79 | [#74](https://github.com/pth8081/Brg-dms/pull/74) | 2026-09-15 | Hệ thống: thêm sub-tab mới "📘 Quy Trình Nghiệp Vụ" — trang tĩnh chỉ xem/tham khảo (không cấu hình gì), khác hẳn tab sẵn có "Quy Trình & Luồng Duyệt" (dùng để cấu hình ai duyệt tài liệu theo phòng ban); gồm 3 sơ đồ SVG + giải thích cho quy trình License (Kỳ mua→Đăng ký mua→Duyệt/Từ chối→Phát hành→Phân bổ/Cấp phát→Gia hạn/Thu hồi), Ngân sách (Đề xuất và Phê duyệt là 2 luồng độc lập chỉ nối nhau ở điểm duyệt sinh dòng Sử dụng), và CNTT (đầu mục hết hạn→cấu hình ngưỡng→engine quét hằng ngày→gửi email 3 nhóm người nhận) |
 | v6.77 | [#73](https://github.com/pth8081/Brg-dms/pull/73) | 2026-09-15 | Ngân sách: thêm nút Sửa/Xóa cho Đề xuất + Phê duyệt (trước chỉ hiện ở dòng chờ duyệt); Xóa (mọi trạng thái/giai đoạn) giờ chỉ Admin mới có quyền; Admin sửa/xóa được cả dòng đã duyệt/từ chối, Người quản lý Ngân sách chỉ thao tác được dòng chờ duyệt như cũ; sửa dòng Phê duyệt đã duyệt tự đồng bộ dòng Sử dụng tương ứng; xóa dòng đã duyệt cascade xóa kèm dòng Sử dụng nếu chưa có mục con, chặn nếu đã có mục con |
 | v6.75 | [#72](https://github.com/pth8081/Brg-dms/pull/72) | 2026-09-15 | Đăng nhập: khi chip "tài khoản được nhớ" đang hiện, thông báo lỗi sai mật khẩu giờ nêu rõ đang thử tài khoản nào + nhắc bấm "Tài khoản khác" nếu không đúng — tránh gõ sai mật khẩu liên tục làm khóa tạm nhầm tài khoản; sửa 1 chỗ có thể throw im lặng (không hiện toast) nếu thiếu phần tử chip khi build thông báo lỗi |
@@ -76,22 +77,22 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 
 > **Ghi chú:** các số phiên bản v6.13, v6.17, v6.19, v6.21, v6.23, v6.52,
 > v6.55, v6.56, v6.58, v6.60, v6.63, v6.65, v6.66, v6.68, v6.70, v6.72,
-> v6.74, v6.76, v6.78 bị nhảy cóc trong lịch sử — không có Pull Request
-> tương ứng để đối chiếu nội dung (nhiều khả năng do chạy lại workflow tăng
-> version hoặc sửa trực tiếp trên `main` ngoài luồng PR — ví dụ v6.52 phát
-> sinh từ chính commit cập nhật version.md cho v6.51,
+> v6.74, v6.76, v6.78, v6.80 bị nhảy cóc trong lịch sử — không có Pull
+> Request tương ứng để đối chiếu nội dung (nhiều khả năng do chạy lại
+> workflow tăng version hoặc sửa trực tiếp trên `main` ngoài luồng PR — ví
+> dụ v6.52 phát sinh từ chính commit cập nhật version.md cho v6.51,
 > v6.55/v6.56/v6.58/v6.60 phát sinh tương tự từ các commit cập nhật
 > version.md trực tiếp trên `main` sau mỗi lần merge, v6.63 phát sinh từ
 > commit merge nhánh `main` (đã có sẵn bump v6.63) ngược vào nhánh PR #67 để
 > giải quyết xung đột trước khi merge, v6.65/v6.66 phát sinh từ 2 commit
 > liên tiếp sửa lại version.md sau PR #67, v6.68 phát sinh tương tự từ
-> commit cập nhật version.md cho v6.67, và v6.70/v6.72/v6.74/v6.76/v6.78
-> phát sinh tương tự từ các commit cập nhật version.md trực tiếp trên
-> `main` cho v6.69/v6.71/v6.73/v6.75/v6.77 — mỗi lần commit trực tiếp/merge
-> như vậy đều vô tình kích hoạt lại workflow tăng version thêm 1 lần nữa).
-> Từ PR #65 trở đi, workflow còn tự rebuild `public/app.min.js`/`style.css`
-> trên mỗi lần chạy (xem Đợt 7), nên các lần nhảy cóc này không ảnh hưởng gì
-> tới bundle production. Không ảnh hưởng tới các phiên bản khác.
+> commit cập nhật version.md cho v6.67, và v6.70/v6.72/v6.74/v6.76/v6.78/
+> v6.80 phát sinh tương tự từ các commit cập nhật version.md trực tiếp trên
+> `main` cho v6.69/v6.71/v6.73/v6.75/v6.77/v6.79 — mỗi lần commit trực
+> tiếp/merge như vậy đều vô tình kích hoạt lại workflow tăng version thêm 1
+> lần nữa). Từ PR #65 trở đi, workflow còn tự rebuild `public/app.min.js`/
+> `style.css` trên mỗi lần chạy (xem Đợt 7), nên các lần nhảy cóc này không
+> ảnh hưởng gì tới bundle production. Không ảnh hưởng tới các phiên bản khác.
 
 ## Cách cập nhật file này
 
