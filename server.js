@@ -82,6 +82,8 @@ const { Client: LdapClient } = require('ldapts');
 const nodemailer = require('nodemailer');
 const { Jimp } = require('jimp');
 const { generateRegistrationOptions, verifyRegistrationResponse, generateAuthenticationOptions, verifyAuthenticationResponse } = require('@simplewebauthn/server');
+const { authenticator } = require('otplib');
+const QRCode = require('qrcode');
 
 const app = express();
 const isProd = process.env.NODE_ENV === 'production';
@@ -214,6 +216,16 @@ if (!JWT_SECRET) {
 }
 const TOKEN_COOKIE = 'dms_token';
 const TOKEN_TTL = '8h';
+// Xác thực hai yếu tố (2FA/TOTP) — chỉ bắt buộc với Admin (xem POST
+// /api/auth/login). dms_mfa là JWT NGẮN HẠN riêng, tách khỏi dms_token thật
+// (chưa cấp phiên đăng nhập thật cho tới khi qua được bước này), mang theo
+// user id + "mục đích" (mfa_pending: đã có 2FA, chỉ cần nhập mã; mfa_setup:
+// CHƯA có 2FA, bắt đăng ký lần đầu — bí mật TOTP nằm ngay trong token này,
+// chỉ ghi vào DB sau khi xác minh đúng mã đầu tiên, tránh treo 1 bí mật nửa
+// vời trong DB nếu người dùng bỏ dở giữa chừng).
+const MFA_COOKIE = 'dms_mfa';
+const MFA_TOKEN_TTL_MIN = 5;
+const TOTP_ISSUER = 'DMS';
 
 function signToken(user) {
     return jwt.sign(
@@ -232,9 +244,23 @@ function setAuthCookie(res, token) {
     });
 }
 
+function setMfaCookie(res, payload) {
+    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: `${MFA_TOKEN_TTL_MIN}m` });
+    res.cookie(MFA_COOKIE, token, {
+        httpOnly: true,
+        secure: isProd,
+        sameSite: 'strict',
+        maxAge: MFA_TOKEN_TTL_MIN * 60 * 1000
+    });
+}
+
+function clearMfaCookie(res) {
+    res.clearCookie(MFA_COOKIE, { httpOnly: true, secure: isProd, sameSite: 'strict' });
+}
+
 function sanitizeUser(u) {
     if (!u) return u;
-    const { pass, failed_login_count, locked_until, token_version, ...rest } = u;
+    const { pass, failed_login_count, locked_until, token_version, totp_secret, ...rest } = u;
     return rest;
 }
 
@@ -1090,15 +1116,131 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
             await pool.query('UPDATE users SET failed_login_count = 0, locked_until = NULL WHERE id = ?', [user.id]);
         }
 
+        const perms = typeof user.perms === 'string' ? JSON.parse(user.perms || '{}') : user.perms;
+
+        // Xác thực hai yếu tố (2FA) — BẮT BUỘC với Admin, không áp dụng tài
+        // khoản thường. Chưa cấp phiên đăng nhập thật (chưa setAuthCookie) ở
+        // đây — chỉ cấp 1 token tạm (dms_mfa, 5 phút) để hoàn tất bước 2.
+        if (perms.admin) {
+            if (user.totp_enabled) {
+                setMfaCookie(res, { id: user.id, purpose: 'mfa_pending' });
+                await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_MFA_PENDING', status: 'SUCCESS', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: 'Đăng nhập đúng mật khẩu — đang chờ nhập mã xác thực hai yếu tố.' });
+                return res.json({ mfaRequired: true, username: user.username });
+            }
+            // Admin nhưng CHƯA bật 2FA — bắt đăng ký ngay, không cho vào hệ
+            // thống cho tới khi hoàn tất (xem POST /api/auth/2fa/setup/verify).
+            const secret = authenticator.generateSecret();
+            setMfaCookie(res, { id: user.id, purpose: 'mfa_setup', secret });
+            const otpauthUrl = authenticator.keyuri(user.username, TOTP_ISSUER, secret);
+            const qrDataUrl = await QRCode.toDataURL(otpauthUrl);
+            await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_MFA_SETUP_REQUIRED', status: 'SUCCESS', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: 'Đăng nhập đúng mật khẩu — tài khoản Admin bắt buộc thiết lập xác thực hai yếu tố trước khi vào hệ thống.' });
+            return res.json({ mfaSetupRequired: true, username: user.username, secret, qrDataUrl });
+        }
+
         const token = signToken(user);
         setAuthCookie(res, token);
 
         await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_SUCCESS', status: 'SUCCESS', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: authSource === 'LDAP' ? 'Đăng nhập hệ thống thành công qua LDAP/Active Directory.' : 'Đăng nhập hệ thống thành công.' });
 
-        const perms = typeof user.perms === 'string' ? JSON.parse(user.perms || '{}') : user.perms;
         res.json({ user: sanitizeUser({ ...user, perms }) });
     } catch (err) {
         console.error('❌ Lỗi đăng nhập:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Bước 2 đăng nhập: nhập mã 2FA (tài khoản Admin đã bật xác thực hai yếu
+// tố từ trước) — đọc token tạm dms_mfa (đặt bởi /api/auth/login), xác minh mã
+// TOTP 6 số, rồi mới cấp phiên đăng nhập thật. loginLimiter (đếm theo IP) áp
+// dụng chung để chống dò mã hàng loạt, ngoài ra còn khoá theo state tự nhiên
+// của token tạm (chỉ sống 5 phút).
+app.post('/api/auth/2fa/verify', loginLimiter, async (req, res) => {
+    try {
+        const code = String((req.body && req.body.code) || '').trim();
+        const mfaToken = req.cookies[MFA_COOKIE];
+        if (!mfaToken) return res.status(401).json({ error: 'Phiên xác thực hai yếu tố đã hết hạn, vui lòng đăng nhập lại.' });
+        let payload;
+        try {
+            payload = jwt.verify(mfaToken, JWT_SECRET, { algorithms: ['HS256'] });
+        } catch (e) {
+            return res.status(401).json({ error: 'Phiên xác thực hai yếu tố đã hết hạn, vui lòng đăng nhập lại.' });
+        }
+        if (payload.purpose !== 'mfa_pending') {
+            return res.status(401).json({ error: 'Phiên xác thực hai yếu tố không hợp lệ, vui lòng đăng nhập lại.' });
+        }
+        if (!code) return res.status(400).json({ error: 'Vui lòng nhập mã xác thực.' });
+
+        const [rows] = await pool.query('SELECT * FROM users WHERE id = ?', [payload.id]);
+        const user = rows[0];
+        if (!user || !user.active || !user.totp_enabled || !user.totp_secret) {
+            clearMfaCookie(res);
+            return res.status(401).json({ error: 'Không thể xác thực, vui lòng đăng nhập lại.' });
+        }
+
+        const ok = authenticator.verify({ token: code, secret: user.totp_secret });
+        if (!ok) {
+            await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_MFA_FAILED', status: 'FAILED', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: 'Xác thực hai yếu tố thất bại: mã không đúng hoặc đã hết hạn.' });
+            return res.status(400).json({ error: 'Mã xác thực không đúng hoặc đã hết hạn — hãy dùng mã hiện tại trên ứng dụng Authenticator.' });
+        }
+
+        clearMfaCookie(res);
+        const token = signToken(user);
+        setAuthCookie(res, token);
+        await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_SUCCESS', status: 'SUCCESS', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: 'Đăng nhập hệ thống thành công (đã xác thực hai yếu tố).' });
+
+        const perms = typeof user.perms === 'string' ? JSON.parse(user.perms || '{}') : user.perms;
+        res.json({ user: sanitizeUser({ ...user, perms }) });
+    } catch (err) {
+        console.error('❌ Lỗi xác thực hai yếu tố:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Hoàn tất thiết lập 2FA lần đầu (bắt buộc với Admin) — bí mật TOTP nằm
+// trong chính token tạm dms_mfa (mfa_setup), CHỈ ghi vào DB sau khi xác minh
+// đúng mã đầu tiên, để không bao giờ có 1 bí mật "treo lửng lơ" trong DB nếu
+// người dùng bỏ dở giữa chừng (đóng tab, mất mạng...).
+app.post('/api/auth/2fa/setup/verify', loginLimiter, async (req, res) => {
+    try {
+        const code = String((req.body && req.body.code) || '').trim();
+        const mfaToken = req.cookies[MFA_COOKIE];
+        if (!mfaToken) return res.status(401).json({ error: 'Phiên thiết lập xác thực hai yếu tố đã hết hạn, vui lòng đăng nhập lại.' });
+        let payload;
+        try {
+            payload = jwt.verify(mfaToken, JWT_SECRET, { algorithms: ['HS256'] });
+        } catch (e) {
+            return res.status(401).json({ error: 'Phiên thiết lập xác thực hai yếu tố đã hết hạn, vui lòng đăng nhập lại.' });
+        }
+        if (payload.purpose !== 'mfa_setup' || !payload.secret) {
+            return res.status(401).json({ error: 'Phiên thiết lập xác thực hai yếu tố không hợp lệ, vui lòng đăng nhập lại.' });
+        }
+        if (!code) return res.status(400).json({ error: 'Vui lòng nhập mã xác thực.' });
+
+        const [rows] = await pool.query('SELECT * FROM users WHERE id = ?', [payload.id]);
+        const user = rows[0];
+        if (!user || !user.active) {
+            clearMfaCookie(res);
+            return res.status(401).json({ error: 'Không thể xác thực, vui lòng đăng nhập lại.' });
+        }
+
+        const ok = authenticator.verify({ token: code, secret: payload.secret });
+        if (!ok) {
+            return res.status(400).json({ error: 'Mã xác thực không đúng — hãy đảm bảo đã quét đúng mã QR và nhập mã hiện tại trên ứng dụng Authenticator.' });
+        }
+
+        const enrolledAt = new Date().toISOString();
+        await pool.query('UPDATE users SET totp_secret = ?, totp_enabled = 1, totp_enrolled_at = ? WHERE id = ?', [payload.secret, enrolledAt, user.id]);
+        await writeAuditLog({ module: 'USER_MGM', actionType: 'MFA_ENROLLED', status: 'SUCCESS', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: 'Đã hoàn tất thiết lập xác thực hai yếu tố (bắt buộc với Admin).' });
+
+        clearMfaCookie(res);
+        const token = signToken({ ...user, token_version: user.token_version });
+        setAuthCookie(res, token);
+        await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_SUCCESS', status: 'SUCCESS', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: 'Đăng nhập hệ thống thành công (vừa thiết lập xác thực hai yếu tố).' });
+
+        const perms = typeof user.perms === 'string' ? JSON.parse(user.perms || '{}') : user.perms;
+        res.json({ user: sanitizeUser({ ...user, perms, totp_enabled: 1, totp_enrolled_at: enrolledAt }) });
+    } catch (err) {
+        console.error('❌ Lỗi thiết lập xác thực hai yếu tố:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
@@ -1292,10 +1434,28 @@ app.post('/api/webauthn/login/verify', loginLimiter, async (req, res) => {
         const now = new Date().toISOString();
         await pool.query('UPDATE webauthn_credentials SET counter = ?, last_used_at = ? WHERE id = ?', [verification.authenticationInfo.newCounter, now, cred.id]);
 
+        const perms = typeof user.perms === 'string' ? JSON.parse(user.perms || '{}') : user.perms;
+
+        // Vân tay/Face ID KHÔNG được coi là thay thế cho 2FA bắt buộc của Admin
+        // — cùng cổng gác như đăng nhập bằng mật khẩu ở /api/auth/login, nếu
+        // không, WebAuthn sẽ là đường vòng bỏ qua hẳn TOTP bắt buộc.
+        if (perms.admin) {
+            if (user.totp_enabled) {
+                setMfaCookie(res, { id: user.id, purpose: 'mfa_pending' });
+                await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_MFA_PENDING', status: 'SUCCESS', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: 'Đăng nhập vân tay/Face ID thành công — đang chờ nhập mã xác thực hai yếu tố.' });
+                return res.json({ mfaRequired: true, username: user.username });
+            }
+            const secret = authenticator.generateSecret();
+            setMfaCookie(res, { id: user.id, purpose: 'mfa_setup', secret });
+            const otpauthUrl = authenticator.keyuri(user.username, TOTP_ISSUER, secret);
+            const qrDataUrl = await QRCode.toDataURL(otpauthUrl);
+            await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_MFA_SETUP_REQUIRED', status: 'SUCCESS', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: 'Đăng nhập vân tay/Face ID thành công — tài khoản Admin bắt buộc thiết lập xác thực hai yếu tố trước khi vào hệ thống.' });
+            return res.json({ mfaSetupRequired: true, username: user.username, secret, qrDataUrl });
+        }
+
         const token = signToken(user);
         setAuthCookie(res, token);
         await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_SUCCESS', status: 'SUCCESS', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: 'Đăng nhập hệ thống thành công qua vân tay/Face ID.' });
-        const perms = typeof user.perms === 'string' ? JSON.parse(user.perms || '{}') : user.perms;
         res.json({ user: sanitizeUser({ ...user, perms }) });
     } catch (err) {
         console.error('❌ Lỗi xác thực đăng nhập vân tay/Face ID:', err.message);
@@ -2123,6 +2283,37 @@ app.post('/api/docs/upload', requireAuth, uploadLimiter, (req, res, next) => {
     }
 });
 
+// --- Admin hỗ trợ gỡ 2FA cho Admin KHÁC (không tự gỡ được — xem chú thích
+// trong app.js phần switchAdminSubTab/renderUsers). Chỉ đổi đúng 3 cột 2FA
+// bằng UPDATE trực tiếp, KHÔNG đi qua /api/sync/users (xóa-chèn-lại toàn
+// bảng) để không đụng tới bất kỳ dữ liệu nào khác của user đó. Sau khi gỡ,
+// tăng token_version để buộc phiên đăng nhập hiện tại (nếu có) phải đăng
+// nhập lại — do totp_enabled đã về 0, lần đăng nhập kế tiếp sẽ tự bắt đăng ký
+// 2FA lại ngay (đúng luồng mfaSetupRequired ở /api/auth/login).
+app.post('/api/users/:id/2fa/reset', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const targetId = Number(req.params.id);
+        if (!targetId) return res.status(400).json({ error: 'Thiếu người dùng cần gỡ 2FA.' });
+        if (targetId === req.user.id) {
+            return res.status(400).json({ error: 'Không thể tự gỡ xác thực hai yếu tố của chính mình — hãy nhờ một Quản trị viên khác thực hiện.' });
+        }
+        const [rows] = await pool.query('SELECT username, name, totp_enabled FROM users WHERE id = ?', [targetId]);
+        if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy người dùng.' });
+        if (!rows[0].totp_enabled) return res.status(400).json({ error: 'Tài khoản này chưa bật xác thực hai yếu tố.' });
+
+        await pool.query('UPDATE users SET totp_secret = NULL, totp_enabled = 0, totp_enrolled_at = NULL, token_version = token_version + 1 WHERE id = ?', [targetId]);
+        await writeAuditLog({
+            module: 'USER_MGM', actionType: 'MFA_RESET_BY_ADMIN', status: 'SUCCESS',
+            username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: rows[0].username,
+            description: `Gỡ xác thực hai yếu tố cho tài khoản Admin [${rows[0].username}] theo yêu cầu hỗ trợ — tài khoản này sẽ phải đăng ký lại ở lần đăng nhập kế tiếp.`
+        });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi gỡ xác thực hai yếu tố:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
 // --- API SYNC / LƯU DỮ LIỆU ĐỒNG BỘ ---
 app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
     if (ADMIN_ONLY_TABLES.has(req.params.table)) return requireAdmin(req, res, next);
@@ -2363,10 +2554,22 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
         } else if (table === 'users') {
             // Bảo mật: mật khẩu không bao giờ được client gửi dạng đã biết trước (bootstrap không trả field `pass`).
             // Nếu client không gửi mật khẩu mới (trống) cho một user đã tồn tại, giữ nguyên hash cũ trong DB.
-            const [existingRows] = await pool.query('SELECT username, pass, token_version FROM users');
+            // Tương tự, 2FA (totp_secret/totp_enabled/totp_enrolled_at) KHÔNG BAO GIỜ
+            // được sửa qua đường lưu danh sách người dùng này (form Users hoàn toàn
+            // không có trường nào cho 2FA) — phải giữ nguyên nếu không, mỗi lần sửa
+            // BẤT KỲ user nào (kể cả không liên quan) sẽ vô tình xóa sạch 2FA của mọi
+            // Admin do cơ chế xóa-chèn-lại toàn bảng bên dưới, phá vỡ yêu cầu "2FA bắt
+            // buộc, Admin không tự gỡ được" — chỉ gỡ được qua route riêng
+            // POST /api/users/:id/2fa/reset.
+            const [existingRows] = await pool.query('SELECT username, pass, token_version, totp_secret, totp_enabled, totp_enrolled_at FROM users');
             const existingPassMap = {};
             const existingTokenVersionMap = {};
-            existingRows.forEach(r => { existingPassMap[r.username] = r.pass; existingTokenVersionMap[r.username] = r.token_version || 1; });
+            const existingTotpMap = {};
+            existingRows.forEach(r => {
+                existingPassMap[r.username] = r.pass;
+                existingTokenVersionMap[r.username] = r.token_version || 1;
+                existingTotpMap[r.username] = { secret: r.totp_secret || null, enabled: r.totp_enabled || 0, enrolledAt: r.totp_enrolled_at || null };
+            });
             const [deptRows] = await pool.query('SELECT name FROM depts');
             const validDeptNames = new Set(deptRows.map(d => d.name));
 
@@ -2420,7 +2623,8 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                     return res.status(400).json({ error: 'Không thể tự khóa chính tài khoản đang đăng nhập!' });
                 }
 
-                rowsToInsert.push([u.id, username, passHash, name, email, phone, u.dept, JSON.stringify(u.perms || {}), active, tokenVersion]);
+                const existingTotp = existingTotpMap[username] || { secret: null, enabled: 0, enrolledAt: null };
+                rowsToInsert.push([u.id, username, passHash, name, email, phone, u.dept, JSON.stringify(u.perms || {}), active, tokenVersion, existingTotp.secret, existingTotp.enabled, existingTotp.enrolledAt]);
             }
 
             // Bảo mật: bảng users bị xóa-chèn-lại toàn bộ (không có id ổn định phía
@@ -2446,7 +2650,7 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                 await usersConn.query('DELETE FROM users');
                 for (let row of rowsToInsert) {
                     await usersConn.query(
-                        'INSERT INTO users (id, username, pass, name, email, phone, dept, perms, active, token_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        'INSERT INTO users (id, username, pass, name, email, phone, dept, perms, active, token_version, totp_secret, totp_enabled, totp_enrolled_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                         row
                     );
                 }

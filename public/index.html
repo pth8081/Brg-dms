@@ -120,6 +120,7 @@
       <!-- Panel form đăng nhập -->
       <section class="flex items-center justify-center px-6 py-10 lg:px-12 bg-paper-50">
         <div class="w-full max-w-sm">
+        <div id="loginFormView">
           <p class="text-xs font-semibold tracking-[0.14em] uppercase text-gold-600 mb-2">Cổng nội bộ</p>
           <h2 class="font-brand font-semibold text-2xl md:text-3xl text-gray-900 mb-2">Đăng nhập hệ thống</h2>
           <p class="text-[15px] text-gray-500 leading-relaxed mb-8">Nhập tên đăng nhập và mật khẩu được Quản trị viên cấp cho bạn.</p>
@@ -169,6 +170,49 @@
 
           <div class="mt-7 pt-6 border-t border-paper-200 text-xs text-gray-500">
             Gặp sự cố khi đăng nhập? Liên hệ Quản trị viên hệ thống để được hỗ trợ.
+          </div>
+        </div>
+
+        <!-- Xác thực hai yếu tố (2FA) — chỉ hiện với tài khoản Admin, sau khi mật
+             khẩu đã đúng. 2 view con: mfaVerifyView (đã có 2FA, chỉ nhập mã) và
+             mfaSetupView (chưa có 2FA — Admin bắt buộc đăng ký ngay lần đầu). -->
+        <div id="mfaSection" class="hidden">
+          <div id="mfaVerifyView" class="hidden">
+            <p class="text-xs font-semibold tracking-[0.14em] uppercase text-gold-600 mb-2">Xác thực hai yếu tố</p>
+            <h2 class="font-brand font-semibold text-2xl md:text-3xl text-gray-900 mb-2">Nhập mã xác thực</h2>
+            <p class="text-[15px] text-gray-500 leading-relaxed mb-6">Mở ứng dụng Authenticator trên điện thoại và nhập mã 6 số hiện tại cho tài khoản <b id="mfaVerifyUsername" class="text-gray-900"></b>.</p>
+            <form data-evt-submit="submitMfaVerify" data-args='[{"__live__":"event"}]' novalidate>
+              <div class="mb-4">
+                <label for="txtMfaCode" class="block text-[13px] font-semibold text-gray-800 mb-1.5">Mã xác thực (6 số)</label>
+                <input id="txtMfaCode" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="000000" class="w-full text-center tracking-[0.5em] text-xl font-bold text-gray-900 bg-paper-100 border-[1.5px] border-paper-200 rounded-lg px-3.5 py-3 transition-colors focus:outline-none focus:border-brand-600 focus:ring-4 focus:ring-brand-600/20 focus:bg-paper-50">
+              </div>
+              <button type="submit" id="btnMfaVerifySubmit" class="w-full flex items-center justify-center gap-2 bg-brand-600 text-white font-bold text-[15px] rounded-lg py-3.5 hover:bg-brand-700 transition-colors">Xác nhận</button>
+            </form>
+            <button type="button" data-evt-click="cancelMfaFlow" data-args='[]' class="mt-4 text-xs text-gray-500 font-semibold hover:underline">← Quay lại đăng nhập</button>
+            <div class="mt-6 pt-6 border-t border-paper-200 text-xs text-gray-500">
+              Mất điện thoại/không đăng ký được nữa? Nhờ một Quản trị viên khác gỡ xác thực hai yếu tố giúp bạn ở mục Người dùng &amp; Phân quyền.
+            </div>
+          </div>
+
+          <div id="mfaSetupView" class="hidden">
+            <p class="text-xs font-semibold tracking-[0.14em] uppercase text-gold-600 mb-2">Bắt buộc với Quản trị viên</p>
+            <h2 class="font-brand font-semibold text-2xl md:text-3xl text-gray-900 mb-2">Thiết lập xác thực hai yếu tố</h2>
+            <p class="text-[15px] text-gray-500 leading-relaxed mb-4">Tài khoản Quản trị viên bắt buộc bật xác thực hai yếu tố trước khi vào hệ thống. Quét mã QR bên dưới bằng ứng dụng Google Authenticator/Authy (hoặc nhập mã thủ công), rồi nhập mã 6 số hiện tại để hoàn tất.</p>
+            <div class="flex justify-center mb-3">
+              <img id="mfaSetupQr" class="w-40 h-40 border-[1.5px] border-paper-200 rounded-lg bg-white p-1" alt="Mã QR đăng ký xác thực hai yếu tố">
+            </div>
+            <div class="mb-5 text-center">
+              <div class="text-[11px] text-gray-500 mb-1">Hoặc nhập mã thủ công vào ứng dụng Authenticator:</div>
+              <code id="mfaSetupSecret" class="text-sm font-mono bg-paper-100 border border-paper-200 px-2 py-1 rounded select-all inline-block"></code>
+            </div>
+            <form data-evt-submit="submitMfaSetupVerify" data-args='[{"__live__":"event"}]' novalidate>
+              <div class="mb-4">
+                <label for="txtMfaSetupCode" class="block text-[13px] font-semibold text-gray-800 mb-1.5">Mã xác thực (6 số)</label>
+                <input id="txtMfaSetupCode" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="000000" class="w-full text-center tracking-[0.5em] text-xl font-bold text-gray-900 bg-paper-100 border-[1.5px] border-paper-200 rounded-lg px-3.5 py-3 transition-colors focus:outline-none focus:border-brand-600 focus:ring-4 focus:ring-brand-600/20 focus:bg-paper-50">
+              </div>
+              <button type="submit" id="btnMfaSetupSubmit" class="w-full flex items-center justify-center gap-2 bg-brand-600 text-white font-bold text-[15px] rounded-lg py-3.5 hover:bg-brand-700 transition-colors">Hoàn tất thiết lập</button>
+            </form>
+            <button type="button" data-evt-click="cancelMfaFlow" data-args='[]' class="mt-4 text-xs text-gray-500 font-semibold hover:underline">← Quay lại đăng nhập</button>
           </div>
         </div>
       </section>
@@ -672,6 +716,7 @@
                 <th class="border p-2">Phòng Ban</th>
                 <th class="border p-2">Chi Tiết Quyền Hạn</th>
                 <th class="border p-2 text-center">Trạng Thái</th>
+                <th class="border p-2 text-center">Xác Thực 2 Yếu Tố</th>
                 <th class="border p-2 text-center min-w-[100px] whitespace-nowrap">Thao Tác</th>
               </tr>
             </thead>

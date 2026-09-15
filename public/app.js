@@ -601,6 +601,10 @@
         };
         const data = await apiFetch('/api/webauthn/login/verify', { method: 'POST', body: JSON.stringify({ credential: credentialForServer }) });
         localStorage.setItem(WEBAUTHN_REMEMBERED_USERNAME_KEY, username);
+        // Admin vẫn phải qua xác thực hai yếu tố dù đăng nhập bằng vân tay/Face
+        // ID — xem chú thích ở /api/webauthn/login/verify.
+        if (data.mfaRequired) { showMfaVerifyView(data.username); return; }
+        if (data.mfaSetupRequired) { showMfaSetupView(data.username, data.secret, data.qrDataUrl); return; }
         await enterApp(data.user);
       } catch (e) {
         if (e && e.name === 'NotAllowedError') {
@@ -694,6 +698,11 @@
           body: JSON.stringify({ username: u, password: p, captcha })
         });
         localStorage.setItem(WEBAUTHN_REMEMBERED_USERNAME_KEY, u);
+        // Mật khẩu đã đúng — với tài khoản Admin, chưa có phiên đăng nhập thật
+        // ngay, phải qua thêm bước xác thực hai yếu tố (đã bật) hoặc bắt buộc
+        // đăng ký ngay (chưa bật) trước khi enterApp().
+        if (data.mfaRequired) { showMfaVerifyView(data.username); return; }
+        if (data.mfaSetupRequired) { showMfaSetupView(data.username, data.secret, data.qrDataUrl); return; }
         await enterApp(data.user);
       } catch (e) {
         // Khi chip "tài khoản được nhớ" đang hiện (ô nhập username bị ẩn),
@@ -755,8 +764,84 @@
       document.getElementById('itAssetsSection').classList.add('hidden');
       document.getElementById('budget2Section').classList.add('hidden');
       document.getElementById('userHeader').classList.add('hidden');
+      document.getElementById('mfaSection').classList.add('hidden');
+      document.getElementById('loginFormView').classList.remove('hidden');
       initRememberedAccountUI();
       initWebauthnLoginButton();
+    }
+
+    // --- Xác thực hai yếu tố (2FA/TOTP) khi đăng nhập — chỉ áp dụng Admin.
+    // Xem chú thích luồng đầy đủ ở server.js (POST /api/auth/login và 2 route
+    // /api/auth/2fa/verify, /api/auth/2fa/setup/verify).
+    function showMfaVerifyView(username) {
+      document.getElementById('loginFormView').classList.add('hidden');
+      document.getElementById('mfaSection').classList.remove('hidden');
+      document.getElementById('mfaVerifyView').classList.remove('hidden');
+      document.getElementById('mfaSetupView').classList.add('hidden');
+      document.getElementById('mfaVerifyUsername').textContent = username;
+      const input = document.getElementById('txtMfaCode');
+      input.value = '';
+      setTimeout(() => input.focus(), 50);
+    }
+    function showMfaSetupView(username, secret, qrDataUrl) {
+      document.getElementById('loginFormView').classList.add('hidden');
+      document.getElementById('mfaSection').classList.remove('hidden');
+      document.getElementById('mfaSetupView').classList.remove('hidden');
+      document.getElementById('mfaVerifyView').classList.add('hidden');
+      document.getElementById('mfaSetupQr').src = qrDataUrl;
+      document.getElementById('mfaSetupSecret').textContent = secret;
+      const input = document.getElementById('txtMfaSetupCode');
+      input.value = '';
+      setTimeout(() => input.focus(), 50);
+    }
+    // Không gọi API nào — token tạm dms_mfa (httpOnly) chỉ sống 5 phút rồi tự
+    // hết hạn; nếu đang ở bước "đăng ký" (chưa lưu DB), bí mật TOTP coi như bị
+    // hủy hoàn toàn khi quay lại (không có gì cần dọn ở server).
+    function cancelMfaFlow() {
+      document.getElementById('mfaSection').classList.add('hidden');
+      document.getElementById('loginFormView').classList.remove('hidden');
+      document.getElementById('txtPass').value = '';
+      document.getElementById('txtPass').focus();
+      refreshCaptcha();
+    }
+    async function submitMfaVerify(e) {
+      if (e) e.preventDefault();
+      const code = document.getElementById('txtMfaCode').value.trim();
+      if (!code) return showToast('Vui lòng nhập mã xác thực.', 'warning');
+      const btn = document.getElementById('btnMfaVerifySubmit');
+      btn.disabled = true;
+      try {
+        const data = await apiFetch('/api/auth/2fa/verify', { method: 'POST', body: JSON.stringify({ code }) });
+        document.getElementById('mfaSection').classList.add('hidden');
+        await enterApp(data.user);
+      } catch (err) {
+        showToast(err.message || 'Mã xác thực không đúng.', 'danger');
+        const input = document.getElementById('txtMfaCode');
+        input.value = '';
+        input.focus();
+      } finally {
+        btn.disabled = false;
+      }
+    }
+    async function submitMfaSetupVerify(e) {
+      if (e) e.preventDefault();
+      const code = document.getElementById('txtMfaSetupCode').value.trim();
+      if (!code) return showToast('Vui lòng nhập mã xác thực.', 'warning');
+      const btn = document.getElementById('btnMfaSetupSubmit');
+      btn.disabled = true;
+      try {
+        const data = await apiFetch('/api/auth/2fa/setup/verify', { method: 'POST', body: JSON.stringify({ code }) });
+        document.getElementById('mfaSection').classList.add('hidden');
+        showToast('Đã bật xác thực hai yếu tố thành công!', 'success');
+        await enterApp(data.user);
+      } catch (err) {
+        showToast(err.message || 'Mã xác thực không đúng.', 'danger');
+        const input = document.getElementById('txtMfaSetupCode');
+        input.value = '';
+        input.focus();
+      } finally {
+        btn.disabled = false;
+      }
     }
 
     async function logout() {
@@ -2532,6 +2617,26 @@
       renderUsers();
     }
 
+    // Admin hỗ trợ gỡ 2FA cho 1 Admin KHÁC (không thể tự gỡ của chính mình —
+    // server cũng chặn lại, xem POST /api/users/:id/2fa/reset). Sau khi gỡ,
+    // tài khoản đó bị buộc đăng ký lại 2FA ngay ở lần đăng nhập kế tiếp.
+    async function resetUserMfa(id, username) {
+      const ok = await showConfirm({
+        title: 'Gỡ xác thực hai yếu tố',
+        message: `Gỡ xác thực hai yếu tố cho tài khoản Admin "${username}"? Tài khoản này sẽ phải đăng ký lại ngay ở lần đăng nhập kế tiếp.`,
+        danger: true, confirmText: 'Gỡ 2FA'
+      });
+      if (!ok) return;
+      try {
+        await apiFetch(`/api/users/${id}/2fa/reset`, { method: 'POST' });
+        showToast(`Đã gỡ xác thực hai yếu tố cho "${username}".`, 'success');
+        await loadBootstrapData();
+        renderUsers();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+
     async function toggleUserActive(id) {
       const idx = DB.users.findIndex(item => item.id == id);
       if (idx === -1) return;
@@ -2627,6 +2732,24 @@
           ? '<span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.5 rounded">🔓 Hoạt động</span>'
           : '<span class="bg-red-100 text-red-800 text-[10px] font-bold px-1.5 py-0.5 rounded">🔒 Đã khóa</span>';
 
+        // 2FA chỉ áp dụng/hiển thị cho Admin (bắt buộc với Admin, không có
+        // khái niệm này với tài khoản thường) — xem chú thích ở server.js
+        // POST /api/auth/login. Admin KHÔNG tự gỡ được 2FA của chính mình
+        // (nút Gỡ ẩn ở đúng dòng của bản thân), chỉ Admin khác gỡ hộ được.
+        let mfaCell = '<span class="text-gray-400">—</span>';
+        if (p.admin) {
+          const isSelf = currentUser && Number(u.id) === Number(currentUser.id);
+          const badge = u.totp_enabled
+            ? '<span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.5 rounded">✅ Đã bật</span>'
+            : '<span class="bg-amber-100 text-amber-800 text-[10px] font-bold px-1.5 py-0.5 rounded">⚠️ Chưa đăng ký</span>';
+          const resetBtn = u.totp_enabled
+            ? (isSelf
+                ? '<span class="text-[10px] text-gray-400 italic block mt-0.5" title="Không thể tự gỡ 2FA của chính mình">(nhờ Admin khác gỡ)</span>'
+                : `<button ${dc('resetUserMfa', u.id, `${escapeJsAttr(u.username)}`)} class="text-[10px] text-red-600 hover:underline font-semibold block mt-0.5">🔓 Gỡ 2FA (hỗ trợ)</button>`)
+            : '';
+          mfaCell = `${badge}${resetBtn}`;
+        }
+
         return `
           <tr class="hover:bg-gray-50 ${isActive ? '' : 'opacity-60'}">
             <td class="border p-2 font-bold font-mono text-blue-900">${escapeHtml(u.username)}</td>
@@ -2635,6 +2758,7 @@
             <td class="border p-2">${escapeHtml(u.dept)}</td>
             <td class="border p-2">${permTags || '<span class="text-gray-400">Quyền cơ bản</span>'}</td>
             <td class="border p-2 text-center">${statusBadge}</td>
+            <td class="border p-2 text-center">${mfaCell}</td>
             <td class="border p-2 text-center space-x-1 whitespace-nowrap">
               <button ${dc('editUser', u.id)} class="bg-blue-600 text-white px-2 py-0.5 rounded font-bold">Sửa</button>
               <button ${dc('toggleUserActive', u.id)} class="${isActive ? 'bg-amber-600' : 'bg-emerald-600'} text-white px-2 py-0.5 rounded font-bold">${isActive ? 'Khóa' : 'Kích hoạt'}</button>
