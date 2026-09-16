@@ -3342,32 +3342,40 @@
 
   <!-- MODAL CÁ NHÂN HÓA -->
   <div id="profileModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-50 p-4">
-    <div class="bg-white p-6 rounded-lg shadow-xl max-w-md w-full space-y-4">
-      <div class="flex justify-between items-center border-b pb-3">
+    <div class="bg-white rounded-lg shadow-2xl max-w-md w-full flex flex-col max-h-[90vh] overflow-hidden">
+      <div class="flex justify-between items-center border-b p-4 flex-none">
         <h3 class="font-bold text-gray-800 text-base">⚙️ Cập Nhật Thông Tin Cá Nhân</h3>
         <button data-evt-click="closeProfileModal" data-args='[]' class="text-gray-500 font-bold hover:text-gray-700 text-lg">✕</button>
       </div>
 
-      <form data-evt-submit="savePersonalProfile" data-args='[{"__live__":"event"}]' class="space-y-3 text-xs">
-        <div>
-          <label class="block font-semibold text-gray-600 mb-1">Tên đăng nhập</label>
-          <input id="pfUsername" type="text" disabled class="w-full border p-2 rounded bg-gray-100 font-bold">
+      <div class="flex border-b overflow-x-auto flex-none">
+        <button type="button" id="btnPfTabInfo" data-evt-click="switchProfileTab" data-args='["info"]' class="nav-tab active text-xs px-3 py-2.5 font-semibold whitespace-nowrap">👤 Thông tin</button>
+        <button type="button" id="btnPfTabPassword" data-evt-click="switchProfileTab" data-args='["password"]' class="nav-tab text-xs px-3 py-2.5 font-semibold whitespace-nowrap">🔒 Mật khẩu</button>
+        <button type="button" id="btnPfTabWebauthn" data-evt-click="switchProfileTab" data-args='["webauthn"]' class="nav-tab text-xs px-3 py-2.5 font-semibold whitespace-nowrap">👆 Vân tay / Face ID</button>
+      </div>
+
+      <form id="profileForm" data-evt-submit="savePersonalProfile" data-args='[{"__live__":"event"}]' class="p-4 space-y-3 text-xs overflow-y-auto flex-1">
+        <div id="pfTabInfo" class="space-y-3">
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Tên đăng nhập</label>
+            <input id="pfUsername" type="text" disabled class="w-full border p-2 rounded bg-gray-100 font-bold">
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Họ và Tên</label>
+            <input id="pfFullName" type="text" class="w-full border p-2 rounded font-semibold" required>
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Email Nhận Thông Báo</label>
+            <input id="pfEmail" type="email" class="w-full border p-2 rounded" required>
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Số Điện Thoại</label>
+            <input id="pfPhone" type="tel" class="w-full border p-2 rounded" placeholder="0912345678" required>
+          </div>
         </div>
-        <div>
-          <label class="block font-semibold text-gray-600 mb-1">Họ và Tên</label>
-          <input id="pfFullName" type="text" class="w-full border p-2 rounded font-semibold" required>
-        </div>
-        <div>
-          <label class="block font-semibold text-gray-600 mb-1">Email Nhận Thông Báo</label>
-          <input id="pfEmail" type="email" class="w-full border p-2 rounded" required>
-        </div>
-        <div>
-          <label class="block font-semibold text-gray-600 mb-1">Số Điện Thoại</label>
-          <input id="pfPhone" type="tel" class="w-full border p-2 rounded" placeholder="0912345678" required>
-        </div>
-        
-        <div class="border-t pt-3 space-y-3">
-          <h4 class="font-bold text-gray-700">🔒 Đổi Mật Khẩu (Để trống nếu giữ nguyên)</h4>
+
+        <div id="pfTabPassword" class="hidden space-y-3">
+          <p class="text-[11px] text-gray-500">Để trống cả 2 ô nếu muốn giữ nguyên mật khẩu hiện tại.</p>
           <div>
             <label class="block font-semibold text-gray-600 mb-1">Mật khẩu mới</label>
             <input id="pfNewPass" type="password" class="w-full border p-2 rounded">
@@ -3377,17 +3385,15 @@
             <input id="pfConfirmPass" type="password" class="w-full border p-2 rounded">
           </div>
         </div>
-
-        <div class="flex justify-end gap-2 pt-2">
-          <button type="button" data-evt-click="closeProfileModal" data-args='[]' class="bg-gray-400 text-white px-4 py-2 rounded font-bold">Hủy</button>
-          <button type="submit" class="bg-blue-600 text-white px-5 py-2 rounded font-bold hover:bg-blue-700">Lưu Thay Đổi</button>
-        </div>
       </form>
+      <div id="pfFormFooter" class="flex justify-end gap-2 p-3 border-t flex-none">
+        <button type="button" data-evt-click="closeProfileModal" data-args='[]' class="bg-gray-400 text-white px-4 py-2 rounded font-bold">Hủy</button>
+        <button type="submit" form="profileForm" class="bg-blue-600 text-white px-5 py-2 rounded font-bold hover:bg-blue-700">Lưu Thay Đổi</button>
+      </div>
 
-      <div class="border-t pt-3 space-y-2 text-xs">
-        <h4 class="font-bold text-gray-700">👆 Vân tay / Face ID</h4>
+      <div id="pfTabWebauthnPanel" class="hidden p-4 space-y-2 text-xs overflow-y-auto flex-1">
         <p class="text-[11px] text-gray-500">Đăng ký thiết bị này để lần sau đăng nhập nhanh, không cần gõ mật khẩu/mã xác nhận trên đúng thiết bị này — mật khẩu vẫn dùng bình thường khi cần (thiết bị lạ, quên sinh trắc học...).</p>
-        <ul id="webauthnDeviceList" class="divide-y border rounded max-h-32 overflow-y-auto"></ul>
+        <ul id="webauthnDeviceList" class="divide-y border rounded max-h-40 overflow-y-auto"></ul>
         <button type="button" data-evt-click="registerWebauthnDevice" data-args='[]' class="btn-secondary px-3 py-1.5 rounded text-xs font-bold">+ Đăng ký thiết bị này</button>
       </div>
     </div>
