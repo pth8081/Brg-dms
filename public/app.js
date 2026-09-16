@@ -7780,11 +7780,29 @@ function isPerpetualSoftware(softwareId) {
       if (line && line.orgUnitId) document.getElementById('budget2LineOrgUnit').value = line.orgUnitId;
       openLicenseModal('budget2LineModal');
     }
+    // "Loại công ty" là thuộc tính của CÔNG TY (bảng lic_companies), không
+    // phải của dòng ngân sách — chọn ở đây chỉ để tiện sửa ngay tại chỗ thay
+    // vì phải qua màn "Tổ chức công ty" riêng, lưu xong sẽ áp dụng cho MỌI
+    // dòng ngân sách khác của cùng công ty đó (xem saveBudget2Line). Chỉ hiện
+    // khi có chọn Công ty, và chỉ cho sửa khi user có quyền License/Admin
+    // (đúng quyền hạn của API PUT /api/license/companies/:id) — người không
+    // đủ quyền vẫn thấy Loại công ty hiện tại nhưng ô bị khóa.
     function onBudget2LineCompanyChange() {
       const companyId = Number(document.getElementById('budget2LineCompany').value) || null;
       const sel = document.getElementById('budget2LineOrgUnit');
       const units = companyId ? budget2DB.orgUnits.filter(u => u.companyId === companyId) : budget2DB.orgUnits;
       sel.innerHTML = '<option value="">-- Không chọn --</option>' + units.map(u => `<option value="${u.id}">${escapeHtml(u.name)}</option>`).join('');
+
+      const wrap = document.getElementById('budget2LineCompanyTypeWrap');
+      const typeSel = document.getElementById('budget2LineCompanyType');
+      const company = companyId ? budget2DB.companies.find(c => c.id === companyId) : null;
+      wrap.classList.toggle('hidden', !company);
+      if (company) {
+        typeSel.value = company.companyType || 'KHAC';
+        const canEdit = !!(currentUser && currentUser.perms && (currentUser.perms.admin || currentUser.perms.licenseManager));
+        typeSel.disabled = !canEdit;
+        document.getElementById('budget2LineCompanyTypeHint').classList.toggle('hidden', canEdit);
+      }
     }
     async function saveBudget2Line() {
       const stage = document.getElementById('budget2LineModalStage').value;
@@ -7805,6 +7823,10 @@ function isPerpetualSoftware(softwareId) {
         orgUnitId: document.getElementById('budget2LineOrgUnit').value || null,
         note: document.getElementById('budget2LineNote').value.trim()
       };
+      const companyTypeWrap = document.getElementById('budget2LineCompanyTypeWrap');
+      const companyTypeChange = (!companyTypeWrap.classList.contains('hidden') && !document.getElementById('budget2LineCompanyType').disabled && body.companyId)
+        ? { companyId: Number(body.companyId), newType: document.getElementById('budget2LineCompanyType').value }
+        : null;
       try {
         if (editId) {
           await apiFetch(`/api/budget2/lines/${editId}`, { method: 'PUT', body: JSON.stringify(body) });
@@ -7812,6 +7834,19 @@ function isPerpetualSoftware(softwareId) {
           await apiFetch('/api/budget2/lines/approved-direct', { method: 'POST', body: JSON.stringify(body) });
         } else {
           await apiFetch('/api/budget2/lines', { method: 'POST', body: JSON.stringify(body) });
+        }
+        // Loại công ty là thuộc tính của Công ty, không của dòng ngân sách —
+        // nếu người dùng đổi giá trị này ngay tại modal, ghi thẳng vào công
+        // ty qua API sẵn có (PUT /api/license/companies/:id), chỉ gọi khi
+        // thực sự đổi để tránh ghi audit log thừa mỗi lần lưu dòng.
+        if (companyTypeChange) {
+          const company = budget2DB.companies.find(c => c.id === companyTypeChange.companyId);
+          if (company && company.companyType !== companyTypeChange.newType) {
+            await apiFetch(`/api/license/companies/${company.id}`, {
+              method: 'PUT',
+              body: JSON.stringify({ name: company.name, code: company.code, companyType: companyTypeChange.newType })
+            });
+          }
         }
         budget2DB.loaded = false;
         await loadBudget2BootstrapData();
@@ -8102,16 +8137,48 @@ function isPerpetualSoftware(softwareId) {
         budget2ReportsData = data;
         populateBudget2ReportYearSelect();
         renderBudget2ReportTable();
+        renderBudget2OverviewYearChips();
         renderBudget2QuickReports();
         renderBudget2CompanyTypeAndMonthReports();
       }).catch(err => showToast(err.message || 'Không thể tải báo cáo ngân sách.', 'danger'));
+    }
+
+    // Năm báo cáo áp dụng cho "Bốn lát cắt nhanh" + "Báo cáo đa chiều" (KHÔNG
+    // áp dụng cho "Tra cứu chi tiết" — mục đó có bộ lọc Tháng/Năm riêng).
+    // Chọn được NHIỀU năm cùng lúc để so sánh — mỗi năm thêm vào sẽ lặp lại
+    // đúng 1 bộ card/biểu đồ gắn nhãn năm đó, giống kỹ thuật small-multiples
+    // đã dùng cho "Theo Tháng x Loại công ty".
+    let budget2OverviewYears = [new Date().getFullYear()];
+    function renderBudget2OverviewYearChips() {
+      const box = document.getElementById('budget2OverviewYearChips');
+      if (!box || !budget2ReportsData) return;
+      const years = new Set([...(budget2AllYearsPresent() || []), ...budget2OverviewYears]);
+      const sorted = [...years].sort((a, b) => a - b);
+      box.innerHTML = sorted.map(y => {
+        const active = budget2OverviewYears.includes(y);
+        return `<button type="button" ${dc('toggleBudget2OverviewYear', y)} class="px-2.5 py-1 rounded-full border text-xs font-semibold transition ${active ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-gray-600 border-gray-300 hover:border-teal-400'}">${y}</button>`;
+      }).join('');
+    }
+    function toggleBudget2OverviewYear(year) {
+      year = Number(year);
+      const idx = budget2OverviewYears.indexOf(year);
+      if (idx !== -1) {
+        if (budget2OverviewYears.length === 1) return showToast('Phải chọn ít nhất 1 năm báo cáo.', 'warning');
+        budget2OverviewYears.splice(idx, 1);
+      } else {
+        budget2OverviewYears.push(year);
+      }
+      budget2OverviewYears.sort((a, b) => a - b);
+      renderBudget2OverviewYearChips();
+      renderBudget2QuickReports();
+      renderBudget2CompanyTypeAndMonthReports();
     }
 
     // (Đợt Ngân sách 2.0 — mục 4) 4 lát cắt nhanh dựng trực tiếp từ dữ liệu
     // /api/budget2/reports đã tải (total theo năm cho b/c/d, byCompany lọc
     // đúng năm hiện tại cho a) — không cần gọi thêm API, không cần chỉnh bộ
     // lọc "Theo kỳ"/"So sánh nhiều kỳ" bên dưới.
-    function budget2QuickBarChart(series, color, currentYear) {
+    function budget2QuickBarChart(series, color, highlightYears) {
       const w = 460, h = 190, padL = 40, padR = 10, padT = 14, padB = 26;
       const innerW = w - padL - padR, innerH = h - padT - padB;
       const max = Math.max(1, Math.ceil(Math.max(...series.map(d => d.v), 1) / 100) * 100);
@@ -8128,7 +8195,7 @@ function isPerpetualSoftware(softwareId) {
         const x = padL + slot * i + (slot - bw) / 2;
         const bh = innerH * (d.v / max);
         const y = padT + innerH - bh;
-        const isCur = d.y === currentYear;
+        const isCur = highlightYears.includes(d.y);
         return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="3" fill="${isCur ? color : '#c7ccd4'}"/>`
           + `<text x="${(x + bw / 2).toFixed(1)}" y="${(y - 5).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="700" fill="#1f2937">${Math.round(d.v).toLocaleString('vi-VN')}</text>`
           + `<text x="${(x + bw / 2).toFixed(1)}" y="${padT + innerH + 15}" text-anchor="middle" font-size="9" fill="#6b7280">${d.y}</text>`;
@@ -8205,34 +8272,52 @@ function isPerpetualSoftware(softwareId) {
       const dot = c => `<span class="inline-block w-2.5 h-2.5 rounded-sm mr-1" style="background:${c}"></span>`;
       return `<span class="mr-3">${dot(BUDGET2_OPEX_COLOR)}OPEX</span><span>${dot(BUDGET2_CAPEX_COLOR)}CAPEX</span><span class="ml-3 text-gray-400">(chiều cao cả cột = Tổng)</span>`;
     }
+    // (a)/(e) là lát cắt CỦA 1 NĂM — khi budget2OverviewYears chọn nhiều năm,
+    // lặp lại đúng 1 bộ card/năm (kỹ thuật small-multiples, giống "Theo Tháng
+    // x Loại công ty"). (b)/(c)/(d) vốn đã là biểu đồ SO SÁNH NHIỀU NĂM sẵn
+    // (1 cột/năm) nên giữ nguyên toàn bộ lịch sử, chỉ đổi năm được tô đậm
+    // theo budget2OverviewYears thay vì cố định "năm hiện tại".
     function renderBudget2QuickReports() {
       const box = document.getElementById('budget2QuickReports');
       if (!box || !budget2ReportsData) return;
-      const currentYear = new Date().getFullYear();
+      const years = budget2OverviewYears;
+      const dot = c => `<span class="inline-block w-2.5 h-2.5 rounded-sm mr-1" style="background:${c}"></span>`;
 
-      // (a) Sử dụng vs Phê duyệt — năm hiện tại, theo Công ty
-      const byCompanyCur = (budget2ReportsData.byCompany || []).filter(r => r.budgetYear === currentYear);
-      const companyMap = new Map();
-      byCompanyCur.forEach(r => {
-        const key = r.groupKey ?? 'null';
-        if (!companyMap.has(key)) companyMap.set(key, { label: budget2CompanyName(r.groupKey) || '(Chưa gán công ty)', approved: 0, used: 0 });
-        const agg = companyMap.get(key);
-        agg.approved += r.approved; agg.used += r.used;
+      function groupByLabel(dataset, labelFn, year) {
+        const rows = (dataset || []).filter(r => r.budgetYear === year);
+        const map = new Map();
+        rows.forEach(r => {
+          const key = r.groupKey ?? 'null';
+          if (!map.has(key)) map.set(key, { label: labelFn(r.groupKey), approved: 0, used: 0 });
+          const agg = map.get(key);
+          agg.approved += r.approved; agg.used += r.used;
+        });
+        return [...map.values()].filter(d => d.approved > 0 || d.used > 0).sort((a, b) => b.approved - a.approved);
+      }
+
+      // (a) Sử dụng vs Phê duyệt theo Công ty — 1 card/năm đã chọn
+      const aCards = years.map(y => {
+        const data = groupByLabel(budget2ReportsData.byCompany, gk => budget2CompanyName(gk) || '(Chưa gán công ty)', y).slice(0, 6);
+        const totalApproved = data.reduce((s, d) => s + d.approved, 0);
+        const totalUsed = data.reduce((s, d) => s + d.used, 0);
+        const pct = totalApproved > 0 ? Math.round(totalUsed / totalApproved * 100) : 0;
+        return card(`a. Sử dụng vs Ngân sách phê duyệt theo Công ty — năm ${y}`,
+          data.length ? `Tổng ${formatMoney(totalUsed)} / ${formatMoney(totalApproved)} được duyệt (${pct}%)` : 'Chưa có dữ liệu năm này.',
+          data.length ? budget2QuickGroupedChart(data) : '',
+          `<span>${dot('#0284c7')}Ngân sách phê duyệt</span><span>${dot('#0d9488')}Đã sử dụng</span>`);
       });
-      const companyData = [...companyMap.values()].filter(d => d.approved > 0 || d.used > 0).sort((a, b) => b.approved - a.approved).slice(0, 6);
 
-      // (e) Theo Danh mục — năm hiện tại (mới bổ sung, cùng cách tính như (a) nhưng nhóm theo Danh mục thay vì Công ty)
-      const byCategoryCur = (budget2ReportsData.byCategory || []).filter(r => r.budgetYear === currentYear);
-      const categoryMap = new Map();
-      byCategoryCur.forEach(r => {
-        const key = r.groupKey ?? 'null';
-        if (!categoryMap.has(key)) categoryMap.set(key, { label: budget2CategoryLabel(r.groupKey) || '(Chưa gán danh mục)', approved: 0, used: 0 });
-        const agg = categoryMap.get(key);
-        agg.approved += r.approved; agg.used += r.used;
+      // (e) Sử dụng vs Phê duyệt theo Danh mục — 1 card/năm đã chọn
+      const eCards = years.map(y => {
+        const data = groupByLabel(budget2ReportsData.byCategory, gk => budget2CategoryLabel(gk) || '(Chưa gán danh mục)', y);
+        return card(`e. Sử dụng vs Ngân sách phê duyệt theo Danh mục — năm ${y}`,
+          data.length ? 'Tỷ trọng chi theo từng loại đối tượng mua/chi' : 'Chưa có dữ liệu năm này.',
+          data.length ? budget2QuickGroupedChart(data) : '',
+          `<span>${dot('#0284c7')}Ngân sách phê duyệt</span><span>${dot('#0d9488')}Đã sử dụng</span>`);
       });
-      const categoryData = [...categoryMap.values()].filter(d => d.approved > 0 || d.used > 0).sort((a, b) => b.approved - a.approved);
 
-      // (b)(c)(d) so sánh theo năm — dùng "total" (đã gộp toàn công ty)
+      // (b)(c)(d) so sánh theo năm — dùng "total" (đã gộp toàn công ty), luôn
+      // hiện TOÀN BỘ lịch sử năm có dữ liệu, chỉ tô đậm (các) năm đang chọn.
       function sumByYear(metric) {
         const map = new Map();
         (budget2ReportsData.total || []).forEach(r => {
@@ -8244,59 +8329,42 @@ function isPerpetualSoftware(softwareId) {
       const usedByYear = sumByYear('used');
       const approvedByYear = sumByYear('approved');
       const proposedByYear = sumByYear('proposed');
+      const yearsLabel = years.length > 1 ? `Các năm ${years.join(', ')}` : `Năm ${years[0]}`;
 
-      const totalApproved = companyData.reduce((s, d) => s + d.approved, 0);
-      const totalUsed = companyData.reduce((s, d) => s + d.used, 0);
-      const pct = totalApproved > 0 ? Math.round(totalUsed / totalApproved * 100) : 0;
-
-      function card(title, sub, chartHtml, legendHtml) {
-        return `<div class="bg-white border rounded-lg p-3">
-          <h4 class="text-sm font-bold text-gray-800">${title}</h4>
-          <div class="text-[11px] text-gray-500 mb-2">${sub}</div>
-          ${chartHtml}
-          <div class="flex gap-3 text-[11px] text-gray-600 mt-1">${legendHtml}</div>
-        </div>`;
-      }
-      const dot = c => `<span class="inline-block w-2.5 h-2.5 rounded-sm mr-1" style="background:${c}"></span>`;
-
-      box.innerHTML =
-        (companyData.length
-          ? card(`a. Sử dụng vs Ngân sách phê duyệt — năm ${currentYear}`,
-              `Theo công ty · tổng ${formatMoney(totalUsed)} / ${formatMoney(totalApproved)} được duyệt (${pct}%)`,
-              budget2QuickGroupedChart(companyData),
-              `<span>${dot('#0284c7')}Ngân sách phê duyệt</span><span>${dot('#0d9488')}Đã sử dụng</span>`)
-          : card(`a. Sử dụng vs Ngân sách phê duyệt — năm ${currentYear}`, 'Chưa có dữ liệu năm nay.', '', ''))
+      const bcdRow = `<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">`
         + (usedByYear.length
-          ? card('b. Ngân sách sử dụng theo năm', `${currentYear} so với các năm trước · đơn vị tiền tệ hệ thống`,
-              budget2QuickBarChart(usedByYear, '#0d9488', currentYear),
-              `<span>${dot('#0d9488')}Năm ${currentYear}</span><span>${dot('#c7ccd4')}Năm quá khứ</span>`)
+          ? card('b. Ngân sách sử dụng theo năm', `${yearsLabel} so với các năm khác · đơn vị tiền tệ hệ thống`,
+              budget2QuickBarChart(usedByYear, '#0d9488', years),
+              `<span>${dot('#0d9488')}${yearsLabel}</span><span>${dot('#c7ccd4')}Năm khác</span>`)
           : '')
         + (approvedByYear.length
-          ? card('c. Ngân sách phê duyệt theo năm', `${currentYear} so với các năm trước · đơn vị tiền tệ hệ thống`,
-              budget2QuickBarChart(approvedByYear, '#0284c7', currentYear),
-              `<span>${dot('#0284c7')}Năm ${currentYear}</span><span>${dot('#c7ccd4')}Năm quá khứ</span>`)
+          ? card('c. Ngân sách phê duyệt theo năm', `${yearsLabel} so với các năm khác · đơn vị tiền tệ hệ thống`,
+              budget2QuickBarChart(approvedByYear, '#0284c7', years),
+              `<span>${dot('#0284c7')}${yearsLabel}</span><span>${dot('#c7ccd4')}Năm khác</span>`)
           : '')
         + (proposedByYear.length
-          ? card('d. Ngân sách đề xuất theo năm', `${currentYear} so với các năm trước · đơn vị tiền tệ hệ thống`,
-              budget2QuickBarChart(proposedByYear, '#7c3aed', currentYear),
-              `<span>${dot('#7c3aed')}Năm ${currentYear}</span><span>${dot('#c7ccd4')}Năm quá khứ</span>`)
+          ? card('d. Ngân sách đề xuất theo năm', `${yearsLabel} so với các năm khác · đơn vị tiền tệ hệ thống`,
+              budget2QuickBarChart(proposedByYear, '#7c3aed', years),
+              `<span>${dot('#7c3aed')}${yearsLabel}</span><span>${dot('#c7ccd4')}Năm khác</span>`)
           : '')
-        + (categoryData.length
-          ? card(`e. Sử dụng vs Ngân sách phê duyệt theo Danh mục — năm ${currentYear}`,
-              'Tỷ trọng chi theo từng loại đối tượng mua/chi',
-              budget2QuickGroupedChart(categoryData),
-              `<span>${dot('#0284c7')}Ngân sách phê duyệt</span><span>${dot('#0d9488')}Đã sử dụng</span>`)
-          : '');
+        + `</div>`;
 
-      if (!box.innerHTML.trim()) box.innerHTML = '<div class="text-xs text-gray-400 italic p-3 border rounded col-span-2">Chưa có đủ dữ liệu để hiển thị báo cáo nhanh.</div>';
+      box.innerHTML =
+        `<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">${aCards.join('')}</div>`
+        + bcdRow
+        + `<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">${eCards.join('')}</div>`;
+
+      if (!usedByYear.length && !approvedByYear.length && !proposedByYear.length && aCards.every(c => c.includes('Chưa có dữ liệu')) && eCards.every(c => c.includes('Chưa có dữ liệu'))) {
+        box.innerHTML = '<div class="text-xs text-gray-400 italic p-3 border rounded">Chưa có đủ dữ liệu để hiển thị báo cáo nhanh.</div>';
+      }
     }
 
     const BUDGET2_MONTH_LABELS = Array.from({ length: 12 }, (_, i) => `T${i + 1}`);
     const BUDGET2_COMPANY_TYPE_ORDER = ['BRGGROUP', 'CTTV', 'KHAC'];
     // Các hàm tính số liệu đa chiều (Loại công ty x Tháng x OPEX/CAPEX) dùng
     // CHUNG cho cả phần vẽ biểu đồ (renderBudget2CompanyTypeAndMonthReports)
-    // và phần xuất Excel (exportBudget2CompanyTypeMonthReportXlsx) — tránh 2
-    // nơi tính trùng logic rồi lệch số liệu với nhau. Nguồn: budget2ReportsData
+    // và phần xuất Excel (exportBudget2OverviewReportXlsx) — tránh 2 nơi tính
+    // trùng logic rồi lệch số liệu với nhau. Nguồn: budget2ReportsData
     // đã tải sẵn (byCompanyType + total, xem /api/budget2/reports).
     function budget2ByCompanyTypeOfYear(year) {
       return (budget2ReportsData?.byCompanyType || []).filter(r => r.budgetYear === year);
@@ -8344,25 +8412,23 @@ function isPerpetualSoftware(softwareId) {
       return arr;
     }
     // Báo cáo theo Loại công ty + theo Tháng (đa chiều: Loại công ty x Tháng x
-    // OPEX/CAPEX) — năm hiện tại. "Tổng" luôn = chiều cao cả cột chồng
-    // OPEX+CAPEX (xem budget2StackedOpexCapexChart) — không vẽ thêm 1 cột
-    // "Tổng" riêng vì đó là số thừa (suy ra được từ 2 cột kia), tránh 1 chart
-    // có quá nhiều cột.
-    function renderBudget2CompanyTypeAndMonthReports() {
-      const box = document.getElementById('budget2CompanyTypeMonthReports');
-      if (!box || !budget2ReportsData) return;
-      const currentYear = new Date().getFullYear();
-      const byCompanyTypeCur = budget2ByCompanyTypeOfYear(currentYear);
-
-      function card(title, sub, chartHtml, legendHtml) {
-        return `<div class="bg-white border rounded-lg p-3">
-          <h4 class="text-sm font-bold text-gray-800">${title}</h4>
-          <div class="text-[11px] text-gray-500 mb-2">${sub}</div>
-          ${chartHtml || '<div class="text-xs text-gray-400 italic p-3">Chưa có dữ liệu.</div>'}
-          <div class="flex flex-wrap gap-1 text-[11px] text-gray-600 mt-1">${legendHtml || ''}</div>
-        </div>`;
-      }
+    // OPEX/CAPEX) — mỗi năm trong budget2OverviewYears được lặp lại thành 1
+    // khối riêng (nhãn rõ năm), để nguyên vẹn 3 phần con Theo Loại công
+    // ty/Theo Tháng/Theo Tháng x Loại công ty giống bản gốc 1-năm trước đây.
+    // "Tổng" luôn = chiều cao cả cột chồng OPEX+CAPEX (xem
+    // budget2StackedOpexCapexChart) — không vẽ thêm 1 cột "Tổng" riêng vì đó
+    // là số thừa (suy ra được từ 2 cột kia), tránh 1 chart có quá nhiều cột.
+    function card(title, sub, chartHtml, legendHtml) {
+      return `<div class="bg-white border rounded-lg p-3">
+        <h4 class="text-sm font-bold text-gray-800">${title}</h4>
+        <div class="text-[11px] text-gray-500 mb-2">${sub}</div>
+        ${chartHtml || '<div class="text-xs text-gray-400 italic p-3">Chưa có dữ liệu.</div>'}
+        <div class="flex flex-wrap gap-1 text-[11px] text-gray-600 mt-1">${legendHtml || ''}</div>
+      </div>`;
+    }
+    function budget2CompanyTypeMonthReportBlockForYear(year) {
       const dot = c => `<span class="inline-block w-2.5 h-2.5 rounded-sm mr-1" style="background:${c}"></span>`;
+      const byCompanyTypeCur = budget2ByCompanyTypeOfYear(year);
 
       const companyTypeTotalData = budget2CompanyTypeTotalData(byCompanyTypeCur).map(d => ({ ...d, used: 0 }));
       const hasCompanyTypeTotal = companyTypeTotalData.some(d => d.approved > 0 || d.proposed > 0);
@@ -8370,8 +8436,8 @@ function isPerpetualSoftware(softwareId) {
       const companyTypeApprovedOC = budget2CompanyTypeOpexCapex(byCompanyTypeCur, 'approved');
       const companyTypeProposedOC = budget2CompanyTypeOpexCapex(byCompanyTypeCur, 'proposed');
 
-      const monthProposedOC = budget2MonthOpexCapex(currentYear, 'proposed');
-      const monthApprovedOC = budget2MonthOpexCapex(currentYear, 'approved');
+      const monthProposedOC = budget2MonthOpexCapex(year, 'proposed');
+      const monthApprovedOC = budget2MonthOpexCapex(year, 'approved');
 
       function smallMultiplesRow(stageLabel, metric) {
         const charts = BUDGET2_COMPANY_TYPE_ORDER.map(t => {
@@ -8388,86 +8454,139 @@ function isPerpetualSoftware(softwareId) {
         </div>`;
       }
 
-      box.innerHTML =
-        `<div class="mb-2">
-          <h3 class="text-sm font-bold text-gray-700 mb-2">Theo Loại công ty — năm ${currentYear}</h3>
+      return `<div class="border-2 border-teal-100 rounded-xl p-3 space-y-3">
+        <h3 class="text-sm font-bold text-teal-800">Năm ${year}</h3>
+        <div>
+          <h4 class="text-xs font-semibold text-gray-600 mb-2">Theo Loại công ty</h4>
           <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
             ${card('Tổng ngân sách theo Loại công ty', 'Đề xuất vs Phê duyệt', hasCompanyTypeTotal ? budget2QuickGroupedChart(companyTypeTotalData.map(d => ({ label: d.label, approved: d.approved, used: d.proposed }))) : '', `<span>${dot('#0284c7')}Ngân sách phê duyệt</span><span>${dot('#0d9488')}Ngân sách đề xuất</span>`)}
             ${card('Ngân sách Phê duyệt theo Loại công ty', 'Tách OPEX/CAPEX — chiều cao cột = Tổng', companyTypeApprovedOC.some(d => d.opex || d.capex) ? budget2StackedOpexCapexChart(companyTypeApprovedOC) : '', budget2OpexCapexLegend())}
             ${card('Ngân sách Đề xuất theo Loại công ty', 'Tách OPEX/CAPEX — chiều cao cột = Tổng', companyTypeProposedOC.some(d => d.opex || d.capex) ? budget2StackedOpexCapexChart(companyTypeProposedOC) : '', budget2OpexCapexLegend())}
           </div>
         </div>
-        <div class="mb-2">
-          <h3 class="text-sm font-bold text-gray-700 mb-2">Theo Tháng — năm ${currentYear}</h3>
+        <div>
+          <h4 class="text-xs font-semibold text-gray-600 mb-2">Theo Tháng</h4>
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
             ${card('Ngân sách Đề xuất theo Tháng', 'Tách OPEX/CAPEX — chiều cao cột = Tổng', monthProposedOC.some(d => d.opex || d.capex) ? budget2StackedOpexCapexChart(monthProposedOC) : '', budget2OpexCapexLegend())}
             ${card('Ngân sách Phê duyệt theo Tháng', 'Tách OPEX/CAPEX — chiều cao cột = Tổng', monthApprovedOC.some(d => d.opex || d.capex) ? budget2StackedOpexCapexChart(monthApprovedOC) : '', budget2OpexCapexLegend())}
           </div>
         </div>
         <div>
-          <h3 class="text-sm font-bold text-gray-700 mb-2">Theo Tháng × Loại công ty — năm ${currentYear}</h3>
+          <h4 class="text-xs font-semibold text-gray-600 mb-2">Theo Tháng × Loại công ty</h4>
           <div class="text-[11px] text-gray-500 mb-2">${budget2OpexCapexLegend()}</div>
           <div class="space-y-3">
             ${smallMultiplesRow('Ngân sách Đề xuất', 'proposed')}
             ${smallMultiplesRow('Ngân sách Phê duyệt', 'approved')}
           </div>
-        </div>`;
+        </div>
+      </div>`;
     }
-    // Xuất TOÀN BỘ số liệu đứng sau các biểu đồ đa chiều (Loại công ty / Tháng
-    // / OPEX-CAPEX) ở trên thành 1 file Excel duy nhất — nhiều sheet, mỗi sheet
-    // ứng với 1 lát cắt — để gửi số liệu qua Excel thay vì chỉ xem trên màn
-    // hình. Dùng lại đúng các hàm tính số liệu của renderBudget2CompanyTypeAndMonthReports
-    // (budget2CompanyTypeTotalData/OpexCapex, budget2MonthOpexCapex,
-    // budget2MonthByCompanyTypeOpexCapex) nên số trong file luôn khớp với số
-    // trên biểu đồ.
-    async function exportBudget2CompanyTypeMonthReportXlsx() {
+    function renderBudget2CompanyTypeAndMonthReports() {
+      const box = document.getElementById('budget2CompanyTypeMonthReports');
+      if (!box || !budget2ReportsData) return;
+      box.innerHTML = budget2OverviewYears.map(y => budget2CompanyTypeMonthReportBlockForYear(y)).join('');
+    }
+    // Xuất TOÀN BỘ báo cáo tổng quan (Bốn lát cắt nhanh a-e + Báo cáo đa chiều
+    // Loại công ty/Tháng/OPEX-CAPEX) thành 1 file Excel — nhiều sheet, mỗi
+    // sheet ứng với 1 lát cắt, có cột "Năm" khi báo cáo trải nhiều năm. CỐ Ý
+    // TÁCH RIÊNG với nút "Xuất Excel báo cáo" ở "Tra cứu chi tiết" (biến
+    // budget2ReportExport, hàm exportBudget2ReportXlsx) — 2 export không lẫn
+    // vào nhau. Dùng lại đúng các hàm tính số liệu của
+    // renderBudget2QuickReports/renderBudget2CompanyTypeAndMonthReports nên
+    // số trong file luôn khớp với số trên các biểu đồ, lặp qua từng năm trong
+    // budget2OverviewYears đang chọn (b/c/d gộp mọi năm có dữ liệu, đúng như
+    // trên biểu đồ vốn luôn hiện toàn bộ lịch sử).
+    async function exportBudget2OverviewReportXlsx() {
       if (!budget2ReportsData) return showToast('Chưa có dữ liệu báo cáo để xuất.', 'warning');
-      const currentYear = new Date().getFullYear();
-      const byCompanyTypeCur = budget2ByCompanyTypeOfYear(currentYear);
+      const years = budget2OverviewYears;
       const typeLabel = t => BUDGET2_COMPANY_TYPE_LABELS[t] || t;
 
-      const totalData = budget2CompanyTypeTotalData(byCompanyTypeCur);
+      // --- Bốn lát cắt nhanh ---
+      function groupByLabelRows(dataset, labelFn, year) {
+        const rows = (dataset || []).filter(r => r.budgetYear === year);
+        const map = new Map();
+        rows.forEach(r => {
+          const key = r.groupKey ?? 'null';
+          if (!map.has(key)) map.set(key, { label: labelFn(r.groupKey), approved: 0, used: 0 });
+          const agg = map.get(key);
+          agg.approved += r.approved; agg.used += r.used;
+        });
+        return [...map.values()].filter(d => d.approved > 0 || d.used > 0).sort((a, b) => b.approved - a.approved);
+      }
+      const sheetByCompany = {
+        name: 'a. Theo Công ty',
+        header: ['Năm', 'Công ty', 'Ngân sách phê duyệt', 'Đã sử dụng'],
+        rows: years.flatMap(y => groupByLabelRows(budget2ReportsData.byCompany, gk => budget2CompanyName(gk) || '(Chưa gán công ty)', y).map(d => [y, d.label, d.approved, d.used]))
+      };
+      function sumByYear(metric) {
+        const map = new Map();
+        (budget2ReportsData.total || []).forEach(r => {
+          if (!r.budgetYear) return;
+          map.set(r.budgetYear, (map.get(r.budgetYear) || 0) + Number(r[metric] || 0));
+        });
+        return [...map.entries()].sort((a, b) => a[0] - b[0]);
+      }
+      const usedByYear = new Map(sumByYear('used'));
+      const approvedByYear = new Map(sumByYear('approved'));
+      const proposedByYear = new Map(sumByYear('proposed'));
+      const allHistoryYears = [...new Set([...usedByYear.keys(), ...approvedByYear.keys(), ...proposedByYear.keys()])].sort((a, b) => a - b);
+      const sheetByYear = {
+        name: 'b-c-d. Theo Năm',
+        header: ['Năm', 'Sử dụng', 'Phê duyệt', 'Đề xuất'],
+        rows: allHistoryYears.map(y => [y, usedByYear.get(y) || 0, approvedByYear.get(y) || 0, proposedByYear.get(y) || 0])
+      };
+      const sheetByCategory = {
+        name: 'e. Theo Danh mục',
+        header: ['Năm', 'Danh mục', 'Ngân sách phê duyệt', 'Đã sử dụng'],
+        rows: years.flatMap(y => groupByLabelRows(budget2ReportsData.byCategory, gk => budget2CategoryLabel(gk) || '(Chưa gán danh mục)', y).map(d => [y, d.label, d.approved, d.used]))
+      };
+
+      // --- Báo cáo đa chiều (Loại công ty / Tháng / OPEX-CAPEX) ---
       const sheetCompanyTypeTotal = {
         name: 'Loại công ty - Tổng',
-        header: ['Loại công ty', 'Ngân sách đề xuất', 'Ngân sách phê duyệt'],
-        rows: totalData.map(d => [d.label, d.proposed, d.approved])
+        header: ['Năm', 'Loại công ty', 'Ngân sách đề xuất', 'Ngân sách phê duyệt'],
+        rows: years.flatMap(y => budget2CompanyTypeTotalData(budget2ByCompanyTypeOfYear(y)).map(d => [y, d.label, d.proposed, d.approved]))
       };
-
       const sheetCompanyTypeOC = {
         name: 'Loại công ty - OPEX-CAPEX',
-        header: ['Loại công ty', 'Giai đoạn', 'OPEX', 'CAPEX', 'Tổng'],
-        rows: [
-          ...budget2CompanyTypeOpexCapex(byCompanyTypeCur, 'proposed').map(d => [d.label, 'Đề xuất', d.opex, d.capex, d.opex + d.capex]),
-          ...budget2CompanyTypeOpexCapex(byCompanyTypeCur, 'approved').map(d => [d.label, 'Phê duyệt', d.opex, d.capex, d.opex + d.capex]),
-        ]
+        header: ['Năm', 'Loại công ty', 'Giai đoạn', 'OPEX', 'CAPEX', 'Tổng'],
+        rows: years.flatMap(y => {
+          const cur = budget2ByCompanyTypeOfYear(y);
+          return [
+            ...budget2CompanyTypeOpexCapex(cur, 'proposed').map(d => [y, d.label, 'Đề xuất', d.opex, d.capex, d.opex + d.capex]),
+            ...budget2CompanyTypeOpexCapex(cur, 'approved').map(d => [y, d.label, 'Phê duyệt', d.opex, d.capex, d.opex + d.capex]),
+          ];
+        })
       };
-
       const sheetMonthOC = {
         name: 'Theo Tháng - OPEX-CAPEX',
-        header: ['Tháng', 'Giai đoạn', 'OPEX', 'CAPEX', 'Tổng'],
-        rows: [
-          ...budget2MonthOpexCapex(currentYear, 'proposed').map(d => [d.label, 'Đề xuất', d.opex, d.capex, d.opex + d.capex]),
-          ...budget2MonthOpexCapex(currentYear, 'approved').map(d => [d.label, 'Phê duyệt', d.opex, d.capex, d.opex + d.capex]),
-        ]
+        header: ['Năm', 'Tháng', 'Giai đoạn', 'OPEX', 'CAPEX', 'Tổng'],
+        rows: years.flatMap(y => [
+          ...budget2MonthOpexCapex(y, 'proposed').map(d => [y, d.label, 'Đề xuất', d.opex, d.capex, d.opex + d.capex]),
+          ...budget2MonthOpexCapex(y, 'approved').map(d => [y, d.label, 'Phê duyệt', d.opex, d.capex, d.opex + d.capex]),
+        ])
       };
-
-      const monthByTypeRows = [];
-      ['proposed', 'approved'].forEach(metric => {
-        const stageLabel = metric === 'proposed' ? 'Đề xuất' : 'Phê duyệt';
-        BUDGET2_COMPANY_TYPE_ORDER.forEach(t => {
-          budget2MonthByCompanyTypeOpexCapex(byCompanyTypeCur, t, metric).forEach(d => {
-            monthByTypeRows.push([d.label, typeLabel(t), stageLabel, d.opex, d.capex, d.opex + d.capex]);
-          });
-        });
-      });
       const sheetMonthByType = {
         name: 'Theo Tháng x Loại công ty',
-        header: ['Tháng', 'Loại công ty', 'Giai đoạn', 'OPEX', 'CAPEX', 'Tổng'],
-        rows: monthByTypeRows
+        header: ['Năm', 'Tháng', 'Loại công ty', 'Giai đoạn', 'OPEX', 'CAPEX', 'Tổng'],
+        rows: years.flatMap(y => {
+          const cur = budget2ByCompanyTypeOfYear(y);
+          const rows = [];
+          ['proposed', 'approved'].forEach(metric => {
+            const stageLabel = metric === 'proposed' ? 'Đề xuất' : 'Phê duyệt';
+            BUDGET2_COMPANY_TYPE_ORDER.forEach(t => {
+              budget2MonthByCompanyTypeOpexCapex(cur, t, metric).forEach(d => {
+                rows.push([y, d.label, typeLabel(t), stageLabel, d.opex, d.capex, d.opex + d.capex]);
+              });
+            });
+          });
+          return rows;
+        })
       };
 
-      await downloadMultiSheetXlsxFile(`bao_cao_da_chieu_ngan_sach_${currentYear}.xlsx`,
-        [sheetCompanyTypeTotal, sheetCompanyTypeOC, sheetMonthOC, sheetMonthByType]);
+      const yearsTag = years.length > 1 ? `${years[0]}-${years[years.length - 1]}` : String(years[0]);
+      await downloadMultiSheetXlsxFile(`bao_cao_tong_quan_ngan_sach_${yearsTag}.xlsx`,
+        [sheetByCompany, sheetByYear, sheetByCategory, sheetCompanyTypeTotal, sheetCompanyTypeOC, sheetMonthOC, sheetMonthByType]);
     }
     // Danh sách năm hiển thị trong bộ lọc "Theo kỳ" — lấy từ toàn bộ dữ liệu
     // đang có (không phụ thuộc dimension đang chọn) để không bỏ sót năm nào.

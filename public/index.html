@@ -1994,23 +1994,34 @@
         <button data-evt-click="exportBudget2ReportXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">📤 Xuất Excel báo cáo</button>
       </div>
 
-      <!-- 4 lát cắt nhanh: (a) Sử dụng vs Phê duyệt năm hiện tại theo Công ty,
-           (b)(c)(d) so sánh Sử dụng/Phê duyệt/Đề xuất giữa năm hiện tại và các
-           năm quá khứ — dựng từ cùng dữ liệu /api/budget2/reports, không cần
-           chỉnh bộ lọc bên dưới. Bộ lọc "Theo kỳ"/"So sánh nhiều kỳ" phía dưới
-           vẫn giữ nguyên để tra cứu chi tiết theo Tháng/Đơn vị/Loại ngân sách. -->
+      <!-- Bộ chọn Năm báo cáo — áp dụng cho CẢ "Bốn lát cắt nhanh" lẫn "Báo
+           cáo đa chiều" bên dưới (KHÔNG áp dụng cho "Tra cứu chi tiết" ở cuối
+           trang — mục đó có bộ lọc Tháng/Năm riêng). Chọn nhiều năm để so
+           sánh — xem renderBudget2OverviewYearChips()/toggleBudget2OverviewYear()
+           trong app.js. -->
+      <div class="flex flex-wrap justify-between items-center gap-2 bg-gray-50 border rounded-lg p-2.5">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-xs font-semibold text-gray-600">📅 Năm báo cáo (chọn nhiều để so sánh):</span>
+          <div id="budget2OverviewYearChips" class="flex flex-wrap gap-1"></div>
+        </div>
+        <button data-evt-click="exportBudget2OverviewReportXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs whitespace-nowrap">📤 Xuất Excel toàn bộ báo cáo</button>
+      </div>
+
+      <!-- 4 lát cắt nhanh: (a) Sử dụng vs Phê duyệt theo Công ty, (b)(c)(d) so
+           sánh Sử dụng/Phê duyệt/Đề xuất theo năm — dựng từ cùng dữ liệu
+           /api/budget2/reports, không cần chỉnh bộ lọc "Tra cứu chi tiết" bên
+           dưới. -->
       <div>
         <h3 class="text-sm font-bold text-gray-700 mb-2">Bốn lát cắt nhanh</h3>
-        <div id="budget2QuickReports" class="grid grid-cols-1 lg:grid-cols-2 gap-3"></div>
+        <div id="budget2QuickReports" class="space-y-3"></div>
       </div>
 
       <!-- Báo cáo đa chiều: Loại công ty x Tháng x OPEX/CAPEX — xem chú thích
            chi tiết tại renderBudget2CompanyTypeAndMonthReports() trong app.js. -->
-      <div class="pt-3 border-t flex flex-wrap justify-between items-center gap-2">
-        <h3 class="text-sm font-bold text-gray-700">Báo cáo đa chiều (Loại công ty / Tháng / OPEX-CAPEX)</h3>
-        <button data-evt-click="exportBudget2CompanyTypeMonthReportXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">📤 Xuất Excel số liệu biểu đồ</button>
+      <div class="pt-3 border-t">
+        <h3 class="text-sm font-bold text-gray-700 mb-2">Báo cáo đa chiều (Loại công ty / Tháng / OPEX-CAPEX)</h3>
+        <div id="budget2CompanyTypeMonthReports" class="space-y-4"></div>
       </div>
-      <div id="budget2CompanyTypeMonthReports" class="space-y-4"></div>
 
       <h3 class="text-sm font-bold text-gray-700 pt-2 border-t">Tra cứu chi tiết</h3>
       <div class="flex gap-1 border-b">
@@ -2262,6 +2273,16 @@
           <label class="block text-xs font-semibold text-gray-600 mb-1">Phòng/Ban/Khối (tùy chọn)</label>
           <select id="budget2LineOrgUnit" class="w-full border p-2 rounded text-sm bg-white"></select>
         </div>
+      </div>
+      <div id="budget2LineCompanyTypeWrap" class="hidden">
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Loại công ty (của công ty đã chọn)</label>
+        <select id="budget2LineCompanyType" class="w-full border p-2 rounded text-sm bg-white">
+          <option value="BRGGROUP">BRGGROUP</option>
+          <option value="CTTV">CTTV</option>
+          <option value="KHAC">Khác</option>
+        </select>
+        <p class="text-[11px] text-gray-400 mt-1">Đây là thuộc tính chung của cả công ty (áp dụng cho mọi dòng ngân sách của công ty này), không riêng dòng này.</p>
+        <p id="budget2LineCompanyTypeHint" class="hidden text-[11px] text-amber-600 mt-1">Chỉ Admin/Người quản lý License mới đổi được Loại công ty.</p>
       </div>
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Ghi chú (tùy chọn)</label>
