@@ -3024,12 +3024,32 @@
       document.getElementById('pfPhone').value = currentUser.phone || '';
       document.getElementById('pfNewPass').value = '';
       document.getElementById('pfConfirmPass').value = '';
+      switchProfileTab('info');
       document.getElementById('profileModal').classList.remove('hidden');
       loadWebauthnDeviceList();
     }
 
     function closeProfileModal() {
       document.getElementById('profileModal').classList.add('hidden');
+    }
+
+    // Tách modal "Cập Nhật Thông Tin Cá Nhân" thành 3 tab (Thông tin/Mật
+    // khẩu/Vân tay-Face ID) — trên màn hình mobile thấp, gộp chung 1 form dài
+    // trước đây tràn quá chiều cao khả dụng khiến không kéo/bấm được nút Lưu
+    // hoặc nút Đăng ký thiết bị. Thông tin + Mật khẩu vẫn cùng 1 <form>/1 lần
+    // lưu (submit button đặt ngoài form, trỏ vào qua form="profileForm") vì
+    // API /api/profile nhận chung 1 request; tab Vân tay/Face ID độc lập,
+    // dùng nút riêng sẵn có (registerWebauthnDevice), không qua submit.
+    function switchProfileTab(tab) {
+      document.getElementById('pfTabInfo').classList.toggle('hidden', tab !== 'info');
+      document.getElementById('pfTabPassword').classList.toggle('hidden', tab !== 'password');
+      const isWebauthn = tab === 'webauthn';
+      document.getElementById('profileForm').classList.toggle('hidden', isWebauthn);
+      document.getElementById('pfFormFooter').classList.toggle('hidden', isWebauthn);
+      document.getElementById('pfTabWebauthnPanel').classList.toggle('hidden', !isWebauthn);
+      ['Info', 'Password', 'Webauthn'].forEach(key => {
+        document.getElementById('btnPfTab' + key).classList.toggle('active', tab === key.toLowerCase());
+      });
     }
 
     async function savePersonalProfile(e) {
