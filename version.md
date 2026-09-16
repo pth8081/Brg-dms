@@ -12,6 +12,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 
 | Phiên bản | PR | Ngày merge | Nội dung |
 |---|---|---|---|
+| v6.91 | [#80](https://github.com/pth8081/Brg-dms/pull/80) | 2026-09-16 | Sửa lỗi modal "Cập Nhật Thông Tin Cá Nhân" tràn màn hình trên mobile, không chạm tới được nút Lưu Thay Đổi/Đăng ký thiết bị (modal duy nhất trong app thiếu class chuẩn giới hạn/cuộn chiều cao mà mọi modal khác đều có); tách modal thành 3 tab Thông tin/Mật khẩu/Vân tay-Face ID cho gọn; soát UI/UX trên viewport mobile qua toàn bộ màn hình chính, không phát hiện lỗi tràn ngang nào khác |
 | v6.89 | [#79](https://github.com/pth8081/Brg-dms/pull/79) | 2026-09-15 | Ngân sách: thêm cột "Loại công ty" (BRGGROUP/CTTV/Khác, quản lý ở cấp Công ty) cạnh cột Công ty trong Đề xuất và Phê duyệt, cùng file mẫu/xuất/nhập của cả 3 tab Đề xuất/Phê duyệt/Sử dụng; tab Sử dụng có thêm nút xuất Excel (trước đây chưa có); Báo cáo bổ sung nhóm biểu đồ đa chiều mới — theo Loại công ty (Tổng, và tách OPEX/CAPEX), theo Tháng (tách OPEX/CAPEX), và theo Tháng × Loại công ty (small multiples); thêm nút xuất Excel riêng cho nhóm báo cáo đa chiều này (1 file 4 sheet, số liệu khớp đúng biểu đồ) |
 | v6.87 | [#78](https://github.com/pth8081/Brg-dms/pull/78) | 2026-09-15 | Sửa khẩn 2 lỗi khiến Admin bị kẹt hoàn toàn ở màn đăng ký/đăng nhập 2FA (PR #77): (1) otplib mặc định window:0 — không có dung sai thời gian nào, mã TOTP đúng vẫn bị từ chối nếu lệch đồng hồ vài giây hoặc thời gian đọc+gõ mã vượt ranh giới 30 giây, nay đặt window:1 (dung sai ~30-60 giây); (2) `.toast-stack` và `#loginSection` cùng z-index:100 khiến `#loginSection` (đứng sau trong DOM) vẽ đè lên mọi thông báo trong lúc đăng nhập — người dùng bấm nút nhưng không thấy phản hồi gì, nay nâng z-index toast lên 200 |
 | v6.85 | [#77](https://github.com/pth8081/Brg-dms/pull/77) | 2026-09-15 | Thêm xác thực hai yếu tố (2FA/TOTP) bắt buộc riêng cho Admin: đăng nhập (mật khẩu lẫn vân tay/Face ID) — Admin chưa đăng ký bị bắt đăng ký ngay (QR code + mã nhập tay), đã đăng ký phải nhập đúng mã 6 số mỗi lần; Admin không tự gỡ được 2FA của chính mình, chỉ Admin khác gỡ hộ được (tài khoản bị gỡ phải đăng ký lại ngay lần đăng nhập kế tiếp); bí mật TOTP chỉ ghi DB sau khi xác minh đúng mã đầu tiên, không bao giờ lộ ra client; sửa kèm 1 lỗi phát hiện trong lúc làm — cơ chế lưu danh sách người dùng (xóa-chèn-lại toàn bảng) trước đây sẽ vô tình xóa sạch 2FA của mọi Admin khi sửa bất kỳ user nào, nay đã giữ nguyên |
@@ -81,22 +82,23 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 
 > **Ghi chú:** các số phiên bản v6.13, v6.17, v6.19, v6.21, v6.23, v6.52,
 > v6.55, v6.56, v6.58, v6.60, v6.63, v6.65, v6.66, v6.68, v6.70, v6.72,
-> v6.74, v6.76, v6.78, v6.80, v6.82, v6.84, v6.86 bị nhảy cóc trong lịch sử —
-> không có Pull Request tương ứng để đối chiếu nội dung (nhiều khả năng do
-> chạy lại workflow tăng version hoặc sửa trực tiếp trên `main` ngoài luồng
-> PR — ví dụ v6.52 phát sinh từ chính commit cập nhật version.md cho v6.51,
-> v6.55/v6.56/v6.58/v6.60 phát sinh tương tự từ các commit cập nhật
-> version.md trực tiếp trên `main` sau mỗi lần merge, v6.63 phát sinh từ
-> commit merge nhánh `main` (đã có sẵn bump v6.63) ngược vào nhánh PR #67 để
-> giải quyết xung đột trước khi merge, v6.65/v6.66 phát sinh từ 2 commit
-> liên tiếp sửa lại version.md sau PR #67, v6.68 phát sinh tương tự từ
-> commit cập nhật version.md cho v6.67, và v6.70/v6.72/v6.74/v6.76/v6.78/
-> v6.80/v6.82/v6.84/v6.86 phát sinh tương tự từ các commit cập nhật
-> version.md trực tiếp trên `main` cho v6.69/v6.71/v6.73/v6.75/v6.77/v6.79/
-> v6.81/v6.83/v6.85 — mỗi lần commit trực tiếp/merge như vậy đều vô tình
-> kích hoạt lại workflow tăng version thêm 1 lần nữa). Từ PR #65 trở đi,
-> workflow còn tự rebuild `public/app.min.js`/`style.css` trên mỗi lần chạy
-> (xem Đợt 7), nên các lần nhảy cóc này không ảnh hưởng gì tới bundle
+> v6.74, v6.76, v6.78, v6.80, v6.82, v6.84, v6.86, v6.90 bị nhảy cóc trong
+> lịch sử — không có Pull Request tương ứng để đối chiếu nội dung (nhiều khả
+> năng do chạy lại workflow tăng version hoặc sửa trực tiếp trên `main`
+> ngoài luồng PR — ví dụ v6.52 phát sinh từ chính commit cập nhật
+> version.md cho v6.51, v6.55/v6.56/v6.58/v6.60 phát sinh tương tự từ các
+> commit cập nhật version.md trực tiếp trên `main` sau mỗi lần merge, v6.63
+> phát sinh từ commit merge nhánh `main` (đã có sẵn bump v6.63) ngược vào
+> nhánh PR #67 để giải quyết xung đột trước khi merge, v6.65/v6.66 phát
+> sinh từ 2 commit liên tiếp sửa lại version.md sau PR #67, v6.68 phát sinh
+> tương tự từ commit cập nhật version.md cho v6.67, và v6.70/v6.72/v6.74/
+> v6.76/v6.78/v6.80/v6.82/v6.84/v6.86/v6.90 phát sinh tương tự từ các
+> commit cập nhật version.md trực tiếp trên `main` cho v6.69/v6.71/v6.73/
+> v6.75/v6.77/v6.79/v6.81/v6.83/v6.85/v6.89 — mỗi lần commit trực
+> tiếp/merge như vậy đều vô tình kích hoạt lại workflow tăng version thêm 1
+> lần nữa). Từ PR #65 trở đi, workflow còn tự rebuild
+> `public/app.min.js`/`style.css` trên mỗi lần chạy (xem Đợt 7), nên các
+> lần nhảy cóc này không ảnh hưởng gì tới bundle
 > production. Không ảnh hưởng tới các phiên bản khác.
 
 ## Cách cập nhật file này
