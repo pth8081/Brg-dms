@@ -437,6 +437,35 @@ sudo systemctl restart dms-prod
 ```
 An toàn — chỉ gây gián đoạn vài giây (xem lưu ý ở mục 8).
 
+**Đăng ký/đăng nhập vân tay-Face ID báo lỗi "Không xác thực được thiết bị"
+(log server có dòng "Unexpected registration/authentication response
+origin..."):**
+Đây LUÔN là do server tính "origin mong đợi" không khớp CHÍNH XÁC (từng ký
+tự) với origin trình duyệt thật sự gửi lên — không phải lỗi ở điện thoại/máy
+người dùng. Log lúc khởi động (`journalctl -u dms-prod | grep WebAuthn`) in
+ra 2 dòng `🔑 WebAuthn RP ID` / `🔑 WebAuthn Origin` cho biết server đang
+dùng giá trị nào. Cách khắc phục chắc chắn nhất, không phụ thuộc cấu hình
+proxy:
+1. Đặt cố định trong `.env`: `WEBAUTHN_RP_ID=dms.congty-cua-ban.vn` (chỉ
+   domain, không có `https://`) và `WEBAUTHN_ORIGIN=https://dms.congty-cua-ban.vn`
+   (đúng domain thật, có `https://`, **không** có dấu `/` ở cuối).
+2. **Khởi động lại tiến trình** — biến môi trường chỉ được đọc 1 LẦN lúc
+   khởi động (`require('dotenv').config()`), sửa `.env` xong mà không
+   restart thì server vẫn chạy với giá trị cũ (hoặc vẫn tự suy đoán từ Host
+   header nếu trước đó chưa từng đặt biến này lần nào):
+   ```bash
+   sudo systemctl restart dms-prod
+   ```
+3. Kiểm tra lại 2 dòng log lúc khởi động ở trên đã đúng domain thật (không
+   để trống, không có khoảng trắng/dấu `/` thừa) trước khi thử đăng ký lại.
+4. Nếu vẫn để trống 2 biến này (server tự suy đoán origin từ mỗi request):
+   phải có `TRUST_PROXY=true` VÀ Nginx phải gửi đúng
+   `proxy_set_header X-Forwarded-Proto $scheme;` (đã có sẵn trong mẫu cấu
+   hình mục 10) — nếu thiếu 1 trong 2, server sẽ tính nhầm origin là
+   `http://...` (vì hop nội bộ Nginx→Node luôn là HTTP thường) trong khi
+   trình duyệt gửi lên `https://...`. Đặt cứng 2 biến ở bước 1 là cách né
+   hẳn phụ thuộc này, khuyến nghị dùng cho mọi production.
+
 ## 16. Bảng biến môi trường (`.env`)
 
 Tham khảo đầy đủ trong `.env.example` (có chú thích tiếng Việt kèm theo
@@ -448,6 +477,7 @@ từng biến). Các biến quan trọng nhất cho production:
 | `JWT_SECRET` | ✅ | Chuỗi ngẫu nhiên cố định — để trống sẽ mất phiên đăng nhập mỗi lần restart |
 | `NODE_ENV=production` | ✅ | |
 | `TRUST_PROXY=true` | ✅ nếu chạy sau Nginx | Để nhận đúng IP thật của người dùng |
+| `WEBAUTHN_RP_ID`, `WEBAUTHN_ORIGIN` | ✅ nếu dùng đăng nhập vân tay/Face ID | Đặt đúng domain thật (VD `dms.congty-cua-ban.vn` và `https://dms.congty-cua-ban.vn`, không dấu `/` ở cuối) — để trống dễ gây lỗi "Unexpected registration/authentication response origin" sau Nginx, xem mục 15 |
 | `UPLOAD_DIR` | Khuyến nghị | Đặt đường dẫn tuyệt đối ngoài thư mục mã nguồn |
 | `WEB_CONCURRENCY` | Tùy chọn | Số worker cluster — xem mục 8 |
 | `DB_CONNECTION_LIMIT` | Tùy chọn | Số kết nối CSDL/worker — xem mục 8 |

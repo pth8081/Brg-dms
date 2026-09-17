@@ -7621,5 +7621,19 @@ if (isClusterMode && cluster.isPrimary) {
     app.listen(PORT, () => {
         const workerTag = cluster.isWorker ? ` (worker #${cluster.worker.id}, PID ${process.pid})` : ` (PID ${process.pid})`;
         console.log(`🚀 Máy chủ DMS Production đang chạy tại cổng http://localhost:${PORT}${workerTag}`);
+        // Ghi log 1 lần lúc khởi động để chẩn đoán nhanh lỗi WebAuthn
+        // "Unexpected registration/authentication response origin" — lỗi này
+        // luôn do expectedOrigin server tính ra KHÔNG khớp CHÍNH XÁC (từng ký
+        // tự) với origin trình duyệt thật sự gửi lên. Nếu 2 biến dưới đây in
+        // ra "(chưa cấu hình — tự suy ra từ Host header của mỗi request)",
+        // server đang dựa vào req.protocol/req.get('host') — dễ sai nếu chạy
+        // sau reverse proxy mà chưa TRUST_PROXY=true (req.protocol sẽ là
+        // "http" dù người dùng truy cập "https", vì hop nội bộ Nginx→Node
+        // luôn là HTTP thường). Đặt cứng 2 biến này trong .env rồi RESTART lại
+        // tiến trình (biến môi trường chỉ được đọc 1 LẦN lúc khởi động, sửa
+        // .env không có tác dụng cho tới khi khởi động lại) là cách khắc phục
+        // chắc chắn nhất, không phụ thuộc cấu hình proxy.
+        console.log(`   🔑 WebAuthn RP ID: ${process.env.WEBAUTHN_RP_ID || '(chưa cấu hình — tự suy ra từ Host header của mỗi request)'}`);
+        console.log(`   🔑 WebAuthn Origin: ${process.env.WEBAUTHN_ORIGIN || '(chưa cấu hình — tự suy ra từ protocol/Host header của mỗi request, dễ sai sau reverse proxy)'}`);
     });
 }
