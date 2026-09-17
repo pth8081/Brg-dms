@@ -12,6 +12,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 
 | Phiên bản | PR | Ngày merge | Nội dung |
 |---|---|---|---|
+| v6.109 | [#89](https://github.com/pth8081/Brg-dms/pull/89) | 2026-09-17 | Ngân sách Đề xuất/Phê duyệt: khóa sửa (và cả nút "Bổ sung" nhanh, dùng chung endpoint) khi dòng đang Chờ duyệt với người không phải Admin — trước đây bất kỳ ai có quyền Ngân sách kể cả chính người tạo đều sửa tự do được bất cứ lúc nào, kể cả sau khi người phê duyệt đã bắt đầu xem xét; nay chỉ mở khóa đúng 1 lần khi người phê duyệt (không phải chính người tạo) chủ động bấm nút mới "📋 Y/c bổ sung" nêu rõ lý do, sửa xong tự khóa lại ngay; Admin không bị ảnh hưởng, vẫn sửa được mọi lúc như trước |
 | v6.107 | [#88](https://github.com/pth8081/Brg-dms/pull/88) | 2026-09-17 | Sửa banner cảnh báo lệch phiên bản (hiện khi bundle trình duyệt cũ hơn server) đang hiển thị sai định dạng số phiên bản cho người dùng — lấy thẳng chuỗi semver 3 số từ package.json (VD "v6.104.0") thay vì định dạng "vX.Y" 2 số dùng thống nhất ở mọi nơi khác trong app (tiêu đề trang, header); chỉ sửa phần hiển thị, logic so sánh lệch phiên bản vẫn dùng nguyên chuỗi đầy đủ |
 | v6.105 | [#87](https://github.com/pth8081/Brg-dms/pull/87) | 2026-09-17 | Cá nhân hóa: thêm tab "Xác Thực 2 Lớp" cho tài khoản Admin đã bật 2FA — hiện lại đúng mã QR/khóa TOTP hiện có (không sinh bí mật mới) để tự đăng ký thêm thiết bị Authenticator thứ 2, và tự gỡ 2FA của chính mình khi mất điện thoại (trước đây chỉ Admin khác gỡ hộ được) — cả 2 đều bắt buộc nhập lại mật khẩu hiện tại, gỡ xong đăng xuất ngay và bắt thiết lập lại TOTP mới ở lần đăng nhập kế tiếp; kèm sửa 1 lỗi có sẵn từ trước khiến gõ sai mật khẩu xác nhận (đổi mật khẩu và 2 chỗ mới này) bị hiểu nhầm thành "hết phiên đăng nhập" và tự đưa về màn hình đăng nhập dù phiên vẫn còn hiệu lực |
 | v6.103 | [#86](https://github.com/pth8081/Brg-dms/pull/86) | 2026-09-17 | Ngân sách Đề xuất/Phê duyệt: thêm nút "Bổ sung" để đính thêm thông tin vào Ghi chú của 1 dòng mà không cần sửa lại toàn bộ dòng; gộp các nút thao tác đang dàn hàng ngang (Sửa/Bổ sung/Xóa) vào chung 1 droplist "⋮" gọn hơn, giữ Duyệt/Từ chối nổi bật riêng; kèm sửa 1 lỗi có sẵn từ trước (không phải do đợt này gây ra) khiến menu droplist kiểu này (dùng chung cơ chế với bảng Tài liệu) mở ra rồi tự đóng ngay do đọc nhầm tọa độ nút bấm |
@@ -91,7 +92,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 > **Ghi chú:** các số phiên bản v6.13, v6.17, v6.19, v6.21, v6.23, v6.52,
 > v6.55, v6.56, v6.58, v6.60, v6.63, v6.65, v6.66, v6.68, v6.70, v6.72,
 > v6.74, v6.76, v6.78, v6.80, v6.82, v6.84, v6.86, v6.90, v6.92, v6.94, v6.96,
-> v6.98, v6.100, v6.102, v6.104, v6.106 bị
+> v6.98, v6.100, v6.102, v6.104, v6.106, v6.108 bị
 > nhảy cóc trong lịch sử — không có Pull Request tương ứng để đối chiếu nội
 > dung (nhiều khả năng do chạy lại workflow tăng version hoặc sửa trực tiếp
 > trên `main` ngoài luồng PR — ví dụ v6.52 phát sinh từ chính commit cập
@@ -104,7 +105,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 > v6.76/v6.78/v6.80/v6.82/v6.84/v6.86/v6.90/v6.92/v6.94 phát sinh tương tự
 > từ các commit cập nhật version.md trực tiếp trên `main` cho v6.69/v6.71/
 > v6.73/v6.75/v6.77/v6.79/v6.81/v6.83/v6.85/v6.89/v6.91/v6.93/v6.95/v6.97/v6.99/
-> v6.101/v6.103/v6.105 — mỗi lần
+> v6.101/v6.103/v6.105/v6.107 — mỗi lần
 > commit trực tiếp/merge như vậy đều vô tình kích hoạt lại workflow tăng
 > version thêm 1
 > lần nữa). Từ PR #65 trở đi, workflow còn tự rebuild
