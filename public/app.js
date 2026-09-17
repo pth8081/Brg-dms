@@ -5,7 +5,7 @@
     // hơn server thật (quên `npm run build` trước khi deploy, hoặc trình
     // duyệt/CDN còn cache bản cũ) — hiện banner rõ ràng thay vì để lỗi khó
     // hiểu (VD gọi API theo hợp đồng cũ bị server mới từ chối) không rõ nguyên nhân.
-    const CLIENT_BUILD_VERSION = '6.102.0';
+    const CLIENT_BUILD_VERSION = '6.103.0';
     async function checkClientBuildVersion() {
       try {
         const res = await fetch('/api/version');
