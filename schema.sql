@@ -148,6 +148,22 @@ CALL add_column_if_not_exists('users', 'totp_secret', 'VARCHAR(64) NULL DEFAULT 
 CALL add_column_if_not_exists('users', 'totp_enabled', 'TINYINT(1) NOT NULL DEFAULT 0');
 CALL add_column_if_not_exists('users', 'totp_enrolled_at', 'VARCHAR(100) NULL DEFAULT NULL');
 
+-- Nhóm quyền (Role) — 1 bộ quyền đặt tên (cùng cấu trúc JSON với cột users.perms),
+-- gán cho nhiều user cùng lúc thay vì tick từng quyền lặp lại cho mỗi user. Khi
+-- user có permission_group_id, quyền HIỆU LỰC của user đó luôn lấy từ nhóm (ghi
+-- đè hoàn toàn cột perms riêng của user — không cộng dồn/merge, tránh rối khi 2
+-- nguồn xung đột nhau) — xem resolveUserPerms() ở server.js, áp dụng NGAY (không
+-- cần đăng nhập lại) vì mọi request đều tự tra cứu lại quyền hiện tại từ DB, y
+-- hệt cơ chế requireAuth() sẵn có. User không gán nhóm dùng lại đúng cột perms
+-- riêng như trước giờ (không bắt buộc phải có nhóm).
+CREATE TABLE IF NOT EXISTS permission_groups (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) UNIQUE NOT NULL,
+    perms JSON,
+    created_at VARCHAR(100)
+);
+CALL add_column_if_not_exists('users', 'permission_group_id', 'BIGINT NULL DEFAULT NULL');
+
 -- Đăng nhập vân tay/Face ID (WebAuthn/passkey) — LỐI VÀO NHANH bổ sung, KHÔNG
 -- thay thế mật khẩu (mật khẩu vẫn dùng được bình thường, ví dụ khi đổi thiết
 -- bị mới hoặc quên sinh trắc học). Mỗi thiết bị đăng ký 1 dòng riêng (1 người

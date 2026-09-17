@@ -34,7 +34,8 @@
       depts: [], cats: [], users: [], docs: [],
       workflows: [], deptWorkflows: {},
       emailConfig: {}, systemLogs: [],
-      maxPdfSizeMB: 20, ldapConfig: {}, syncVersions: {}
+      maxPdfSizeMB: 20, ldapConfig: {}, syncVersions: {},
+      permissionGroups: []
     };
 
     // Dữ liệu module Quản Lý Bản Quyền — độc lập với DB ở trên, tải riêng khi
@@ -165,6 +166,7 @@
       DB.depts = data.depts || [];
       DB.cats = data.cats || [];
       DB.users = data.users || [];
+      DB.permissionGroups = data.permissionGroups || [];
       DB.docs = data.docs || [];
       DB.workflows = data.workflows || [];
       DB.deptWorkflows = data.deptWorkflows || {};
@@ -668,7 +670,11 @@
       } catch (e) { ul.innerHTML = '<li class="p-2 text-red-500">Không tải được danh sách.</li>'; }
     }
     async function deleteWebauthnDevice(id) {
-      if (!confirm('Gỡ đăng ký vân tay/Face ID cho thiết bị này?')) return;
+      // Dùng showConfirm() (modal riêng của app) thay vì confirm() mặc định
+      // của trình duyệt — nhất quán với phần còn lại của màn hình cá nhân
+      // (đổi mật khẩu, đóng modal...) đều đã qua modal riêng này.
+      const ok = await showConfirm({ title: 'Gỡ đăng ký vân tay/Face ID', message: 'Gỡ đăng ký vân tay/Face ID cho thiết bị này? Lần đăng nhập kế tiếp trên thiết bị này sẽ cần mật khẩu.', danger: true, confirmText: 'Gỡ' });
+      if (!ok) return;
       try {
         await apiFetch(`/api/webauthn/credentials/${id}`, { method: 'DELETE' });
         showToast('Đã gỡ.', 'success');
@@ -737,10 +743,11 @@
 
       const canManageLicense = !!(user.perms.admin || user.perms.licenseManager);
       const canManageBudget2 = !!(user.perms.admin || user.perms.budgetManager);
+      const canManageItAssets = !!(user.perms.admin || user.perms.itAssetsManager);
       document.getElementById('btnAdminTab').classList.toggle('hidden', !user.perms.admin);
       document.getElementById('btnLicenseTab').classList.toggle('hidden', !canManageLicense);
       document.getElementById('btnReportsTab').classList.toggle('hidden', !user.perms.admin);
-      document.getElementById('btnItAssetsTab').classList.toggle('hidden', !user.perms.admin);
+      document.getElementById('btnItAssetsTab').classList.toggle('hidden', !canManageItAssets);
       document.getElementById('btnBudget2Tab').classList.toggle('hidden', !canManageBudget2);
       document.getElementById('btnDocTab').classList.remove('hidden');
       document.getElementById('btnHomeTab').classList.remove('hidden');
@@ -892,7 +899,7 @@
       if (tabName === 'license' && (currentUser.perms.admin || currentUser.perms.licenseManager)) { switchLicenseSubTab('emp'); }
       if (tabName === 'reports' && currentUser.perms.admin) { switchReportsSubsystem('doc'); }
       if (tabName === 'licensePortal' && !currentUser.perms.admin && currentUser.perms.licenseScopeType) { switchPortalSubTab('budget'); }
-      if (tabName === 'itAssets' && currentUser.perms.admin) { switchItAssetsSubTab('items'); }
+      if (tabName === 'itAssets' && (currentUser.perms.admin || currentUser.perms.itAssetsManager)) { switchItAssetsSubTab('items'); }
       if (tabName === 'budget2' && (currentUser.perms.admin || currentUser.perms.budgetManager)) { switchBudget2SubTab('propose'); }
     }
 
@@ -903,12 +910,13 @@
       if (!currentUser) return;
       const isAdmin = !!currentUser.perms.admin;
       const canManageLicense = !!(currentUser.perms.admin || currentUser.perms.licenseManager);
+      const canManageItAssets = !!(currentUser.perms.admin || currentUser.perms.itAssetsManager);
       // Dữ liệu License/CNTT chỉ tải khi cần (lazy-load như các module khác) —
       // Trang chủ là màn hình đầu tiên sau đăng nhập nên phải chủ động tải
       // trước khi đếm, nếu không sẽ luôn hiện 0 cho tới khi Admin tự vào module đó.
       const loadPromises = [];
       if (canManageLicense) loadPromises.push(loadLicenseBootstrapData());
-      if (isAdmin) loadPromises.push(loadItAssetsBootstrapData());
+      if (canManageItAssets) loadPromises.push(loadItAssetsBootstrapData());
       if (loadPromises.length) await Promise.all(loadPromises);
 
       // Tài liệu chờ duyệt: đúng những tài liệu NGƯỜI DÙNG HIỆN TẠI có quyền
@@ -942,7 +950,7 @@
           action: () => switchTab('license')
         });
       }
-      if (isAdmin) {
+      if (canManageItAssets) {
         moduleCards.push({
           label: 'Dịch vụ CNTT', desc: 'Theo dõi hạn dịch vụ/bản quyền, nhắc hạn tự động.',
           statValue: (itAssetsDB.items || []).filter(i => i.active).length, statLabel: 'đầu mục', icon: '🖥️', accent: 'teal',
@@ -986,7 +994,7 @@
           action: () => { switchTab('license'); switchLicenseSubTab('alloc'); }
         });
       }
-      if (isAdmin) {
+      if (canManageItAssets) {
         const itNeedsAttention = (itAssetsDB.items || []).filter(i => i.active && itItemStatusCode(i) !== 'OK').length;
         cards.push({
           label: 'Đầu mục CNTT sắp / đã hết hạn', value: itNeedsAttention, icon: '🖥️',
@@ -1066,7 +1074,7 @@
         btn.classList.toggle('text-gray-700', key !== subName);
       });
 
-      if (subName === 'users') { renderDeptCheckboxes(); renderUsers(); renderPendingUsers(); loadEmailConfigToForm(); loadLdapConfigToForm(); ensureUserScopePickerReady(); }
+      if (subName === 'users') { renderDeptCheckboxes(); populatePermissionGroupSelect(); renderPermissionGroupList(); renderUsers(); renderPendingUsers(); loadEmailConfigToForm(); loadLdapConfigToForm(); ensureUserScopePickerReady(); }
       if (subName === 'catalog') { switchCatalogSubTab(catalogSubTabState || 'dept'); }
       if (subName === 'workflow') { renderWorkflowTab(); }
       if (subName === 'log') { renderSystemLogs(); }
@@ -1151,6 +1159,10 @@
 
     function canUserApproveDoc(user, doc) {
       if (!user || !doc || doc.status !== 'PENDING') return false;
+      // Không tự duyệt/từ chối tài liệu do chính mình tạo (áp dụng cho MỌI
+      // người kể cả Admin) — khớp với chặn tương ứng ở server (POST
+      // /api/sync/docs), ẩn hẳn nút Duyệt/Từ chối thay vì để bấm rồi báo lỗi.
+      if (doc.creatorUsername === user.username) return false;
       if (user.perms?.admin) return true;
       const deptConfig = DB.deptWorkflows[doc.dept];
       if (!deptConfig || !deptConfig.approvers) return false;
@@ -2385,6 +2397,31 @@
       document.getElementById('pViewDraftDeptContainer').innerHTML = makeBoxes('pViewDraft');
       document.getElementById('pViewApprovedDeptContainer').innerHTML = makeBoxes('pViewApproved');
       document.getElementById('pDownloadDeptContainer').innerHTML = makeBoxes('pDownload');
+      // Cùng danh sách phòng ban, dùng cho modal Nhóm Quyền (id tiền tố "g").
+      document.getElementById('gUploadDeptContainer').innerHTML = makeBoxes('gUpload');
+      document.getElementById('gViewDraftDeptContainer').innerHTML = makeBoxes('gViewDraft');
+      document.getElementById('gViewApprovedDeptContainer').innerHTML = makeBoxes('gViewApproved');
+      document.getElementById('gDownloadDeptContainer').innerHTML = makeBoxes('gDownload');
+    }
+
+    // Quyền HIỂN THỊ (client-side, chỉ để dựng UI) của 1 user: nếu có gán
+    // Nhóm quyền, luôn lấy đúng quyền của nhóm (ghi đè hoàn toàn perms riêng)
+    // — khớp với cách server resolveUserPerms() quyết định quyền hiệu lực
+    // thật sự, để danh sách User không hiện sai quyền so với thực tế.
+    function resolveDisplayPerms(u) {
+      if (u.permissionGroupId) {
+        const g = DB.permissionGroups.find(g => g.id === u.permissionGroupId);
+        if (g) return g.perms || {};
+      }
+      return u.perms || {};
+    }
+    function populatePermissionGroupSelect() {
+      const sel = document.getElementById('uPermissionGroupId');
+      if (!sel) return;
+      const current = sel.value;
+      sel.innerHTML = '<option value="">-- Không dùng nhóm (tự chọn quyền riêng bên dưới) --</option>'
+        + DB.permissionGroups.map(g => `<option value="${g.id}">${escapeHtml(g.name)}</option>`).join('');
+      if (DB.permissionGroups.some(g => String(g.id) === current)) sel.value = current;
     }
 
     function toggleScopeGroup(allId, deptClass) {
@@ -2393,6 +2430,157 @@
         cb.disabled = isAll;
         if (isAll) cb.checked = false;
       });
+    }
+
+    // Tóm tắt quyền dạng badge — dùng chung cho thẻ Nhóm Quyền và ô tóm tắt
+    // "quyền theo nhóm" ngay trong form User khi chọn 1 nhóm.
+    function permsSummaryBadgesHtml(p) {
+      const badges = [
+        p.admin ? '<span class="bg-purple-100 text-purple-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">Admin</span>' : '',
+        !p.admin && p.licenseManager ? '<span class="bg-brand-100 text-brand-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔑 Quản lý License</span>' : '',
+        !p.admin && p.budgetManager ? '<span class="bg-teal-100 text-teal-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">💵 Quản lý Ngân sách</span>' : '',
+        !p.admin && p.itAssetsManager ? '<span class="bg-sky-100 text-sky-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🖥️ Quản lý CNTT</span>' : '',
+        p.uploadAll ? '<span class="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">📤 Upload: Tất cả</span>' : (p.uploadDepts && p.uploadDepts.length ? `<span class="bg-blue-50 text-blue-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">📤 Upload: ${p.uploadDepts.length} PB</span>` : ''),
+        p.viewDraftAll ? '<span class="bg-amber-100 text-amber-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">📝 Xem nháp: Tất cả</span>' : (p.viewDraftDepts && p.viewDraftDepts.length ? `<span class="bg-amber-50 text-amber-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">📝 Xem nháp: ${p.viewDraftDepts.length} PB</span>` : ''),
+        p.viewApprovedAll ? '<span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">✅ Xem duyệt: Tất cả</span>' : (p.viewApprovedDepts && p.viewApprovedDepts.length ? `<span class="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">✅ Xem duyệt: ${p.viewApprovedDepts.length} PB</span>` : ''),
+        p.downloadAll ? '<span class="bg-rose-100 text-rose-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">⬇️ Tải: Tất cả</span>' : (p.downloadDepts && p.downloadDepts.length ? `<span class="bg-rose-50 text-rose-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">⬇️ Tải: ${p.downloadDepts.length} PB</span>` : '')
+      ].filter(Boolean).join('');
+      return badges || '<span class="text-gray-400 text-[10px] italic">Không có quyền nào</span>';
+    }
+
+    // ============================================================
+    // NHÓM QUYỀN (Permission Groups) — gom nhiều quyền thành 1 nhóm đặt tên,
+    // gán cho nhiều user cùng lúc (users.permission_group_id). Đổi quyền của
+    // nhóm áp dụng NGAY cho mọi thành viên (xem resolveUserPerms ở server.js).
+    // CRUD qua REST riêng (không qua /api/sync/:table như bảng users).
+    // ============================================================
+    function renderPermissionGroupList() {
+      const box = document.getElementById('permissionGroupList');
+      if (!box) return;
+      if (!DB.permissionGroups.length) {
+        box.innerHTML = '<div class="text-xs text-gray-400 italic p-2 col-span-full">Chưa có nhóm quyền nào — bấm "+ Thêm Nhóm Quyền" để tạo.</div>';
+        return;
+      }
+      box.innerHTML = DB.permissionGroups.map(g => {
+        const memberCount = DB.users.filter(u => u.permissionGroupId === g.id).length;
+        return `<div class="bg-white border rounded-lg p-3 space-y-1.5">
+          <div class="flex justify-between items-start gap-2">
+            <h4 class="font-bold text-sm text-gray-800">${escapeHtml(g.name)}</h4>
+            <span class="text-[10px] text-gray-400 whitespace-nowrap">${memberCount} người</span>
+          </div>
+          <div class="flex flex-wrap gap-1">${permsSummaryBadgesHtml(g.perms || {})}</div>
+          <div class="flex gap-1.5 pt-1 border-t text-xs">
+            <button ${dc('addUserToGroup', g.id)} class="text-emerald-700 hover:underline font-semibold">+ Thêm người dùng</button>
+            <button ${dc('openPermissionGroupModal', g.id)} class="text-blue-600 hover:underline font-semibold">Sửa</button>
+            <button ${dc('deletePermissionGroup', g.id)} class="text-red-600 hover:underline font-semibold">Xóa</button>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    function openPermissionGroupModal(editId) {
+      document.getElementById('editGroupId').value = editId || '';
+      const g = editId ? DB.permissionGroups.find(g => g.id === editId) : null;
+      document.getElementById('permissionGroupModalTitle').textContent = editId ? 'Sửa Nhóm Quyền' : '🏷️ Thêm Nhóm Quyền';
+      document.getElementById('gName').value = g ? g.name : '';
+      const p = g ? (g.perms || {}) : {};
+      document.getElementById('gAdmin').checked = !!p.admin;
+      document.getElementById('gLicenseManager').checked = !!p.licenseManager;
+      document.getElementById('gBudgetManager').checked = !!p.budgetManager;
+      document.getElementById('gItAssetsManager').checked = !!p.itAssetsManager;
+
+      document.getElementById('gUploadAll').checked = !!p.uploadAll;
+      document.querySelectorAll('.gUploadDept').forEach(cb => cb.checked = p.uploadDepts ? p.uploadDepts.includes(cb.value) : false);
+      toggleScopeGroup('gUploadAll', 'gUploadDept');
+
+      document.getElementById('gViewDraftAll').checked = !!p.viewDraftAll;
+      document.querySelectorAll('.gViewDraftDept').forEach(cb => cb.checked = p.viewDraftDepts ? p.viewDraftDepts.includes(cb.value) : false);
+      toggleScopeGroup('gViewDraftAll', 'gViewDraftDept');
+
+      document.getElementById('gViewApprovedAll').checked = !!p.viewApprovedAll;
+      document.querySelectorAll('.gViewApprovedDept').forEach(cb => cb.checked = p.viewApprovedDepts ? p.viewApprovedDepts.includes(cb.value) : false);
+      toggleScopeGroup('gViewApprovedAll', 'gViewApprovedDept');
+
+      document.getElementById('gDownloadAll').checked = !!p.downloadAll;
+      document.querySelectorAll('.gDownloadDept').forEach(cb => cb.checked = p.downloadDepts ? p.downloadDepts.includes(cb.value) : false);
+      toggleScopeGroup('gDownloadAll', 'gDownloadDept');
+
+      openLicenseModal('permissionGroupModal');
+    }
+
+    async function savePermissionGroup() {
+      const editId = document.getElementById('editGroupId').value;
+      const name = document.getElementById('gName').value.trim();
+      if (!name) return showToast('Vui lòng nhập tên nhóm quyền.', 'warning');
+      const perms = {
+        admin: document.getElementById('gAdmin').checked,
+        licenseManager: document.getElementById('gLicenseManager').checked,
+        budgetManager: document.getElementById('gBudgetManager').checked,
+        itAssetsManager: document.getElementById('gItAssetsManager').checked,
+        uploadAll: document.getElementById('gUploadAll').checked,
+        uploadDepts: Array.from(document.querySelectorAll('.gUploadDept:checked')).map(c => c.value),
+        viewDraftAll: document.getElementById('gViewDraftAll').checked,
+        viewDraftDepts: Array.from(document.querySelectorAll('.gViewDraftDept:checked')).map(c => c.value),
+        viewApprovedAll: document.getElementById('gViewApprovedAll').checked,
+        viewApprovedDepts: Array.from(document.querySelectorAll('.gViewApprovedDept:checked')).map(c => c.value),
+        downloadAll: document.getElementById('gDownloadAll').checked,
+        downloadDepts: Array.from(document.querySelectorAll('.gDownloadDept:checked')).map(c => c.value)
+      };
+      try {
+        if (editId) {
+          await apiFetch(`/api/permission-groups/${editId}`, { method: 'PUT', body: JSON.stringify({ name, perms }) });
+        } else {
+          await apiFetch('/api/permission-groups', { method: 'POST', body: JSON.stringify({ name, perms }) });
+        }
+        await loadBootstrapData();
+        closeLicenseModal('permissionGroupModal');
+        populatePermissionGroupSelect();
+        renderPermissionGroupList();
+        renderUsers();
+        onUserGroupChange();
+        showToast('Đã lưu nhóm quyền.', 'success');
+      } catch (err) { showToast(err.message, 'danger'); }
+    }
+
+    async function deletePermissionGroup(id) {
+      const g = DB.permissionGroups.find(g => g.id === id);
+      if (!g) return;
+      const memberCount = DB.users.filter(u => u.permissionGroupId === id).length;
+      if (memberCount > 0) return showToast(`Không thể xóa — nhóm "${g.name}" vẫn còn ${memberCount} người dùng.`, 'warning');
+      const ok = await showConfirm({ title: 'Xóa Nhóm Quyền', message: `Xóa nhóm quyền "${g.name}"?`, danger: true, confirmText: 'Xóa' });
+      if (!ok) return;
+      try {
+        await apiFetch(`/api/permission-groups/${id}`, { method: 'DELETE' });
+        await loadBootstrapData();
+        populatePermissionGroupSelect();
+        renderPermissionGroupList();
+        showToast('Đã xóa nhóm quyền.', 'success');
+      } catch (err) { showToast(err.message, 'danger'); }
+    }
+
+    // Khi chọn/bỏ chọn Nhóm quyền trong form User: ẩn hẳn bộ ô quyền riêng
+    // (nhóm là nguồn duy nhất khi đã gán) và hiện tóm tắt quyền của nhóm đó.
+    function onUserGroupChange() {
+      const groupId = Number(document.getElementById('uPermissionGroupId').value) || null;
+      document.getElementById('userIndividualPermsWrap').classList.toggle('hidden', !!groupId);
+      const summaryBox = document.getElementById('uGroupPermsSummary');
+      if (groupId) {
+        const g = DB.permissionGroups.find(g => g.id === groupId);
+        summaryBox.classList.remove('hidden');
+        summaryBox.innerHTML = g ? permsSummaryBadgesHtml(g.perms || {}) : '';
+      } else {
+        summaryBox.classList.add('hidden');
+        summaryBox.innerHTML = '';
+      }
+    }
+
+    // "+ Thêm người dùng" ngay trên 1 nhóm — mở sẵn form Thêm User (như bấm
+    // Hủy để về form trống) với Nhóm quyền đã điền sẵn, cuộn tới để điền tiếp.
+    function addUserToGroup(groupId) {
+      resetUserForm();
+      document.getElementById('uPermissionGroupId').value = groupId;
+      onUserGroupChange();
+      document.getElementById('uUsername').scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
 
     let pendingNewUsers = [];
@@ -2470,10 +2658,16 @@
       const userScope = getScopePayload('user');
       if (userScope.scopeType && !userScope.scopeId) return showToast('Vui lòng chọn công ty/đơn vị cho phạm vi tự phục vụ!', 'warning');
 
-      const perms = {
+      // Nếu có gán Nhóm quyền, quyền hiệu lực của user LUÔN lấy từ nhóm (xem
+      // resolveUserPerms ở server.js) — các ô quyền riêng bên dưới bị ẩn nên
+      // không đọc nữa, gửi perms rỗng (chỉ giữ lại Phạm vi tự phục vụ, vốn là
+      // 1 khái niệm riêng của từng user, không thuộc bộ quyền của nhóm).
+      const permissionGroupId = document.getElementById('uPermissionGroupId').value ? Number(document.getElementById('uPermissionGroupId').value) : null;
+      const perms = permissionGroupId ? { licenseScopeType: userScope.scopeType, licenseScopeId: userScope.scopeId } : {
         admin: document.getElementById('pAdmin').checked,
         licenseManager: document.getElementById('pLicenseManager').checked,
         budgetManager: document.getElementById('pBudgetManager').checked,
+        itAssetsManager: document.getElementById('pItAssetsManager').checked,
         uploadAll: document.getElementById('pUploadAll').checked,
         uploadDepts: Array.from(document.querySelectorAll('.pUploadDept:checked')).map(c => c.value),
         viewDraftAll: document.getElementById('pViewDraftAll').checked,
@@ -2492,7 +2686,7 @@
         if (idx === -1) return;
         const prevUsers = DB.users;
         const active = DB.users[idx].active !== false;
-        DB.users = DB.users.map((u, i) => i === idx ? { id: Number(editId), username, pass, name, email, phone, dept, perms, active } : u);
+        DB.users = DB.users.map((u, i) => i === idx ? { id: Number(editId), username, pass, name, email, phone, dept, perms, permissionGroupId, active } : u);
         const ok = await syncStorage('users');
         if (!ok) { DB.users = prevUsers; return; }
 
@@ -2500,13 +2694,14 @@
         showToast('Đã lưu thông tin người dùng & phân quyền!', 'success');
         resetUserForm();
         renderUsers();
+        renderPermissionGroupList();
       } else {
         // Tạo mới: chỉ thêm vào danh sách chờ, chưa gửi lên server — cho phép
         // thêm nhiều user liên tiếp rồi bấm "Lưu Tất Cả" một lần.
         if (DB.users.some(u => u.username === username) || pendingNewUsers.some(u => u.username === username)) {
           return showToast('Username đã tồn tại!', 'danger');
         }
-        pendingNewUsers.push({ id: Date.now() + pendingNewUsers.length, username, pass, name, email, phone, dept, perms, active: true });
+        pendingNewUsers.push({ id: Date.now() + pendingNewUsers.length, username, pass, name, email, phone, dept, perms, permissionGroupId, active: true });
         resetUserForm();
         renderPendingUsers();
       }
@@ -2549,6 +2744,7 @@
       showToast(`Đã lưu ${count} tài khoản người dùng mới!`, 'success');
       renderPendingUsers();
       renderUsers();
+      renderPermissionGroupList();
     }
 
     function editUser(id) {
@@ -2565,10 +2761,14 @@
       document.getElementById('uDept').value = u.dept;
       document.getElementById('btnSaveUser').innerText = 'Cập Nhật User';
 
+      document.getElementById('uPermissionGroupId').value = u.permissionGroupId || '';
+      onUserGroupChange();
+
       const p = u.perms || {};
       document.getElementById('pAdmin').checked = !!p.admin;
       document.getElementById('pLicenseManager').checked = !!p.licenseManager;
       document.getElementById('pBudgetManager').checked = !!p.budgetManager;
+      document.getElementById('pItAssetsManager').checked = !!p.itAssetsManager;
 
       document.getElementById('pUploadAll').checked = !!p.uploadAll;
       document.querySelectorAll('.pUploadDept').forEach(cb => cb.checked = p.uploadDepts ? p.uploadDepts.includes(cb.value) : false);
@@ -2615,6 +2815,7 @@
       logSystemAction('USER_MGM', 'DELETE_USER', `Xóa tài khoản user: ${u.username}`, 'SUCCESS', u.username);
       showToast(`Đã xóa tài khoản ${u.username}.`, 'success');
       renderUsers();
+      renderPermissionGroupList();
     }
 
     // Admin hỗ trợ gỡ 2FA cho 1 Admin KHÁC (không thể tự gỡ của chính mình —
@@ -2676,9 +2877,12 @@
       document.getElementById('uFullName').value = '';
       document.getElementById('uEmail').value = '';
       document.getElementById('uPhone').value = '';
+      document.getElementById('uPermissionGroupId').value = '';
+      onUserGroupChange();
       document.getElementById('pAdmin').checked = false;
       document.getElementById('pLicenseManager').checked = false;
       document.getElementById('pBudgetManager').checked = false;
+      document.getElementById('pItAssetsManager').checked = false;
       document.getElementById('btnSaveUser').innerText = '+ Thêm Vào Danh Sách';
 
       ['pUploadAll', 'pViewDraftAll', 'pViewApprovedAll', 'pDownloadAll'].forEach(id => {
@@ -2716,12 +2920,15 @@
 
       const pageItems = paginateSlice('userTable', DB.users);
       tbody.innerHTML = pageItems.map(u => {
-        const p = u.perms || {};
+        const p = resolveDisplayPerms(u);
+        const group = u.permissionGroupId ? DB.permissionGroups.find(g => g.id === u.permissionGroupId) : null;
         const scopeLabel = roundScopeLabel({ scopeType: p.licenseScopeType, scopeId: p.licenseScopeId });
         const permTags = [
+          group ? `<span class="bg-indigo-100 text-indigo-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🏷️ Nhóm: ${escapeHtml(group.name)}</span>` : '',
           p.admin ? '<span class="bg-purple-100 text-purple-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">Admin</span>' : '',
           !p.admin && p.licenseManager ? '<span class="bg-brand-100 text-brand-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔑 Quản lý License</span>' : '',
           !p.admin && p.budgetManager ? '<span class="bg-teal-100 text-teal-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">💵 Quản lý Ngân sách</span>' : '',
+          !p.admin && p.itAssetsManager ? '<span class="bg-sky-100 text-sky-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🖥️ Quản lý CNTT</span>' : '',
           p.uploadAll ? '<span class="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">Upload:ALL</span>' : '',
           p.downloadAll ? '<span class="bg-rose-100 text-rose-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">Tải:ALL</span>' : '',
           scopeLabel ? `<span class="bg-teal-100 text-teal-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔑 ${scopeLabel}</span>` : ''
