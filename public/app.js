@@ -5152,6 +5152,32 @@ function isPerpetualSoftware(softwareId) {
 
     // --- Tiện ích chung cho Kỳ mua / Đăng ký mua bản quyền ---
     function formatMoney(n) { return Number(n || 0).toLocaleString('vi-VN') + ' ₫'; }
+
+    // --- Ô nhập Đơn giá tự format dấu chấm ngăn cách hàng nghìn khi gõ (VD
+    // "100000" -> "100.000") — input phải là type="text" (type="number" của
+    // trình duyệt không chấp nhận ký tự không phải số/dấu chấm thập phân nên
+    // không thể hiện dấu ngăn cách hàng nghìn). digitsToThousands()/
+    // parseThousandsInput() dùng chung ở cả lúc mở form (điền giá trị có sẵn)
+    // lẫn lúc lưu (đọc lại số thật, bỏ dấu chấm).
+    function digitsToThousands(digits) {
+      return digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    }
+    function parseThousandsInput(str) {
+      return Number(String(str || '').replace(/\./g, '')) || 0;
+    }
+    function onMoneyInputFormat(e) {
+      const input = e.target;
+      const cursorPos = input.selectionStart;
+      const digitsBeforeCursor = input.value.slice(0, cursorPos).replace(/\D/g, '').length;
+      const rawDigits = input.value.replace(/\D/g, '');
+      input.value = rawDigits ? digitsToThousands(rawDigits) : '';
+      let pos = 0, digitsSeen = 0;
+      while (pos < input.value.length && digitsSeen < digitsBeforeCursor) {
+        if (/\d/.test(input.value[pos])) digitsSeen++;
+        pos++;
+      }
+      input.setSelectionRange(pos, pos);
+    }
     // Cột "Ngân sách" — chỉ có giá trị khi Kỳ mua được tạo có liên kết tới 1
     // Kỳ ngân sách; nếu không liên kết thì budgetQuantity = null, hiện "—".
     // Tô cảnh báo khi số đăng ký thực tế VƯỢT số đã dự trù được duyệt.
@@ -8287,7 +8313,7 @@ function isPerpetualSoftware(softwareId) {
       document.getElementById('budget2LineContent').value = line ? line.content : '';
       document.getElementById('budget2LineDescription').value = line ? (line.description || '') : '';
       document.getElementById('budget2LineQuantity').value = line ? line.quantity : 1;
-      document.getElementById('budget2LineUnitPrice').value = line ? line.unitPrice : 0;
+      document.getElementById('budget2LineUnitPrice').value = digitsToThousands(String(line ? line.unitPrice : 0));
       document.getElementById('budget2LineVat').value = line ? line.vatPercent : 0;
       document.getElementById('budget2LineType').value = line ? line.budgetType : 'OPEX';
       document.getElementById('budget2LineCategory').value = line ? (line.itemCategory || '') : (budget2DB.categories[0] ? budget2DB.categories[0].code : '');
@@ -8332,7 +8358,7 @@ function isPerpetualSoftware(softwareId) {
         content,
         description: document.getElementById('budget2LineDescription').value.trim(),
         quantity: Number(document.getElementById('budget2LineQuantity').value),
-        unitPrice: Number(document.getElementById('budget2LineUnitPrice').value),
+        unitPrice: parseThousandsInput(document.getElementById('budget2LineUnitPrice').value),
         vatPercent: Number(document.getElementById('budget2LineVat').value),
         budgetType: document.getElementById('budget2LineType').value,
         itemCategory: document.getElementById('budget2LineCategory').value,
