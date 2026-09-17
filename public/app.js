@@ -1493,6 +1493,15 @@
     function deleteDocGroupFromMenu(groupId, code) { closeAllRowMenus(); deleteDocGroup(groupId, code); }
 
     function toggleRowMenu(e, menuId) {
+      // stopPropagation() KHÔNG đủ — nó chỉ chặn sự kiện lan tiếp lên các node
+      // TỔ TIÊN, nhưng cả 2 listener liên quan (dispatchDelegatedEvent gọi hàm
+      // này, và closeAllRowMenus ở dưới) đều đăng ký trực tiếp trên `document`
+      // — cùng 1 node, nên stopPropagation không ngăn được listener còn lại
+      // chạy tiếp NGAY SAU trong cùng lượt click này, đóng luôn menu vừa mở
+      // trước khi trình duyệt kịp vẽ (menu mở-rồi-đóng trong tích tắc, người
+      // dùng chỉ thấy "không phản ứng gì"). stopImmediatePropagation() mới
+      // chặn được các listener khác trên CÙNG node.
+      e.stopImmediatePropagation();
       e.stopPropagation();
       const menu = document.getElementById(menuId);
       if (!menu) return;
@@ -1500,7 +1509,15 @@
       closeAllRowMenus();
       if (wasOpen) return;
 
-      const btnRect = e.currentTarget.getBoundingClientRect();
+      // (bug thật, không riêng gì bảng Ngân sách) e.currentTarget ở đây LUÔN
+      // là `document` — bộ điều phối sự kiện gọi hàm này qua fn.apply(el,
+      // ...) từ 1 listener gắn trên document (xem dispatchDelegatedEvent),
+      // nên currentTarget của event gốc phản ánh đúng nơi listener native
+      // đang gắn (document), KHÔNG phải nút bấm thật sự. `this` mới là nút
+      // bấm thật (được set qua .apply(el, ...)) — dùng `this` để định vị menu
+      // đúng cạnh nút, nếu không getBoundingClientRect() ném lỗi ngay (menu
+      // không bao giờ mở được, lỗi âm thầm chỉ thấy trong console).
+      const btnRect = this.getBoundingClientRect();
       menu.classList.remove('hidden');
       const menuRect = menu.getBoundingClientRect();
       let left = btnRect.right - menuRect.width;
@@ -1512,6 +1529,21 @@
     }
 
     document.addEventListener('click', closeAllRowMenus);
+
+    // Dùng chung cho MỌI bảng có nhiều nút thao tác/dòng (không riêng Tài
+    // liệu) — gộp các thao tác ít dùng hơn vào 1 menu "⋮" thả xuống, tái sử
+    // dụng đúng cơ chế định vị/đóng-mở đã có ở trên (toggleRowMenu/
+    // closeAllRowMenus/.row-action-menu), chỉ để lại TRÊN dòng 1-2 nút quan
+    // trọng/tần suất cao nhất (VD Duyệt/Từ chối). Trả về '' nếu không có mục
+    // nào (menuItems toàn chuỗi rỗng do bị ẩn theo quyền).
+    function renderRowActionsMenu(menuId, items) {
+      const menuItems = items.filter(Boolean).join('');
+      if (!menuItems) return '';
+      return `
+        <button ${dc('toggleRowMenu', LIVE_EVENT, menuId)} class="text-xs bg-gray-200 text-gray-700 w-7 h-7 rounded font-semibold hover:bg-gray-300 shrink-0" title="Thêm thao tác">⋮</button>
+        <div id="${menuId}" class="row-action-menu hidden fixed w-44 bg-white border rounded shadow-lg z-[80] text-left overflow-hidden">${menuItems}</div>
+      `;
+    }
 
     function renderDocs() {
       const tbody = document.getElementById('docTableBody');
@@ -7983,19 +8015,29 @@ function isPerpetualSoftware(softwareId) {
         <th class="border p-2 text-center w-32">Thao tác</th>
       </tr></thead>`;
       const rowsHtmlFn = (pageRows, startIdx) => pageRows.map((l, i) => {
-        const editBtn = `<button ${dc('openBudget2LineModal', 'PROPOSED', l.id)} class="text-blue-600 hover:underline mr-1" title="Sửa">✏️</button>`;
-        const deleteBtn = `<button ${dc('deleteBudget2Line', l.id)} class="text-red-600 hover:underline mr-1" title="Xóa">🗑️</button>`;
+        // Gọn lại: chỉ giữ Duyệt/Từ chối (tần suất cao nhất) hiện thẳng trên
+        // dòng; Sửa/Bổ sung/Xóa gộp vào menu "⋮" — dùng chung cơ chế đã có
+        // sẵn cho bảng Tài liệu (renderRowActionsMenu/toggleRowMenu).
+        const menuItems = [
+          `<button ${dc('editBudget2LineFromMenu', 'PROPOSED', l.id)} class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">✏️ Sửa</button>`,
+          `<button ${dc('supplementBudget2LineFromMenu', 'PROPOSED', l.id)} class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">📝 Bổ sung</button>`,
+          // Chờ duyệt: Người quản lý Ngân sách sửa/bổ sung được, nhưng chỉ
+          // Admin mới thấy nút Xóa (server cũng chặn xóa với người không
+          // phải Admin) — đã duyệt/từ chối thì chỉ Admin còn được sửa/bổ
+          // sung/xóa lại (VD lỡ nhập sai).
+          isAdmin ? `<button ${dc('deleteBudget2LineFromMenu', l.id)} class="block w-full text-left px-3 py-2 text-xs text-danger-700 hover:bg-danger-50">🗑️ Xóa</button>` : ''
+        ];
         const decidedNote = `<span class="text-gray-400 italic text-[11px] block">Đã xử lý${l.decidedBy ? ' bởi ' + escapeHtml(l.decidedBy) : ''}</span>`;
+        const menuId = `rowMenu_propose_${l.id}`;
         let actions;
         if (l.status === 'SUBMITTED') {
-          // Chờ duyệt: Người quản lý Ngân sách sửa được, nhưng chỉ Admin mới
-          // thấy nút Xóa (server cũng chặn xóa với người không phải Admin).
-          actions = editBtn + (isAdmin ? deleteBtn : '')
-            + `<button ${dc('approveBudget2Proposal', l.id)} class="text-emerald-700 hover:underline font-bold whitespace-nowrap" title="Duyệt">✓ Duyệt</button>`
-            + `<button ${dc('rejectBudget2Proposal', l.id)} class="text-red-700 hover:underline font-bold whitespace-nowrap" title="Từ chối">✕ Từ chối</button>`;
+          actions = `<div class="inline-flex items-center gap-1">
+            <button ${dc('approveBudget2Proposal', l.id)} class="text-xs bg-emerald-600 text-white px-2 h-7 rounded font-semibold shadow-sm hover:bg-emerald-700 whitespace-nowrap" title="Duyệt">✓ Duyệt</button>
+            <button ${dc('rejectBudget2Proposal', l.id)} class="text-xs bg-danger-600 text-white px-2 h-7 rounded font-semibold shadow-sm hover:bg-danger-700 whitespace-nowrap" title="Từ chối">✕ Từ chối</button>
+            ${renderRowActionsMenu(menuId, menuItems)}
+          </div>`;
         } else if (isAdmin) {
-          // Đã duyệt/từ chối: chỉ Admin được sửa/xóa lại (VD lỡ nhập sai).
-          actions = editBtn + deleteBtn + decidedNote;
+          actions = `<div class="inline-flex items-center gap-1">${decidedNote}${renderRowActionsMenu(menuId, menuItems)}</div>`;
         } else {
           actions = decidedNote;
         }
@@ -8078,6 +8120,47 @@ function isPerpetualSoftware(softwareId) {
         showToast('Đã xóa.', 'success');
       } catch (err) { showToast(err.message, 'danger'); }
     }
+
+    // "Bổ sung" — thêm nhanh 1 dòng thông tin vào Ghi chú (VD người duyệt hỏi
+    // thêm chi tiết trong lúc dòng còn Chờ duyệt) mà KHÔNG cần mở form Sửa đầy
+    // đủ. Dùng lại nguyên endpoint Sửa hiện có (PUT /api/budget2/lines/:id),
+    // chỉ đổi mỗi trường note — server không có endpoint "vá 1 trường" riêng
+    // nên phải gửi kèm đầy đủ các trường bắt buộc khác, giữ nguyên giá trị cũ.
+    const BUDGET2_NOTE_MAX_LEN = 500; // khớp cột note VARCHAR(500) trong schema.sql
+    async function supplementBudget2LineNote(stage, id) {
+      const line = budget2DB.lines.find(l => l.id === id);
+      if (!line) return;
+      const addition = await showPrompt({
+        title: 'Bổ sung thông tin',
+        message: `Nhập thông tin bổ sung cho dòng [${line.content}] — sẽ được thêm vào Ghi chú, không thay đổi số liệu khác của dòng.`,
+        placeholder: 'Thông tin bổ sung...',
+        required: true
+      });
+      if (addition === null) return;
+      const stamp = `[${new Date().toLocaleString('vi-VN')} - ${currentUser.name}] ${addition.trim()}`;
+      const newNote = line.note ? `${line.note}\n${stamp}` : stamp;
+      if (newNote.length > BUDGET2_NOTE_MAX_LEN) {
+        showToast(`Ghi chú đã gần đầy (tối đa ${BUDGET2_NOTE_MAX_LEN} ký tự) — không đủ chỗ để bổ sung thêm nội dung này. Hãy rút gọn lại.`, 'warning');
+        return;
+      }
+      const body = {
+        content: line.content, description: line.description, quantity: line.quantity, unitPrice: line.unitPrice,
+        vatPercent: line.vatPercent, budgetType: line.budgetType, itemCategory: line.itemCategory,
+        companyId: line.companyId, orgUnitId: line.orgUnitId, budgetYear: line.budgetYear, budgetMonth: line.budgetMonth,
+        note: newNote
+      };
+      try {
+        await apiFetch(`/api/budget2/lines/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+        budget2DB.loaded = false;
+        await loadBudget2BootstrapData();
+        if (stage === 'PROPOSED') renderBudget2ProposedTable(); else renderBudget2ApprovedTable();
+        showToast('Đã bổ sung thông tin.', 'success');
+      } catch (err) { showToast(err.message, 'danger'); }
+    }
+    // Bridge cho menu "⋮" — đóng menu trước khi mở modal/thực hiện thao tác chính.
+    function editBudget2LineFromMenu(stage, id) { closeAllRowMenus(); openBudget2LineModal(stage, id); }
+    function supplementBudget2LineFromMenu(stage, id) { closeAllRowMenus(); supplementBudget2LineNote(stage, id); }
+    function deleteBudget2LineFromMenu(id) { closeAllRowMenus(); deleteBudget2Line(id); }
 
     // --- Modal dùng chung: Thêm/sửa 1 dòng Đề xuất, hoặc thêm trực tiếp 1
     // dòng Phê duyệt (không qua đề xuất) ---
@@ -8213,23 +8296,32 @@ function isPerpetualSoftware(softwareId) {
         <th class="border p-2 text-center">Trạng thái</th><th class="border p-2 text-center w-24">Thao tác</th>
       </tr></thead>`;
       const rowsHtmlFn = (pageRows, startIdx) => pageRows.map((l, i) => {
-        const editBtn = `<button ${dc('openBudget2LineModal', 'APPROVED', l.id)} class="text-blue-600 hover:underline mr-1" title="Sửa">✏️</button>`;
-        const deleteBtn = `<button ${dc('deleteBudget2Line', l.id)} class="text-red-600 hover:underline mr-1" title="Xóa">🗑️</button>`;
+        // Gọn lại: chỉ giữ Duyệt/Từ chối hiện thẳng trên dòng; Sửa/Bổ sung/
+        // Xóa gộp vào menu "⋮" (renderRowActionsMenu, dùng chung cơ chế đã
+        // có sẵn cho bảng Tài liệu).
+        const menuItems = [
+          `<button ${dc('editBudget2LineFromMenu', 'APPROVED', l.id)} class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">✏️ Sửa</button>`,
+          `<button ${dc('supplementBudget2LineFromMenu', 'APPROVED', l.id)} class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">📝 Bổ sung</button>`,
+          isAdmin ? `<button ${dc('deleteBudget2LineFromMenu', l.id)} class="block w-full text-left px-3 py-2 text-xs text-danger-700 hover:bg-danger-50">🗑️ Xóa</button>` : ''
+        ];
         const decidedNote = `<span class="text-gray-400 italic text-[11px] block">${escapeHtml(l.decidedBy || '')}</span>`;
+        const menuId = `rowMenu_approved_${l.id}`;
         let actions;
         if (l.status === 'SUBMITTED') {
-          // Chờ duyệt: Người quản lý Ngân sách sửa được, nhưng chỉ Admin
-          // mới thấy nút Xóa (server cũng chặn xóa với người không phải
-          // Admin).
-          actions = editBtn + (isAdmin ? deleteBtn : '')
-            + `<button ${dc('approveBudget2Line', l.id)} class="text-green-600 hover:underline mr-1" title="Duyệt">✔️</button>`
-            + `<button ${dc('rejectBudget2Line', l.id)} class="text-red-600 hover:underline" title="Từ chối">✖️</button>`;
+          // Chờ duyệt: Người quản lý Ngân sách sửa/bổ sung được, nhưng chỉ
+          // Admin mới thấy nút Xóa (server cũng chặn xóa với người không
+          // phải Admin).
+          actions = `<div class="inline-flex items-center gap-1">
+            <button ${dc('approveBudget2Line', l.id)} class="text-xs bg-success-600 text-white w-7 h-7 rounded font-semibold shadow-sm hover:bg-success-700" title="Duyệt">✔️</button>
+            <button ${dc('rejectBudget2Line', l.id)} class="text-xs bg-danger-600 text-white w-7 h-7 rounded font-semibold shadow-sm hover:bg-danger-700" title="Từ chối">✖️</button>
+            ${renderRowActionsMenu(menuId, menuItems)}
+          </div>`;
         } else if (isAdmin) {
-          // Đã duyệt/từ chối: chỉ Admin được sửa/xóa lại. Sửa dòng đã
+          // Đã duyệt/từ chối: chỉ Admin được sửa/bổ sung/xóa lại. Sửa dòng đã
           // DUYỆT sẽ tự đồng bộ luôn dòng Sử dụng tương ứng (server lo);
           // xóa dòng đã DUYỆT chỉ được nếu dòng Sử dụng đó chưa có mục
           // con (server tự kiểm tra, báo lỗi rõ nếu không được).
-          actions = editBtn + deleteBtn + decidedNote;
+          actions = `<div class="inline-flex items-center gap-1">${decidedNote}${renderRowActionsMenu(menuId, menuItems)}</div>`;
         } else {
           actions = decidedNote;
         }
