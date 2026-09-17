@@ -12,6 +12,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 
 | Phiên bản | PR | Ngày merge | Nội dung |
 |---|---|---|---|
+| v6.103 | [#86](https://github.com/pth8081/Brg-dms/pull/86) | 2026-09-17 | Ngân sách Đề xuất/Phê duyệt: thêm nút "Bổ sung" để đính thêm thông tin vào Ghi chú của 1 dòng mà không cần sửa lại toàn bộ dòng; gộp các nút thao tác đang dàn hàng ngang (Sửa/Bổ sung/Xóa) vào chung 1 droplist "⋮" gọn hơn, giữ Duyệt/Từ chối nổi bật riêng; kèm sửa 1 lỗi có sẵn từ trước (không phải do đợt này gây ra) khiến menu droplist kiểu này (dùng chung cơ chế với bảng Tài liệu) mở ra rồi tự đóng ngay do đọc nhầm tọa độ nút bấm |
 | v6.101 | [#85](https://github.com/pth8081/Brg-dms/pull/85) | 2026-09-17 | Chống trùng lặp khi nhập Excel cho cả 5 màn nhập (Tổ chức công ty, Nhân viên, Ngân sách Đề xuất/Phê duyệt, Đầu mục CNTT, Người dùng) — lượt gọi đầu chỉ đối chiếu không ghi gì, phát hiện trùng thì hỏi Ghi đè (cập nhật theo file) hoặc Bỏ qua (giữ nguyên), trùng ngay trong 1 file báo lỗi rõ theo dòng thay vì tạo trùng/mất dữ liệu âm thầm như trước; kèm log chẩn đoán lúc khởi động + tài liệu cấu hình WEBAUTHN_RP_ID/WEBAUTHN_ORIGIN cho lỗi đăng ký vân tay-Face ID "Unexpected registration response origin" sau reverse proxy |
 | v6.99 | [#84](https://github.com/pth8081/Brg-dms/pull/84) | 2026-09-17 | Module Quản lý CNTT — thêm file mẫu/xuất/nhập Excel cho tab "Đầu mục theo dõi gia hạn" (Tên đầu mục, Danh mục, Nhà cung cấp, Ngày bắt đầu, Ngày hết hạn, Chi phí, Email người phụ trách, Mô tả), theo đúng khuôn mẫu Excel đã dùng ở module License; nhập Excel đối chiếu tên Danh mục, chấp nhận cả 2 định dạng ngày yyyy-mm-dd và dd/mm/yyyy, báo lỗi rõ theo từng dòng không làm gãy cả file |
 | v6.97 | [#83](https://github.com/pth8081/Brg-dms/pull/83) | 2026-09-17 | Khắc phục các phát hiện từ đợt rà soát bảo mật OWASP + logic nghiệp vụ (5 agent độc lập): bắt buộc 2FA thật sự cho Admin ở mọi request (chặn leo thang quyền qua đổi Nhóm quyền giữa phiên); chặn admin giả mạo người duyệt/thời gian duyệt tài liệu qua nhánh "ghi đè quy trình"; sửa race condition ở Từ chối dòng ngân sách phê duyệt; bổ sung audit log còn thiếu cho /api/sync/:table, tải tài liệu lên, tự cập nhật hồ sơ; chống dùng lại mã 2FA + khóa tài khoản sau nhiều lần sai; khóa race condition kiểm tra "còn Admin" khi sửa Nhóm quyền; UNIQUE constraint + chuẩn hóa hoa/thường cho mã nhân viên License; dừng khởi động nếu chạy cluster thiếu JWT_SECRET; trần Số lượng/Đơn giá + kiểm tra Công ty/Đơn vị hợp lệ cho Ngân sách; đồng bộ đổi tên phòng ban vào Nhóm quyền; giới hạn PDF phức tạp + hạn mức ổ đĩa khi upload; không lộ lỗi thư viện ra client. Kèm theo fix UX thêm ô nhập "Tên thiết bị" khi đăng ký vân tay/Face ID |
@@ -88,7 +89,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 > **Ghi chú:** các số phiên bản v6.13, v6.17, v6.19, v6.21, v6.23, v6.52,
 > v6.55, v6.56, v6.58, v6.60, v6.63, v6.65, v6.66, v6.68, v6.70, v6.72,
 > v6.74, v6.76, v6.78, v6.80, v6.82, v6.84, v6.86, v6.90, v6.92, v6.94, v6.96,
-> v6.98, v6.100 bị
+> v6.98, v6.100, v6.102 bị
 > nhảy cóc trong lịch sử — không có Pull Request tương ứng để đối chiếu nội
 > dung (nhiều khả năng do chạy lại workflow tăng version hoặc sửa trực tiếp
 > trên `main` ngoài luồng PR — ví dụ v6.52 phát sinh từ chính commit cập
@@ -100,7 +101,8 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 > tương tự từ commit cập nhật version.md cho v6.67, và v6.70/v6.72/v6.74/
 > v6.76/v6.78/v6.80/v6.82/v6.84/v6.86/v6.90/v6.92/v6.94 phát sinh tương tự
 > từ các commit cập nhật version.md trực tiếp trên `main` cho v6.69/v6.71/
-> v6.73/v6.75/v6.77/v6.79/v6.81/v6.83/v6.85/v6.89/v6.91/v6.93/v6.95/v6.97/v6.99 — mỗi lần
+> v6.73/v6.75/v6.77/v6.79/v6.81/v6.83/v6.85/v6.89/v6.91/v6.93/v6.95/v6.97/v6.99/
+> v6.101 — mỗi lần
 > commit trực tiếp/merge như vậy đều vô tình kích hoạt lại workflow tăng
 > version thêm 1
 > lần nữa). Từ PR #65 trở đi, workflow còn tự rebuild
