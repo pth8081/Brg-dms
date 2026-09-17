@@ -3105,24 +3105,62 @@
       if (!file) return;
       try {
         const rows = await readXlsxRows(file, ['username', 'pass', 'name', 'email', 'phone', 'dept'], ['username', 'password', 'fullName', 'email', 'phone', 'dept']);
-        const prevUsers = DB.users;
-        let count = 0;
-        const newUsers = [...DB.users];
-        rows.forEach(r => {
+        // Khác 4 màn nhập Excel còn lại (mỗi màn có API /import riêng, đối
+        // chiếu trùng ở server) — danh sách người dùng đã có sẵn đầy đủ ở
+        // DB.users (client), nên đối chiếu trùng NGAY tại đây, không cần gọi
+        // server trước. Trước đây tài khoản trùng username bị ÂM THẦM bỏ qua
+        // (kể cả trùng NGAY TRONG file), không đếm, không báo — nay báo rõ và
+        // hỏi Ghi đè/Bỏ qua giống các màn nhập Excel khác.
+        const errors = [];
+        const seenInFile = new Set();
+        const duplicateUsernames = [];
+        rows.forEach((r, i) => {
           if (!r.username) return;
-          if (!newUsers.some(u => u.username === r.username)) {
-            newUsers.push({
-              id: Date.now() + Math.random(),
-              username: r.username, pass: r.pass, name: r.name, email: r.email, phone: r.phone, dept: r.dept,
-              perms: { admin: false, uploadAll: false, viewDraftAll: false, viewApprovedAll: false, downloadAll: false }
-            });
-            count++;
+          if (seenInFile.has(r.username)) {
+            errors.push(`Dòng ${i + 2}: tài khoản [${r.username}] bị trùng với 1 dòng khác trong cùng file này.`);
+            return;
           }
+          seenInFile.add(r.username);
+          if (DB.users.some(u => u.username === r.username)) duplicateUsernames.push(r.username);
+        });
+
+        let duplicateAction = null;
+        if (duplicateUsernames.length > 0) {
+          duplicateAction = await resolveXlsxDuplicateAction(duplicateUsernames.length, duplicateUsernames);
+          if (!duplicateAction) { e.target.value = ''; return; }
+        }
+
+        const prevUsers = DB.users;
+        const newUsers = DB.users.map(u => ({ ...u }));
+        let created = 0, updated = 0, skipped = 0;
+        rows.forEach(r => {
+          if (!r.username || !seenInFile.has(r.username)) return; // bỏ dòng trùng-trong-file đã báo lỗi ở trên
+          const existingIdx = newUsers.findIndex(u => u.username === r.username);
+          if (existingIdx !== -1) {
+            if (duplicateAction === 'overwrite') {
+              const u = newUsers[existingIdx];
+              // Không set .pass nếu file để trống mật khẩu — giữ nguyên mật khẩu
+              // cũ (đúng cách server xử lý sẵn khi lưu danh sách người dùng),
+              // chỉ đổi khi Admin CHỦ Ý điền mật khẩu mới trong file.
+              newUsers[existingIdx] = { ...u, name: r.name || u.name, email: r.email || '', phone: r.phone || '', dept: r.dept || u.dept, ...(r.pass ? { pass: r.pass } : {}) };
+              updated++;
+            } else {
+              skipped++;
+            }
+            return;
+          }
+          newUsers.push({
+            id: Date.now() + Math.random(),
+            username: r.username, pass: r.pass, name: r.name, email: r.email, phone: r.phone, dept: r.dept,
+            perms: { admin: false, uploadAll: false, viewDraftAll: false, viewApprovedAll: false, downloadAll: false }
+          });
+          created++;
         });
         DB.users = newUsers;
         const ok = await syncStorage('users');
         if (!ok) { DB.users = prevUsers; e.target.value = ''; return; }
-        showToast(`Đã import thành công ${count} tài khoản người dùng!`, 'success');
+        showToast(`Đã nhập ${created} tài khoản mới, cập nhật ${updated}${skipped ? `, bỏ qua ${skipped} dòng trùng` : ''}.`, 'success');
+        reportImportErrors(errors);
         renderUsers();
       } catch (err) {
         showToast(err.message || 'Không thể nhập file Excel.', 'danger');
@@ -6429,6 +6467,30 @@ function isPerpetualSoftware(softwareId) {
       showToast(`Có ${errors.length} dòng lỗi: ${errors.slice(0, 3).join(' | ')}${errors.length > 3 ? '...' : ''}`, 'warning');
     }
 
+    // Dùng chung cho MỌI màn hình nhập Excel có khả năng trùng dữ liệu đã có
+    // (Tổ chức công ty/Nhân viên module License, Ngân sách, Đầu mục CNTT) —
+    // server trả về needsConfirmation+duplicateLabels ở lượt gọi đầu (KHÔNG
+    // ghi gì) khi phát hiện trùng; hàm này hỏi người dùng qua 2 hộp thoại xác
+    // nhận nối tiếp (tận dụng showConfirm sẵn có, không cần thêm modal riêng):
+    // hộp 1 hỏi có muốn Ghi đè không, nếu Hủy thì hộp 2 hỏi có muốn Bỏ qua
+    // (chỉ nhập dòng mới) không, Hủy tiếp thì dừng hẳn, không nhập gì cả.
+    // Trả về 'overwrite' | 'skip' | null (null = người dùng chọn dừng hẳn).
+    async function resolveXlsxDuplicateAction(duplicateCount, duplicateLabels) {
+      const sample = (duplicateLabels || []).slice(0, 5).join('; ') + ((duplicateLabels || []).length > 5 ? `; ... (và ${duplicateLabels.length - 5} mục khác)` : '');
+      const overwrite = await showConfirm({
+        title: 'Phát hiện dữ liệu trùng',
+        message: `Có ${duplicateCount} dòng trùng với dữ liệu đã có trong hệ thống:\n${sample}\n\nBấm "Ghi đè" để cập nhật các dòng này theo file mới, hoặc "Hủy" để chọn cách xử lý khác.`,
+        confirmText: 'Ghi đè (cập nhật)'
+      });
+      if (overwrite) return 'overwrite';
+      const skip = await showConfirm({
+        title: 'Bỏ qua dòng trùng?',
+        message: `Bỏ qua ${duplicateCount} dòng trùng (giữ nguyên dữ liệu hiện có), chỉ nhập các dòng dữ liệu mới? Bấm "Hủy" để dừng lại, không nhập gì cả.`,
+        confirmText: 'Bỏ qua & Tiếp tục'
+      });
+      return skip ? 'skip' : null;
+    }
+
     function downloadOrgUnitTemplate() {
       downloadXlsxFile('mau_to_chuc_cong_ty.xlsx',
         ['ma_cong_ty', 'ten_cong_ty', 'ten_don_vi', 'cap', 'don_vi_cha'],
@@ -6472,8 +6534,13 @@ function isPerpetualSoftware(softwareId) {
       if (!file) return;
       try {
         const rows = await readXlsxRows(file, ['ma_cong_ty', 'ten_cong_ty', 'ten_don_vi', 'cap', 'don_vi_cha']);
-        const result = await apiFetch('/api/license/org-units/import', { method: 'POST', body: JSON.stringify({ rows }) });
-        showToast(`Đã nhập ${result.companiesCreated} công ty mới, ${result.unitsCreated} đơn vị mới.`, 'success');
+        let result = await apiFetch('/api/license/org-units/import', { method: 'POST', body: JSON.stringify({ rows }) });
+        if (result.needsConfirmation) {
+          const duplicateAction = await resolveXlsxDuplicateAction(result.duplicateCount, result.duplicateLabels);
+          if (!duplicateAction) { e.target.value = ''; return; }
+          result = await apiFetch('/api/license/org-units/import', { method: 'POST', body: JSON.stringify({ rows, duplicateAction }) });
+        }
+        showToast(`Đã nhập ${result.companiesCreated} công ty mới${result.companiesUpdated ? `, cập nhật ${result.companiesUpdated}` : ''}, ${result.unitsCreated} đơn vị mới${result.unitsUpdated ? `, cập nhật ${result.unitsUpdated}` : ''}.`, 'success');
         reportImportErrors(result.errors);
         licenseDB.loaded = false;
         await loadLicenseBootstrapData();
@@ -6488,8 +6555,13 @@ function isPerpetualSoftware(softwareId) {
       if (!file) return;
       try {
         const rows = await readXlsxRows(file, ['ma_nv', 'ho_ten', 'chuc_danh', 'ma_cong_ty', 'don_vi', 'email']);
-        const result = await apiFetch('/api/license/employees/import', { method: 'POST', body: JSON.stringify({ rows }) });
-        showToast(`Đã nhập ${result.created} nhân viên mới, cập nhật ${result.updated}.`, 'success');
+        let result = await apiFetch('/api/license/employees/import', { method: 'POST', body: JSON.stringify({ rows }) });
+        if (result.needsConfirmation) {
+          const duplicateAction = await resolveXlsxDuplicateAction(result.duplicateCount, result.duplicateLabels);
+          if (!duplicateAction) { e.target.value = ''; return; }
+          result = await apiFetch('/api/license/employees/import', { method: 'POST', body: JSON.stringify({ rows, duplicateAction }) });
+        }
+        showToast(`Đã nhập ${result.created} nhân viên mới, cập nhật ${result.updated}${result.skipped ? `, bỏ qua ${result.skipped} dòng trùng` : ''}.`, 'success');
         reportImportErrors(result.errors);
         licenseDB.loaded = false;
         await loadLicenseBootstrapData();
@@ -7248,8 +7320,13 @@ function isPerpetualSoftware(softwareId) {
       if (!file) return;
       try {
         const rows = await readXlsxRows(file, IT_ITEM_XLSX_HEADER_KEYS);
-        const result = await apiFetch('/api/it/items/import', { method: 'POST', body: JSON.stringify({ rows }) });
-        showToast(`Đã nhập ${result.created} đầu mục mới.`, 'success');
+        let result = await apiFetch('/api/it/items/import', { method: 'POST', body: JSON.stringify({ rows }) });
+        if (result.needsConfirmation) {
+          const duplicateAction = await resolveXlsxDuplicateAction(result.duplicateCount, result.duplicateLabels);
+          if (!duplicateAction) { e.target.value = ''; return; }
+          result = await apiFetch('/api/it/items/import', { method: 'POST', body: JSON.stringify({ rows, duplicateAction }) });
+        }
+        showToast(`Đã nhập ${result.created} đầu mục mới, cập nhật ${result.updated || 0}${result.skipped ? `, bỏ qua ${result.skipped} dòng trùng` : ''}.`, 'success');
         reportImportErrors(result.errors);
         itAssetsDB.loaded = false;
         await loadItAssetsBootstrapData();
@@ -7582,8 +7659,13 @@ function isPerpetualSoftware(softwareId) {
       if (!file) return;
       try {
         const rows = await readXlsxRows(file, BUDGET2_XLSX_HEADER_KEYS, BUDGET2_XLSX_HEADER_LABELS);
-        const result = await apiFetch('/api/budget2/import', { method: 'POST', body: JSON.stringify({ stage, rows }) });
-        showToast(`Đã nhập ${result.created} dòng ngân sách mới.`, 'success');
+        let result = await apiFetch('/api/budget2/import', { method: 'POST', body: JSON.stringify({ stage, rows }) });
+        if (result.needsConfirmation) {
+          const duplicateAction = await resolveXlsxDuplicateAction(result.duplicateCount, result.duplicateLabels);
+          if (!duplicateAction) { e.target.value = ''; return; }
+          result = await apiFetch('/api/budget2/import', { method: 'POST', body: JSON.stringify({ stage, rows, duplicateAction }) });
+        }
+        showToast(`Đã nhập ${result.created} dòng ngân sách mới, cập nhật ${result.updated || 0}${result.skipped ? `, bỏ qua ${result.skipped} dòng trùng` : ''}.`, 'success');
         reportImportErrors(result.errors);
         budget2DB.loaded = false;
         await loadBudget2BootstrapData();

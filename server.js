@@ -6231,101 +6231,155 @@ app.post('/api/license/org-units/import', requireAuth, requireLicenseOrAdmin, as
     // (mất kết nối, trùng khóa ngoài dự kiến) để lại công ty/đơn vị đã tạo
     // trước đó nằm lại trong CSDL trong khi Admin chỉ nhận lỗi 500 chung
     // chung, không biết đã nhập bao nhiêu, dễ import lại gây trùng lặp.
+    //
+    // Trước đây 1 công ty/đơn vị đã tồn tại (đúng mã/đúng công ty-cha-tên)
+    // luôn bị ÂM THẦM bỏ qua, kể cả khi file có Tên công ty/Cấp KHÁC với dữ
+    // liệu hiện có — nay đối chiếu thêm nội dung, phát hiện khác biệt thì hỏi
+    // người dùng muốn "Ghi đè" (cập nhật theo file) hay "Bỏ qua" (giữ nguyên),
+    // giống hệt cơ chế ở /api/it/items/import và /api/license/employees/import.
+    // Chạy toàn bộ thuật toán 2 LƯỢT (dryRun=true rồi dryRun=false) thay vì
+    // viết riêng 2 bản — lượt đầu chỉ dò trùng bằng ID GIẢ (số âm) trong bộ
+    // nhớ, không đụng CSDL; lượt sau (chỉ chạy nếu không còn trùng cần hỏi)
+    // mới thật sự ghi.
     let conn;
     try {
         const rows = Array.isArray(req.body && req.body.rows) ? req.body.rows.slice(0, 2000) : [];
         if (rows.length === 0) return res.status(400).json({ error: 'File không có dữ liệu hợp lệ.' });
+        const duplicateAction = ['overwrite', 'skip'].includes(req.body && req.body.duplicateAction) ? req.body.duplicateAction : null;
 
         conn = await pool.getConnection();
         await conn.beginTransaction();
         const [existingCompanies] = await conn.query('SELECT * FROM lic_companies');
-        const companyByCode = new Map(existingCompanies.map(c => [c.code, c]));
         const [existingUnits] = await conn.query('SELECT * FROM lic_org_units');
         // Key theo CẢ company + parent + tên — không chỉ company + tên — vì cây
         // tổ chức là N cấp, 2 đơn vị cùng tên nhưng khác nhánh cha (VD "Phòng Kế
         // Toán" ở Chi nhánh A và Chi nhánh B) là 2 đơn vị KHÁC NHAU, không phải
         // trùng lặp cần bỏ qua.
         const orgUnitKey = (companyId, parentId, name) => `${companyId}::${parentId ?? 'root'}::${name}`;
-        const unitByKey = new Map(existingUnits.map(u => [orgUnitKey(u.company_id, u.parent_id, u.name), u]));
 
-        const errors = [];
-        let companiesCreated = 0, unitsCreated = 0;
+        async function runImport(dryRun) {
+            const companyByCode = new Map(existingCompanies.map(c => [c.code, c]));
+            const unitByKey = new Map(existingUnits.map(u => [orgUnitKey(u.company_id, u.parent_id, u.name), u]));
+            const errors = [];
+            const duplicateLabels = [];
+            let companiesCreated = 0, unitsCreated = 0, companiesUpdated = 0, unitsUpdated = 0;
+            let tempIdSeq = -1;
 
-        // Bước 1: đảm bảo mọi công ty được nhắc tới đều tồn tại (tạo mới nếu thiếu).
-        for (let i = 0; i < rows.length; i++) {
-            const r = rows[i] || {};
-            const code = String(r.ma_cong_ty || '').trim().toUpperCase();
-            const name = String(r.ten_cong_ty || '').trim();
-            if (!code || !name) { errors.push(`Dòng ${i + 2}: thiếu mã hoặc tên công ty.`); continue; }
-            // Route tạo công ty thủ công (POST /api/license/companies) bắt buộc
-            // validCode(code, 20) — nhánh import này trước đây bỏ qua, cho phép
-            // mã công ty chứa dấu cách/ký tự đặc biệt/quá dài, phá vỡ định dạng
-            // "{mã công ty}-{mã phần mềm}-XXXXXX" dùng để sinh mã license.
-            if (!validCode(code, 20)) { errors.push(`Dòng ${i + 2}: mã công ty [${code}] không hợp lệ (chỉ chữ/số không dấu, tối đa 20 ký tự).`); continue; }
-            if (!companyByCode.has(code)) {
-                try {
-                    const [result] = await conn.query('INSERT INTO lic_companies (name, code, active) VALUES (?, ?, TRUE)', [name, code]);
-                    companyByCode.set(code, { id: result.insertId, name, code });
-                    companiesCreated++;
-                } catch (e) {
-                    if (e.code === 'ER_DUP_ENTRY') errors.push(`Dòng ${i + 2}: công ty tên [${name}] đã tồn tại với mã khác.`);
-                    else throw e;
-                }
-            }
-        }
-
-        // Bước 2: tạo đơn vị theo nhiều lượt — mỗi lượt chỉ tạo được các dòng có
-        // đơn vị cha đã tồn tại (hoặc không cha); lặp tới khi hết tiến triển, để
-        // không phụ thuộc thứ tự dòng trong file (cha có thể nằm sau con).
-        const pending = rows
-            .map((r, i) => ({ r: r || {}, rowNo: i + 2 }))
-            .filter(({ r }) => String(r.ten_don_vi || '').trim());
-
-        let progress = true;
-        while (progress && pending.length > 0) {
-            progress = false;
-            for (let idx = pending.length - 1; idx >= 0; idx--) {
-                const { r, rowNo } = pending[idx];
+            // Bước 1: đảm bảo mọi công ty được nhắc tới đều tồn tại (tạo mới nếu thiếu).
+            for (let i = 0; i < rows.length; i++) {
+                const r = rows[i] || {};
                 const code = String(r.ma_cong_ty || '').trim().toUpperCase();
-                const company = companyByCode.get(code);
-                if (!company) { pending.splice(idx, 1); continue; } // đã báo lỗi ở bước 1
-                const unitName = String(r.ten_don_vi || '').trim();
-                const level = String(r.cap || '').trim();
-                const parentName = String(r.don_vi_cha || '').trim();
-                if (!level) { errors.push(`Dòng ${rowNo}: thiếu Cấp cho đơn vị [${unitName}].`); pending.splice(idx, 1); continue; }
-
-                let parentId = null;
-                if (parentName) {
-                    // Cha được tìm theo tên trong TOÀN công ty (không biết trước cha của
-                    // cha), nên nếu công ty có 2 đơn vị trùng tên ở 2 nhánh khác nhau thì
-                    // đây vẫn là 1 giới hạn đã biết của việc tra theo tên — chỉ áp dụng
-                    // cho việc tìm CHA, không ảnh hưởng tới việc dedup đơn vị hiện tại
-                    // (đã sửa bên dưới để phân biệt đúng theo từng nhánh cha).
-                    const parentCandidates = [...unitByKey.values()].filter(u => u.company_id === company.id && u.name === parentName);
-                    if (parentCandidates.length === 0) continue; // chưa tạo được cha, thử lượt sau
-                    if (parentCandidates.length > 1) { errors.push(`Dòng ${rowNo}: có nhiều hơn 1 đơn vị tên [${parentName}] trong công ty — không thể xác định đúng đơn vị cha, hãy đổi tên cho không trùng.`); pending.splice(idx, 1); continue; }
-                    parentId = parentCandidates[0].id;
+                const name = String(r.ten_cong_ty || '').trim();
+                if (!code || !name) { errors.push(`Dòng ${i + 2}: thiếu mã hoặc tên công ty.`); continue; }
+                // Route tạo công ty thủ công (POST /api/license/companies) bắt buộc
+                // validCode(code, 20) — nhánh import này trước đây bỏ qua, cho phép
+                // mã công ty chứa dấu cách/ký tự đặc biệt/quá dài, phá vỡ định dạng
+                // "{mã công ty}-{mã phần mềm}-XXXXXX" dùng để sinh mã license.
+                if (!validCode(code, 20)) { errors.push(`Dòng ${i + 2}: mã công ty [${code}] không hợp lệ (chỉ chữ/số không dấu, tối đa 20 ký tự).`); continue; }
+                const existingCompany = companyByCode.get(code);
+                if (!existingCompany) {
+                    if (dryRun) {
+                        companyByCode.set(code, { id: tempIdSeq--, name, code });
+                    } else {
+                        try {
+                            const [result] = await conn.query('INSERT INTO lic_companies (name, code, active) VALUES (?, ?, TRUE)', [name, code]);
+                            companyByCode.set(code, { id: result.insertId, name, code });
+                        } catch (e) {
+                            if (e.code === 'ER_DUP_ENTRY') { errors.push(`Dòng ${i + 2}: công ty tên [${name}] đã tồn tại với mã khác.`); continue; }
+                            throw e;
+                        }
+                    }
+                    companiesCreated++;
+                } else if (existingCompany.name !== name) {
+                    duplicateLabels.push(`Công ty ${code} (tên hiện có "${existingCompany.name}" → file "${name}")`);
+                    if (duplicateAction === 'overwrite') {
+                        if (!dryRun) await conn.query('UPDATE lic_companies SET name = ? WHERE id = ?', [name, existingCompany.id]);
+                        companyByCode.set(code, { ...existingCompany, name });
+                        companiesUpdated++;
+                    }
+                    // 'skip' hoặc chưa quyết định: giữ nguyên tên cũ, không đổi gì.
                 }
-
-                const key = orgUnitKey(company.id, parentId, unitName);
-                if (unitByKey.has(key)) { pending.splice(idx, 1); continue; } // đã có sẵn (đúng công ty + đúng cha + đúng tên), bỏ qua
-                const [result] = await conn.query(
-                    'INSERT INTO lic_org_units (company_id, parent_id, name, level_label, sort_order) VALUES (?, ?, ?, ?, 0)',
-                    [company.id, parentId, unitName, level]
-                );
-                unitByKey.set(key, { id: result.insertId, company_id: company.id, parent_id: parentId, name: unitName });
-                unitsCreated++;
-                pending.splice(idx, 1);
-                progress = true;
             }
-        }
-        for (const { r, rowNo } of pending) {
-            errors.push(`Dòng ${rowNo}: không tìm thấy đơn vị cha [${r.don_vi_cha}] — kiểm tra lại tên hoặc thứ tự dòng.`);
+
+            // Bước 2: tạo đơn vị theo nhiều lượt — mỗi lượt chỉ tạo được các dòng có
+            // đơn vị cha đã tồn tại (hoặc không cha); lặp tới khi hết tiến triển, để
+            // không phụ thuộc thứ tự dòng trong file (cha có thể nằm sau con).
+            const pending = rows
+                .map((r, i) => ({ r: r || {}, rowNo: i + 2 }))
+                .filter(({ r }) => String(r.ten_don_vi || '').trim());
+
+            let progress = true;
+            while (progress && pending.length > 0) {
+                progress = false;
+                for (let idx = pending.length - 1; idx >= 0; idx--) {
+                    const { r, rowNo } = pending[idx];
+                    const code = String(r.ma_cong_ty || '').trim().toUpperCase();
+                    const company = companyByCode.get(code);
+                    if (!company) { pending.splice(idx, 1); continue; } // đã báo lỗi ở bước 1
+                    const unitName = String(r.ten_don_vi || '').trim();
+                    const level = String(r.cap || '').trim();
+                    const parentName = String(r.don_vi_cha || '').trim();
+                    if (!level) { errors.push(`Dòng ${rowNo}: thiếu Cấp cho đơn vị [${unitName}].`); pending.splice(idx, 1); continue; }
+
+                    let parentId = null;
+                    if (parentName) {
+                        // Cha được tìm theo tên trong TOÀN công ty (không biết trước cha của
+                        // cha), nên nếu công ty có 2 đơn vị trùng tên ở 2 nhánh khác nhau thì
+                        // đây vẫn là 1 giới hạn đã biết của việc tra theo tên — chỉ áp dụng
+                        // cho việc tìm CHA, không ảnh hưởng tới việc dedup đơn vị hiện tại
+                        // (đã sửa bên dưới để phân biệt đúng theo từng nhánh cha).
+                        const parentCandidates = [...unitByKey.values()].filter(u => u.company_id === company.id && u.name === parentName);
+                        if (parentCandidates.length === 0) continue; // chưa tạo được cha, thử lượt sau
+                        if (parentCandidates.length > 1) { errors.push(`Dòng ${rowNo}: có nhiều hơn 1 đơn vị tên [${parentName}] trong công ty — không thể xác định đúng đơn vị cha, hãy đổi tên cho không trùng.`); pending.splice(idx, 1); continue; }
+                        parentId = parentCandidates[0].id;
+                    }
+
+                    const key = orgUnitKey(company.id, parentId, unitName);
+                    const existingUnit = unitByKey.get(key);
+                    if (!existingUnit) {
+                        let newId;
+                        if (dryRun) {
+                            newId = tempIdSeq--;
+                        } else {
+                            const [result] = await conn.query(
+                                'INSERT INTO lic_org_units (company_id, parent_id, name, level_label, sort_order) VALUES (?, ?, ?, ?, 0)',
+                                [company.id, parentId, unitName, level]
+                            );
+                            newId = result.insertId;
+                        }
+                        unitByKey.set(key, { id: newId, company_id: company.id, parent_id: parentId, name: unitName, level_label: level });
+                        unitsCreated++;
+                    } else if ((existingUnit.level_label || '') !== level) {
+                        duplicateLabels.push(`Đơn vị [${unitName}] trong công ty [${code}] (Cấp hiện có "${existingUnit.level_label || ''}" → file "${level}")`);
+                        if (duplicateAction === 'overwrite') {
+                            if (!dryRun) await conn.query('UPDATE lic_org_units SET level_label = ? WHERE id = ?', [level, existingUnit.id]);
+                            unitByKey.set(key, { ...existingUnit, level_label: level });
+                            unitsUpdated++;
+                        }
+                        // 'skip' hoặc chưa quyết định: giữ nguyên Cấp cũ, không đổi gì.
+                    }
+                    pending.splice(idx, 1);
+                    progress = true;
+                }
+            }
+            for (const { r, rowNo } of pending) {
+                errors.push(`Dòng ${rowNo}: không tìm thấy đơn vị cha [${r.don_vi_cha}] — kiểm tra lại tên hoặc thứ tự dòng.`);
+            }
+
+            return { errors, duplicateLabels, companiesCreated, unitsCreated, companiesUpdated, unitsUpdated };
         }
 
+        const dryResult = await runImport(true);
+        if (dryResult.duplicateLabels.length > 0 && !duplicateAction) {
+            await conn.rollback();
+            conn.release();
+            return res.json({ needsConfirmation: true, duplicateCount: dryResult.duplicateLabels.length, duplicateLabels: dryResult.duplicateLabels });
+        }
+
+        const result = await runImport(false);
         await conn.commit();
-        await writeAuditLog({ module: 'LICENSE', actionType: 'IMPORT_ORG_UNITS', status: errors.length ? 'PARTIAL' : 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: 'Tổ chức công ty', description: `Nhập CSV: ${companiesCreated} công ty mới, ${unitsCreated} đơn vị mới, ${errors.length} lỗi.` });
-        res.json({ success: true, companiesCreated, unitsCreated, errors });
+        await writeAuditLog({ module: 'LICENSE', actionType: 'IMPORT_ORG_UNITS', status: result.errors.length ? 'PARTIAL' : 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: 'Tổ chức công ty', description: `Nhập CSV: ${result.companiesCreated} công ty mới, ${result.companiesUpdated} công ty cập nhật, ${result.unitsCreated} đơn vị mới, ${result.unitsUpdated} đơn vị cập nhật, ${result.errors.length} lỗi.` });
+        res.json({ success: true, companiesCreated: result.companiesCreated, unitsCreated: result.unitsCreated, companiesUpdated: result.companiesUpdated, unitsUpdated: result.unitsUpdated, errors: result.errors });
     } catch (err) {
         if (conn) { try { await conn.rollback(); } catch (_) {} }
         console.error('❌ Lỗi nhập CSV tổ chức công ty:', err.message);
@@ -6339,10 +6393,17 @@ app.post('/api/license/employees/import', requireAuth, requireLicenseOrAdmin, as
     // Cùng lý do transaction như org-units/import ở trên — trước đây mỗi dòng
     // insert/update chạy ngoài transaction, lỗi giữa chừng để lại phần đã ghi
     // mà Admin không biết chính xác đã xử lý bao nhiêu dòng.
+    //
+    // Trước đây nhân viên trùng mã (theo công ty) LUÔN bị ghi đè âm thầm,
+    // không hỏi trước — nay tách thành 2 lượt gọi giống hệt cơ chế ở
+    // /api/it/items/import: lượt 1 (không kèm duplicateAction) chỉ đối chiếu,
+    // trả về needsConfirmation nếu có trùng để client hỏi người dùng; lượt 2
+    // (kèm duplicateAction) mới thật sự ghi.
     let conn;
     try {
         const rows = Array.isArray(req.body && req.body.rows) ? req.body.rows.slice(0, 2000) : [];
         if (rows.length === 0) return res.status(400).json({ error: 'File không có dữ liệu hợp lệ.' });
+        const duplicateAction = ['overwrite', 'skip'].includes(req.body && req.body.duplicateAction) ? req.body.duplicateAction : null;
 
         conn = await pool.getConnection();
         await conn.beginTransaction();
@@ -6370,7 +6431,14 @@ app.post('/api/license/employees/import', requireAuth, requireLicenseOrAdmin, as
         });
 
         const errors = [];
-        let created = 0, updated = 0;
+        const plannedCreates = []; // { unitId, companyId, fullName, title, employeeCode, email }
+        const plannedUpdates = []; // { id, unitId, fullName, title, email, employeeCode }
+        const duplicateLabels = [];
+        // Mã NV trùng NGAY TRONG file (không phải trùng với dữ liệu đã có) là
+        // lỗi dữ liệu đầu vào, không phải "trùng lặp cần hỏi ghi đè/bỏ qua" —
+        // báo lỗi rõ luôn, tương tự cách bulk-allocation-requests/:id/approve
+        // chặn trùng trong cùng 1 lượt duyệt.
+        const seenKeysInFile = new Map(); // key -> rowNo dòng đầu tiên gặp
 
         for (let i = 0; i < rows.length; i++) {
             const r = rows[i] || {};
@@ -6391,26 +6459,52 @@ app.post('/api/license/employees/import', requireAuth, requireLicenseOrAdmin, as
             const unit = candidateUnits[0];
 
             const employeeKey = `${company.id}::${employeeCode.toUpperCase()}`;
-            if (employeeCode && employeeByCompanyAndCode.has(employeeKey)) {
-                const existing = employeeByCompanyAndCode.get(employeeKey);
-                await conn.query(
-                    'UPDATE lic_employees SET org_unit_id = ?, full_name = ?, title = ?, email = ? WHERE id = ?',
-                    [unit.id, fullName, title || null, email || null, existing.id]
-                );
-                updated++;
+            if (employeeCode && seenKeysInFile.has(employeeKey)) {
+                errors.push(`Dòng ${rowNo}: mã nhân viên [${employeeCode}] bị trùng với dòng ${seenKeysInFile.get(employeeKey)} trong cùng file này — sửa lại file, mỗi mã chỉ nên xuất hiện 1 lần.`);
+                continue;
+            }
+            if (employeeCode) seenKeysInFile.set(employeeKey, rowNo);
+
+            const existing = employeeCode ? employeeByCompanyAndCode.get(employeeKey) : null;
+            if (existing) {
+                duplicateLabels.push(`${employeeCode} (${fullName})`);
+                if (duplicateAction === 'overwrite') {
+                    plannedUpdates.push({ id: existing.id, unitId: unit.id, fullName, title, email });
+                }
+                // duplicateAction === 'skip' hoặc chưa quyết định: không ghi gì cho dòng này ở đây.
             } else {
-                const [result] = await conn.query(
-                    'INSERT INTO lic_employees (org_unit_id, company_id, full_name, title, employee_code, email, active) VALUES (?, ?, ?, ?, ?, ?, TRUE)',
-                    [unit.id, company.id, fullName, title || null, employeeCode || null, email || null]
-                );
-                if (employeeCode) employeeByCompanyAndCode.set(employeeKey, { id: result.insertId, employee_code: employeeCode });
-                created++;
+                plannedCreates.push({ unitId: unit.id, companyId: company.id, fullName, title, employeeCode, email });
             }
         }
 
+        // Còn dòng trùng mà CLIENT CHƯA CHO BIẾT muốn xử lý thế nào — dừng lại,
+        // không ghi gì (kể cả các dòng KHÔNG trùng), để client hỏi người dùng
+        // trước khi ghi thật.
+        if (duplicateLabels.length > 0 && !duplicateAction) {
+            await conn.rollback();
+            conn.release();
+            return res.json({ needsConfirmation: true, duplicateCount: duplicateLabels.length, duplicateLabels });
+        }
+
+        for (const item of plannedCreates) {
+            await conn.query(
+                'INSERT INTO lic_employees (org_unit_id, company_id, full_name, title, employee_code, email, active) VALUES (?, ?, ?, ?, ?, ?, TRUE)',
+                [item.unitId, item.companyId, item.fullName, item.title || null, item.employeeCode || null, item.email || null]
+            );
+        }
+        for (const item of plannedUpdates) {
+            await conn.query(
+                'UPDATE lic_employees SET org_unit_id = ?, full_name = ?, title = ?, email = ? WHERE id = ?',
+                [item.unitId, item.fullName, item.title || null, item.email || null, item.id]
+            );
+        }
+        const created = plannedCreates.length;
+        const updated = plannedUpdates.length;
+        const skipped = duplicateAction === 'skip' ? duplicateLabels.length : 0;
+
         await conn.commit();
-        await writeAuditLog({ module: 'LICENSE', actionType: 'IMPORT_EMPLOYEES', status: errors.length ? 'PARTIAL' : 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: 'Danh sách nhân viên', description: `Nhập CSV: ${created} nhân viên mới, ${updated} cập nhật, ${errors.length} lỗi.` });
-        res.json({ success: true, created, updated, errors });
+        await writeAuditLog({ module: 'LICENSE', actionType: 'IMPORT_EMPLOYEES', status: errors.length ? 'PARTIAL' : 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: 'Danh sách nhân viên', description: `Nhập CSV: ${created} nhân viên mới, ${updated} cập nhật, ${skipped} bỏ qua (trùng), ${errors.length} lỗi.` });
+        res.json({ success: true, created, updated, skipped, errors });
     } catch (err) {
         if (conn) { try { await conn.rollback(); } catch (_) {} }
         console.error('❌ Lỗi nhập CSV nhân viên:', err.message);
@@ -6634,24 +6728,37 @@ app.post('/api/it/items/:id/restore', requireAuth, requireItAssetsOrAdmin, async
 // --- Nhập hàng loạt Đầu mục theo dõi từ file Excel (.xlsx) — client tự đọc
 // file bằng ExcelJS rồi gửi lên đúng mảng JSON đã parse (server không nhận
 // file thô), giống hệt cơ chế import Công ty/Nhân viên module License và
-// nhập Excel module Ngân sách. Luôn TẠO MỚI từng dòng — khác với nhân viên
-// License (có mã nhân viên làm khóa tự nhiên để cập nhật), 1 đầu mục CNTT
-// không có mã định danh ổn định nào để đối chiếu "đã tồn tại hay chưa" một
-// cách an toàn, nên nhập lại cùng 1 file nhiều lần sẽ tạo trùng — người dùng
-// tự kiểm tra trước khi nhập lại.
+// nhập Excel module Ngân sách.
+//
+// Đối chiếu trùng lặp theo (Danh mục + Tên đầu mục, không phân biệt hoa/
+// thường) — đây là 2 trường gần nhất với 1 "khóa tự nhiên" cho loại dữ liệu
+// này (không có mã như nhân viên License). Quy trình 2 lượt gọi API:
+//   Lượt 1 (không kèm duplicateAction): server chỉ ĐỐI CHIẾU, KHÔNG ghi gì —
+//     nếu phát hiện dòng trùng, trả về needsConfirmation + danh sách để
+//     client hỏi người dùng muốn "Ghi đè" hay "Bỏ qua" trước khi ghi thật.
+//   Lượt 2 (kèm duplicateAction='overwrite'|'skip'): ghi thật theo lựa chọn.
+// Dòng KHÔNG trùng luôn được tạo mới ở cả 2 trường hợp.
 app.post('/api/it/items/import', requireAuth, requireItAssetsOrAdmin, async (req, res) => {
     let conn;
     try {
         const rows = Array.isArray(req.body && req.body.rows) ? req.body.rows.slice(0, 2000) : [];
         if (rows.length === 0) return res.status(400).json({ error: 'File không có dữ liệu hợp lệ.' });
+        const duplicateAction = ['overwrite', 'skip'].includes(req.body && req.body.duplicateAction) ? req.body.duplicateAction : null;
 
         conn = await pool.getConnection();
         await conn.beginTransaction();
         const [categories] = await conn.query('SELECT id, name FROM it_categories');
         const categoryIdByName = new Map(categories.map(c => [c.name.trim().toLowerCase(), c.id]));
+        const [existingItems] = await conn.query('SELECT id, category_id, name FROM it_items WHERE deleted_at IS NULL');
+        const existingByKey = new Map(existingItems.map(it => [`${it.category_id}::${it.name.trim().toLowerCase()}`, it]));
 
         const errors = [];
-        let created = 0;
+        const plannedCreates = [];
+        const plannedUpdates = []; // { id, value }
+        const duplicateLabels = [];
+        // Trùng NGAY TRONG file (2 dòng cùng Danh mục + Tên) là lỗi dữ liệu đầu
+        // vào, không phải "trùng với dữ liệu đã có" cần hỏi ghi đè/bỏ qua.
+        const seenKeysInFile = new Map(); // key -> rowNo dòng đầu tiên gặp
         const nowIso = new Date().toISOString();
 
         for (let i = 0; i < rows.length; i++) {
@@ -6688,17 +6795,52 @@ app.post('/api/it/items/import', requireAuth, requireItAssetsOrAdmin, async (req
             });
             if (error) { errors.push(`Dòng ${rowNo}: ${error}`); continue; }
 
+            const key = `${value.categoryId}::${value.name.trim().toLowerCase()}`;
+            if (seenKeysInFile.has(key)) {
+                errors.push(`Dòng ${rowNo}: đầu mục [${value.name}] bị trùng với dòng ${seenKeysInFile.get(key)} trong cùng file này — sửa lại file, mỗi đầu mục chỉ nên xuất hiện 1 lần.`);
+                continue;
+            }
+            seenKeysInFile.set(key, rowNo);
+
+            const existing = existingByKey.get(key);
+            if (existing) {
+                duplicateLabels.push(value.name);
+                if (duplicateAction === 'overwrite') plannedUpdates.push({ id: existing.id, value });
+                // duplicateAction === 'skip' hoặc chưa quyết định: không ghi gì cho dòng này ở đây.
+            } else {
+                plannedCreates.push(value);
+            }
+        }
+
+        // Còn dòng trùng mà CLIENT CHƯA CHO BIẾT muốn xử lý thế nào — dừng lại,
+        // không ghi bất kỳ thứ gì (kể cả các dòng KHÔNG trùng), để tránh 1 lượt
+        // "nhập thử" (trước khi người dùng bấm xác nhận) đã âm thầm tạo dữ liệu.
+        if (duplicateLabels.length > 0 && !duplicateAction) {
+            await conn.rollback();
+            conn.release();
+            return res.json({ needsConfirmation: true, duplicateCount: duplicateLabels.length, duplicateLabels });
+        }
+
+        for (const value of plannedCreates) {
             await conn.query(
                 `INSERT INTO it_items (category_id, name, provider, description, start_date, expiry_date, cost, owner_email, active, created_by, created_at, updated_at)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?, ?, ?)`,
                 [value.categoryId, value.name, value.provider || null, value.description || null, value.startDate || null, value.expiryDate, value.cost === undefined ? null : value.cost, value.ownerEmail || null, req.user.username, nowIso, nowIso]
             );
-            created++;
         }
+        for (const { id, value } of plannedUpdates) {
+            await conn.query(
+                `UPDATE it_items SET provider = ?, description = ?, start_date = ?, expiry_date = ?, cost = ?, owner_email = ?, updated_at = ? WHERE id = ?`,
+                [value.provider || null, value.description || null, value.startDate || null, value.expiryDate, value.cost === undefined ? null : value.cost, value.ownerEmail || null, nowIso, id]
+            );
+        }
+        const created = plannedCreates.length;
+        const updated = plannedUpdates.length;
+        const skipped = duplicateAction === 'skip' ? duplicateLabels.length : 0;
 
         await conn.commit();
-        await writeAuditLog({ module: 'IT_ASSETS', actionType: 'IMPORT_IT_ITEMS', status: errors.length ? 'PARTIAL' : 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: 'Đầu mục theo dõi CNTT', description: `Nhập Excel: ${created} đầu mục mới, ${errors.length} lỗi.` });
-        res.json({ success: true, created, errors });
+        await writeAuditLog({ module: 'IT_ASSETS', actionType: 'IMPORT_IT_ITEMS', status: errors.length ? 'PARTIAL' : 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: 'Đầu mục theo dõi CNTT', description: `Nhập Excel: ${created} đầu mục mới, ${updated} cập nhật, ${skipped} bỏ qua (trùng), ${errors.length} lỗi.` });
+        res.json({ success: true, created, updated, skipped, errors });
     } catch (err) {
         if (conn) { try { await conn.rollback(); } catch (_) {} }
         console.error('❌ Lỗi nhập Excel đầu mục CNTT:', err.message);
@@ -7363,20 +7505,42 @@ app.post('/api/budget2/lines/approved-direct', requireAuth, requireBudgetOrAdmin
 // công ty (lic_companies.code) + TÊN đơn vị (lic_org_units.name, khớp trong
 // đúng công ty đó) — tự tra ra id, giống hệt cách import Nhân viên module
 // Bản quyền, để người dùng không phải biết ID nội bộ. ---
+// Đối chiếu trùng lặp cho nhập Excel Ngân sách theo (Công ty + Đơn vị + Nội
+// dung + Loại OPEX/CAPEX + Danh mục + Tháng/Năm ngân sách) — CHỈ đối chiếu
+// với các dòng đang ở trạng thái CHỜ DUYỆT (SUBMITTED) trong CÙNG giai đoạn;
+// dòng đã Duyệt/Từ chối coi như đã "chốt", import không bao giờ động vào để
+// khỏi âm thầm sửa số liệu tài chính đã quyết định.
+function budget2ImportDuplicateKey(companyId, orgUnitId, content, budgetType, itemCategory, budgetYear, budgetMonth) {
+    return `${companyId ?? ''}::${orgUnitId ?? ''}::${String(content || '').trim().toLowerCase()}::${budgetType}::${itemCategory}::${budgetYear}::${budgetMonth}`;
+}
 app.post('/api/budget2/import', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+    let conn;
     try {
         const stage = (req.body && req.body.stage === 'APPROVED') ? 'APPROVED' : ((req.body && req.body.stage === 'PROPOSED') ? 'PROPOSED' : null);
         if (!stage) return res.status(400).json({ error: 'Thiếu hoặc sai giai đoạn khi nhập file.' });
         const rows = Array.isArray(req.body && req.body.rows) ? req.body.rows.slice(0, 2000) : [];
         if (rows.length === 0) return res.status(400).json({ error: 'File không có dữ liệu hợp lệ.' });
+        const duplicateAction = ['overwrite', 'skip'].includes(req.body && req.body.duplicateAction) ? req.body.duplicateAction : null;
 
-        const [companies] = await pool.query('SELECT * FROM lic_companies');
+        conn = await pool.getConnection();
+        await conn.beginTransaction();
+        const [companies] = await conn.query('SELECT * FROM lic_companies');
         const companyByCode = new Map(companies.map(c => [c.code, c]));
-        const [units] = await pool.query('SELECT * FROM lic_org_units');
+        const [units] = await conn.query('SELECT * FROM lic_org_units');
         const categoryCatalog = await getBudget2CategoryCatalog();
+        const [existingLines] = await conn.query(
+            'SELECT id, company_id, org_unit_id, content, budget_type, item_category, budget_year, budget_month FROM budget2_lines WHERE stage = ? AND status = \'SUBMITTED\'',
+            [stage]
+        );
+        const existingByKey = new Map(existingLines.map(l => [
+            budget2ImportDuplicateKey(l.company_id, l.org_unit_id, l.content, l.budget_type, l.item_category, l.budget_year, l.budget_month), l
+        ]));
 
         const errors = [];
-        let created = 0;
+        const plannedCreates = [];
+        const plannedUpdates = []; // { id, v, totalAmount }
+        const duplicateLabels = [];
+        const seenKeysInFile = new Map(); // key -> rowNo dòng đầu tiên gặp
         const now = new Date().toISOString();
 
         for (let i = 0; i < rows.length; i++) {
@@ -7431,20 +7595,59 @@ app.post('/api/budget2/import', requireAuth, requireBudgetOrAdmin, async (req, r
             if (v.error) { errors.push(`Dòng ${rowNo}: ${v.error}`); continue; }
 
             const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
-            await pool.query(
+            const key = budget2ImportDuplicateKey(v.companyId, v.orgUnitId, v.content, v.budgetType, v.itemCategory, v.budgetYear, v.budgetMonth);
+            if (seenKeysInFile.has(key)) {
+                errors.push(`Dòng ${rowNo}: nội dung [${v.content}] bị trùng với dòng ${seenKeysInFile.get(key)} trong cùng file này (cùng Công ty/Đơn vị/Loại/Danh mục/Tháng-Năm) — gộp lại hoặc sửa cho khác nhau.`);
+                continue;
+            }
+            seenKeysInFile.set(key, rowNo);
+
+            const existing = existingByKey.get(key);
+            if (existing) {
+                duplicateLabels.push(v.content);
+                if (duplicateAction === 'overwrite') plannedUpdates.push({ id: existing.id, v, totalAmount });
+                // duplicateAction === 'skip' hoặc chưa quyết định: không ghi gì cho dòng này ở đây.
+            } else {
+                plannedCreates.push({ v, totalAmount });
+            }
+        }
+
+        // Còn dòng trùng mà CLIENT CHƯA CHO BIẾT muốn xử lý thế nào — dừng lại,
+        // không ghi gì (kể cả các dòng KHÔNG trùng), để client hỏi người dùng
+        // trước khi ghi thật.
+        if (duplicateLabels.length > 0 && !duplicateAction) {
+            await conn.rollback();
+            conn.release();
+            return res.json({ needsConfirmation: true, duplicateCount: duplicateLabels.length, duplicateLabels });
+        }
+
+        for (const { v, totalAmount } of plannedCreates) {
+            await conn.query(
                 `INSERT INTO budget2_lines
                     (stage, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, item_category, status, note, created_by, created_at, budget_year, budget_month)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', ?, ?, ?, ?, ?)`,
                 [stage, v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, req.user.username, now, v.budgetYear, v.budgetMonth]
             );
-            created++;
         }
+        for (const { id, v, totalAmount } of plannedUpdates) {
+            await conn.query(
+                `UPDATE budget2_lines SET description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, note = ? WHERE id = ?`,
+                [v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.note, id]
+            );
+        }
+        const created = plannedCreates.length;
+        const updated = plannedUpdates.length;
+        const skipped = duplicateAction === 'skip' ? duplicateLabels.length : 0;
 
-        await writeAuditLog({ module: 'BUDGET2', actionType: 'IMPORT_LINES', status: errors.length ? 'PARTIAL' : 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: stage === 'PROPOSED' ? 'Ngân sách đề xuất' : 'Ngân sách phê duyệt', description: `Nhập Excel ${stage === 'PROPOSED' ? 'Đề xuất' : 'Phê duyệt'}: ${created} dòng mới, ${errors.length} lỗi.` });
-        res.json({ success: true, created, errors });
+        await conn.commit();
+        await writeAuditLog({ module: 'BUDGET2', actionType: 'IMPORT_LINES', status: errors.length ? 'PARTIAL' : 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: stage === 'PROPOSED' ? 'Ngân sách đề xuất' : 'Ngân sách phê duyệt', description: `Nhập Excel ${stage === 'PROPOSED' ? 'Đề xuất' : 'Phê duyệt'}: ${created} dòng mới, ${updated} cập nhật, ${skipped} bỏ qua (trùng), ${errors.length} lỗi.` });
+        res.json({ success: true, created, updated, skipped, errors });
     } catch (err) {
+        if (conn) { try { await conn.rollback(); } catch (_) {} }
         console.error('❌ Lỗi nhập Excel ngân sách:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    } finally {
+        if (conn) conn.release();
     }
 });
 
@@ -7621,5 +7824,19 @@ if (isClusterMode && cluster.isPrimary) {
     app.listen(PORT, () => {
         const workerTag = cluster.isWorker ? ` (worker #${cluster.worker.id}, PID ${process.pid})` : ` (PID ${process.pid})`;
         console.log(`🚀 Máy chủ DMS Production đang chạy tại cổng http://localhost:${PORT}${workerTag}`);
+        // Ghi log 1 lần lúc khởi động để chẩn đoán nhanh lỗi WebAuthn
+        // "Unexpected registration/authentication response origin" — lỗi này
+        // luôn do expectedOrigin server tính ra KHÔNG khớp CHÍNH XÁC (từng ký
+        // tự) với origin trình duyệt thật sự gửi lên. Nếu 2 biến dưới đây in
+        // ra "(chưa cấu hình — tự suy ra từ Host header của mỗi request)",
+        // server đang dựa vào req.protocol/req.get('host') — dễ sai nếu chạy
+        // sau reverse proxy mà chưa TRUST_PROXY=true (req.protocol sẽ là
+        // "http" dù người dùng truy cập "https", vì hop nội bộ Nginx→Node
+        // luôn là HTTP thường). Đặt cứng 2 biến này trong .env rồi RESTART lại
+        // tiến trình (biến môi trường chỉ được đọc 1 LẦN lúc khởi động, sửa
+        // .env không có tác dụng cho tới khi khởi động lại) là cách khắc phục
+        // chắc chắn nhất, không phụ thuộc cấu hình proxy.
+        console.log(`   🔑 WebAuthn RP ID: ${process.env.WEBAUTHN_RP_ID || '(chưa cấu hình — tự suy ra từ Host header của mỗi request)'}`);
+        console.log(`   🔑 WebAuthn Origin: ${process.env.WEBAUTHN_ORIGIN || '(chưa cấu hình — tự suy ra từ protocol/Host header của mỗi request, dễ sai sau reverse proxy)'}`);
     });
 }
