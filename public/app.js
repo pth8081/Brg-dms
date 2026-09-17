@@ -685,6 +685,48 @@
       } catch (e) { showToast(e.message, 'danger'); }
     }
 
+    // --- Tab "Xác Thực 2 Lớp" trong Cá nhân hóa — chỉ hiện với tài khoản đã
+    // bật 2FA (Admin, bắt buộc từ lúc đăng nhập). TOTP dùng chung 1 bí mật cho
+    // mọi thiết bị nên "thêm thiết bị" chỉ là hiện lại QR hiện có để quét
+    // thêm, không sinh bí mật mới — xem chú thích server.js POST
+    // /api/profile/2fa/reveal.
+    async function reveal2faQrForNewDevice() {
+      const passwordInput = document.getElementById('pf2faRevealPassword');
+      const password = passwordInput.value;
+      if (!password) return showToast('Vui lòng nhập mật khẩu để xác nhận.', 'warning');
+      try {
+        const data = await apiFetch('/api/profile/2fa/reveal', { method: 'POST', body: JSON.stringify({ password }) });
+        document.getElementById('pf2faRevealQrImg').src = data.qrDataUrl;
+        document.getElementById('pf2faRevealSecretText').textContent = data.secret;
+        document.getElementById('pf2faRevealResult').classList.remove('hidden');
+        passwordInput.value = '';
+        showToast('Đã hiện mã QR — quét ngay trên thiết bị mới.', 'success');
+      } catch (e) {
+        showToast(e.message || 'Không xác nhận được mật khẩu.', 'danger');
+      }
+    }
+
+    async function disableOwnTotp() {
+      const passwordInput = document.getElementById('pf2faDisablePassword');
+      const password = passwordInput.value;
+      if (!password) return showToast('Vui lòng nhập mật khẩu để xác nhận.', 'warning');
+      const ok = await showConfirm({
+        title: 'Gỡ xác thực hai lớp',
+        message: 'Gỡ xác thực hai lớp (TOTP) của chính bạn? Bạn sẽ bị đăng xuất ngay và phải thiết lập lại từ đầu ở lần đăng nhập kế tiếp.',
+        danger: true,
+        confirmText: 'Gỡ'
+      });
+      if (!ok) return;
+      try {
+        await apiFetch('/api/profile/2fa/disable', { method: 'POST', body: JSON.stringify({ password }) });
+        showToast('Đã gỡ xác thực hai lớp — đang đăng xuất...', 'success');
+        closeProfileModal();
+        await logout();
+      } catch (e) {
+        showToast(e.message || 'Không gỡ được xác thực hai lớp.', 'danger');
+      }
+    }
+
     async function login(e) {
       if (e) e.preventDefault();
       const u = document.getElementById('txtUser').value.trim();
@@ -3305,6 +3347,10 @@
       document.getElementById('pfNewPass').value = '';
       document.getElementById('pfConfirmPass').value = '';
       document.getElementById('webauthnDeviceLabelInput').value = '';
+      document.getElementById('btnPfTabTotp').classList.toggle('hidden', !currentUser.totp_enabled);
+      document.getElementById('pf2faRevealPassword').value = '';
+      document.getElementById('pf2faDisablePassword').value = '';
+      document.getElementById('pf2faRevealResult').classList.add('hidden');
       switchProfileTab('info');
       document.getElementById('profileModal').classList.remove('hidden');
       loadWebauthnDeviceList();
@@ -3325,9 +3371,11 @@
       document.getElementById('pfTabInfo').classList.toggle('hidden', tab !== 'info');
       document.getElementById('pfTabPassword').classList.toggle('hidden', tab !== 'password');
       const isWebauthn = tab === 'webauthn';
-      document.getElementById('profileForm').classList.toggle('hidden', isWebauthn);
-      document.getElementById('pfFormFooter').classList.toggle('hidden', isWebauthn);
+      const isTotp = tab === 'totp';
+      document.getElementById('profileForm').classList.toggle('hidden', isWebauthn || isTotp);
+      document.getElementById('pfFormFooter').classList.toggle('hidden', isWebauthn || isTotp);
       document.getElementById('pfTabWebauthnPanel').classList.toggle('hidden', !isWebauthn);
+      document.getElementById('pfTabTotpPanel').classList.toggle('hidden', !isTotp);
       // Gợi ý sẵn tên thiết bị (trình duyệt + hệ điều hành) nhưng vẫn cho tự
       // gõ sửa lại trước khi đăng ký — chỉ điền lần đầu (ô còn trống), không
       // ghi đè nếu user đã tự gõ rồi chuyển qua lại giữa các tab.
@@ -3335,7 +3383,7 @@
         const labelInput = document.getElementById('webauthnDeviceLabelInput');
         if (labelInput && !labelInput.value.trim()) labelInput.value = guessWebauthnDeviceLabel();
       }
-      ['Info', 'Password', 'Webauthn'].forEach(key => {
+      ['Info', 'Password', 'Webauthn', 'Totp'].forEach(key => {
         document.getElementById('btnPfTab' + key).classList.toggle('active', tab === key.toLowerCase());
       });
     }

@@ -3406,6 +3406,7 @@
         <button type="button" id="btnPfTabInfo" data-evt-click="switchProfileTab" data-args='["info"]' class="nav-tab active text-xs px-3 py-2.5 font-semibold whitespace-nowrap">👤 Thông tin</button>
         <button type="button" id="btnPfTabPassword" data-evt-click="switchProfileTab" data-args='["password"]' class="nav-tab text-xs px-3 py-2.5 font-semibold whitespace-nowrap">🔒 Mật khẩu</button>
         <button type="button" id="btnPfTabWebauthn" data-evt-click="switchProfileTab" data-args='["webauthn"]' class="nav-tab text-xs px-3 py-2.5 font-semibold whitespace-nowrap">👆 Vân tay / Face ID</button>
+        <button type="button" id="btnPfTabTotp" data-evt-click="switchProfileTab" data-args='["totp"]' class="nav-tab text-xs px-3 py-2.5 font-semibold whitespace-nowrap hidden">🔐 Xác Thực 2 Lớp</button>
       </div>
 
       <form id="profileForm" data-evt-submit="savePersonalProfile" data-args='[{"__live__":"event"}]' class="p-4 space-y-3 text-xs overflow-y-auto flex-1">
@@ -3453,6 +3454,32 @@
           <input id="webauthnDeviceLabelInput" type="text" maxlength="255" placeholder="VD: Điện thoại của tôi" class="w-full border p-2 rounded text-sm">
         </div>
         <button type="button" data-evt-click="registerWebauthnDevice" data-args='[]' class="btn-secondary px-3 py-1.5 rounded text-xs font-bold">+ Đăng ký thiết bị này</button>
+      </div>
+
+      <div id="pfTabTotpPanel" class="hidden p-4 space-y-3 text-xs overflow-y-auto flex-1">
+        <p class="text-[11px] text-gray-600">Tài khoản Quản Trị Viên bắt buộc bật xác thực hai lớp (TOTP) — hiện đang <span class="font-bold text-green-700">✅ đã bật</span>.</p>
+
+        <div class="border rounded p-3 space-y-2 bg-gray-50">
+          <p class="font-bold text-gray-700">➕ Thêm Thiết Bị Authenticator Khác</p>
+          <p class="text-[11px] text-gray-500">Hiện lại đúng mã QR đang dùng để quét thêm trên điện thoại thứ 2 — không ảnh hưởng thiết bị hiện tại.</p>
+          <div class="flex gap-2">
+            <input id="pf2faRevealPassword" type="password" placeholder="Nhập mật khẩu để xác nhận" class="flex-1 border p-2 rounded text-sm">
+            <button type="button" data-evt-click="reveal2faQrForNewDevice" data-args='[]' class="btn-secondary px-3 py-1.5 rounded text-xs font-bold whitespace-nowrap">Hiện Mã QR</button>
+          </div>
+          <div id="pf2faRevealResult" class="hidden text-center space-y-2 pt-2 border-t">
+            <img id="pf2faRevealQrImg" class="mx-auto w-40 h-40" alt="Mã QR xác thực hai yếu tố">
+            <p class="text-[11px] text-gray-500 break-all">Không quét được QR? Nhập tay mã: <code id="pf2faRevealSecretText" class="font-mono font-bold text-gray-700"></code></p>
+          </div>
+        </div>
+
+        <div class="border rounded p-3 space-y-2">
+          <p class="text-[11px] text-gray-500">Đổi điện thoại hoặc cần thiết lập lại từ đầu? Gỡ bên dưới rồi đăng nhập lại — hệ thống sẽ tự đưa bạn tới màn thiết lập TOTP mới ngay lập tức.</p>
+          <label class="block font-semibold text-gray-600 mb-1">Nhập mật khẩu để xác nhận gỡ</label>
+          <input id="pf2faDisablePassword" type="password" class="w-full border p-2 rounded text-sm">
+          <div class="text-right">
+            <button type="button" data-evt-click="disableOwnTotp" data-args='[]' class="bg-red-600 text-white px-4 py-2 rounded font-bold hover:bg-red-700 text-xs">🗑️ Gỡ Xác Thực 2 Lớp</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>

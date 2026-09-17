@@ -1625,7 +1625,11 @@ app.post('/api/profile', requireAuth, async (req, res) => {
             }
             const currentOk = await bcrypt.compare(String(currentPassword), req.user.pass);
             if (!currentOk) {
-                return res.status(401).json({ error: 'Mật khẩu hiện tại không chính xác.' });
+                // (chú thích) 400 chứ không phải 401 — apiFetch ở client coi MỌI
+                // 401 là "phiên hết hạn" và tự đưa thẳng về màn đăng nhập
+                // (showLoginScreen()), trong khi đây chỉ là gõ sai mật khẩu xác
+                // nhận, phiên đăng nhập hiện tại vẫn còn nguyên hiệu lực.
+                return res.status(400).json({ error: 'Mật khẩu hiện tại không chính xác.' });
             }
             passHash = await bcrypt.hash(newPassword, 12);
             bumpTokenVersion = true;
@@ -1658,6 +1662,68 @@ app.post('/api/profile', requireAuth, async (req, res) => {
         res.json({ user: sanitizeUser({ ...updated, perms }) });
     } catch (err) {
         console.error('❌ Lỗi cập nhật hồ sơ:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Tự đăng ký thêm thiết bị Authenticator (hiện lại QR/khóa bí mật hiện
+// có) — KHÔNG sinh bí mật mới: TOTP dùng chung 1 bí mật cho mọi thiết bị,
+// quét cùng 1 mã QR trên nhiều điện thoại thì cả 2 đều sinh đúng mã 6 số như
+// nhau, nên chỉ cần hiện lại để quét thêm, không ảnh hưởng thiết bị đang
+// dùng. Bắt buộc nhập lại mật khẩu hiện tại trước khi hiện bí mật — cùng mức
+// bảo vệ với đổi mật khẩu (POST /api/profile) — vì phiên đăng nhập đang có
+// sẵn đã tự chứng minh qua đủ 2 lớp lúc đăng nhập (2FA bắt buộc với Admin),
+// nên không cần bắt nhập lại mã TOTP ở đây.
+app.post('/api/profile/2fa/reveal', requireAuth, async (req, res) => {
+    try {
+        if (!req.user.totp_enabled || !req.user.totp_secret) {
+            return res.status(400).json({ error: 'Tài khoản chưa bật xác thực hai yếu tố.' });
+        }
+        const password = String((req.body && req.body.password) || '');
+        if (!password) return res.status(400).json({ error: 'Vui lòng nhập mật khẩu để xác nhận.' });
+        const ok = await bcrypt.compare(password, req.user.pass);
+        if (!ok) return res.status(400).json({ error: 'Mật khẩu không chính xác.' });
+
+        const otpauthUrl = authenticator.keyuri(req.user.username, TOTP_ISSUER, req.user.totp_secret);
+        const qrDataUrl = await QRCode.toDataURL(otpauthUrl);
+        await writeAuditLog({
+            module: 'AUTH', actionType: 'SELF_2FA_REVEAL_QR', status: 'SUCCESS',
+            username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: req.user.username,
+            description: 'Tự xem lại mã QR xác thực hai yếu tố để đăng ký thêm thiết bị Authenticator.'
+        });
+        res.json({ qrDataUrl, secret: req.user.totp_secret });
+    } catch (err) {
+        console.error('❌ Lỗi hiện lại mã QR 2FA:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Tự gỡ xác thực hai yếu tố của chính mình (VD: mất điện thoại, cần thiết
+// lập lại từ đầu) — khác với /api/users/:id/2fa/reset (chỉ Admin KHÁC gỡ hộ
+// được, xem chú thích ở route đó), route này cho tự phục vụ nhưng bắt buộc
+// nhập đúng mật khẩu hiện tại (cùng mức bảo vệ với đổi mật khẩu) + tăng
+// token_version để đăng xuất phiên hiện tại ngay lập tức. Do 2FA vẫn bắt buộc
+// với Admin, lần đăng nhập kế tiếp sẽ tự đưa thẳng vào màn thiết lập TOTP
+// mới — không tạo khoảng trống bảo mật nào, chỉ đỡ phải nhờ Admin khác hỗ trợ.
+app.post('/api/profile/2fa/disable', requireAuth, async (req, res) => {
+    try {
+        if (!req.user.totp_enabled) {
+            return res.status(400).json({ error: 'Tài khoản chưa bật xác thực hai yếu tố.' });
+        }
+        const password = String((req.body && req.body.password) || '');
+        if (!password) return res.status(400).json({ error: 'Vui lòng nhập mật khẩu để xác nhận.' });
+        const ok = await bcrypt.compare(password, req.user.pass);
+        if (!ok) return res.status(400).json({ error: 'Mật khẩu không chính xác.' });
+
+        await pool.query('UPDATE users SET totp_secret = NULL, totp_enabled = 0, totp_enrolled_at = NULL, totp_last_used_step = NULL, failed_2fa_count = 0, totp_locked_until = NULL, token_version = token_version + 1 WHERE id = ?', [req.user.id]);
+        await writeAuditLog({
+            module: 'USER_MGM', actionType: 'SELF_2FA_DISABLE', status: 'SUCCESS',
+            username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: req.user.username,
+            description: 'Tự gỡ xác thực hai yếu tố của chính mình — sẽ phải thiết lập lại ở lần đăng nhập kế tiếp.'
+        });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi tự gỡ 2FA:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
