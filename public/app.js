@@ -8068,16 +8068,20 @@ function isPerpetualSoftware(softwareId) {
         <th class="border p-2 text-center w-32">Thao tác</th>
       </tr></thead>`;
       const rowsHtmlFn = (pageRows, startIdx) => pageRows.map((l, i) => {
+        // (Khóa sửa khi đang chờ duyệt) Đề xuất mới gửi (SUBMITTED) chỉ Admin
+        // sửa/bổ sung được, trừ khi người phê duyệt đã "Yêu cầu bổ sung"
+        // (editRequested) — mở khóa đúng 1 lần cho người tạo. Xem chú thích
+        // đầy đủ ở PUT /api/budget2/lines/:id (server.js).
+        const canEditNow = isAdmin || (l.status === 'SUBMITTED' && l.editRequested);
         // Gọn lại: chỉ giữ Duyệt/Từ chối (tần suất cao nhất) hiện thẳng trên
         // dòng; Sửa/Bổ sung/Xóa gộp vào menu "⋮" — dùng chung cơ chế đã có
         // sẵn cho bảng Tài liệu (renderRowActionsMenu/toggleRowMenu).
         const menuItems = [
-          `<button ${dc('editBudget2LineFromMenu', 'PROPOSED', l.id)} class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">✏️ Sửa</button>`,
-          `<button ${dc('supplementBudget2LineFromMenu', 'PROPOSED', l.id)} class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">📝 Bổ sung</button>`,
-          // Chờ duyệt: Người quản lý Ngân sách sửa/bổ sung được, nhưng chỉ
-          // Admin mới thấy nút Xóa (server cũng chặn xóa với người không
-          // phải Admin) — đã duyệt/từ chối thì chỉ Admin còn được sửa/bổ
-          // sung/xóa lại (VD lỡ nhập sai).
+          canEditNow ? `<button ${dc('editBudget2LineFromMenu', 'PROPOSED', l.id)} class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">✏️ Sửa</button>` : '',
+          canEditNow ? `<button ${dc('supplementBudget2LineFromMenu', 'PROPOSED', l.id)} class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">📝 Bổ sung</button>` : '',
+          // Chờ duyệt: chỉ Admin mới thấy nút Xóa (server cũng chặn xóa với
+          // người không phải Admin) — đã duyệt/từ chối thì chỉ Admin còn
+          // được sửa/bổ sung/xóa lại (VD lỡ nhập sai).
           isAdmin ? `<button ${dc('deleteBudget2LineFromMenu', l.id)} class="block w-full text-left px-3 py-2 text-xs text-danger-700 hover:bg-danger-50">🗑️ Xóa</button>` : ''
         ];
         const decidedNote = `<span class="text-gray-400 italic text-[11px] block">Đã xử lý${l.decidedBy ? ' bởi ' + escapeHtml(l.decidedBy) : ''}</span>`;
@@ -8087,6 +8091,7 @@ function isPerpetualSoftware(softwareId) {
           actions = `<div class="inline-flex items-center gap-1">
             <button ${dc('approveBudget2Proposal', l.id)} class="text-xs bg-emerald-600 text-white px-2 h-7 rounded font-semibold shadow-sm hover:bg-emerald-700 whitespace-nowrap" title="Duyệt">✓ Duyệt</button>
             <button ${dc('rejectBudget2Proposal', l.id)} class="text-xs bg-danger-600 text-white px-2 h-7 rounded font-semibold shadow-sm hover:bg-danger-700 whitespace-nowrap" title="Từ chối">✕ Từ chối</button>
+            <button ${dc('requestBudget2ProposalSupplement', l.id)} class="text-xs bg-amber-500 text-white px-2 h-7 rounded font-semibold shadow-sm hover:bg-amber-600 whitespace-nowrap" title="Yêu cầu người tạo bổ sung/sửa lại">📋 Y/c bổ sung</button>
             ${renderRowActionsMenu(menuId, menuItems)}
           </div>`;
         } else if (isAdmin) {
@@ -8140,6 +8145,29 @@ function isPerpetualSoftware(softwareId) {
         showToast('Đã từ chối đề xuất.', 'success');
       } catch (err) { showToast(err.message, 'danger'); }
     }
+    // Người phê duyệt yêu cầu người tạo bổ sung/sửa lại — mở khóa PUT
+    // /api/budget2/lines/:id đúng 1 lần (server tự khóa lại ngay sau khi họ
+    // sửa xong). Trước đây người tạo sửa tự do 1 đề xuất đang chờ duyệt bất
+    // cứ lúc nào, kể cả sau khi người phê duyệt đã bắt đầu xem xét — nay phải
+    // có yêu cầu bổ sung rõ ràng từ người phê duyệt mới sửa được.
+    async function requestBudget2ProposalSupplement(id) {
+      const line = budget2DB.lines.find(l => l.id === id);
+      if (!line) return;
+      const reason = await showPrompt({
+        title: 'Yêu cầu bổ sung thông tin',
+        message: `Nhập nội dung cần người tạo đề xuất [${line.content}] bổ sung/sửa lại. Đề xuất sẽ được mở khóa sửa đúng 1 lần cho tới khi họ lưu lại.`,
+        placeholder: 'VD: Bổ sung báo giá của nhà cung cấp...',
+        required: true
+      });
+      if (reason === null) return;
+      try {
+        await apiFetch(`/api/budget2/lines/${id}/request-supplement-proposal`, { method: 'POST', body: JSON.stringify({ reason: reason.trim() }) });
+        budget2DB.loaded = false;
+        await loadBudget2BootstrapData();
+        renderBudget2ProposedTable();
+        showToast('Đã gửi yêu cầu bổ sung — đề xuất đã được mở khóa sửa cho người tạo.', 'success');
+      } catch (err) { showToast(err.message, 'danger'); }
+    }
     async function approveBudget2Line(id) {
       if (!confirm('Duyệt dòng ngân sách này? Hệ thống sẽ tự động sinh dòng Sử dụng tương ứng.')) return;
       try {
@@ -8159,6 +8187,26 @@ function isPerpetualSoftware(softwareId) {
         await loadBudget2BootstrapData();
         renderBudget2ApprovedTable();
         showToast('Đã từ chối.', 'success');
+      } catch (err) { showToast(err.message, 'danger'); }
+    }
+    // Xem chú thích requestBudget2ProposalSupplement() ở trên — logic giống
+    // hệt, áp dụng cho dòng ngân sách Phê duyệt thay vì Đề xuất.
+    async function requestBudget2LineSupplement(id) {
+      const line = budget2DB.lines.find(l => l.id === id);
+      if (!line) return;
+      const reason = await showPrompt({
+        title: 'Yêu cầu bổ sung thông tin',
+        message: `Nhập nội dung cần người tạo dòng ngân sách [${line.content}] bổ sung/sửa lại. Dòng sẽ được mở khóa sửa đúng 1 lần cho tới khi họ lưu lại.`,
+        placeholder: 'VD: Bổ sung báo giá của nhà cung cấp...',
+        required: true
+      });
+      if (reason === null) return;
+      try {
+        await apiFetch(`/api/budget2/lines/${id}/request-supplement`, { method: 'POST', body: JSON.stringify({ reason: reason.trim() }) });
+        budget2DB.loaded = false;
+        await loadBudget2BootstrapData();
+        renderBudget2ApprovedTable();
+        showToast('Đã gửi yêu cầu bổ sung — dòng đã được mở khóa sửa cho người tạo.', 'success');
       } catch (err) { showToast(err.message, 'danger'); }
     }
     async function deleteBudget2Line(id) {
@@ -8349,24 +8397,27 @@ function isPerpetualSoftware(softwareId) {
         <th class="border p-2 text-center">Trạng thái</th><th class="border p-2 text-center w-24">Thao tác</th>
       </tr></thead>`;
       const rowsHtmlFn = (pageRows, startIdx) => pageRows.map((l, i) => {
+        // (Khóa sửa khi đang chờ duyệt) Xem chú thích tương ứng ở
+        // renderBudget2ProposedTable() — logic giống hệt.
+        const canEditNow = isAdmin || (l.status === 'SUBMITTED' && l.editRequested);
         // Gọn lại: chỉ giữ Duyệt/Từ chối hiện thẳng trên dòng; Sửa/Bổ sung/
         // Xóa gộp vào menu "⋮" (renderRowActionsMenu, dùng chung cơ chế đã
         // có sẵn cho bảng Tài liệu).
         const menuItems = [
-          `<button ${dc('editBudget2LineFromMenu', 'APPROVED', l.id)} class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">✏️ Sửa</button>`,
-          `<button ${dc('supplementBudget2LineFromMenu', 'APPROVED', l.id)} class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">📝 Bổ sung</button>`,
+          canEditNow ? `<button ${dc('editBudget2LineFromMenu', 'APPROVED', l.id)} class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">✏️ Sửa</button>` : '',
+          canEditNow ? `<button ${dc('supplementBudget2LineFromMenu', 'APPROVED', l.id)} class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">📝 Bổ sung</button>` : '',
           isAdmin ? `<button ${dc('deleteBudget2LineFromMenu', l.id)} class="block w-full text-left px-3 py-2 text-xs text-danger-700 hover:bg-danger-50">🗑️ Xóa</button>` : ''
         ];
         const decidedNote = `<span class="text-gray-400 italic text-[11px] block">${escapeHtml(l.decidedBy || '')}</span>`;
         const menuId = `rowMenu_approved_${l.id}`;
         let actions;
         if (l.status === 'SUBMITTED') {
-          // Chờ duyệt: Người quản lý Ngân sách sửa/bổ sung được, nhưng chỉ
-          // Admin mới thấy nút Xóa (server cũng chặn xóa với người không
-          // phải Admin).
+          // Chờ duyệt: chỉ Admin mới thấy nút Xóa (server cũng chặn xóa với
+          // người không phải Admin).
           actions = `<div class="inline-flex items-center gap-1">
             <button ${dc('approveBudget2Line', l.id)} class="text-xs bg-success-600 text-white w-7 h-7 rounded font-semibold shadow-sm hover:bg-success-700" title="Duyệt">✔️</button>
             <button ${dc('rejectBudget2Line', l.id)} class="text-xs bg-danger-600 text-white w-7 h-7 rounded font-semibold shadow-sm hover:bg-danger-700" title="Từ chối">✖️</button>
+            <button ${dc('requestBudget2LineSupplement', l.id)} class="text-xs bg-amber-500 text-white w-7 h-7 rounded font-semibold shadow-sm hover:bg-amber-600" title="Yêu cầu người tạo bổ sung/sửa lại">📋</button>
             ${renderRowActionsMenu(menuId, menuItems)}
           </div>`;
         } else if (isAdmin) {
