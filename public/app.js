@@ -7225,6 +7225,41 @@ function isPerpetualSoftware(softwareId) {
       }
     }
 
+    // File mẫu / nhập-xuất Excel — cùng cơ chế downloadXlsxFile/readXlsxRows
+    // dùng cho Tổ chức công ty/Nhân viên module License (xem chú thích ở đó).
+    // "Danh mục" trong file là TÊN (không phải ID) — phải khớp đúng tên 1
+    // Danh mục đã có trong Hệ thống > Quản lý CNTT trước khi nhập.
+    const IT_ITEM_XLSX_HEADER_KEYS = ['ten_dau_muc', 'danh_muc', 'nha_cung_cap', 'ngay_bat_dau', 'ngay_het_han', 'chi_phi', 'nguoi_phu_trach_email', 'mo_ta'];
+    function downloadItItemTemplate() {
+      const sampleCategory = itAssetsDB.categories.find(c => c.active) || itAssetsDB.categories[0];
+      downloadXlsxFile('mau_dau_muc_cntt.xlsx', IT_ITEM_XLSX_HEADER_KEYS, [
+        ['Bản quyền Firewall FortiGate', sampleCategory ? sampleCategory.name : 'Phần mềm hệ thống', 'Công ty ABC', '2026-01-01', '2027-01-01', '15000000', 'nguoivanhanh@congty.vn', 'Gia hạn hàng năm'],
+      ]);
+    }
+    function exportItItemsXlsx() {
+      const rows = itAssetsDB.items.map(i => {
+        const cat = itAssetsDB.categories.find(c => c.id === i.categoryId);
+        return [i.name, cat ? cat.name : '', i.provider || '', i.startDate || '', i.expiryDate, i.cost === null ? '' : i.cost, i.ownerEmail || '', i.description || ''];
+      });
+      downloadXlsxFile(`dau_muc_cntt_export_${Date.now()}.xlsx`, IT_ITEM_XLSX_HEADER_KEYS, rows);
+    }
+    async function importItItemsXlsx(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const rows = await readXlsxRows(file, IT_ITEM_XLSX_HEADER_KEYS);
+        const result = await apiFetch('/api/it/items/import', { method: 'POST', body: JSON.stringify({ rows }) });
+        showToast(`Đã nhập ${result.created} đầu mục mới.`, 'success');
+        reportImportErrors(result.errors);
+        itAssetsDB.loaded = false;
+        await loadItAssetsBootstrapData();
+        renderItItemsTable();
+      } catch (err) {
+        showToast(err.message || 'Không thể nhập file Excel.', 'danger');
+      }
+      e.target.value = '';
+    }
+
     // --- Danh mục ---
     function renderItCategoriesTable() {
       const tbody = document.getElementById('itCategoriesTableBody');
