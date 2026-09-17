@@ -36,6 +36,18 @@ process.on('uncaughtException', (err) => {
 const cluster = require('cluster');
 const WEB_CONCURRENCY = parseInt(process.env.WEB_CONCURRENCY, 10) || 1;
 const isClusterMode = WEB_CONCURRENCY > 1;
+// (F11) Chạy nhiều tiến trình (Node cluster qua WEB_CONCURRENCY, HOẶC PM2
+// cluster mode — luôn set NODE_APP_INSTANCE cho mọi instance nó sinh ra, xem
+// isScheduledJobOwner bên dưới) mà chưa cấu hình JWT_SECRET khiến MỖI tiến
+// trình tự sinh 1 secret ngẫu nhiên KHÁC NHAU (xem giải thích đầy đủ ở chỗ
+// JWT_SECRET được sinh phía dưới) — dừng khởi động NGAY TỪ ĐÂY, TRƯỚC KHI
+// fork() bất kỳ worker nào, để tránh vòng lặp crash-respawn vô hạn nếu kiểm
+// tra này chỉ đặt ở mỗi worker riêng lẻ (worker exit sẽ bị cluster.on('exit')
+// bên dưới tự động fork lại ngay).
+if ((isClusterMode || process.env.NODE_APP_INSTANCE !== undefined) && !process.env.JWT_SECRET) {
+    console.error('❌ Chạy nhiều tiến trình (cluster) nhưng chưa cấu hình JWT_SECRET — mỗi tiến trình sẽ tự sinh 1 secret khác nhau, gây văng đăng nhập ngẫu nhiên giữa các tiến trình. Vui lòng đặt JWT_SECRET cố định trong .env trước khi chạy cluster mode.');
+    process.exit(1);
+}
 if (isClusterMode && cluster.isPrimary) {
     console.log(`🧵 Tiến trình chính (PID ${process.pid}) đang khởi động ${WEB_CONCURRENCY} worker...`);
     for (let i = 0; i < WEB_CONCURRENCY; i++) cluster.fork();
@@ -109,6 +121,12 @@ fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 // Dung lượng file PDF tối đa cho phép upload, cấu hình qua .env (MB).
 const MAX_PDF_SIZE_MB = parseInt(process.env.MAX_PDF_SIZE_MB, 10) || 20;
 const MAX_PDF_SIZE_BYTES = MAX_PDF_SIZE_MB * 1024 * 1024;
+
+// (F17) Ngưỡng dung lượng trống tối thiểu còn lại trên ổ đĩa chứa UPLOAD_DIR,
+// cấu hình qua .env (MB). Trước đây không có kiểm tra nào — 1 tài khoản chỉ
+// cần quyền upload 1 phòng ban vẫn có thể tải file liên tục làm đầy ổ đĩa
+// server. Chặn SỚM (trước khi ghi file) nếu dung lượng trống sắp không đủ.
+const MIN_FREE_DISK_MB = parseInt(process.env.MIN_FREE_DISK_MB, 10) || 500;
 
 if (process.env.TRUST_PROXY === 'true') {
     app.set('trust proxy', 1);
@@ -220,11 +238,21 @@ async function initPool() {
 initPool();
 
 // --- JWT ---
+// (F11) Trường hợp chạy nhiều tiến trình mà chưa cấu hình JWT_SECRET đã bị
+// chặn dừng khởi động ngay từ đầu file (xem kiểm tra TRƯỚC vòng lặp
+// cluster.fork() ở trên) — tới được đây nghĩa là chỉ có ĐÚNG 1 tiến trình,
+// nên tự sinh secret ngẫu nhiên tạm thời vẫn an toàn (nhất quán trong chính
+// tiến trình đó), chỉ mất hiệu lực khi khởi động lại như cảnh báo bên dưới.
 let JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
     JWT_SECRET = crypto.randomBytes(48).toString('hex');
     console.warn('⚠️  Chưa cấu hình JWT_SECRET trong biến môi trường — đã sinh secret ngẫu nhiên tạm thời.');
     console.warn('⚠️  Phiên đăng nhập sẽ mất hiệu lực mỗi khi khởi động lại server. Vui lòng đặt JWT_SECRET cố định trong .env cho môi trường production.');
+} else if (JWT_SECRET.length < 32) {
+    // Secret có cấu hình nhưng quá ngắn/yếu (VD "changeme") trước đây được chấp
+    // nhận âm thầm không cảnh báo gì — chỉ cảnh báo (không chặn khởi động, vì
+    // đây có thể là secret cũ đang chạy thật) để Admin biết mà đổi.
+    console.warn('⚠️  JWT_SECRET đang cấu hình quá ngắn (dưới 32 ký tự) — nên đổi sang 1 chuỗi ngẫu nhiên dài hơn để an toàn hơn.');
 }
 const TOKEN_COOKIE = 'dms_token';
 const TOKEN_TTL = '8h';
@@ -272,7 +300,7 @@ function clearMfaCookie(res) {
 
 function sanitizeUser(u) {
     if (!u) return u;
-    const { pass, failed_login_count, locked_until, token_version, totp_secret, ...rest } = u;
+    const { pass, failed_login_count, locked_until, token_version, totp_secret, totp_last_used_step, failed_2fa_count, totp_locked_until, ...rest } = u;
     return rest;
 }
 
@@ -380,6 +408,15 @@ function requireAdmin(req, res, next) {
     if (!req.user || !req.user.perms || !req.user.perms.admin) {
         return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên.' });
     }
+    // Quyền Admin bắt buộc phải có 2FA. Quyền admin được tính lại "sống" từ CSDL
+    // ở mỗi request (để đổi quyền/nhóm quyền có hiệu lực ngay không cần đăng nhập
+    // lại) — nhưng điều đó cũng có nghĩa 1 phiên đang mở của user KHÔNG-admin có
+    // thể đột ngột trở thành admin giữa chừng (do được cấp quyền hoặc đổi nhóm
+    // quyền) mà chưa từng làm 2FA. Chặn ở đây để buộc phiên đó đăng nhập lại và
+    // đi qua luồng bắt buộc thiết lập 2FA trước khi được dùng quyền Admin.
+    if (!req.user.totp_enabled) {
+        return res.status(401).json({ error: 'Tài khoản Admin bắt buộc xác thực hai yếu tố. Vui lòng đăng nhập lại để thiết lập 2FA.' });
+    }
     next();
 }
 
@@ -412,6 +449,10 @@ const loginLimiter = rateLimit({
 // kiểu tấn công dò 1 tài khoản cụ thể phân tán qua nhiều IP khác nhau.
 const MAX_FAILED_LOGIN_ATTEMPTS = 10;
 const ACCOUNT_LOCKOUT_MINUTES = 15;
+// (F6) Khóa tạm riêng cho bước xác thực mã 2FA — ngưỡng thấp hơn mật khẩu vì
+// không gian mã 2FA nhỏ hơn nhiều (6 chữ số) nên phải chặn dò sớm hơn.
+const MAX_FAILED_2FA_ATTEMPTS = 5;
+const TOTP_LOCKOUT_MINUTES = 15;
 // (L3 - whole-app) Hash bcrypt "giả" cố định, không ứng với mật khẩu thật nào
 // — chỉ dùng để so sánh mất thời gian tương đương bcrypt.compare() thật khi
 // username không tồn tại, chống dò username qua đo thời gian phản hồi.
@@ -1224,12 +1265,38 @@ app.post('/api/auth/2fa/verify', loginLimiter, async (req, res) => {
             return res.status(401).json({ error: 'Không thể xác thực, vui lòng đăng nhập lại.' });
         }
 
-        const ok = authenticator.verify({ token: code, secret: user.totp_secret });
-        if (!ok) {
-            await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_MFA_FAILED', status: 'FAILED', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: 'Xác thực hai yếu tố thất bại: mã không đúng hoặc đã hết hạn.' });
+        // (F6) Khóa tạm riêng theo tài khoản cho bước 2FA — độc lập với
+        // loginLimiter (chỉ đếm theo IP, dùng chung cho cả bước mật khẩu), để
+        // chặn kẻ đã biết mật khẩu dò mã 6 số bằng nhiều IP xoay vòng.
+        if (user.totp_locked_until && new Date(user.totp_locked_until).getTime() > Date.now()) {
+            const minutesLeft = Math.ceil((new Date(user.totp_locked_until).getTime() - Date.now()) / 60000);
+            await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_MFA_FAILED', status: 'FAILED', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: `Xác thực hai yếu tố thất bại: tài khoản đang bị khóa tạm do nhập sai mã nhiều lần (còn ${minutesLeft} phút).` });
+            return res.status(429).json({ error: `Nhập sai mã xác thực quá nhiều lần. Vui lòng thử lại sau ${minutesLeft} phút.` });
+        }
+
+        // (F5) checkDelta trả về số bước lệch (-1/0/1 với window:1) so với bước
+        // thời gian hiện tại nếu mã hợp lệ, null nếu không — dùng để tính ra
+        // đúng bước thời gian TUYỆT ĐỐI mà mã này thuộc về, rồi chặn dùng lại
+        // (replay) cùng 1 mã cho các lần xác thực sau trong cùng cửa sổ ~90s.
+        const delta = authenticator.checkDelta(code, user.totp_secret);
+        const currentStep = Math.floor(Date.now() / 1000 / 30);
+        const usedStep = delta === null ? null : currentStep + delta;
+        const isReplay = usedStep !== null && user.totp_last_used_step != null && usedStep <= user.totp_last_used_step;
+
+        if (delta === null || isReplay) {
+            const failedCount = (user.failed_2fa_count || 0) + 1;
+            if (failedCount >= MAX_FAILED_2FA_ATTEMPTS) {
+                const lockedUntil = new Date(Date.now() + TOTP_LOCKOUT_MINUTES * 60000).toISOString();
+                await pool.query('UPDATE users SET failed_2fa_count = 0, totp_locked_until = ? WHERE id = ?', [lockedUntil, user.id]);
+                await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_MFA_FAILED', status: 'FAILED', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: `Xác thực hai yếu tố thất bại ${failedCount} lần liên tiếp — tài khoản bị khóa tạm ${TOTP_LOCKOUT_MINUTES} phút.` });
+                return res.status(429).json({ error: `Nhập sai mã xác thực quá nhiều lần. Tài khoản tạm khóa ${TOTP_LOCKOUT_MINUTES} phút.` });
+            }
+            await pool.query('UPDATE users SET failed_2fa_count = ? WHERE id = ?', [failedCount, user.id]);
+            await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_MFA_FAILED', status: 'FAILED', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: isReplay ? 'Xác thực hai yếu tố thất bại: mã đã được dùng trước đó (chặn dùng lại).' : 'Xác thực hai yếu tố thất bại: mã không đúng hoặc đã hết hạn.' });
             return res.status(400).json({ error: 'Mã xác thực không đúng hoặc đã hết hạn — hãy dùng mã hiện tại trên ứng dụng Authenticator.' });
         }
 
+        await pool.query('UPDATE users SET totp_last_used_step = ?, failed_2fa_count = 0, totp_locked_until = NULL WHERE id = ?', [usedStep, user.id]);
         clearMfaCookie(res);
         const token = signToken(user);
         setAuthCookie(res, token);
@@ -1270,13 +1337,19 @@ app.post('/api/auth/2fa/setup/verify', loginLimiter, async (req, res) => {
             return res.status(401).json({ error: 'Không thể xác thực, vui lòng đăng nhập lại.' });
         }
 
-        const ok = authenticator.verify({ token: code, secret: payload.secret });
-        if (!ok) {
+        // (F5) Áp dụng cùng cơ chế chặn dùng lại mã như bước xác thực đăng nhập —
+        // trong 5 phút hiệu lực của token thiết lập, cùng 1 mã lẽ ra không nên
+        // được chấp nhận 2 lần (VD do người dùng bấm gửi 2 lần vì mạng chậm).
+        const delta = authenticator.checkDelta(code, payload.secret);
+        const currentStep = Math.floor(Date.now() / 1000 / 30);
+        const usedStep = delta === null ? null : currentStep + delta;
+        const isReplay = usedStep !== null && user.totp_last_used_step != null && usedStep <= user.totp_last_used_step;
+        if (delta === null || isReplay) {
             return res.status(400).json({ error: 'Mã xác thực không đúng — hãy đảm bảo đã quét đúng mã QR và nhập mã hiện tại trên ứng dụng Authenticator.' });
         }
 
         const enrolledAt = new Date().toISOString();
-        await pool.query('UPDATE users SET totp_secret = ?, totp_enabled = 1, totp_enrolled_at = ? WHERE id = ?', [payload.secret, enrolledAt, user.id]);
+        await pool.query('UPDATE users SET totp_secret = ?, totp_enabled = 1, totp_enrolled_at = ?, totp_last_used_step = ? WHERE id = ?', [payload.secret, enrolledAt, usedStep, user.id]);
         await writeAuditLog({ module: 'USER_MGM', actionType: 'MFA_ENROLLED', status: 'SUCCESS', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: 'Đã hoàn tất thiết lập xác thực hai yếu tố (bắt buộc với Admin).' });
 
         clearMfaCookie(res);
@@ -1574,6 +1647,14 @@ app.post('/api/profile', requireAuth, async (req, res) => {
             const freshToken = signToken(updated);
             setAuthCookie(res, freshToken);
         }
+        // (F14) Tự đổi hồ sơ/mật khẩu cá nhân trước đây không được ghi audit log —
+        // trong khi Admin đặt lại mật khẩu người khác và toàn bộ luồng đăng
+        // nhập/2FA đều được ghi đầy đủ. Không ghi lại mật khẩu vào log.
+        await writeAuditLog({
+            module: 'AUTH', actionType: bumpTokenVersion ? 'SELF_CHANGE_PASSWORD' : 'SELF_UPDATE_PROFILE', status: 'SUCCESS',
+            username: req.user.username, fullName: name, ip: req.ip, targetObject: req.user.username,
+            description: bumpTokenVersion ? 'Tự đổi mật khẩu cá nhân.' : 'Tự cập nhật thông tin hồ sơ cá nhân.'
+        });
         res.json({ user: sanitizeUser({ ...updated, perms }) });
     } catch (err) {
         console.error('❌ Lỗi cập nhật hồ sơ:', err.message);
@@ -2062,8 +2143,19 @@ function loadWatermarkFontBytes() {
     return watermarkFontBytesCache;
 }
 
+// (F16) Trần số trang tối đa trước khi đóng dấu — không có trần này, 1 file
+// PDF vẫn nhỏ hơn giới hạn dung lượng (MAX_PDF_SIZE_BYTES) nhưng cố tình có
+// rất nhiều trang (nén lặp/nhúng lặp) vẫn có thể khiến bước lặp qua từng
+// trang để vẽ watermark bên dưới tốn CPU/RAM đáng kể mỗi lần upload — 1 dạng
+// "PDF bomb" đơn giản. 2000 trang đã vượt xa mọi tài liệu hành chính thật.
+const MAX_WATERMARK_PAGES = 2000;
+
 async function stampCopyrightWatermark(originalBuffer) {
     const pdfDoc = await PDFDocument.load(originalBuffer);
+    const pageCount = pdfDoc.getPageCount();
+    if (pageCount > MAX_WATERMARK_PAGES) {
+        throw new Error(`File PDF có quá nhiều trang (${pageCount}), vượt quá giới hạn cho phép (${MAX_WATERMARK_PAGES} trang).`);
+    }
     pdfDoc.registerFontkit(fontkit);
     const font = await pdfDoc.embedFont(loadWatermarkFontBytes(), { subset: true });
 
@@ -2121,7 +2213,12 @@ app.post('/api/docs/upload', requireAuth, uploadLimiter, (req, res, next) => {
             if (err.code === 'LIMIT_FILE_SIZE') {
                 return res.status(400).json({ error: `Kích thước file vượt quá giới hạn cho phép (${MAX_PDF_SIZE_MB}MB).` });
             }
-            return res.status(400).json({ error: 'Lỗi khi tải file lên: ' + err.message });
+            // (F21) Không nối err.message (nguyên văn từ thư viện Multer) thẳng vào
+            // JSON trả về client — đây là điểm duy nhất trong toàn bộ server làm vậy
+            // (mọi err.message khác chỉ ghi log nội bộ), không nhất quán và có thể lộ
+            // chi tiết nội bộ không cần thiết. Vẫn log đầy đủ ở console để debug.
+            console.error('❌ Lỗi Multer khi tải file lên:', err.message);
+            return res.status(400).json({ error: 'Lỗi khi tải file lên, vui lòng kiểm tra lại file và thử lại.' });
         }
         next();
     });
@@ -2130,6 +2227,22 @@ app.post('/api/docs/upload', requireAuth, uploadLimiter, (req, res, next) => {
         const files = req.files || [];
         if (files.length === 0) {
             return res.status(400).json({ error: 'Chưa chọn file nào để tải lên.' });
+        }
+
+        // (F17) Kiểm tra ổ đĩa còn đủ chỗ trước khi ghi file — ước tính theo tổng
+        // dung lượng các file trong lượt upload này cộng thêm ngưỡng an toàn.
+        try {
+            const stat = await fs.promises.statfs(UPLOAD_DIR);
+            const freeBytes = stat.bavail * stat.bsize;
+            const totalIncomingBytes = files.reduce((sum, f) => sum + (f.buffer ? f.buffer.length : 0), 0);
+            if (freeBytes - totalIncomingBytes < MIN_FREE_DISK_MB * 1024 * 1024) {
+                console.error(`❌ Ổ đĩa chứa UPLOAD_DIR sắp đầy (còn trống ~${Math.round(freeBytes / 1024 / 1024)}MB).`);
+                return res.status(507).json({ error: 'Máy chủ tạm thời không đủ dung lượng lưu trữ, vui lòng liên hệ quản trị viên.' });
+            }
+        } catch (e) {
+            // Không chặn upload nếu chính bước kiểm tra dung lượng gặp lỗi (VD hệ
+            // điều hành/filesystem không hỗ trợ statfs) — chỉ ghi log để biết.
+            console.error('⚠️ Không kiểm tra được dung lượng ổ đĩa còn trống:', e.message);
         }
 
         const mode = req.body.mode === 'update' ? 'update' : 'new';
@@ -2330,6 +2443,17 @@ app.post('/api/docs/upload', requireAuth, uploadLimiter, (req, res, next) => {
             throw e;
         }
 
+        // (F13) Đây là hành động cốt lõi nhất của hệ thống (tạo tài liệu/phiên bản
+        // mới) nhưng trước đây không được ghi audit log server-side, khác hẳn các
+        // hành động xóa/khôi phục/xóa vĩnh viễn tài liệu đã có log đầy đủ ngay bên
+        // dưới route này.
+        for (const d of createdDocs) {
+            await writeAuditLog({
+                module: 'INTERACTION', actionType: mode === 'update' ? 'UPLOAD_DOC_VERSION' : 'UPLOAD_DOC', status: 'SUCCESS',
+                username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: d.code,
+                description: `${mode === 'update' ? 'Nộp phiên bản mới' : 'Tải lên tài liệu mới'} [${d.code}] (${d.title}, ${d.ver}).`
+            });
+        }
         res.json({ success: true, docs: createdDocs });
     } catch (err) {
         console.error('❌ Lỗi tải lên tài liệu:', err.message);
@@ -2355,7 +2479,7 @@ app.post('/api/users/:id/2fa/reset', requireAuth, requireAdmin, async (req, res)
         if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy người dùng.' });
         if (!rows[0].totp_enabled) return res.status(400).json({ error: 'Tài khoản này chưa bật xác thực hai yếu tố.' });
 
-        await pool.query('UPDATE users SET totp_secret = NULL, totp_enabled = 0, totp_enrolled_at = NULL, token_version = token_version + 1 WHERE id = ?', [targetId]);
+        await pool.query('UPDATE users SET totp_secret = NULL, totp_enabled = 0, totp_enrolled_at = NULL, totp_last_used_step = NULL, failed_2fa_count = 0, totp_locked_until = NULL, token_version = token_version + 1 WHERE id = ?', [targetId]);
         await writeAuditLog({
             module: 'USER_MGM', actionType: 'MFA_RESET_BY_ADMIN', status: 'SUCCESS',
             username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: rows[0].username,
@@ -2394,25 +2518,48 @@ app.put('/api/permission-groups/:id', requireAuth, requireAdmin, async (req, res
         if (!name) return res.status(400).json({ error: 'Tên nhóm quyền không được để trống.' });
         if (name.length > 255) return res.status(400).json({ error: 'Tên nhóm quyền quá dài (tối đa 255 ký tự).' });
         const perms = (req.body && req.body.perms && typeof req.body.perms === 'object') ? req.body.perms : {};
-        // An toàn giống hasActiveAdmin của /api/sync/users: nếu nhóm này đang bị
-        // bỏ quyền Admin, phải đảm bảo hệ thống vẫn còn ít nhất 1 Admin khác
-        // (user độc lập hoặc thành viên nhóm khác) đang hoạt động — nếu không,
-        // sửa xong không còn ai đủ quyền khôi phục lại. Đọc hết vào JS để resolve
-        // (nhất quán với mọi chỗ khác trong app — không dùng JSON_EXTRACT trong SQL).
-        if (!perms.admin) {
-            const [allUsers] = await pool.query('SELECT active, perms, permission_group_id FROM users');
-            const groupPermsMap = await loadPermissionGroupPermsMap();
-            const stillHasAdmin = allUsers.some(u => {
-                if (!u.active) return false;
-                if (u.permission_group_id && Number(u.permission_group_id) === Number(id)) return false; // chính nhóm đang sửa, không tính
-                return resolvePermsWithMap(u, groupPermsMap).admin === true;
-            });
-            if (!stillHasAdmin) {
-                return res.status(400).json({ error: 'Không thể bỏ quyền Admin của nhóm này — hệ thống sẽ không còn Admin nào khác đang hoạt động.' });
+        // (F7) An toàn giống hasActiveAdmin của /api/sync/users: nếu nhóm này
+        // đang bị bỏ quyền Admin, phải đảm bảo hệ thống vẫn còn ít nhất 1 Admin
+        // khác (user độc lập hoặc thành viên nhóm khác) đang hoạt động — nếu
+        // không, sửa xong không còn ai đủ quyền khôi phục lại. Trước đây kiểm
+        // tra này chỉ là 1 SELECT thường không khóa/transaction — 2 request sửa
+        // 2 NHÓM QUYỀN khác nhau gần như đồng thời (mỗi nhóm đang là nguồn Admin
+        // duy nhất còn lại) có thể cùng lúc đọc thấy "còn admin khác" (nhóm kia)
+        // rồi cùng bỏ quyền Admin, khiến hệ thống mất sạch Admin. Khóa
+        // (FOR UPDATE) toàn bộ bảng permission_groups trong 1 transaction để
+        // buộc 2 request sửa nhóm quyền tuần tự hoá với nhau, request sau luôn
+        // đọc được perms MỚI NHẤT (đã áp dụng bởi request trước) khi tính toán.
+        const conn = await pool.getConnection();
+        try {
+            await conn.beginTransaction();
+            const [groupRows] = await conn.query('SELECT id, perms FROM permission_groups FOR UPDATE');
+            const groupPermsMap = new Map(groupRows.map(r => [r.id, parsePerms(r.perms)]));
+            if (!perms.admin) {
+                const [allUsers] = await conn.query('SELECT active, perms, permission_group_id FROM users');
+                const stillHasAdmin = allUsers.some(u => {
+                    if (!u.active) return false;
+                    if (u.permission_group_id && Number(u.permission_group_id) === Number(id)) return false; // chính nhóm đang sửa, không tính
+                    return resolvePermsWithMap(u, groupPermsMap).admin === true;
+                });
+                if (!stillHasAdmin) {
+                    await conn.rollback();
+                    conn.release();
+                    return res.status(400).json({ error: 'Không thể bỏ quyền Admin của nhóm này — hệ thống sẽ không còn Admin nào khác đang hoạt động.' });
+                }
             }
+            const [result] = await conn.query('UPDATE permission_groups SET name = ?, perms = ? WHERE id = ?', [name, JSON.stringify(perms), id]);
+            if (result.affectedRows === 0) {
+                await conn.rollback();
+                conn.release();
+                return res.status(404).json({ error: 'Không tìm thấy nhóm quyền.' });
+            }
+            await conn.commit();
+            conn.release();
+        } catch (e) {
+            await conn.rollback();
+            conn.release();
+            throw e;
         }
-        const [result] = await pool.query('UPDATE permission_groups SET name = ?, perms = ? WHERE id = ?', [name, JSON.stringify(perms), id]);
-        if (result.affectedRows === 0) return res.status(404).json({ error: 'Không tìm thấy nhóm quyền.' });
         await writeAuditLog({ module: 'USER_MGM', actionType: 'UPDATE_PERMISSION_GROUP', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: name, description: `Cập nhật nhóm quyền [${name}] — áp dụng ngay cho mọi thành viên.` });
         res.json({ success: true });
     } catch (err) {
@@ -2608,15 +2755,30 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                 // thẳng 1 history bịa đè lên lịch sử duyệt thật, xóa dấu vết ai đã
                 // duyệt/từ chối trước đó — nay bắt buộc kiểm tra "chỉ nối thêm" này
                 // cho MỌI người dùng trước khi xét tiếp.
-                const newHistoryRaw = d.history || [];
-                if (!Array.isArray(newHistoryRaw) || newHistoryRaw.length !== existingHistory.length + 1) {
+                const newHistoryRawInput = d.history || [];
+                if (!Array.isArray(newHistoryRawInput) || newHistoryRawInput.length !== existingHistory.length + 1) {
                     return res.status(400).json({ error: `Dữ liệu duyệt tài liệu [${d.code}] không hợp lệ.` });
                 }
                 for (let i = 0; i < existingHistory.length; i++) {
-                    if (JSON.stringify(newHistoryRaw[i]) !== JSON.stringify(existingHistory[i])) {
+                    if (JSON.stringify(newHistoryRawInput[i]) !== JSON.stringify(existingHistory[i])) {
                         return res.status(400).json({ error: `Không được sửa lịch sử duyệt đã có của tài liệu [${d.code}].` });
                     }
                 }
+                // Bảo mật: username (người thực hiện)/by (tên hiển thị)/at (thời gian)
+                // của MỌI lượt duyệt/từ chối luôn do SERVER tự sinh từ phiên đăng nhập
+                // thật, không bao giờ tin 3 trường này từ client — kể cả ở luồng
+                // thường (trước đây chỉ username được đối chiếu với người đăng nhập,
+                // "by"/"at" thì không, nên 1 người duyệt hợp lệ vẫn có thể tự đặt tên
+                // hiển thị/giờ duyệt khác thực tế), và đặc biệt ở nhánh admin "ghi đè"
+                // bên dưới — nếu không ép lại ở đây, admin có thể gán lịch sử duyệt
+                // cho một người dùng khác hoàn toàn (giả mạo ai đã duyệt tài liệu).
+                const lastEntryInput = newHistoryRawInput[newHistoryRawInput.length - 1] || {};
+                const newHistoryRaw = newHistoryRawInput.slice(0, -1).concat([{
+                    ...lastEntryInput,
+                    username: req.user.username,
+                    by: req.user.name,
+                    at: new Date().toLocaleString('vi-VN')
+                }]);
                 // Admin được bỏ qua kiểm tra transition CHẶT CHẼ (bước/trạng thái kế
                 // tiếp phải đúng logic quy trình chuẩn) — có thể cần sửa tay 1 tài
                 // liệu bị kẹt. Người duyệt thường thì bắt buộc đúng transition hợp lệ
@@ -2636,7 +2798,7 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                     }
                 }
                 toUpsert.push({
-                    id: d.id, currentStepOrder: d.currentStepOrder, status: d.status, historyJson: JSON.stringify(d.history || []),
+                    id: d.id, currentStepOrder: d.currentStepOrder, status: d.status, historyJson: JSON.stringify(newHistoryRaw),
                     // Trạng thái mong đợi TẠI THỜI ĐIỂM đọc/validate ở trên — dùng để
                     // khóa dòng và đối chiếu lại ngay trước khi ghi (xem transaction
                     // bên dưới), chống 2 người duyệt/từ chối cùng 1 tài liệu gần như
@@ -2693,15 +2855,22 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
             // Admin do cơ chế xóa-chèn-lại toàn bảng bên dưới, phá vỡ yêu cầu "2FA bắt
             // buộc, Admin không tự gỡ được" — chỉ gỡ được qua route riêng
             // POST /api/users/:id/2fa/reset.
-            const [existingRows] = await pool.query('SELECT username, pass, token_version, totp_secret, totp_enabled, totp_enrolled_at FROM users');
+            const [existingRows] = await pool.query('SELECT username, pass, token_version, totp_secret, totp_enabled, totp_enrolled_at, active, perms, permission_group_id FROM users');
             const existingPassMap = {};
             const existingTokenVersionMap = {};
             const existingTotpMap = {};
+            const existingUserMap = new Map();
             existingRows.forEach(r => {
                 existingPassMap[r.username] = r.pass;
                 existingTokenVersionMap[r.username] = r.token_version || 1;
                 existingTotpMap[r.username] = { secret: r.totp_secret || null, enabled: r.totp_enabled || 0, enrolledAt: r.totp_enrolled_at || null };
+                existingUserMap.set(r.username, r);
             });
+            // (F4) Danh sách các thay đổi nhạy cảm để ghi audit log sau khi transaction
+            // ghi thành công — đây là điểm duy nhất tạo/sửa/xóa tài khoản, cấp/thu
+            // quyền Admin, đặt lại mật khẩu người khác, khóa/mở tài khoản, nên trước
+            // đây hoàn toàn "vô hình" với system_logs dù là hành động nhạy cảm nhất hệ thống.
+            const usersAuditEntries = [];
             const [deptRows] = await pool.query('SELECT name FROM depts');
             const validDeptNames = new Set(deptRows.map(d => d.name));
             const groupPermsMap = await loadPermissionGroupPermsMap();
@@ -2762,6 +2931,34 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
 
                 const existingTotp = existingTotpMap[username] || { secret: null, enabled: 0, enrolledAt: null };
                 rowsToInsert.push([u.id, username, passHash, name, email, phone, u.dept, JSON.stringify(u.perms || {}), active, tokenVersion, existingTotp.secret, existingTotp.enabled, existingTotp.enrolledAt, groupId]);
+
+                // (F4) Ghi nhận các thay đổi nhạy cảm để audit log sau khi commit.
+                const existingUserRow = existingUserMap.get(username);
+                if (!existingUserRow) {
+                    usersAuditEntries.push({ actionType: 'CREATE_USER', targetObject: username, description: `Tạo tài khoản mới [${username}] (${name}).` });
+                } else {
+                    if (existingPassMap[username] !== undefined && String(u.pass || '').trim()) {
+                        usersAuditEntries.push({ actionType: 'RESET_PASSWORD', targetObject: username, description: `Đặt lại mật khẩu cho tài khoản [${username}].` });
+                    }
+                    if (!!existingUserRow.active !== active) {
+                        usersAuditEntries.push({ actionType: active ? 'UNLOCK_USER' : 'LOCK_USER', targetObject: username, description: `${active ? 'Mở khóa' : 'Khóa'} tài khoản [${username}].` });
+                    }
+                    const oldGroupId = existingUserRow.permission_group_id || null;
+                    if (oldGroupId !== groupId) {
+                        usersAuditEntries.push({ actionType: 'CHANGE_PERMISSION_GROUP', targetObject: username, description: `Đổi Nhóm quyền của tài khoản [${username}]: ${oldGroupId || '(không có)'} → ${groupId || '(không có)'}.` });
+                    }
+                    const oldPermsJson = typeof existingUserRow.perms === 'string' ? existingUserRow.perms : JSON.stringify(existingUserRow.perms || {});
+                    const newPermsJson = JSON.stringify(u.perms || {});
+                    if (oldGroupId === groupId && oldPermsJson !== newPermsJson) {
+                        usersAuditEntries.push({ actionType: 'CHANGE_PERMISSIONS', targetObject: username, description: `Đổi quyền riêng của tài khoản [${username}].` });
+                    }
+                }
+            }
+            const newUsernameSet = new Set(data.map(u => String(u.username || '').trim()));
+            for (const oldUsername of existingUserMap.keys()) {
+                if (!newUsernameSet.has(oldUsername)) {
+                    usersAuditEntries.push({ actionType: 'DELETE_USER', targetObject: oldUsername, description: `Xóa tài khoản [${oldUsername}].` });
+                }
             }
 
             // Bảo mật: bảng users bị xóa-chèn-lại toàn bộ (không có id ổn định phía
@@ -2802,6 +2999,13 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                 throw e;
             } finally {
                 usersConn.release();
+            }
+            for (const entry of usersAuditEntries) {
+                await writeAuditLog({
+                    module: 'USER_MANAGEMENT', actionType: entry.actionType, status: 'SUCCESS',
+                    username: req.user.username, fullName: req.user.name, ip: req.ip,
+                    targetObject: entry.targetObject, description: entry.description
+                });
             }
         } else if (table === 'depts' || table === 'cats') {
             // Viết tắt (abbr) dùng để sinh mã tài liệu tự động (VD: HD-IT-2026-001)
@@ -2889,6 +3093,19 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                     if (permReferenced) {
                         return res.status(400).json({ error: `Không thể xóa phòng ban [${toDeleteNames.join(', ')}] vì vẫn đang được gán trong phân quyền của người dùng nào đó.` });
                     }
+                    // (F18) Cùng kiểm tra như trên nhưng cho quyền phòng ban lưu trong
+                    // Nhóm quyền (permission_groups.perms) — trước đây guard này chỉ nhìn
+                    // users.perms nên xóa 1 phòng ban đang được gán qua Nhóm quyền vẫn lọt.
+                    const [allGroupRows] = await pool.query('SELECT id, perms FROM permission_groups');
+                    const groupPermReferenced = allGroupRows.some(g => {
+                        const perms = typeof g.perms === 'string' ? JSON.parse(g.perms || '{}') : (g.perms || {});
+                        return ['uploadDepts', 'viewDraftDepts', 'viewApprovedDepts', 'downloadDepts'].some(key =>
+                            Array.isArray(perms[key]) && perms[key].some(d => deleteNameSet.has(d))
+                        );
+                    });
+                    if (groupPermReferenced) {
+                        return res.status(400).json({ error: `Không thể xóa phòng ban [${toDeleteNames.join(', ')}] vì vẫn đang được gán trong 1 Nhóm quyền.` });
+                    }
                     const [cfgRows] = await pool.query("SELECT config_value FROM app_configs WHERE config_key = 'deptWorkflows'");
                     const deptWorkflows = cfgRows[0] ? (typeof cfgRows[0].config_value === 'string' ? JSON.parse(cfgRows[0].config_value) : cfgRows[0].config_value) : {};
                     const wfReferenced = toDeleteNames.some(n => Object.prototype.hasOwnProperty.call(deptWorkflows || {}, n));
@@ -2951,6 +3168,25 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                                 await conn.query('UPDATE app_configs SET config_value = ? WHERE config_key = ?', [JSON.stringify(deptWorkflows), 'deptWorkflows']);
                             }
                         }
+                        // (F18) Áp dụng cùng bước di chuyển tên cũ→mới cho quyền phòng ban
+                        // lưu trong Nhóm quyền (permission_groups.perms) — trước đây chỉ
+                        // users.perms được migrate ở trên, nên thành viên của 1 Nhóm quyền
+                        // sẽ âm thầm mất quyền xem/tải/duyệt tài liệu phòng ban đó ngay sau
+                        // khi đổi tên (tên cũ trong nhóm không còn khớp tên mới của tài liệu).
+                        const [groupRows] = await conn.query('SELECT id, perms FROM permission_groups');
+                        for (const g of groupRows) {
+                            const perms = typeof g.perms === 'string' ? JSON.parse(g.perms || '{}') : (g.perms || {});
+                            let groupChanged = false;
+                            for (const key of ['uploadDepts', 'viewDraftDepts', 'viewApprovedDepts', 'downloadDepts']) {
+                                if (Array.isArray(perms[key]) && perms[key].includes(oldName)) {
+                                    perms[key] = perms[key].map(d => d === oldName ? name : d);
+                                    groupChanged = true;
+                                }
+                            }
+                            if (groupChanged) {
+                                await conn.query('UPDATE permission_groups SET perms = ? WHERE id = ?', [JSON.stringify(perms), g.id]);
+                            }
+                        }
                     } else {
                         await conn.query('UPDATE docs SET cat = ? WHERE cat = ?', [name, oldName]);
                     }
@@ -2962,6 +3198,13 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                 throw e;
             } finally {
                 conn.release();
+            }
+            if (toInsert.length || toUpdate.length || toDeleteIds.length) {
+                await writeAuditLog({
+                    module: 'SYSTEM_CONFIG', actionType: table === 'depts' ? 'UPDATE_DEPTS' : 'UPDATE_CATS', status: 'SUCCESS',
+                    username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: table,
+                    description: `Cập nhật danh sách ${label}: ${toInsert.length} thêm mới, ${renames.length} đổi tên, ${toDeleteIds.length} xóa.`
+                });
             }
         } else if (table === 'workflows') {
             // (L5) Trước đây không kiểm tra gì nội dung mẫu quy trình (khác hẳn
@@ -3005,6 +3248,11 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
             } finally {
                 wfConn.release();
             }
+            await writeAuditLog({
+                module: 'SYSTEM_CONFIG', actionType: 'UPDATE_WORKFLOWS', status: 'SUCCESS',
+                username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: 'workflows',
+                description: `Cập nhật danh sách mẫu quy trình duyệt (${data.length} mẫu).`
+            });
         } else if (['deptWorkflows', 'emailConfig', 'ldapConfig'].includes(table)) {
             // (L5) Khi gán người duyệt cho từng bước theo phòng ban, chưa từng
             // kiểm tra username được gán có thực sự tồn tại/đang hoạt động hay
@@ -3113,6 +3361,19 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
             } finally {
                 cfgConn.release();
             }
+            // (F4) Ghi log việc cấu hình đã bị đổi — KHÔNG BAO GIỜ ghi lại mật khẩu/bí
+            // mật thật (servicePassword/smtpPass) vào system_logs, chỉ ghi nhận sự kiện.
+            const cfgActionType = table === 'deptWorkflows' ? 'UPDATE_DEPT_WORKFLOWS' : table === 'emailConfig' ? 'UPDATE_EMAIL_CONFIG' : 'UPDATE_LDAP_CONFIG';
+            const cfgDescription = table === 'deptWorkflows'
+                ? 'Cập nhật cấu hình quy trình duyệt theo phòng ban.'
+                : table === 'emailConfig'
+                    ? `Cập nhật cấu hình gửi email hệ thống (SMTP host: ${data.smtpHost || '(trống)'}).`
+                    : `Cập nhật cấu hình đăng nhập/đồng bộ LDAP-AD (URL: ${data.url || '(trống)'}).`;
+            await writeAuditLog({
+                module: 'SYSTEM_CONFIG', actionType: cfgActionType, status: 'SUCCESS',
+                username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: table,
+                description: cfgDescription
+            });
         }
         res.json({ success: true, ...(responseVersion !== undefined ? { version: responseVersion } : {}) });
     } catch (err) {
@@ -3937,13 +4198,18 @@ app.post('/api/license/employees', requireAuth, requireLicenseOrAdmin, async (re
             );
             if (dupRows.length > 0) return res.status(400).json({ error: `Mã nhân viên [${employeeCode}] đã tồn tại trong công ty này.` });
         }
+        // (F9) company_id được lưu kèm (phi chuẩn hóa từ đơn vị) để CSDL có thể tự
+        // chặn trùng mã bằng UNIQUE constraint thật (xem schema.sql) — lớp chặn
+        // SELECT-rồi-INSERT phía trên vẫn giữ lại để báo lỗi rõ ràng ngay, ràng
+        // buộc CSDL chỉ là lưới an toàn cuối cùng cho race condition.
         const [result] = await pool.query(
-            'INSERT INTO lic_employees (org_unit_id, full_name, title, employee_code, email, active) VALUES (?, ?, ?, ?, ?, TRUE)',
-            [orgUnitId, fullName, title || null, employeeCode || null, email || null]
+            'INSERT INTO lic_employees (org_unit_id, company_id, full_name, title, employee_code, email, active) VALUES (?, ?, ?, ?, ?, ?, TRUE)',
+            [orgUnitId, unitRows[0].company_id, fullName, title || null, employeeCode || null, email || null]
         );
         await writeAuditLog({ module: 'LICENSE', actionType: 'CREATE_EMPLOYEE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: fullName, description: `Thêm nhân viên [${fullName}] vào module Bản quyền.` });
         res.json({ success: true, id: result.insertId });
     } catch (err) {
+        if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: `Mã nhân viên [${req.body && req.body.employeeCode}] đã tồn tại trong công ty này.` });
         console.error('❌ Lỗi thêm nhân viên:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
@@ -3973,13 +4239,14 @@ app.put('/api/license/employees/:id', requireAuth, requireLicenseOrAdmin, async 
             if (dupRows.length > 0) return res.status(400).json({ error: `Mã nhân viên [${employeeCode}] đã tồn tại trong công ty này.` });
         }
         const [result] = await pool.query(
-            'UPDATE lic_employees SET org_unit_id = ?, full_name = ?, title = ?, employee_code = ?, email = ? WHERE id = ?',
-            [orgUnitId, fullName, title || null, employeeCode || null, email || null, id]
+            'UPDATE lic_employees SET org_unit_id = ?, company_id = ?, full_name = ?, title = ?, employee_code = ?, email = ? WHERE id = ?',
+            [orgUnitId, unitRows[0].company_id, fullName, title || null, employeeCode || null, email || null, id]
         );
         if (result.affectedRows === 0) return res.status(404).json({ error: 'Không tìm thấy nhân viên.' });
         await writeAuditLog({ module: 'LICENSE', actionType: 'UPDATE_EMPLOYEE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: fullName, description: `Cập nhật nhân viên [${fullName}].` });
         res.json({ success: true });
     } catch (err) {
+        if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: `Mã nhân viên [${req.body && req.body.employeeCode}] đã tồn tại trong công ty này.` });
         console.error('❌ Lỗi cập nhật nhân viên:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
@@ -5011,7 +5278,13 @@ app.post('/api/license/bulk-allocation-requests/:id/approve', requireAuth, requi
             // trùng mã trong 1 file đều được duyệt tạo thành 2 bản ghi khác id
             // nhưng cùng employee_code — lần import CSV sau chỉ khớp được 1.
             const newEmployeeCodes = items.filter(it => !it.employee_id && it.employee_code).map(it => it.employee_code);
-            const dupWithinBatch = newEmployeeCodes.find((c, i) => newEmployeeCodes.indexOf(c) !== i);
+            // (F10) So khớp trùng KHÔNG phân biệt hoa/thường — nhất quán với collation
+            // của cột employee_code trong CSDL (case-insensitive), vốn đã được dùng
+            // đúng ở câu SQL kiểm tra trùng với DB ngay bên dưới. Trước đây so sánh
+            // JS thuần (case-sensitive) ở đây nên "NV001" và "nv001" trong CÙNG 1 file
+            // không bị coi là trùng, tạo ra 2 nhân viên khác nhau cho cùng 1 người.
+            const newEmployeeCodesUpper = newEmployeeCodes.map(c => c.toUpperCase());
+            const dupWithinBatch = newEmployeeCodes.find((c, i) => newEmployeeCodesUpper.indexOf(c.toUpperCase()) !== i);
             if (dupWithinBatch) {
                 throw new BulkAllocApprovalError(400, `Mã nhân viên [${dupWithinBatch}] bị trùng nhiều dòng trong cùng yêu cầu này — vui lòng sửa lại file và tạo yêu cầu mới.`);
             }
@@ -5088,8 +5361,8 @@ app.post('/api/license/bulk-allocation-requests/:id/approve', requireAuth, requi
                         throw new BulkAllocApprovalError(400, `Dòng [${item.employee_code}]: đơn vị không thuộc công ty [${company.name}] của yêu cầu này — không thể tạo nhân viên.`);
                     }
                     const [insertEmp] = await conn.query(
-                        'INSERT INTO lic_employees (org_unit_id, full_name, title, employee_code, email, active) VALUES (?, ?, NULL, ?, ?, TRUE)',
-                        [item.org_unit_id, item.full_name, item.employee_code, item.email]
+                        'INSERT INTO lic_employees (org_unit_id, company_id, full_name, title, employee_code, email, active) VALUES (?, ?, ?, NULL, ?, ?, TRUE)',
+                        [item.org_unit_id, company.id, item.full_name, item.employee_code, item.email]
                     );
                     employeeId = insertEmp.insertId;
                 }
@@ -6068,12 +6341,18 @@ app.post('/api/license/employees/import', requireAuth, requireLicenseOrAdmin, as
         // số mã nhân viên độc lập, trùng mã giữa 2 công ty khác nhau là bình
         // thường (không phải cùng 1 người) — trước đây match toàn hệ thống nên
         // nhập CSV công ty B có thể ghi đè nhầm nhân viên trùng mã của công ty A.
+        // (F10) Key chuẩn hóa CHỮ HOA — nhất quán với collation case-insensitive
+        // của cột employee_code trong CSDL (đã được các endpoint thêm/sửa thủ công
+        // 1 nhân viên dựa vào đúng cách này). Trước đây Map này dùng nguyên văn mã
+        // (case-sensitive) nên "NV001" và "nv001" bị coi là 2 người khác nhau, tạo
+        // 2 hồ sơ (và chiếm dư 1 suất license) cho cùng 1 người khi file có lẫn cả 2
+        // cách viết hoa/thường (rất dễ xảy ra khi gõ tay/re-export).
         const employeeByCompanyAndCode = new Map();
         existingEmployees.forEach(e => {
             if (!e.employee_code) return;
             const unit = unitById.get(e.org_unit_id);
             if (!unit) return;
-            employeeByCompanyAndCode.set(`${unit.company_id}::${e.employee_code}`, e);
+            employeeByCompanyAndCode.set(`${unit.company_id}::${e.employee_code.toUpperCase()}`, e);
         });
 
         const errors = [];
@@ -6097,7 +6376,7 @@ app.post('/api/license/employees/import', requireAuth, requireLicenseOrAdmin, as
             if (candidateUnits.length > 1) { errors.push(`Dòng ${rowNo}: có nhiều hơn 1 đơn vị tên [${unitName}] trong công ty [${companyCode}] — không thể xác định đúng đơn vị, hãy đổi tên đơn vị cho không trùng.`); continue; }
             const unit = candidateUnits[0];
 
-            const employeeKey = `${company.id}::${employeeCode}`;
+            const employeeKey = `${company.id}::${employeeCode.toUpperCase()}`;
             if (employeeCode && employeeByCompanyAndCode.has(employeeKey)) {
                 const existing = employeeByCompanyAndCode.get(employeeKey);
                 await conn.query(
@@ -6107,8 +6386,8 @@ app.post('/api/license/employees/import', requireAuth, requireLicenseOrAdmin, as
                 updated++;
             } else {
                 const [result] = await conn.query(
-                    'INSERT INTO lic_employees (org_unit_id, full_name, title, employee_code, email, active) VALUES (?, ?, ?, ?, ?, TRUE)',
-                    [unit.id, fullName, title || null, employeeCode || null, email || null]
+                    'INSERT INTO lic_employees (org_unit_id, company_id, full_name, title, employee_code, email, active) VALUES (?, ?, ?, ?, ?, ?, TRUE)',
+                    [unit.id, company.id, fullName, title || null, employeeCode || null, email || null]
                 );
                 if (employeeCode) employeeByCompanyAndCode.set(employeeKey, { id: result.insertId, employee_code: employeeCode });
                 created++;
@@ -6456,14 +6735,38 @@ function normalizeBudget2ItemCategory(raw, catalog) {
     return found ? found.code : null;
 }
 
-function validateBudget2LineInput(body, opts = {}, categoryCatalog = []) {
+// (F15) Trần trên hợp lý cho Số lượng/Đơn giá — cột CSDL là DECIMAL(18,2),
+// trước đây chỉ chặn giá trị <= 0 mà không có trần trên, 1 giá trị cực lớn
+// (VD gõ nhầm thêm số 0) có thể gây tràn/méo tổng trong báo cáo tài chính
+// toàn công ty mà không có cảnh báo rõ ràng nào.
+const MAX_BUDGET2_QUANTITY = 1000000;
+const MAX_BUDGET2_UNIT_PRICE = 1e12;
+
+// (F19) Danh mục Công ty/Đơn vị hiện có, dùng để kiểm tra companyId/orgUnitId
+// client gửi lên có THẬT SỰ tồn tại/khớp nhau hay không — trước đây chỉ luồng
+// nhập Excel (import) làm việc này, còn 3 endpoint nhập tay (thêm/sửa dòng,
+// nhập trực tiếp phê duyệt) hoàn toàn tin theo ID client gửi, có thể lọt dữ
+// liệu rác (ID không tồn tại, đơn vị không thuộc đúng công ty) làm méo báo
+// cáo theo Công ty/Đơn vị.
+async function getBudget2OrgScopeCatalog() {
+    const [companies] = await pool.query('SELECT id FROM lic_companies');
+    const [units] = await pool.query('SELECT id, company_id FROM lic_org_units');
+    return {
+        companyIds: new Set(companies.map(c => c.id)),
+        unitsById: new Map(units.map(u => [u.id, u.company_id]))
+    };
+}
+
+function validateBudget2LineInput(body, opts = {}, categoryCatalog = [], orgScopeCatalog = null) {
     const requireYear = opts.requireYear !== false;
     const content = String((body && body.content) || '').trim();
     if (!content) return { error: 'Nội dung không được để trống.' };
     const quantity = Number(body.quantity);
     if (!Number.isFinite(quantity) || quantity <= 0) return { error: 'Số lượng phải là số dương.' };
+    if (quantity > MAX_BUDGET2_QUANTITY) return { error: `Số lượng vượt quá giới hạn cho phép (tối đa ${MAX_BUDGET2_QUANTITY.toLocaleString('vi-VN')}).` };
     const unitPrice = Number(body.unitPrice);
     if (!Number.isFinite(unitPrice) || unitPrice < 0) return { error: 'Đơn giá không hợp lệ.' };
+    if (unitPrice > MAX_BUDGET2_UNIT_PRICE) return { error: `Đơn giá vượt quá giới hạn cho phép (tối đa ${MAX_BUDGET2_UNIT_PRICE.toLocaleString('vi-VN')}).` };
     const vatPercent = body.vatPercent === undefined || body.vatPercent === null || body.vatPercent === '' ? 0 : Number(body.vatPercent);
     if (!Number.isFinite(vatPercent) || vatPercent < 0 || vatPercent > 100) return { error: 'VAT% không hợp lệ (0-100).' };
     const budgetType = body.budgetType === 'CAPEX' ? 'CAPEX' : (body.budgetType === 'OPEX' ? 'OPEX' : null);
@@ -6472,6 +6775,13 @@ function validateBudget2LineInput(body, opts = {}, categoryCatalog = []) {
     if (requireYear && !itemCategory) return { error: 'Vui lòng chọn Danh mục.' };
     const companyId = body.companyId ? Number(body.companyId) : null;
     const orgUnitId = body.orgUnitId ? Number(body.orgUnitId) : null;
+    if (orgScopeCatalog) {
+        if (companyId && !orgScopeCatalog.companyIds.has(companyId)) return { error: 'Công ty không tồn tại.' };
+        if (orgUnitId) {
+            if (!orgScopeCatalog.unitsById.has(orgUnitId)) return { error: 'Đơn vị không tồn tại.' };
+            if (companyId && orgScopeCatalog.unitsById.get(orgUnitId) !== companyId) return { error: 'Đơn vị không thuộc công ty đã chọn.' };
+        }
+    }
     const description = body.description ? String(body.description).trim() : null;
     const note = body.note ? String(body.note).trim() : null;
     let budgetYear = null;
@@ -6583,7 +6893,7 @@ app.delete('/api/budget2/categories/:id', requireAuth, requireAdmin, async (req,
 // --- Tạo dòng Đề xuất mới ---
 app.post('/api/budget2/lines', requireAuth, requireBudgetOrAdmin, async (req, res) => {
     try {
-        const v = validateBudget2LineInput(req.body || {}, {}, await getBudget2CategoryCatalog());
+        const v = validateBudget2LineInput(req.body || {}, {}, await getBudget2CategoryCatalog(), await getBudget2OrgScopeCatalog());
         if (v.error) return res.status(400).json({ error: v.error });
         const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
         const now = new Date().toISOString();
@@ -6622,7 +6932,7 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
             if (line.status !== 'SUBMITTED' && !req.user.perms.admin) {
                 return res.status(400).json({ error: 'Đề xuất đã được duyệt/từ chối, không thể sửa.' });
             }
-            const v = validateBudget2LineInput(req.body || {}, {}, await getBudget2CategoryCatalog());
+            const v = validateBudget2LineInput(req.body || {}, {}, await getBudget2CategoryCatalog(), await getBudget2OrgScopeCatalog());
             if (v.error) return res.status(400).json({ error: v.error });
             const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
             await pool.query(
@@ -6642,7 +6952,7 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
             if (line.status !== 'SUBMITTED' && !req.user.perms.admin) {
                 return res.status(400).json({ error: 'Dòng ngân sách phê duyệt đã được duyệt/từ chối, không thể sửa.' });
             }
-            const v = validateBudget2LineInput(req.body || {}, {}, await getBudget2CategoryCatalog());
+            const v = validateBudget2LineInput(req.body || {}, {}, await getBudget2CategoryCatalog(), await getBudget2OrgScopeCatalog());
             if (v.error) return res.status(400).json({ error: v.error });
             const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
             if (line.status === 'APPROVED') {
@@ -6702,7 +7012,7 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
             // kế thừa nguyên văn nên đối chiếu với TOÀN BỘ danh mục (kể cả đã ẩn)
             // — 1 danh mục cũ bị Admin ẩn đi vẫn phải giữ nguyên trên các dòng
             // lịch sử đã dùng nó, không được tự ý null hóa.
-            const v = validateBudget2LineInput({ ...req.body, content: parent.content, description: parent.description, itemCategory: parent.item_category }, { requireYear: false }, await getBudget2CategoryCatalog(true));
+            const v = validateBudget2LineInput({ ...req.body, content: parent.content, description: parent.description, itemCategory: parent.item_category }, { requireYear: false }, await getBudget2CategoryCatalog(true), await getBudget2OrgScopeCatalog());
             if (v.error) return res.status(400).json({ error: v.error });
             const pm = validateBudget2PurchaseMonth(req.body || {});
             if (pm.error) return res.status(400).json({ error: pm.error });
@@ -6922,7 +7232,8 @@ app.post('/api/budget2/lines/:id/reject', requireAuth, requireBudgetOrAdmin, asy
         if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Dòng này đã được xử lý trước đó.' });
         if (line.created_by === req.user.username) return res.status(403).json({ error: 'Không thể tự từ chối dòng ngân sách do chính mình tạo.' });
         const now = new Date().toISOString();
-        await pool.query('UPDATE budget2_lines SET status = \'REJECTED\', decided_by = ?, decided_at = ? WHERE id = ?', [req.user.username, now, id]);
+        const [upd] = await pool.query('UPDATE budget2_lines SET status = \'REJECTED\', decided_by = ?, decided_at = ? WHERE id = ? AND status = \'SUBMITTED\'', [req.user.username, now, id]);
+        if (upd.affectedRows === 0) return res.status(409).json({ error: 'Dòng này vừa được xử lý bởi người khác, vui lòng tải lại trang.' });
         await writeAuditLog({ module: 'BUDGET2', actionType: 'REJECT_BUDGET', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Từ chối dòng ngân sách phê duyệt [${line.content}].` });
         res.json({ success: true });
     } catch (err) {
@@ -6937,7 +7248,7 @@ app.post('/api/budget2/lines/:id/reject', requireAuth, requireBudgetOrAdmin, asy
 // dụng ngay — chờ ai đó duyệt qua endpoint /approve ở trên). ---
 app.post('/api/budget2/lines/approved-direct', requireAuth, requireBudgetOrAdmin, async (req, res) => {
     try {
-        const v = validateBudget2LineInput(req.body || {}, {}, await getBudget2CategoryCatalog());
+        const v = validateBudget2LineInput(req.body || {}, {}, await getBudget2CategoryCatalog(), await getBudget2OrgScopeCatalog());
         if (v.error) return res.status(400).json({ error: v.error });
         const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
         const now = new Date().toISOString();
@@ -7069,7 +7380,7 @@ app.post('/api/budget2/lines/:id/children', requireAuth, requireBudgetOrAdmin, a
         // client gửi lên cho 2 trường này, đảm bảo tính đúng đắn dữ liệu dù
         // client có cố tình gửi khác đi. itemCategory đối chiếu TOÀN BỘ danh
         // mục kể cả đã ẩn — xem chú thích ở nhánh sửa mục con phía trên.
-        const v = validateBudget2LineInput({ ...req.body, content: parent.content, description: parent.description, itemCategory: parent.item_category }, { requireYear: false }, await getBudget2CategoryCatalog(true));
+        const v = validateBudget2LineInput({ ...req.body, content: parent.content, description: parent.description, itemCategory: parent.item_category }, { requireYear: false }, await getBudget2CategoryCatalog(true), await getBudget2OrgScopeCatalog());
         if (v.error) return res.status(400).json({ error: v.error });
         const pm = validateBudget2PurchaseMonth(req.body || {});
         if (pm.error) return res.status(400).json({ error: pm.error });
