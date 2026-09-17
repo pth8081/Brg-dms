@@ -276,6 +276,39 @@ function sanitizeUser(u) {
     return rest;
 }
 
+// --- NHÓM QUYỀN (Permission Groups) — quyền HIỆU LỰC của 1 user luôn được
+// tính lại từ DB ở MỌI request (không cache trong JWT — nhất quán với cách
+// requireAuth() đã đối chiếu token_version từ trước), nên đổi quyền của 1
+// nhóm có hiệu lực NGAY với mọi thành viên, không cần đăng nhập lại. Nếu user
+// có permission_group_id, quyền của NHÓM ghi đè hoàn toàn quyền riêng (cột
+// users.perms) của user đó — không merge 2 nguồn. Mọi nơi trong code đọc
+// quyền để QUYẾT ĐỊNH hành vi (gate 2FA bắt buộc, requireAuth, danh sách
+// email thông báo cho Admin/Người quản lý License...) đều phải qua các hàm
+// này thay vì đọc thẳng cột users.perms — nếu không, user được cấp quyền qua
+// nhóm sẽ bị bỏ sót (VD: admin qua nhóm né được 2FA bắt buộc).
+function parsePerms(raw) {
+    return typeof raw === 'string' ? JSON.parse(raw || '{}') : (raw || {});
+}
+async function resolveUserPerms(rawUser) {
+    if (rawUser && rawUser.permission_group_id) {
+        const [rows] = await pool.query('SELECT perms FROM permission_groups WHERE id = ?', [rawUser.permission_group_id]);
+        if (rows[0]) return parsePerms(rows[0].perms);
+    }
+    return parsePerms(rawUser && rawUser.perms);
+}
+async function loadPermissionGroupPermsMap() {
+    const [rows] = await pool.query('SELECT id, perms FROM permission_groups');
+    const map = new Map();
+    rows.forEach(r => map.set(r.id, parsePerms(r.perms)));
+    return map;
+}
+function resolvePermsWithMap(rawUser, groupPermsMap) {
+    if (rawUser && rawUser.permission_group_id && groupPermsMap.has(rawUser.permission_group_id)) {
+        return groupPermsMap.get(rawUser.permission_group_id);
+    }
+    return parsePerms(rawUser && rawUser.perms);
+}
+
 // --- AUDIT LOG TỰ ĐỘNG Ở SERVER ---
 // Dùng cho các hành động nhạy cảm (đăng nhập/đăng xuất, xóa tài liệu...) —
 // ghi trực tiếp từ server, không phụ thuộc client có chủ động gửi log lên
@@ -336,7 +369,7 @@ async function requireAuth(req, res, next) {
         }
 
         req.user = dbUser;
-        req.user.perms = typeof dbUser.perms === 'string' ? JSON.parse(dbUser.perms || '{}') : (dbUser.perms || {});
+        req.user.perms = await resolveUserPerms(dbUser);
         next();
     } catch (err) {
         return res.status(401).json({ error: 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn.' });
@@ -707,9 +740,10 @@ async function runExpiryReminderCheck() {
     const [items] = await pool.query(
         'SELECT i.*, c.name AS category_name FROM it_items i JOIN it_categories c ON c.id = i.category_id WHERE i.active = 1 AND i.deleted_at IS NULL'
     );
-    const [allUsers] = await pool.query('SELECT id, email, active, perms FROM users');
+    const [allUsers] = await pool.query('SELECT id, email, active, perms, permission_group_id FROM users');
+    const itGroupPermsMap = await loadPermissionGroupPermsMap();
     const adminEmails = allUsers
-        .filter(u => u.active && (typeof u.perms === 'string' ? JSON.parse(u.perms || '{}') : (u.perms || {})).admin)
+        .filter(u => u.active && resolvePermsWithMap(u, itGroupPermsMap).admin)
         .map(u => u.email).filter(Boolean);
     // Chỉ lấy email của user còn active — trước đây lấy cả user đã bị khóa,
     // khiến hệ thống tiếp tục gửi email nhắc hạn tới người phụ trách đã nghỉ
@@ -868,10 +902,11 @@ async function computeLicenseControlCases() {
     return rows;
 }
 async function getLicenseManagerEmails() {
-    const [rows] = await pool.query('SELECT email, perms FROM users WHERE active = 1');
+    const [rows] = await pool.query('SELECT email, perms, permission_group_id FROM users WHERE active = 1');
+    const groupPermsMap = await loadPermissionGroupPermsMap();
     const emails = rows
         .filter(u => {
-            const p = typeof u.perms === 'string' ? JSON.parse(u.perms || '{}') : (u.perms || {});
+            const p = resolvePermsWithMap(u, groupPermsMap);
             return p.admin || p.licenseManager;
         })
         .map(u => u.email)
@@ -1128,7 +1163,7 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
             await pool.query('UPDATE users SET failed_login_count = 0, locked_until = NULL WHERE id = ?', [user.id]);
         }
 
-        const perms = typeof user.perms === 'string' ? JSON.parse(user.perms || '{}') : user.perms;
+        const perms = await resolveUserPerms(user);
 
         // Xác thực hai yếu tố (2FA) — BẮT BUỘC với Admin, không áp dụng tài
         // khoản thường. Chưa cấp phiên đăng nhập thật (chưa setAuthCookie) ở
@@ -1200,7 +1235,7 @@ app.post('/api/auth/2fa/verify', loginLimiter, async (req, res) => {
         setAuthCookie(res, token);
         await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_SUCCESS', status: 'SUCCESS', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: 'Đăng nhập hệ thống thành công (đã xác thực hai yếu tố).' });
 
-        const perms = typeof user.perms === 'string' ? JSON.parse(user.perms || '{}') : user.perms;
+        const perms = await resolveUserPerms(user);
         res.json({ user: sanitizeUser({ ...user, perms }) });
     } catch (err) {
         console.error('❌ Lỗi xác thực hai yếu tố:', err.message);
@@ -1249,7 +1284,7 @@ app.post('/api/auth/2fa/setup/verify', loginLimiter, async (req, res) => {
         setAuthCookie(res, token);
         await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_SUCCESS', status: 'SUCCESS', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: 'Đăng nhập hệ thống thành công (vừa thiết lập xác thực hai yếu tố).' });
 
-        const perms = typeof user.perms === 'string' ? JSON.parse(user.perms || '{}') : user.perms;
+        const perms = await resolveUserPerms(user);
         res.json({ user: sanitizeUser({ ...user, perms, totp_enabled: 1, totp_enrolled_at: enrolledAt }) });
     } catch (err) {
         console.error('❌ Lỗi thiết lập xác thực hai yếu tố:', err.message);
@@ -1446,7 +1481,7 @@ app.post('/api/webauthn/login/verify', loginLimiter, async (req, res) => {
         const now = new Date().toISOString();
         await pool.query('UPDATE webauthn_credentials SET counter = ?, last_used_at = ? WHERE id = ?', [verification.authenticationInfo.newCounter, now, cred.id]);
 
-        const perms = typeof user.perms === 'string' ? JSON.parse(user.perms || '{}') : user.perms;
+        const perms = await resolveUserPerms(user);
 
         // Vân tay/Face ID KHÔNG được coi là thay thế cho 2FA bắt buộc của Admin
         // — cùng cổng gác như đăng nhập bằng mật khẩu ở /api/auth/login, nếu
@@ -1530,7 +1565,7 @@ app.post('/api/profile', requireAuth, async (req, res) => {
 
         const [rows] = await pool.query('SELECT * FROM users WHERE id = ?', [req.user.id]);
         const updated = rows[0];
-        const perms = typeof updated.perms === 'string' ? JSON.parse(updated.perms || '{}') : updated.perms;
+        const perms = await resolveUserPerms(updated);
         // Nếu vừa đổi mật khẩu (token_version tăng), token hiện tại của chính
         // phiên này cũng đã bị token_version-check ở requireAuth làm mất hiệu
         // lực ở request kế tiếp — ký lại token mới ngay để người dùng không bị
@@ -1575,6 +1610,12 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
         // kể cả admin/license/ngân sách) trước đây trả cho bất kỳ user đã đăng
         // nhập nào, không chỉ Admin. Chỉ truy vấn khi thật sự cần (admin) để
         // vừa đúng phân quyền vừa đỡ tải 1 query không cần thiết cho user thường.
+        // Nhóm quyền — chỉ Admin cần (để quản lý + hiển thị badge quyền hiệu
+        // lực của user khác trong danh sách), giống lý do chỉ Admin mới thấy
+        // đầy đủ users.perms bên dưới.
+        const permissionGroups = req.user.perms.admin
+            ? (await pool.query('SELECT * FROM permission_groups ORDER BY name'))[0]
+            : [];
         const logs = req.user.perms.admin
             ? (await pool.query('SELECT * FROM system_logs ORDER BY id DESC LIMIT 300'))[0]
             : [];
@@ -1608,13 +1649,14 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
         // tên/username để hiển thị "người duyệt kế tiếp" — không cần perms,
         // email, số điện thoại, phòng ban của người khác.
         const visibleUsers = req.user.perms.admin
-            ? users.map(u => sanitizeUser({ ...u, perms: typeof u.perms === 'string' ? JSON.parse(u.perms || '{}') : u.perms }))
+            ? users.map(u => sanitizeUser({ ...u, perms: typeof u.perms === 'string' ? JSON.parse(u.perms || '{}') : u.perms, permissionGroupId: u.permission_group_id || null }))
             : users.map(u => ({ id: u.id, username: u.username, name: u.name, active: !!u.active }));
 
         res.json({
             depts: depts.map(d => ({ id: d.id, name: d.name, abbr: d.abbr, orgUnitId: d.org_unit_id })),
             cats: cats.map(c => ({ id: c.id, name: c.name, abbr: c.abbr })),
             users: visibleUsers,
+            permissionGroups: permissionGroups.map(g => ({ id: g.id, name: g.name, perms: parsePerms(g.perms) })),
             // Bảng docs lưu cột dạng snake_case (file_name, current_step_order...) nhưng
             // toàn bộ frontend dùng camelCase (fileName, currentStepOrder...) — phải ánh
             // xạ lại đây, nếu không mọi thao tác xem/tải/duyệt tài liệu cũ (đã qua
@@ -2326,6 +2368,75 @@ app.post('/api/users/:id/2fa/reset', requireAuth, requireAdmin, async (req, res)
     }
 });
 
+// --- NHÓM QUYỀN (Permission Groups) — CRUD riêng (không qua /api/sync/:table
+// như bảng users) vì đây là danh mục quản trị đơn giản, không cần cơ chế
+// xóa-chèn-lại toàn bảng. Chỉ Admin quản lý được — xem resolveUserPerms() ở
+// đầu file để biết cách quyền của nhóm áp dụng cho user thành viên.
+app.post('/api/permission-groups', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const name = String((req.body && req.body.name) || '').trim();
+        if (!name) return res.status(400).json({ error: 'Tên nhóm quyền không được để trống.' });
+        if (name.length > 255) return res.status(400).json({ error: 'Tên nhóm quyền quá dài (tối đa 255 ký tự).' });
+        const perms = (req.body && req.body.perms && typeof req.body.perms === 'object') ? req.body.perms : {};
+        const [result] = await pool.query('INSERT INTO permission_groups (name, perms, created_at) VALUES (?, ?, ?)', [name, JSON.stringify(perms), new Date().toISOString()]);
+        await writeAuditLog({ module: 'USER_MGM', actionType: 'CREATE_PERMISSION_GROUP', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: name, description: `Thêm nhóm quyền [${name}].` });
+        res.json({ success: true, id: result.insertId });
+    } catch (err) {
+        if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Tên nhóm quyền đã tồn tại.' });
+        console.error('❌ Lỗi thêm nhóm quyền:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+app.put('/api/permission-groups/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const name = String((req.body && req.body.name) || '').trim();
+        if (!name) return res.status(400).json({ error: 'Tên nhóm quyền không được để trống.' });
+        if (name.length > 255) return res.status(400).json({ error: 'Tên nhóm quyền quá dài (tối đa 255 ký tự).' });
+        const perms = (req.body && req.body.perms && typeof req.body.perms === 'object') ? req.body.perms : {};
+        // An toàn giống hasActiveAdmin của /api/sync/users: nếu nhóm này đang bị
+        // bỏ quyền Admin, phải đảm bảo hệ thống vẫn còn ít nhất 1 Admin khác
+        // (user độc lập hoặc thành viên nhóm khác) đang hoạt động — nếu không,
+        // sửa xong không còn ai đủ quyền khôi phục lại. Đọc hết vào JS để resolve
+        // (nhất quán với mọi chỗ khác trong app — không dùng JSON_EXTRACT trong SQL).
+        if (!perms.admin) {
+            const [allUsers] = await pool.query('SELECT active, perms, permission_group_id FROM users');
+            const groupPermsMap = await loadPermissionGroupPermsMap();
+            const stillHasAdmin = allUsers.some(u => {
+                if (!u.active) return false;
+                if (u.permission_group_id && Number(u.permission_group_id) === Number(id)) return false; // chính nhóm đang sửa, không tính
+                return resolvePermsWithMap(u, groupPermsMap).admin === true;
+            });
+            if (!stillHasAdmin) {
+                return res.status(400).json({ error: 'Không thể bỏ quyền Admin của nhóm này — hệ thống sẽ không còn Admin nào khác đang hoạt động.' });
+            }
+        }
+        const [result] = await pool.query('UPDATE permission_groups SET name = ?, perms = ? WHERE id = ?', [name, JSON.stringify(perms), id]);
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Không tìm thấy nhóm quyền.' });
+        await writeAuditLog({ module: 'USER_MGM', actionType: 'UPDATE_PERMISSION_GROUP', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: name, description: `Cập nhật nhóm quyền [${name}] — áp dụng ngay cho mọi thành viên.` });
+        res.json({ success: true });
+    } catch (err) {
+        if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Tên nhóm quyền đã tồn tại.' });
+        console.error('❌ Lỗi cập nhật nhóm quyền:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+app.delete('/api/permission-groups/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query('SELECT name FROM permission_groups WHERE id = ?', [id]);
+        if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy nhóm quyền.' });
+        const [[{ cnt }]] = await pool.query('SELECT COUNT(*) AS cnt FROM users WHERE permission_group_id = ?', [id]);
+        if (cnt > 0) return res.status(400).json({ error: `Không thể xóa — nhóm này vẫn còn ${cnt} người dùng. Hãy chuyển họ sang nhóm khác hoặc bỏ gán nhóm trước.` });
+        await pool.query('DELETE FROM permission_groups WHERE id = ?', [id]);
+        await writeAuditLog({ module: 'USER_MGM', actionType: 'DELETE_PERMISSION_GROUP', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: rows[0].name, description: `Xóa nhóm quyền [${rows[0].name}].` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi xóa nhóm quyền:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
 // --- API SYNC / LƯU DỮ LIỆU ĐỒNG BỘ ---
 app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
     if (ADMIN_ONLY_TABLES.has(req.params.table)) return requireAdmin(req, res, next);
@@ -2482,6 +2593,15 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                 if (!canApproveStep(existing)) {
                     return res.status(403).json({ error: `Bạn không có quyền duyệt/từ chối tài liệu [${d.code}] ở bước hiện tại.` });
                 }
+                // Người duyệt không được tự duyệt/từ chối chính tài liệu mình tạo —
+                // trước đây canApproveStep() cho Admin duyệt được BẤT KỲ tài liệu nào
+                // (kể cả do chính Admin đó tạo), và 1 người vừa là tác giả vừa là
+                // người duyệt bước 1 của phòng ban mình cũng lọt qua. Áp dụng cho MỌI
+                // người kể cả Admin, nhất quán với 4 chỗ chặn tự duyệt khác trong
+                // module License/Ngân sách.
+                if (existing.creator_username === req.user.username) {
+                    return res.status(403).json({ error: `Không thể tự duyệt/từ chối tài liệu [${d.code}] do chính mình tạo — cần người khác trong quy trình duyệt xử lý.` });
+                }
                 // Dù là admin hay không, lịch sử duyệt cũ (existingHistory) không bao
                 // giờ được phép sửa/xóa — chỉ được GHI THÊM đúng 1 mục mới vào cuối.
                 // Trước đây admin bị bỏ qua toàn bộ kiểm tra bên dưới nên có thể gửi
@@ -2584,6 +2704,7 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
             });
             const [deptRows] = await pool.query('SELECT name FROM depts');
             const validDeptNames = new Set(deptRows.map(d => d.name));
+            const groupPermsMap = await loadPermissionGroupPermsMap();
 
             const rowsToInsert = [];
             for (let u of data) {
@@ -2608,6 +2729,10 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                 }
                 if (u.dept && !validDeptNames.has(u.dept)) {
                     return res.status(400).json({ error: `Phòng ban [${u.dept}] của user [${username}] không tồn tại.` });
+                }
+                const groupId = u.permissionGroupId ? Number(u.permissionGroupId) : null;
+                if (groupId && !groupPermsMap.has(groupId)) {
+                    return res.status(400).json({ error: `Nhóm quyền của user [${username}] không tồn tại.` });
                 }
 
                 let passHash;
@@ -2636,17 +2761,22 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                 }
 
                 const existingTotp = existingTotpMap[username] || { secret: null, enabled: 0, enrolledAt: null };
-                rowsToInsert.push([u.id, username, passHash, name, email, phone, u.dept, JSON.stringify(u.perms || {}), active, tokenVersion, existingTotp.secret, existingTotp.enabled, existingTotp.enrolledAt]);
+                rowsToInsert.push([u.id, username, passHash, name, email, phone, u.dept, JSON.stringify(u.perms || {}), active, tokenVersion, existingTotp.secret, existingTotp.enabled, existingTotp.enrolledAt, groupId]);
             }
 
             // Bảo mật: bảng users bị xóa-chèn-lại toàn bộ (không có id ổn định phía
             // client cho user mới), nên bắt buộc phải còn ÍT NHẤT 1 tài khoản admin
             // đang hoạt động trong chính payload gửi lên — nếu không, một request
             // sync bị lỗi dữ liệu (hoặc cố tình) có thể xóa sạch mọi quyền admin
-            // khỏi hệ thống, không còn ai đăng nhập được để khắc phục.
+            // khỏi hệ thống, không còn ai đăng nhập được để khắc phục. Phải tính qua
+            // NHÓM QUYỀN nếu user được gán nhóm (đúng quyền hiệu lực thật sự), không
+            // chỉ nhìn cột perms riêng — nếu không, xóa nhầm user Admin gán qua nhóm
+            // cuối cùng vẫn có thể lọt qua kiểm tra này.
             const hasActiveAdmin = data.some(u => {
-                const perms = u && u.perms ? u.perms : {};
-                return perms.admin === true && u.active !== false;
+                if (u.active === false) return false;
+                const groupId = u.permissionGroupId ? Number(u.permissionGroupId) : null;
+                const perms = groupId && groupPermsMap.has(groupId) ? groupPermsMap.get(groupId) : (u && u.perms ? u.perms : {});
+                return perms.admin === true;
             });
             if (!hasActiveAdmin) {
                 return res.status(400).json({ error: 'Phải còn ít nhất 1 tài khoản Admin đang hoạt động. Không thể lưu danh sách người dùng không có Admin.' });
@@ -2662,7 +2792,7 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                 await usersConn.query('DELETE FROM users');
                 for (let row of rowsToInsert) {
                     await usersConn.query(
-                        'INSERT INTO users (id, username, pass, name, email, phone, dept, perms, active, token_version, totp_secret, totp_enabled, totp_enrolled_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        'INSERT INTO users (id, username, pass, name, email, phone, dept, perms, active, token_version, totp_secret, totp_enabled, totp_enrolled_at, permission_group_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                         row
                     );
                 }
@@ -6001,12 +6131,21 @@ app.post('/api/license/employees/import', requireAuth, requireLicenseOrAdmin, as
 // MODULE QUẢN LÝ CNTT — theo dõi ngày hết hạn các dịch vụ/bản quyền do CNTT
 // quản lý (cước Internet, bản quyền Firewall, tên miền, SSL, email, phần mềm
 // hệ thống, phần mềm khác...) và tự động gửi email nhắc trước khi hết hạn.
-// Toàn bộ module chỉ Admin mới truy cập được (giống các mục Quản trị khác) —
-// người phụ trách 1 đầu mục không cần vào app, chỉ cần nhận được email nhắc.
+// Trước đây chỉ Admin truy cập được — không có quyền riêng nào để giao module
+// này cho 1 người phụ trách CNTT không phải Admin, nay thêm quyền itAssetsManager
+// (giống mô hình licenseManager/budgetManager) để gán được mà không cần cấp
+// toàn quyền Admin.
 // ============================================================
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-app.get('/api/it/bootstrap', requireAuth, requireAdmin, async (req, res) => {
+function requireItAssetsOrAdmin(req, res, next) {
+    if (!req.user || !req.user.perms || (!req.user.perms.admin && !req.user.perms.itAssetsManager)) {
+        return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên hoặc Người quản lý CNTT.' });
+    }
+    next();
+}
+
+app.get('/api/it/bootstrap', requireAuth, requireItAssetsOrAdmin, async (req, res) => {
     try {
         const [categories] = await pool.query('SELECT * FROM it_categories ORDER BY sort_order, name');
         const [items] = await pool.query('SELECT * FROM it_items WHERE deleted_at IS NULL ORDER BY expiry_date');
@@ -6025,7 +6164,7 @@ app.get('/api/it/bootstrap', requireAuth, requireAdmin, async (req, res) => {
 });
 
 // --- Danh mục loại dịch vụ/bản quyền (tự cấu hình được) ---
-app.post('/api/it/categories', requireAuth, requireAdmin, async (req, res) => {
+app.post('/api/it/categories', requireAuth, requireItAssetsOrAdmin, async (req, res) => {
     try {
         const name = String((req.body && req.body.name) || '').trim();
         if (!name) return res.status(400).json({ error: 'Tên danh mục không được để trống.' });
@@ -6039,7 +6178,7 @@ app.post('/api/it/categories', requireAuth, requireAdmin, async (req, res) => {
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
-app.put('/api/it/categories/:id', requireAuth, requireAdmin, async (req, res) => {
+app.put('/api/it/categories/:id', requireAuth, requireItAssetsOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const name = String((req.body && req.body.name) || '').trim();
@@ -6056,7 +6195,7 @@ app.put('/api/it/categories/:id', requireAuth, requireAdmin, async (req, res) =>
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
-app.delete('/api/it/categories/:id', requireAuth, requireAdmin, async (req, res) => {
+app.delete('/api/it/categories/:id', requireAuth, requireItAssetsOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const [rows] = await pool.query('SELECT name FROM it_categories WHERE id = ?', [id]);
@@ -6133,7 +6272,7 @@ async function validateItItemBody(body, { partial = false } = {}) {
     return { value: out };
 }
 
-app.post('/api/it/items', requireAuth, requireAdmin, async (req, res) => {
+app.post('/api/it/items', requireAuth, requireItAssetsOrAdmin, async (req, res) => {
     try {
         const { error, value } = await validateItItemBody(req.body || {});
         if (error) return res.status(400).json({ error });
@@ -6150,7 +6289,7 @@ app.post('/api/it/items', requireAuth, requireAdmin, async (req, res) => {
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
-app.put('/api/it/items/:id', requireAuth, requireAdmin, async (req, res) => {
+app.put('/api/it/items/:id', requireAuth, requireItAssetsOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const [rows] = await pool.query('SELECT * FROM it_items WHERE id = ?', [id]);
@@ -6171,7 +6310,7 @@ app.put('/api/it/items/:id', requireAuth, requireAdmin, async (req, res) => {
 // Xóa mềm — trước đây DELETE cứng vĩnh viễn (khác hẳn module Tài liệu có
 // Thùng rác/khôi phục). Đánh dấu deleted_at, không xóa dữ liệu thật, nên có
 // thể khôi phục qua POST /api/it/items/:id/restore bên dưới nếu xóa nhầm.
-app.delete('/api/it/items/:id', requireAuth, requireAdmin, async (req, res) => {
+app.delete('/api/it/items/:id', requireAuth, requireItAssetsOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const [rows] = await pool.query('SELECT name FROM it_items WHERE id = ? AND deleted_at IS NULL', [id]);
@@ -6185,7 +6324,7 @@ app.delete('/api/it/items/:id', requireAuth, requireAdmin, async (req, res) => {
     }
 });
 
-app.post('/api/it/items/:id/restore', requireAuth, requireAdmin, async (req, res) => {
+app.post('/api/it/items/:id/restore', requireAuth, requireItAssetsOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const [rows] = await pool.query('SELECT name FROM it_items WHERE id = ? AND deleted_at IS NOT NULL', [id]);
@@ -6200,7 +6339,7 @@ app.post('/api/it/items/:id/restore', requireAuth, requireAdmin, async (req, res
 });
 
 // --- Cấu hình mốc nhắc hẹn (dùng chung cho toàn bộ đầu mục) ---
-app.put('/api/it/reminder-config', requireAuth, requireAdmin, async (req, res) => {
+app.put('/api/it/reminder-config', requireAuth, requireItAssetsOrAdmin, async (req, res) => {
     try {
         const enabled = req.body && req.body.enabled !== undefined ? !!req.body.enabled : true;
         const daysBeforeListRaw = Array.isArray(req.body && req.body.daysBeforeList) ? req.body.daysBeforeList : [];
@@ -6222,7 +6361,7 @@ app.put('/api/it/reminder-config', requireAuth, requireAdmin, async (req, res) =
 });
 
 // --- Kích hoạt kiểm tra & gửi nhắc ngay (thủ công, giống nút "Đồng bộ AD ngay") ---
-app.post('/api/it/check-expiry-now', requireAuth, requireAdmin, async (req, res) => {
+app.post('/api/it/check-expiry-now', requireAuth, requireItAssetsOrAdmin, async (req, res) => {
     try {
         const result = await runExpiryReminderCheck();
         await setItExpiryLastCheckAt();

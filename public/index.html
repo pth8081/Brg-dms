@@ -551,6 +551,19 @@
         📘 Quản lý Phòng ban và Phân loại tài liệu đã chuyển sang tab <b>"🗂️ Quản Lý Danh Mục"</b> ở trên, cùng chỗ với các danh mục dùng chung khác.
       </div>
 
+      <!-- NHÓM QUYỀN — gom nhiều quyền thành 1 nhóm đặt tên, gán cho nhiều
+           user cùng lúc thay vì tick từng quyền lặp lại cho mỗi user. Đổi
+           quyền của nhóm áp dụng ngay cho mọi thành viên (không cần đăng
+           nhập lại) — xem resolveUserPerms() ở server.js. -->
+      <div class="bg-indigo-50 p-4 rounded border border-indigo-300 space-y-3">
+        <div class="flex flex-wrap justify-between items-center gap-2">
+          <h3 class="font-bold text-base text-gray-800">🏷️ Nhóm Quyền</h3>
+          <button type="button" data-evt-click="openPermissionGroupModal" data-args='[]' class="btn-primary text-xs px-3 py-1.5 rounded font-bold">+ Thêm Nhóm Quyền</button>
+        </div>
+        <p class="text-[11px] text-gray-500">Gán 1 user vào nhóm để áp dụng nguyên quyền của nhóm đó, thay vì tick từng ô quyền riêng. Bấm "+ Thêm người dùng" ngay trên 1 nhóm để tạo user mới gán sẵn vào nhóm đó.</p>
+        <div id="permissionGroupList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2"></div>
+      </div>
+
       <!-- CẤU HÌNH USER & PHÂN QUYỀN MATRIX -->
       <div class="bg-slate-50 p-4 rounded border border-slate-300 space-y-4">
         <h3 class="font-bold text-base text-gray-800">Tài Khoản Người Dùng & Phân Quyền Chi Tiết theo Phòng Ban</h3>
@@ -595,7 +608,16 @@
             </div>
           </div>
 
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 text-xs">
+          <div class="bg-indigo-50 border border-indigo-200 rounded p-3 space-y-2 text-xs">
+            <label class="block font-semibold text-indigo-800">🏷️ Nhóm quyền (tùy chọn)</label>
+            <select id="uPermissionGroupId" data-evt-change="onUserGroupChange" data-args='[]' class="w-full border p-1.5 rounded text-xs bg-white">
+              <option value="">-- Không dùng nhóm (tự chọn quyền riêng bên dưới) --</option>
+            </select>
+            <p class="text-[11px] text-indigo-700">Chọn 1 nhóm để áp dụng quyền theo nhóm cho user này (ghi đè toàn bộ các ô chọn quyền bên dưới) — đổi quyền của nhóm sẽ có hiệu lực NGAY cho mọi user trong nhóm, không cần đăng nhập lại. Để trống nếu muốn tự chọn quyền riêng cho user này.</p>
+            <div id="uGroupPermsSummary" class="hidden bg-white rounded border p-2"></div>
+          </div>
+
+          <div id="userIndividualPermsWrap" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 text-xs">
             <div class="bg-white p-3 rounded border space-y-2">
               <h4 class="font-bold text-purple-800 border-b pb-1 text-xs">1. Quyền Admin</h4>
               <label class="flex items-center gap-2 text-purple-700 font-semibold cursor-pointer">
@@ -609,6 +631,10 @@
                 <input type="checkbox" id="pBudgetManager"> Người quản lý Ngân sách
               </label>
               <p class="text-[10px] text-gray-500 leading-tight">Toàn quyền trong module Quản lý Ngân sách (Đề xuất, Phê duyệt, Sử dụng, Báo cáo), không có quyền Admin ở module khác.</p>
+              <label class="flex items-center gap-2 text-sky-700 font-semibold cursor-pointer border-t pt-2">
+                <input type="checkbox" id="pItAssetsManager"> Người quản lý CNTT
+              </label>
+              <p class="text-[10px] text-gray-500 leading-tight">Toàn quyền trong module Quản lý CNTT (theo dõi hạn dịch vụ/bản quyền, nhắc email), không có quyền Admin ở module khác.</p>
             </div>
 
             <div class="bg-white p-3 rounded border space-y-2">
@@ -3416,6 +3442,84 @@
         <p class="text-[11px] text-gray-500">Đăng ký thiết bị này để lần sau đăng nhập nhanh, không cần gõ mật khẩu/mã xác nhận trên đúng thiết bị này — mật khẩu vẫn dùng bình thường khi cần (thiết bị lạ, quên sinh trắc học...).</p>
         <ul id="webauthnDeviceList" class="divide-y border rounded max-h-40 overflow-y-auto"></ul>
         <button type="button" data-evt-click="registerWebauthnDevice" data-args='[]' class="btn-secondary px-3 py-1.5 rounded text-xs font-bold">+ Đăng ký thiết bị này</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Thêm/Sửa Nhóm Quyền — cùng bộ ô chọn quyền như form User (id
+       tiền tố "g" thay vì "p" để tránh trùng id), TRỪ mục "Phạm vi tự phục
+       vụ" (gắn với 1 công ty/đơn vị cụ thể của TỪNG người, không hợp lý ở
+       cấp nhóm dùng chung cho nhiều người). Xem savePermissionGroup()/
+       openPermissionGroupModal() trong app.js. -->
+  <div id="permissionGroupModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-3xl w-full flex flex-col max-h-[90vh] overflow-hidden">
+      <div class="flex justify-between items-center p-4 border-b flex-none">
+        <h3 id="permissionGroupModalTitle" class="font-bold text-gray-900 text-base">🏷️ Thêm Nhóm Quyền</h3>
+        <button data-evt-click="closeLicenseModal" data-args='["permissionGroupModal"]' class="text-gray-500 font-bold hover:text-gray-700 text-lg">✕</button>
+      </div>
+      <div class="p-4 overflow-y-auto flex-1 space-y-3">
+        <input type="hidden" id="editGroupId">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Tên nhóm quyền</label>
+          <input id="gName" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Quản lý CNTT khu vực Miền Bắc" required>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 text-xs">
+          <div class="bg-white p-3 rounded border space-y-2">
+            <h4 class="font-bold text-purple-800 border-b pb-1 text-xs">1. Quyền Admin</h4>
+            <label class="flex items-center gap-2 text-purple-700 font-semibold cursor-pointer">
+              <input type="checkbox" id="gAdmin"> Admin (Toàn quyền hệ thống)
+            </label>
+            <label class="flex items-center gap-2 text-blue-700 font-semibold cursor-pointer border-t pt-2">
+              <input type="checkbox" id="gLicenseManager"> Người quản lý License
+            </label>
+            <label class="flex items-center gap-2 text-teal-700 font-semibold cursor-pointer border-t pt-2">
+              <input type="checkbox" id="gBudgetManager"> Người quản lý Ngân sách
+            </label>
+            <label class="flex items-center gap-2 text-sky-700 font-semibold cursor-pointer border-t pt-2">
+              <input type="checkbox" id="gItAssetsManager"> Người quản lý CNTT
+            </label>
+          </div>
+          <div class="bg-white p-3 rounded border space-y-2">
+            <div class="flex justify-between items-center border-b pb-1">
+              <h4 class="font-bold text-blue-800 text-xs">2. Upload / Trình Ký</h4>
+              <label class="flex items-center gap-1 font-bold text-blue-700 cursor-pointer text-[11px]">
+                <input type="checkbox" id="gUploadAll" data-evt-change="toggleScopeGroup" data-args='["gUploadAll","gUploadDept"]'> ALL
+              </label>
+            </div>
+            <div id="gUploadDeptContainer" class="space-y-1 pl-1 max-h-36 overflow-y-auto"></div>
+          </div>
+          <div class="bg-white p-3 rounded border space-y-2">
+            <div class="flex justify-between items-center border-b pb-1">
+              <h4 class="font-bold text-amber-800 text-xs">3. Xem Bản Nháp</h4>
+              <label class="flex items-center gap-1 font-bold text-amber-700 cursor-pointer text-[11px]">
+                <input type="checkbox" id="gViewDraftAll" data-evt-change="toggleScopeGroup" data-args='["gViewDraftAll","gViewDraftDept"]'> ALL
+              </label>
+            </div>
+            <div id="gViewDraftDeptContainer" class="space-y-1 pl-1 max-h-36 overflow-y-auto"></div>
+          </div>
+          <div class="bg-white p-3 rounded border space-y-2">
+            <div class="flex justify-between items-center border-b pb-1">
+              <h4 class="font-bold text-emerald-800 text-xs">4. Xem Đã Duyệt</h4>
+              <label class="flex items-center gap-1 font-bold text-emerald-700 cursor-pointer text-[11px]">
+                <input type="checkbox" id="gViewApprovedAll" data-evt-change="toggleScopeGroup" data-args='["gViewApprovedAll","gViewApprovedDept"]'> ALL
+              </label>
+            </div>
+            <div id="gViewApprovedDeptContainer" class="space-y-1 pl-1 max-h-36 overflow-y-auto"></div>
+          </div>
+          <div class="bg-white p-3 rounded border space-y-2">
+            <div class="flex justify-between items-center border-b pb-1">
+              <h4 class="font-bold text-rose-800 text-xs">5. Quyền Tải File</h4>
+              <label class="flex items-center gap-1 font-bold text-rose-700 cursor-pointer text-[11px]">
+                <input type="checkbox" id="gDownloadAll" data-evt-change="toggleScopeGroup" data-args='["gDownloadAll","gDownloadDept"]'> ALL
+              </label>
+            </div>
+            <div id="gDownloadDeptContainer" class="space-y-1 pl-1 max-h-36 overflow-y-auto"></div>
+          </div>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 p-3 border-t flex-none">
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["permissionGroupModal"]' class="bg-gray-400 text-white px-4 py-2 rounded text-xs font-bold">Hủy</button>
+        <button type="button" data-evt-click="savePermissionGroup" data-args='[]' class="btn-primary px-5 py-2 rounded text-xs font-bold">Lưu</button>
       </div>
     </div>
   </div>
