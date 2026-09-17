@@ -3441,6 +3441,10 @@
       <div id="pfTabWebauthnPanel" class="hidden p-4 space-y-2 text-xs overflow-y-auto flex-1">
         <p class="text-[11px] text-gray-500">Đăng ký thiết bị này để lần sau đăng nhập nhanh, không cần gõ mật khẩu/mã xác nhận trên đúng thiết bị này — mật khẩu vẫn dùng bình thường khi cần (thiết bị lạ, quên sinh trắc học...).</p>
         <ul id="webauthnDeviceList" class="divide-y border rounded max-h-40 overflow-y-auto"></ul>
+        <div>
+          <label class="block font-semibold text-gray-600 mb-1">Tên thiết bị (tùy chọn, có thể tự sửa)</label>
+          <input id="webauthnDeviceLabelInput" type="text" maxlength="255" placeholder="VD: Điện thoại của tôi" class="w-full border p-2 rounded text-sm">
+        </div>
         <button type="button" data-evt-click="registerWebauthnDevice" data-args='[]' class="btn-secondary px-3 py-1.5 rounded text-xs font-bold">+ Đăng ký thiết bị này</button>
       </div>
     </div>

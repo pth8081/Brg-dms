@@ -642,9 +642,12 @@
           },
           clientExtensionResults: credential.getClientExtensionResults ? credential.getClientExtensionResults() : {}
         };
-        await apiFetch('/api/webauthn/register/verify', { method: 'POST', body: JSON.stringify({ credential: credentialForServer, deviceLabel: guessWebauthnDeviceLabel() }) });
+        const labelInput = document.getElementById('webauthnDeviceLabelInput');
+        const deviceLabel = (labelInput && labelInput.value.trim()) || guessWebauthnDeviceLabel();
+        await apiFetch('/api/webauthn/register/verify', { method: 'POST', body: JSON.stringify({ credential: credentialForServer, deviceLabel }) });
         localStorage.setItem(WEBAUTHN_REMEMBERED_USERNAME_KEY, currentUser.username);
         showToast('Đã đăng ký vân tay/Face ID cho thiết bị này.', 'success');
+        if (labelInput) labelInput.value = '';
         loadWebauthnDeviceList();
       } catch (e) {
         if (e && e.name === 'NotAllowedError') {
@@ -3231,6 +3234,7 @@
       document.getElementById('pfPhone').value = currentUser.phone || '';
       document.getElementById('pfNewPass').value = '';
       document.getElementById('pfConfirmPass').value = '';
+      document.getElementById('webauthnDeviceLabelInput').value = '';
       switchProfileTab('info');
       document.getElementById('profileModal').classList.remove('hidden');
       loadWebauthnDeviceList();
@@ -3254,6 +3258,13 @@
       document.getElementById('profileForm').classList.toggle('hidden', isWebauthn);
       document.getElementById('pfFormFooter').classList.toggle('hidden', isWebauthn);
       document.getElementById('pfTabWebauthnPanel').classList.toggle('hidden', !isWebauthn);
+      // Gợi ý sẵn tên thiết bị (trình duyệt + hệ điều hành) nhưng vẫn cho tự
+      // gõ sửa lại trước khi đăng ký — chỉ điền lần đầu (ô còn trống), không
+      // ghi đè nếu user đã tự gõ rồi chuyển qua lại giữa các tab.
+      if (isWebauthn) {
+        const labelInput = document.getElementById('webauthnDeviceLabelInput');
+        if (labelInput && !labelInput.value.trim()) labelInput.value = guessWebauthnDeviceLabel();
+      }
       ['Info', 'Password', 'Webauthn'].forEach(key => {
         document.getElementById('btnPfTab' + key).classList.toggle('active', tab === key.toLowerCase());
       });
