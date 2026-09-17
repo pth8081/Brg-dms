@@ -148,6 +148,20 @@ CALL add_column_if_not_exists('users', 'totp_secret', 'VARCHAR(64) NULL DEFAULT 
 CALL add_column_if_not_exists('users', 'totp_enabled', 'TINYINT(1) NOT NULL DEFAULT 0');
 CALL add_column_if_not_exists('users', 'totp_enrolled_at', 'VARCHAR(100) NULL DEFAULT NULL');
 
+-- (F5) Bước thời gian TOTP (30s/bước) của mã 2FA ĐÃ CHẤP NHẬN gần nhất — chặn
+-- dùng lại (replay) cùng 1 mã 6 số nhiều lần trong biên độ chấp nhận ±1 bước
+-- (~90 giây, xem authenticator.options window:1). Không có cột này, ai xem
+-- trộm được 1 mã hợp lệ (qua vai, camera...) có thể tự nhập lại nhiều lần
+-- trong cửa sổ đó.
+CALL add_column_if_not_exists('users', 'totp_last_used_step', 'BIGINT NULL DEFAULT NULL');
+
+-- (F6) Đếm/khóa riêng cho bước xác thực mã 2FA — tách biệt với
+-- failed_login_count/locked_until (dùng cho sai MẬT KHẨU). Trước đây xác thực
+-- 2FA chỉ có giới hạn theo IP (loginLimiter, dùng chung cho cả bước mật khẩu),
+-- nên 1 kẻ đã biết mật khẩu có thể dò mã 6 số bằng nhiều IP xoay vòng.
+CALL add_column_if_not_exists('users', 'failed_2fa_count', 'INT NOT NULL DEFAULT 0');
+CALL add_column_if_not_exists('users', 'totp_locked_until', 'VARCHAR(100) NULL DEFAULT NULL');
+
 -- Nhóm quyền (Role) — 1 bộ quyền đặt tên (cùng cấu trúc JSON với cột users.perms),
 -- gán cho nhiều user cùng lúc thay vì tick từng quyền lặp lại cho mỗi user. Khi
 -- user có permission_group_id, quyền HIỆU LỰC của user đó luôn lấy từ nhóm (ghi
@@ -326,6 +340,44 @@ CALL create_index_if_not_exists('lic_employees', 'idx_lic_employees_org_unit', '
 -- bảng nhân viên lớn dần.
 CALL create_index_if_not_exists('lic_employees', 'idx_lic_employees_code', 'employee_code');
 CALL create_index_if_not_exists('lic_employees', 'idx_lic_employees_email', 'email');
+
+-- (F9) company_id "phi chuẩn hóa" (denormalized) từ lic_org_units.company_id
+-- — trước đây chống trùng employee_code TRONG 1 công ty chỉ dựa vào 1 câu
+-- SELECT kiểm tra trước khi INSERT (app.js/server.js), không có ràng buộc gì
+-- ở CSDL, khác hẳn mọi ràng buộc chống trùng tương tự khác trong hệ thống
+-- (pending_key, dedup_key...) vốn có cả UNIQUE constraint làm lớp chặn cuối
+-- — 2 request thêm nhân viên gần như đồng thời có thể tạo 2 nhân viên trùng
+-- mã trong cùng công ty. Cột này được app tự đồng bộ mỗi khi org_unit_id đổi
+-- (thêm/sửa nhân viên) — KHÔNG dùng generated column vì MySQL không cho phép
+-- generated column tham chiếu bảng khác qua JOIN.
+CALL add_column_if_not_exists('lic_employees', 'company_id', 'BIGINT NULL DEFAULT NULL');
+UPDATE lic_employees e JOIN lic_org_units u ON u.id = e.org_unit_id
+    SET e.company_id = u.company_id WHERE e.company_id IS NULL;
+-- UNIQUE trên (company_id, employee_code) — MySQL coi mỗi NULL là khác biệt
+-- trong unique index nên không ảnh hưởng gì tới các nhân viên chưa có mã. Chỉ
+-- tạo ràng buộc này nếu dữ liệu HIỆN TẠI chưa có xung đột — tránh làm gãy quá
+-- trình nâng cấp CSDL nếu production lỡ đã có dữ liệu trùng mã (không phân
+-- biệt hoa/thường, theo đúng collation của cột) từ trước khi có ràng buộc
+-- này. Nếu bị bỏ qua, kiểm tra ở tầng ứng dụng (POST/PUT /api/license/employees)
+-- vẫn là lớp chặn duy nhất cho tới khi dữ liệu trùng được rà soát/dọn thủ công.
+DELIMITER $$
+DROP PROCEDURE IF EXISTS add_unique_lic_employees_code_if_safe$$
+CREATE PROCEDURE add_unique_lic_employees_code_if_safe()
+BEGIN
+    DECLARE dup_count INT DEFAULT 0;
+    SELECT COUNT(*) INTO dup_count FROM (
+        SELECT company_id, employee_code FROM lic_employees
+        WHERE company_id IS NOT NULL AND employee_code IS NOT NULL AND employee_code <> ''
+        GROUP BY company_id, employee_code
+        HAVING COUNT(*) > 1
+    ) dup;
+    IF dup_count = 0 THEN
+        CALL create_unique_index_if_not_exists('lic_employees', 'uq_lic_employees_company_code', 'company_id, employee_code');
+    END IF;
+END$$
+DELIMITER ;
+CALL add_unique_lic_employees_code_if_safe();
+DROP PROCEDURE add_unique_lic_employees_code_if_safe;
 
 CREATE TABLE IF NOT EXISTS lic_software_catalog (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
