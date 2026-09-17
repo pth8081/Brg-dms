@@ -1874,9 +1874,16 @@
 
     <!-- Sub-tab: Đầu mục theo dõi -->
     <div id="itSubItems" class="space-y-3">
-      <div class="flex flex-wrap justify-between items-center gap-2">
+      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
         <h2 class="text-lg font-bold text-gray-800">Đầu mục theo dõi gia hạn</h2>
-        <button data-evt-click="openItItemModal" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">+ Thêm đầu mục</button>
+        <div class="flex flex-wrap gap-2 text-xs">
+          <button data-evt-click="openItItemModal" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition">+ Thêm đầu mục</button>
+          <button data-evt-click="downloadItItemTemplate" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition">📄 Tải File Excel Mẫu</button>
+          <label class="btn-secondary px-2.5 py-1.5 rounded font-semibold cursor-pointer transition">
+            📥 Nhập Excel <input type="file" accept=".xlsx" data-evt-change="importItItemsXlsx" data-args='[{"__live__":"event"}]' class="hidden">
+          </label>
+          <button data-evt-click="exportItItemsXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition">📤 Xuất Excel</button>
+        </div>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-4 gap-2 bg-gray-50 p-3 rounded border">
         <input id="itFilterSearch" type="text" placeholder="🔍 Tìm theo tên..." data-evt-input="resetPageAndRerender" data-args='["itItems","renderItItemsTable"]' class="border p-1.5 rounded text-sm">

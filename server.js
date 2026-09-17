@@ -3502,6 +3502,20 @@ function fmtDate(d) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 function validDateStr(s) { return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s); }
+// Chuẩn hóa ngày nhập từ file Excel về đúng định dạng YYYY-MM-DD server yêu
+// cầu — chấp nhận cả 2 dạng: ô ngày thật của Excel (client đã tự quy về ISO
+// qua xlsxCellToText trước khi gửi lên) LẪN người dùng gõ tay kiểu dd/mm/yyyy
+// quen thuộc (ô văn bản thường, không phải ô ngày). Trả về null nếu không
+// nhận diện được hoặc chuỗi rỗng.
+function parseImportDateToIso(s) {
+    const str = String(s || '').trim();
+    if (!str) return null;
+    if (validDateStr(str)) return str;
+    const m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (!m) return null;
+    const iso = `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+    return validDateStr(iso) ? iso : null;
+}
 function mapBatch(b) { return { id: b.id, companyId: b.company_id, softwareId: b.software_id, totalQuantity: b.total_quantity, codesGenerated: b.codes_generated, issuedDate: fmtDate(b.issued_date), expiryDate: fmtDate(b.expiry_date), note: b.note, registrationId: b.registration_id }; }
 function mapCode(c) { return { id: c.id, batchId: c.batch_id, companyId: c.company_id, softwareId: c.software_id, code: c.code, expiryDate: fmtDate(c.expiry_date) }; }
 function mapCodeAssignment(a) { return { id: a.id, codeId: a.code_id, employeeId: a.employee_id, assignedAt: fmtDate(a.assigned_at) }; }
@@ -6614,6 +6628,83 @@ app.post('/api/it/items/:id/restore', requireAuth, requireItAssetsOrAdmin, async
     } catch (err) {
         console.error('❌ Lỗi khôi phục đầu mục CNTT:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Nhập hàng loạt Đầu mục theo dõi từ file Excel (.xlsx) — client tự đọc
+// file bằng ExcelJS rồi gửi lên đúng mảng JSON đã parse (server không nhận
+// file thô), giống hệt cơ chế import Công ty/Nhân viên module License và
+// nhập Excel module Ngân sách. Luôn TẠO MỚI từng dòng — khác với nhân viên
+// License (có mã nhân viên làm khóa tự nhiên để cập nhật), 1 đầu mục CNTT
+// không có mã định danh ổn định nào để đối chiếu "đã tồn tại hay chưa" một
+// cách an toàn, nên nhập lại cùng 1 file nhiều lần sẽ tạo trùng — người dùng
+// tự kiểm tra trước khi nhập lại.
+app.post('/api/it/items/import', requireAuth, requireItAssetsOrAdmin, async (req, res) => {
+    let conn;
+    try {
+        const rows = Array.isArray(req.body && req.body.rows) ? req.body.rows.slice(0, 2000) : [];
+        if (rows.length === 0) return res.status(400).json({ error: 'File không có dữ liệu hợp lệ.' });
+
+        conn = await pool.getConnection();
+        await conn.beginTransaction();
+        const [categories] = await conn.query('SELECT id, name FROM it_categories');
+        const categoryIdByName = new Map(categories.map(c => [c.name.trim().toLowerCase(), c.id]));
+
+        const errors = [];
+        let created = 0;
+        const nowIso = new Date().toISOString();
+
+        for (let i = 0; i < rows.length; i++) {
+            const r = rows[i] || {};
+            const rowNo = i + 2;
+            const categoryName = String(r.danh_muc || '').trim();
+            const categoryId = categoryIdByName.get(categoryName.toLowerCase());
+            if (!categoryId) {
+                errors.push(`Dòng ${rowNo}: không tìm thấy danh mục [${categoryName || '(trống)'}] — tạo danh mục trước khi nhập.`);
+                continue;
+            }
+            const expiryDate = parseImportDateToIso(r.ngay_het_han);
+            if (r.ngay_het_han && !expiryDate) {
+                errors.push(`Dòng ${rowNo}: Ngày hết hạn [${r.ngay_het_han}] không hợp lệ (dùng định dạng yyyy-mm-dd hoặc dd/mm/yyyy).`);
+                continue;
+            }
+            const startDateRaw = String(r.ngay_bat_dau || '').trim();
+            const startDate = startDateRaw ? parseImportDateToIso(startDateRaw) : null;
+            if (startDateRaw && !startDate) {
+                errors.push(`Dòng ${rowNo}: Ngày bắt đầu [${r.ngay_bat_dau}] không hợp lệ (dùng định dạng yyyy-mm-dd hoặc dd/mm/yyyy).`);
+                continue;
+            }
+            const costRaw = String(r.chi_phi || '').trim();
+
+            const { error, value } = await validateItItemBody({
+                name: r.ten_dau_muc,
+                categoryId,
+                provider: r.nha_cung_cap,
+                startDate: startDate || null,
+                expiryDate: expiryDate || '',
+                cost: costRaw === '' ? null : costRaw,
+                ownerEmail: r.nguoi_phu_trach_email,
+                description: r.mo_ta
+            });
+            if (error) { errors.push(`Dòng ${rowNo}: ${error}`); continue; }
+
+            await conn.query(
+                `INSERT INTO it_items (category_id, name, provider, description, start_date, expiry_date, cost, owner_email, active, created_by, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?, ?, ?)`,
+                [value.categoryId, value.name, value.provider || null, value.description || null, value.startDate || null, value.expiryDate, value.cost === undefined ? null : value.cost, value.ownerEmail || null, req.user.username, nowIso, nowIso]
+            );
+            created++;
+        }
+
+        await conn.commit();
+        await writeAuditLog({ module: 'IT_ASSETS', actionType: 'IMPORT_IT_ITEMS', status: errors.length ? 'PARTIAL' : 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: 'Đầu mục theo dõi CNTT', description: `Nhập Excel: ${created} đầu mục mới, ${errors.length} lỗi.` });
+        res.json({ success: true, created, errors });
+    } catch (err) {
+        if (conn) { try { await conn.rollback(); } catch (_) {} }
+        console.error('❌ Lỗi nhập Excel đầu mục CNTT:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    } finally {
+        if (conn) conn.release();
     }
 });
 
