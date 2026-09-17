@@ -919,6 +919,16 @@ CALL create_index_if_not_exists('budget2_lines', 'idx_budget2_month', 'budget_mo
 -- phát sinh mua thay vì theo tháng dự trù ban đầu.
 CALL add_column_if_not_exists('budget2_lines', 'purchase_month', 'TINYINT NULL DEFAULT NULL');
 
+-- Khóa sửa khi đang chờ duyệt (SUBMITTED): trước đây bất kỳ ai có quyền Ngân
+-- sách đều sửa tự do 1 dòng Đề xuất/Phê duyệt đang chờ duyệt qua PUT
+-- /api/budget2/lines/:id, kể cả chính người tạo — phá vỡ tính toàn vẹn của
+-- nội dung người phê duyệt đang xem xét. Nay PUT chặn sửa (và cả thao tác
+-- "Bổ sung" nhanh, vì dùng chung endpoint này) với người không phải Admin
+-- trừ khi cột này = 1 — chỉ người phê duyệt (KHÔNG phải chính người tạo, xem
+-- POST .../request-supplement-proposal và .../request-supplement) mới bật
+-- được cờ này; sửa xong tự đặt lại về 0 ngay trong PUT.
+CALL add_column_if_not_exists('budget2_lines', 'edit_requested', 'TINYINT(1) NOT NULL DEFAULT 0');
+
 -- Danh mục phân loại NGÂN SÁCH theo ĐỐI TƯỢNG mua/chi (Phần mềm/Phần cứng/
 -- Dịch vụ/Hệ thống) — KHÁC budget_type (OPEX/CAPEX, phân loại theo bản chất
 -- kế toán) — phục vụ báo cáo nhóm theo danh mục. Bắt buộc chọn ở dòng gốc

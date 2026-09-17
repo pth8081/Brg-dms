@@ -6989,7 +6989,8 @@ function mapBudget2Line(l) {
         decidedAt: l.decided_at,
         budgetYear: l.budget_year,
         budgetMonth: l.budget_month,
-        purchaseMonth: l.purchase_month
+        purchaseMonth: l.purchase_month,
+        editRequested: !!l.edit_requested
     };
 }
 
@@ -7231,11 +7232,17 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
             if (line.status !== 'SUBMITTED' && !req.user.perms.admin) {
                 return res.status(400).json({ error: 'Đề xuất đã được duyệt/từ chối, không thể sửa.' });
             }
+            // (Khóa sửa khi đang chờ duyệt) Xem chú thích cột edit_requested ở
+            // schema.sql — chỉ mở khóa đúng 1 lần khi người phê duyệt chủ động
+            // yêu cầu bổ sung, tự khóa lại ngay sau khi sửa xong bên dưới.
+            if (line.status === 'SUBMITTED' && !line.edit_requested && !req.user.perms.admin) {
+                return res.status(400).json({ error: 'Đề xuất đang chờ duyệt — chỉ có thể sửa/bổ sung khi người phê duyệt yêu cầu bổ sung.' });
+            }
             const v = validateBudget2LineInput(req.body || {}, {}, await getBudget2CategoryCatalog(), await getBudget2OrgScopeCatalog());
             if (v.error) return res.status(400).json({ error: v.error });
             const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
             await pool.query(
-                `UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, note = ?, budget_year = ?, budget_month = ? WHERE id = ?`,
+                `UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, note = ?, budget_year = ?, budget_month = ?, edit_requested = 0 WHERE id = ?`,
                 [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, v.budgetYear, v.budgetMonth, id]
             );
             await writeAuditLog({ module: 'BUDGET2', actionType: 'UPDATE_PROPOSAL', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Cập nhật đề xuất ngân sách [${v.content}]${line.status !== 'SUBMITTED' ? ' (đã quyết định — Admin sửa lại)' : ''}.` });
@@ -7251,6 +7258,12 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
             if (line.status !== 'SUBMITTED' && !req.user.perms.admin) {
                 return res.status(400).json({ error: 'Dòng ngân sách phê duyệt đã được duyệt/từ chối, không thể sửa.' });
             }
+            // (Khóa sửa khi đang chờ duyệt) Xem chú thích cột edit_requested ở
+            // schema.sql — chỉ mở khóa đúng 1 lần khi người phê duyệt chủ động
+            // yêu cầu bổ sung, tự khóa lại ngay sau khi sửa xong bên dưới.
+            if (line.status === 'SUBMITTED' && !line.edit_requested && !req.user.perms.admin) {
+                return res.status(400).json({ error: 'Dòng ngân sách phê duyệt đang chờ duyệt — chỉ có thể sửa/bổ sung khi người phê duyệt yêu cầu bổ sung.' });
+            }
             const v = validateBudget2LineInput(req.body || {}, {}, await getBudget2CategoryCatalog(), await getBudget2OrgScopeCatalog());
             if (v.error) return res.status(400).json({ error: v.error });
             const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
@@ -7259,7 +7272,7 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
                 try {
                     await conn.beginTransaction();
                     await conn.query(
-                        `UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, note = ?, budget_year = ?, budget_month = ? WHERE id = ?`,
+                        `UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, note = ?, budget_year = ?, budget_month = ?, edit_requested = 0 WHERE id = ?`,
                         [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, v.budgetYear, v.budgetMonth, id]
                     );
                     const [usedRows] = await conn.query('SELECT id FROM budget2_lines WHERE source_line_id = ?', [id]);
@@ -7279,7 +7292,7 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
                 }
             } else {
                 await pool.query(
-                    `UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, note = ?, budget_year = ?, budget_month = ? WHERE id = ?`,
+                    `UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, note = ?, budget_year = ?, budget_month = ?, edit_requested = 0 WHERE id = ?`,
                     [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, v.budgetYear, v.budgetMonth, id]
                 );
             }
@@ -7481,6 +7494,37 @@ app.post('/api/budget2/lines/:id/reject-proposal', requireAuth, requireBudgetOrA
     }
 });
 
+// --- Yêu cầu bổ sung thông tin cho 1 đề xuất đang chờ duyệt — mở khóa PUT
+// /api/budget2/lines/:id đúng 1 lần (đặt edit_requested = 1) để người tạo
+// (hoặc bất kỳ ai có quyền Ngân sách) sửa lại/bổ sung, PUT sẽ tự khóa lại
+// ngay sau khi sửa xong. Áp dụng đúng quy tắc chặn tự thao tác trên đề xuất
+// do chính mình tạo như Duyệt/Từ chối — nếu không, người tạo có thể tự "yêu
+// cầu bổ sung" chính đề xuất của mình để tự mở khóa sửa, vô hiệu hóa hoàn
+// toàn mục đích của cơ chế khóa.
+app.post('/api/budget2/lines/:id/request-supplement-proposal', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const reason = String((req.body && req.body.reason) || '').trim();
+        if (!reason) return res.status(400).json({ error: 'Vui lòng nhập nội dung cần bổ sung.' });
+        if (reason.length > 400) return res.status(400).json({ error: 'Nội dung cần bổ sung quá dài (tối đa 400 ký tự).' });
+        const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'PROPOSED\'', [id]);
+        const line = rows[0];
+        if (!line) return res.status(404).json({ error: 'Không tìm thấy đề xuất.' });
+        if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Đề xuất này đã được xử lý trước đó.' });
+        if (line.created_by === req.user.username) return res.status(403).json({ error: 'Không thể tự yêu cầu bổ sung đề xuất do chính mình tạo.' });
+        const stamp = `[Yêu cầu bổ sung - ${new Date().toLocaleString('vi-VN')} - ${req.user.name}] ${reason}`;
+        const newNote = line.note ? `${line.note}\n${stamp}` : stamp;
+        if (newNote.length > 500) return res.status(400).json({ error: 'Ghi chú đã gần đầy, không đủ chỗ để thêm yêu cầu bổ sung — hãy rút gọn nội dung.' });
+        const [upd] = await pool.query("UPDATE budget2_lines SET edit_requested = 1, note = ? WHERE id = ? AND status = 'SUBMITTED'", [newNote, id]);
+        if (upd.affectedRows === 0) return res.status(409).json({ error: 'Đề xuất này vừa được xử lý bởi người khác, vui lòng tải lại trang.' });
+        await writeAuditLog({ module: 'BUDGET2', actionType: 'REQUEST_SUPPLEMENT_PROPOSAL', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Yêu cầu bổ sung thông tin cho đề xuất ngân sách [${line.content}]: ${reason}` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi yêu cầu bổ sung đề xuất ngân sách:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
 // --- Duyệt 1 dòng ngân sách phê duyệt (đang chờ) — CHỈ giai đoạn Phê duyệt
 // mới có bước duyệt này; tự động sinh dòng Sử dụng (mục cha) tương ứng. ---
 app.post('/api/budget2/lines/:id/approve', requireAuth, requireBudgetOrAdmin, async (req, res) => {
@@ -7537,6 +7581,33 @@ app.post('/api/budget2/lines/:id/reject', requireAuth, requireBudgetOrAdmin, asy
         res.json({ success: true });
     } catch (err) {
         console.error('❌ Lỗi từ chối dòng ngân sách phê duyệt:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Yêu cầu bổ sung thông tin cho 1 dòng ngân sách phê duyệt đang chờ duyệt
+// — xem chú thích đầy đủ ở .../request-supplement-proposal (giai đoạn Đề
+// xuất), logic giống hệt, chỉ khác stage = 'APPROVED'. ---
+app.post('/api/budget2/lines/:id/request-supplement', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const reason = String((req.body && req.body.reason) || '').trim();
+        if (!reason) return res.status(400).json({ error: 'Vui lòng nhập nội dung cần bổ sung.' });
+        if (reason.length > 400) return res.status(400).json({ error: 'Nội dung cần bổ sung quá dài (tối đa 400 ký tự).' });
+        const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'APPROVED\'', [id]);
+        const line = rows[0];
+        if (!line) return res.status(404).json({ error: 'Không tìm thấy dòng ngân sách phê duyệt.' });
+        if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Dòng này đã được xử lý trước đó.' });
+        if (line.created_by === req.user.username) return res.status(403).json({ error: 'Không thể tự yêu cầu bổ sung dòng ngân sách do chính mình tạo.' });
+        const stamp = `[Yêu cầu bổ sung - ${new Date().toLocaleString('vi-VN')} - ${req.user.name}] ${reason}`;
+        const newNote = line.note ? `${line.note}\n${stamp}` : stamp;
+        if (newNote.length > 500) return res.status(400).json({ error: 'Ghi chú đã gần đầy, không đủ chỗ để thêm yêu cầu bổ sung — hãy rút gọn nội dung.' });
+        const [upd] = await pool.query("UPDATE budget2_lines SET edit_requested = 1, note = ? WHERE id = ? AND status = 'SUBMITTED'", [newNote, id]);
+        if (upd.affectedRows === 0) return res.status(409).json({ error: 'Dòng này vừa được xử lý bởi người khác, vui lòng tải lại trang.' });
+        await writeAuditLog({ module: 'BUDGET2', actionType: 'REQUEST_SUPPLEMENT_BUDGET', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Yêu cầu bổ sung thông tin cho dòng ngân sách phê duyệt [${line.content}]: ${reason}` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi yêu cầu bổ sung dòng ngân sách phê duyệt:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
