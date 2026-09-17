@@ -2196,7 +2196,7 @@
       <div class="grid grid-cols-2 gap-3 items-end">
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Chi phí (tùy chọn)</label>
-          <input id="itItemCost" type="number" min="0" step="1000" class="w-full border p-2 rounded text-sm">
+          <input id="itItemCost" type="text" inputmode="numeric" data-evt-input="onMoneyInputFormat" data-args='[{"__live__":"event"}]' class="w-full border p-2 rounded text-sm">
         </div>
         <label class="flex items-center gap-2 text-sm font-semibold text-gray-700 pb-2">
           <input id="itItemActive" type="checkbox" class="w-4 h-4" checked> Đang theo dõi
@@ -2349,7 +2349,7 @@
         </div>
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn giá</label>
-          <input id="budget2ChildUnitPrice" type="number" min="0" step="1000" value="0" class="w-full border p-2 rounded text-sm">
+          <input id="budget2ChildUnitPrice" type="text" inputmode="numeric" value="0" data-evt-input="onMoneyInputFormat" data-args='[{"__live__":"event"}]' class="w-full border p-2 rounded text-sm">
         </div>
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">VAT (%)</label>
@@ -3019,7 +3019,7 @@
       </div>
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn giá (VNĐ)</label>
-        <input id="roundItemUnitPrice" type="number" min="0" step="1000" class="w-full border p-2 rounded text-sm" placeholder="VD: 1500000">
+        <input id="roundItemUnitPrice" type="text" inputmode="numeric" data-evt-input="onMoneyInputFormat" data-args='[{"__live__":"event"}]' class="w-full border p-2 rounded text-sm" placeholder="VD: 1.500.000">
       </div>
       <div id="roundItemExpiryWrap">
         <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày hết hạn dự kiến</label>
@@ -3170,7 +3170,7 @@
       </div>
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn giá dự kiến (VNĐ)</label>
-        <input id="budgetRoundItemUnitPrice" type="number" min="0" step="1000" class="w-full border p-2 rounded text-sm" placeholder="VD: 1500000">
+        <input id="budgetRoundItemUnitPrice" type="text" inputmode="numeric" data-evt-input="onMoneyInputFormat" data-args='[{"__live__":"event"}]' class="w-full border p-2 rounded text-sm" placeholder="VD: 1.500.000">
       </div>
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">CAPEX/OPEX</label>
@@ -3293,7 +3293,7 @@
             <option value="">-- Không phân bổ (mua chung) --</option>
           </select>
           <input id="budgetActualQuantity" type="number" min="0" step="1" placeholder="SL" class="border p-2 rounded text-sm">
-          <input id="budgetActualUnitPrice" type="number" min="0" step="1000" placeholder="Đơn giá" class="border p-2 rounded text-sm">
+          <input id="budgetActualUnitPrice" type="text" inputmode="numeric" data-evt-input="onMoneyInputFormat" data-args='[{"__live__":"event"}]' placeholder="Đơn giá" class="border p-2 rounded text-sm">
           <input id="budgetActualNote" type="text" placeholder="Ghi chú (tùy chọn)" class="border p-2 rounded text-sm">
         </div>
         <div class="flex justify-end mt-2">

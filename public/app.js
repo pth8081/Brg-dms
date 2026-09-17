@@ -5504,7 +5504,7 @@ function isPerpetualSoftware(softwareId) {
     async function saveRoundItem() {
       const roundId = Number(document.getElementById('roundItemRoundId').value);
       const softwareId = Number(document.getElementById('roundItemSoftware').value);
-      const unitPrice = Number(document.getElementById('roundItemUnitPrice').value);
+      const unitPrice = parseThousandsInput(document.getElementById('roundItemUnitPrice').value);
       const round = licenseDB.purchaseRounds.find(r => r.id === roundId);
       const isNewType = round && round.roundType === 'NEW';
       const perpetual = isPerpetualSoftware(softwareId);
@@ -6141,7 +6141,7 @@ function isPerpetualSoftware(softwareId) {
       const itemType = document.getElementById('budgetRoundItemType').value;
       const softwareId = Number(document.getElementById('budgetRoundItemSoftware').value);
       const catalogItemId = Number(document.getElementById('budgetRoundItemCatalog').value);
-      const unitPrice = Number(document.getElementById('budgetRoundItemUnitPrice').value);
+      const unitPrice = parseThousandsInput(document.getElementById('budgetRoundItemUnitPrice').value);
       const capexOpex = document.getElementById('budgetRoundItemCapexOpex').value;
       const description = document.getElementById('budgetRoundItemDescription').value.trim();
       if (itemType === 'SOFTWARE' && !softwareId) return showToast('Vui lòng chọn Phần mềm.', 'warning');
@@ -6187,7 +6187,7 @@ function isPerpetualSoftware(softwareId) {
       document.getElementById('budgetActualCompany').innerHTML = '<option value="">-- Không phân bổ (mua chung) --</option>' +
         licenseDB.companies.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
       document.getElementById('budgetActualQuantity').value = '';
-      document.getElementById('budgetActualUnitPrice').value = item.unitPrice || '';
+      document.getElementById('budgetActualUnitPrice').value = item.unitPrice ? digitsToThousands(String(item.unitPrice)) : '';
       document.getElementById('budgetActualNote').value = '';
       renderBudgetActualsModalContent();
       openLicenseModal('budgetActualsModal');
@@ -6228,7 +6228,7 @@ function isPerpetualSoftware(softwareId) {
       const vendor = document.getElementById('budgetActualVendor').value.trim();
       const companyId = Number(document.getElementById('budgetActualCompany').value) || null;
       const quantity = Number(document.getElementById('budgetActualQuantity').value);
-      const unitPrice = Number(document.getElementById('budgetActualUnitPrice').value);
+      const unitPrice = parseThousandsInput(document.getElementById('budgetActualUnitPrice').value);
       const note = document.getElementById('budgetActualNote').value.trim();
       if (!purchaseDate) return showToast('Vui lòng chọn Ngày mua.', 'warning');
       if (!Number.isFinite(quantity) || quantity <= 0) return showToast('Số lượng phải lớn hơn 0.', 'warning');
@@ -7357,7 +7357,7 @@ function isPerpetualSoftware(softwareId) {
       document.getElementById('itItemDescription').value = item ? (item.description || '') : '';
       document.getElementById('itItemOwnerUser').value = item && item.ownerUserId ? item.ownerUserId : '';
       document.getElementById('itItemOwnerEmail').value = item ? (item.ownerEmail || '') : '';
-      document.getElementById('itItemCost').value = item && item.cost !== null ? item.cost : '';
+      document.getElementById('itItemCost').value = item && item.cost !== null && item.cost !== undefined ? digitsToThousands(String(item.cost)) : '';
       document.getElementById('itItemActive').checked = item ? !!item.active : true;
       openLicenseModal('itItemModal');
     }
@@ -7371,12 +7371,12 @@ function isPerpetualSoftware(softwareId) {
       const description = document.getElementById('itItemDescription').value.trim();
       const ownerUserId = document.getElementById('itItemOwnerUser').value;
       const ownerEmail = document.getElementById('itItemOwnerEmail').value.trim();
-      const cost = document.getElementById('itItemCost').value;
+      const costRaw = document.getElementById('itItemCost').value.trim();
       const active = document.getElementById('itItemActive').checked;
       if (!name) return showToast('Vui lòng nhập Tên đầu mục.', 'warning');
       if (!categoryId) return showToast('Vui lòng chọn Danh mục.', 'warning');
       if (!expiryDate) return showToast('Vui lòng chọn Ngày hết hạn.', 'warning');
-      const body = { name, categoryId, provider, startDate: startDate || null, expiryDate, description, ownerUserId: ownerUserId || null, ownerEmail, cost: cost === '' ? null : Number(cost), active };
+      const body = { name, categoryId, provider, startDate: startDate || null, expiryDate, description, ownerUserId: ownerUserId || null, ownerEmail, cost: costRaw === '' ? null : parseThousandsInput(costRaw), active };
       try {
         if (id) {
           await apiFetch(`/api/it/items/${id}`, { method: 'PUT', body: JSON.stringify(body) });
@@ -8639,7 +8639,7 @@ function isPerpetualSoftware(softwareId) {
       document.getElementById('budget2ChildContent').value = parent.content;
       document.getElementById('budget2ChildDescription').value = parent.description || '';
       document.getElementById('budget2ChildQuantity').value = child ? child.quantity : 1;
-      document.getElementById('budget2ChildUnitPrice').value = child ? child.unitPrice : 0;
+      document.getElementById('budget2ChildUnitPrice').value = digitsToThousands(String(child ? child.unitPrice : 0));
       document.getElementById('budget2ChildVat').value = child ? child.vatPercent : 0;
       document.getElementById('budget2ChildType').value = child ? child.budgetType : parent.budgetType;
       document.getElementById('budget2ChildPurchaseMonth').value = child ? (child.purchaseMonth || new Date().getMonth() + 1) : (new Date().getMonth() + 1);
@@ -8666,7 +8666,7 @@ function isPerpetualSoftware(softwareId) {
         content,
         description: document.getElementById('budget2ChildDescription').value.trim(),
         quantity: Number(document.getElementById('budget2ChildQuantity').value),
-        unitPrice: Number(document.getElementById('budget2ChildUnitPrice').value),
+        unitPrice: parseThousandsInput(document.getElementById('budget2ChildUnitPrice').value),
         vatPercent: Number(document.getElementById('budget2ChildVat').value),
         budgetType: document.getElementById('budget2ChildType').value,
         purchaseMonth: Number(document.getElementById('budget2ChildPurchaseMonth').value),
