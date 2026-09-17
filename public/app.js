@@ -11,9 +11,14 @@
         const res = await fetch('/api/version');
         const data = await res.json();
         if (data.version && data.version !== CLIENT_BUILD_VERSION) {
+          // Chỉ hiện "vX.Y" (bỏ ".0" patch luôn cố định) cho khớp định dạng
+          // nhãn phiên bản hiển thị ở mọi nơi khác trong app (tiêu đề trang,
+          // header "DMS vX.Y") — so sánh lệch/không lệch ở trên vẫn dùng chuỗi
+          // đầy đủ từ package.json, chỉ format lại phần hiển thị cho người dùng.
+          const shortLabel = v => String(v || '').replace(/\.0$/, '');
           const banner = document.createElement('div');
           banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#b91c1c;color:#fff;padding:12px 16px;text-align:center;font-weight:600;font-size:14px;';
-          banner.textContent = `Giao diện đang dùng phiên bản cũ (bundle v${CLIENT_BUILD_VERSION}, máy chủ đang chạy v${data.version}) — vui lòng tải lại trang (Ctrl+Shift+R) để tránh lỗi thao tác.`;
+          banner.textContent = `Giao diện đang dùng phiên bản cũ (bundle v${shortLabel(CLIENT_BUILD_VERSION)}, máy chủ đang chạy v${shortLabel(data.version)}) — vui lòng tải lại trang (Ctrl+Shift+R) để tránh lỗi thao tác.`;
           document.body.prepend(banner);
         }
       } catch (e) { /* không chặn tải trang nếu kiểm tra này lỗi */ }
