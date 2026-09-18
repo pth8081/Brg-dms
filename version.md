@@ -12,6 +12,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 
 | Phiên bản | PR | Ngày merge | Nội dung |
 |---|---|---|---|
+| v6.113 | [#91](https://github.com/pth8081/Brg-dms/pull/91) | 2026-09-18 | Đăng nhập vân tay/Face ID: (1) sửa label nút bị đổi thành "Đăng nhập nhanh — username" (không nhắc gì tới Vân tay/Face ID) khi thiết bị đã có tài khoản nhớ sẵn — lỗi có trên cả iOS lẫn Android, nay hiện nhất quán "Đăng nhập Vân tay/Face ID — username"; (2) theo yêu cầu người dùng (đã trao đổi rõ đánh đổi bảo mật trước khi làm): bỏ luôn bước bắt Admin nhập thêm mã 2FA/TOTP sau khi quét vân tay/Face ID thành công — trước đây đây là thiết kế cố tình để chặn vân tay/Face ID trở thành đường vòng qua mặt 2FA bắt buộc của Admin, nay vân tay/Face ID được coi là đủ, không cần lớp 2FA thứ 2 nữa; không ảnh hưởng bước thiết lập 2FA/đăng ký vân tay lần đầu (vẫn đòi hỏi đã đăng nhập đủ mật khẩu + 2FA từ trước) |
 | v6.111 | [#90](https://github.com/pth8081/Brg-dms/pull/90) | 2026-09-18 | (1) Format tiền cho 6 ô Đơn giá/Chi phí còn dùng input số của trình duyệt (Ngân sách Đề xuất/Phê duyệt/Sử dụng, Chi phí CNTT, License Kỳ mua/Kỳ dự trù/Mua thực tế) — tự thêm dấu chấm ngăn cách hàng nghìn khi gõ (VD "1234567" → "1.234.567"), đọc lại đúng số thật khi lưu. (2) Báo cáo ngân sách: tách ô chọn năm cũ (1 kiểu chọn nhiều năm) thành "Năm ngân sách" (dropdown, chọn đúng 1 năm chính — tô đậm) + "Năm so sánh" (chip, chọn thêm nhiều năm — tô nhạt hơn), áp dụng cho cả phần Ngân sách sử dụng; thêm phân trang 15 dòng/trang cho bảng "Tra cứu chi tiết" (cả 2 chế độ Theo kỳ/So sánh nhiều kỳ) — trước đây lọc theo Công ty/Phòng-Ban-Khối với danh sách dài bị render nguyên 1 bảng không giới hạn, xuất Excel vẫn lấy đủ dữ liệu không bị cắt theo trang |
 | v6.109 | [#89](https://github.com/pth8081/Brg-dms/pull/89) | 2026-09-17 | Ngân sách Đề xuất/Phê duyệt: khóa sửa (và cả nút "Bổ sung" nhanh, dùng chung endpoint) khi dòng đang Chờ duyệt với người không phải Admin — trước đây bất kỳ ai có quyền Ngân sách kể cả chính người tạo đều sửa tự do được bất cứ lúc nào, kể cả sau khi người phê duyệt đã bắt đầu xem xét; nay chỉ mở khóa đúng 1 lần khi người phê duyệt (không phải chính người tạo) chủ động bấm nút mới "📋 Y/c bổ sung" nêu rõ lý do, sửa xong tự khóa lại ngay; Admin không bị ảnh hưởng, vẫn sửa được mọi lúc như trước |
 | v6.107 | [#88](https://github.com/pth8081/Brg-dms/pull/88) | 2026-09-17 | Sửa banner cảnh báo lệch phiên bản (hiện khi bundle trình duyệt cũ hơn server) đang hiển thị sai định dạng số phiên bản cho người dùng — lấy thẳng chuỗi semver 3 số từ package.json (VD "v6.104.0") thay vì định dạng "vX.Y" 2 số dùng thống nhất ở mọi nơi khác trong app (tiêu đề trang, header); chỉ sửa phần hiển thị, logic so sánh lệch phiên bản vẫn dùng nguyên chuỗi đầy đủ |
@@ -93,7 +94,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 > **Ghi chú:** các số phiên bản v6.13, v6.17, v6.19, v6.21, v6.23, v6.52,
 > v6.55, v6.56, v6.58, v6.60, v6.63, v6.65, v6.66, v6.68, v6.70, v6.72,
 > v6.74, v6.76, v6.78, v6.80, v6.82, v6.84, v6.86, v6.90, v6.92, v6.94, v6.96,
-> v6.98, v6.100, v6.102, v6.104, v6.106, v6.108, v6.110 bị
+> v6.98, v6.100, v6.102, v6.104, v6.106, v6.108, v6.110, v6.112 bị
 > nhảy cóc trong lịch sử — không có Pull Request tương ứng để đối chiếu nội
 > dung (nhiều khả năng do chạy lại workflow tăng version hoặc sửa trực tiếp
 > trên `main` ngoài luồng PR — ví dụ v6.52 phát sinh từ chính commit cập
@@ -106,7 +107,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 > v6.76/v6.78/v6.80/v6.82/v6.84/v6.86/v6.90/v6.92/v6.94 phát sinh tương tự
 > từ các commit cập nhật version.md trực tiếp trên `main` cho v6.69/v6.71/
 > v6.73/v6.75/v6.77/v6.79/v6.81/v6.83/v6.85/v6.89/v6.91/v6.93/v6.95/v6.97/v6.99/
-> v6.101/v6.103/v6.105/v6.107/v6.109 — mỗi lần
+> v6.101/v6.103/v6.105/v6.107/v6.109/v6.111 — mỗi lần
 > commit trực tiếp/merge như vậy đều vô tình kích hoạt lại workflow tăng
 > version thêm 1
 > lần nữa). Từ PR #65 trở đi, workflow còn tự rebuild
