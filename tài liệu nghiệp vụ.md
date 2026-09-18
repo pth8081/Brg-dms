@@ -289,28 +289,66 @@ Vai trò truy cập: `admin` hoặc `perms.budgetManager` — **module độc l�
 với mục 6, dùng chung bảng `lic_companies`/`lic_org_units` để chọn phạm vi
 nhưng có luồng và bảng dữ liệu riêng (`budget2_lines`).
 
-Một dòng ngân sách đi qua tối đa 3 giai đoạn (`stage`):
+Một dòng ngân sách thuộc 1 trong 3 **giai đoạn** (`stage`) độc lập hoàn
+toàn với nhau — Đề xuất và Phê duyệt **không** còn cơ chế "gửi đề xuất
+sang Phê duyệt" (tạo bản sao ở giai đoạn khác); mỗi giai đoạn tự nhập
+liệu và tự đi qua vòng đời riêng:
 
-1. **Đề xuất (PROPOSED)** — tạo tự do, sửa/xóa tự do khi còn ở giai đoạn
-   này. Nội dung, số lượng, đơn giá, %VAT (tổng tiền tự tính =
-   `quantity × unitPrice × (1+vat%)`), loại ngân sách CAPEX/OPEX, năm/tháng
-   ngân sách.
-2. **Phê duyệt (APPROVED, `status`: SUBMITTED/APPROVED/REJECTED)** — vào
-   giai đoạn này bằng cách **gửi 1 Đề xuất sang chờ duyệt** (tạo dòng mới,
-   giữ liên kết `source_line_id` về đề xuất gốc; đề xuất gốc sau đó không
-   xóa được nữa) hoặc **nhập trực tiếp** (không qua Đề xuất). Duyệt/từ chối
-   chỉ có ở giai đoạn này; người tạo không tự duyệt/tự từ chối được. Duyệt
-   thành công **tự động sinh 1 dòng Sử dụng** tương ứng.
+1. **Đề xuất (PROPOSED)** — Nội dung, số lượng, đơn giá, %VAT (tổng tiền
+   tự tính = `quantity × unitPrice × (1+vat%)`), loại ngân sách CAPEX/OPEX,
+   danh mục, năm/tháng ngân sách.
+2. **Phê duyệt (APPROVED)** — nhập **trực tiếp** (không qua Đề xuất, VD
+   ngân sách áp từ trên xuống), hoàn toàn tách biệt với dòng Đề xuất. Chỉ
+   giai đoạn này mới có bước Duyệt/Từ chối thật sự. Duyệt thành công **tự
+   động sinh 1 dòng Sử dụng** tương ứng.
 3. **Sử dụng (USED, `usage_status`: NOT_USED/PARTIALLY_USED/USED)** — dòng
-   cha sinh ra sau khi duyệt; có thể thêm nhiều **mục con** ghi nhận từng
-   lần sử dụng thực tế, tổng các mục con được tự tính lại vào dòng cha (kể
-   cả khi xóa 1 mục con, số liệu dòng cha tính lại đúng, không bị "đông
-   cứng" sai).
+   cha sinh ra sau khi duyệt 1 dòng Phê duyệt; có thể thêm nhiều **mục
+   con** ghi nhận từng lần sử dụng thực tế, tổng các mục con được tự tính
+   lại vào dòng cha (kể cả khi xóa 1 mục con, số liệu dòng cha tính lại
+   đúng, không bị "đông cứng" sai).
+
+### 7.1. Vòng đời trạng thái (`status`) của Đề xuất/Phê duyệt
+
+Cả 2 giai đoạn Đề xuất và Phê duyệt đi qua đúng 1 chuỗi trạng thái như
+nhau: **DRAFT (Nháp) → SUBMITTED (Chờ duyệt) → APPROVED/REJECTED (Đã
+duyệt/Từ chối)**.
+
+- **Nháp (DRAFT)** — trạng thái khởi tạo của **mọi** cách tạo dòng: nhập
+  tay qua modal ("+ Thêm đề xuất (lưu nháp)" / "+ Thêm dòng phê duyệt
+  (lưu nháp)") lẫn nhập hàng loạt từ Excel. Ở trạng thái này dòng **chưa
+  vào hàng chờ duyệt** — người phê duyệt không thấy, không thể
+  Duyệt/Từ chối/Yêu cầu bổ sung — và **sửa/xóa tự do không giới hạn số
+  lần** (khác hẳn khi đã Chờ duyệt, xem bên dưới). Mục đích: cho phép rà
+  soát/sửa lỗi (đặc biệt sau khi nhập Excel hàng loạt) trước khi chính
+  thức gửi đi, tránh làm phiền người duyệt bằng dữ liệu chưa hoàn chỉnh.
+  Nháp **không được tính vào** báo cáo tổng hợp Ngân sách (mục 9) — chỉ
+  dòng đã thật sự gửi đi (từ SUBMITTED trở lên) mới là số liệu chính thức.
+- **Gửi phê duyệt** — hành động chủ động (nút "🚀 Gửi phê duyệt" từng
+  dòng, hoặc "🚀 Gửi phê duyệt hàng loạt" khi chọn nhiều dòng Nháp cùng
+  lúc) chuyển DRAFT → SUBMITTED. Từ lúc này dòng mới thật sự vào hàng chờ
+  duyệt, người phê duyệt mới thấy để xử lý, và bị **khóa sửa** (xem dưới).
+- **Chờ duyệt (SUBMITTED)** — khóa sửa với người không phải Admin, trừ khi
+  người phê duyệt chủ động "Yêu cầu bổ sung" (đặt cờ `edit_requested = 1`,
+  mở khóa sửa đúng 1 lần, tự khóa lại ngay khi lưu xong). Admin luôn sửa
+  được ở mọi trạng thái, kể cả đã Duyệt/Từ chối (VD sửa lại số liệu nhập
+  sai) — riêng dòng Phê duyệt đã **Duyệt** thì sửa sẽ tự đồng bộ luôn dòng
+  Sử dụng tương ứng để không lệch số liệu.
+- **Duyệt/Từ chối/Yêu cầu bổ sung** — chỉ áp dụng cho dòng đang Chờ duyệt.
+  Người tạo không được tự duyệt/tự từ chối chính dòng mình tạo (kể cả
+  Admin — quy tắc phân tách nhiệm vụ áp dụng cho mọi vai trò). Riêng "Yêu
+  cầu bổ sung", Admin được **miễn trừ** chặn tự thao tác: vì Admin vốn đã
+  sửa được mọi dòng bất kể cờ `edit_requested`, tự yêu cầu bổ sung trên
+  dòng của chính mình không mở thêm quyền gì, chỉ đỡ phải nhờ người khác
+  bấm hộ.
+- Cả 2 tab đều có **thao tác hàng loạt** (chọn nhiều dòng bằng checkbox):
+  Gửi phê duyệt hàng loạt (dòng Nháp), Duyệt/Từ chối hàng loạt, Yêu cầu bổ
+  sung hàng loạt (nhập 1 lý do chung áp dụng cho mọi dòng đã chọn), và Xóa
+  hàng loạt (chỉ Admin).
 
 Nhập hàng loạt từ Excel vào giai đoạn Đề xuất **hoặc** thẳng vào Phê duyệt
-(dùng mã công ty + tên đơn vị để tự tra ID) — dòng nhập ở giai đoạn Phê
-duyệt vẫn ở trạng thái **chờ duyệt**, không tự động APPROVED hay tự sinh
-dòng Sử dụng.
+(dùng mã công ty + tên đơn vị để tự tra ID) — mọi dòng mới tạo qua Excel
+đều ở trạng thái **Nháp**, đối chiếu trùng lặp tính cả dòng Nháp lẫn Chờ
+duyệt hiện có (dòng đã Duyệt/Từ chối coi như đã chốt, không đối chiếu).
 
 ---
 
@@ -341,17 +379,27 @@ Vai trò truy cập: chỉ `admin`.
 
 ---
 
-## 9. Module Báo cáo
+## 9. Module Dashboard (trước đây gọi "Báo cáo")
 
-Vai trò truy cập: `admin`, `licenseManager`, hoặc `budgetManager` (mở rộng
-từ chỉ-Admin ban đầu).
+Đổi tên hiển thị thành **Dashboard** trên sidebar, chuyển lên vị trí ngay
+dưới "Trang chủ" (trên "Quản lý tài liệu") — vẫn cùng 1 module/route như
+trước, chỉ đổi tên + vị trí. Chỉ Admin thấy mục này trên sidebar. Có 3
+sub-tab:
 
-- **Báo cáo Tài liệu**: tổng hợp số lượng theo trạng thái/phòng ban/phân
+- **📂 Tài liệu**: tổng hợp số lượng theo trạng thái/phòng ban/phân
   loại — chỉ tính **phiên bản mới nhất/đại diện** của mỗi nhóm tài liệu,
   không đếm trùng khi 1 tài liệu có nhiều phiên bản.
-- **Báo cáo Bản quyền**: so sánh Dự trù (đã duyệt) vs Sử dụng thực tế theo
-  CAPEX/OPEX và theo Công ty; mục **Kiểm soát** cảnh báo nhân viên có email
-  khớp tài khoản AD đã bị vô hiệu hóa (gợi ý rà soát thu hồi license).
+- **🔑 Bản quyền**: so sánh Dự trù (đã duyệt) vs Sử dụng thực tế theo
+  CAPEX/OPEX và theo Công ty (module Ngân sách cũ gắn với Kỳ mua License,
+  mục 6) — mục **Kiểm soát** cảnh báo nhân viên có email khớp tài khoản AD
+  đã bị vô hiệu hóa (gợi ý rà soát thu hồi license).
+- **💵 Ngân sách**: tóm tắt nhanh số liệu Đề xuất/Đã duyệt/Sử dụng/Còn lại
+  của **năm mới nhất có dữ liệu** trong module Ngân sách 2.0 (mục 7, hoàn
+  toàn khác Bản quyền ở trên) — kèm biểu đồ theo Công ty và theo Năm, dùng
+  chung API `/api/budget2/reports` (không thêm endpoint riêng). Có liên
+  kết "Quản lý Ngân sách → Báo cáo" để mở đầy đủ báo cáo nhiều năm/lọc chi
+  tiết ở đúng tab Báo cáo của module Ngân sách 2.0 (xem 7.1 — số liệu ở
+  đây và ở đó đều loại trừ dòng còn ở dạng Nháp).
 
 ---
 
