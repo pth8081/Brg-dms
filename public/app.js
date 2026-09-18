@@ -8737,19 +8737,28 @@ function isPerpetualSoftware(softwareId) {
     // (năm chính + các năm so sánh) lặp lại đúng 1 bộ card/biểu đồ gắn nhãn
     // năm đó cho (a)/(e), giống kỹ thuật small-multiples đã dùng cho "Theo
     // Tháng x Loại công ty".
-    let budget2PrimaryYear = new Date().getFullYear();
+    // null = chưa từng chọn — renderBudget2OverviewYearChips() tự chọn năm
+    // mặc định hợp lý ở lần render đầu tiên (xem bên dưới), thay vì cứng
+    // theo năm dương lịch hiện tại như trước (BUG: nếu ngân sách được lập
+    // sẵn cho năm SAU — VD lập kế hoạch 2027 từ giữa năm 2026 — mặc định
+    // "năm hiện tại" không hề có dữ liệu, báo cáo trống trơn ngay từ đầu
+    // khiến người dùng tưởng nhầm là lỗi/chưa duyệt).
+    let budget2PrimaryYear = null;
     let budget2CompareYears = [];
     function budget2SelectedYears() { return [budget2PrimaryYear, ...budget2CompareYears]; }
     function renderBudget2OverviewYearChips() {
       const yearSelect = document.getElementById('budget2PrimaryYearSelect');
       const chipsBox = document.getElementById('budget2CompareYearChips');
       if (!yearSelect || !chipsBox || !budget2ReportsData) return;
-      const years = new Set([...(budget2AllYearsPresent() || []), budget2PrimaryYear, ...budget2CompareYears]);
+      const dataYears = budget2AllYearsPresent() || [];
+      // Lần đầu (budget2PrimaryYear vẫn null): chọn năm MỚI NHẤT có dữ liệu
+      // thật, không phải năm dương lịch hiện tại — xem chú thích ở khai báo
+      // biến. Chỉ áp dụng đúng 1 lần lúc mới vào Báo cáo — sau đó luôn tôn
+      // trọng lựa chọn của người dùng dù năm đó có dữ liệu hay không (VD họ
+      // cố tình xem 1 năm trống để xác nhận).
+      if (budget2PrimaryYear === null) budget2PrimaryYear = dataYears.length ? dataYears[dataYears.length - 1] : new Date().getFullYear();
+      const years = new Set([...dataYears, budget2PrimaryYear, ...budget2CompareYears]);
       const sorted = [...years].sort((a, b) => a - b);
-      // "Năm ngân sách" luôn phải có đúng 1 giá trị hợp lệ — nếu năm đang
-      // chọn không còn nằm trong danh sách hiện có (VD dữ liệu vừa đổi), tự
-      // chọn lại năm gần nhất.
-      if (!sorted.includes(budget2PrimaryYear) && sorted.length) budget2PrimaryYear = sorted[sorted.length - 1];
       yearSelect.innerHTML = sorted.map(y => `<option value="${y}" ${y === budget2PrimaryYear ? 'selected' : ''}>${y}</option>`).join('');
       const compareOptions = sorted.filter(y => y !== budget2PrimaryYear);
       chipsBox.innerHTML = compareOptions.length
