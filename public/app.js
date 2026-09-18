@@ -541,7 +541,7 @@
       const userInput = document.getElementById('txtUser');
       if (userInput && !userInput.value) userInput.value = remembered;
       const label = document.getElementById('webauthnLoginLabel');
-      if (label) label.textContent = `Đăng nhập nhanh — ${remembered}`;
+      if (label) label.textContent = `Đăng nhập Vân tay/Face ID — ${remembered}`;
       btn.classList.remove('hidden');
     }
     // Tự nhớ tài khoản đã đăng nhập gần nhất (giống mẫu "Đào Phan Anh | Tài
@@ -606,12 +606,12 @@
           },
           clientExtensionResults: assertion.getClientExtensionResults ? assertion.getClientExtensionResults() : {}
         };
+        // Vân tay/Face ID thay thế luôn cho bước 2FA/TOTP (kể cả với Admin) —
+        // xem chú thích đầy đủ ở /api/webauthn/login/verify (server.js) —
+        // nên server luôn trả thẳng {user}, không còn nhánh mfaRequired/
+        // mfaSetupRequired cho route này.
         const data = await apiFetch('/api/webauthn/login/verify', { method: 'POST', body: JSON.stringify({ credential: credentialForServer }) });
         localStorage.setItem(WEBAUTHN_REMEMBERED_USERNAME_KEY, username);
-        // Admin vẫn phải qua xác thực hai yếu tố dù đăng nhập bằng vân tay/Face
-        // ID — xem chú thích ở /api/webauthn/login/verify.
-        if (data.mfaRequired) { showMfaVerifyView(data.username); return; }
-        if (data.mfaSetupRequired) { showMfaSetupView(data.username, data.secret, data.qrDataUrl); return; }
         await enterApp(data.user);
       } catch (e) {
         if (e && e.name === 'NotAllowedError') {
