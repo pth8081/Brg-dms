@@ -1556,23 +1556,21 @@ app.post('/api/webauthn/login/verify', loginLimiter, async (req, res) => {
 
         const perms = await resolveUserPerms(user);
 
-        // Vân tay/Face ID KHÔNG được coi là thay thế cho 2FA bắt buộc của Admin
-        // — cùng cổng gác như đăng nhập bằng mật khẩu ở /api/auth/login, nếu
-        // không, WebAuthn sẽ là đường vòng bỏ qua hẳn TOTP bắt buộc.
-        if (perms.admin) {
-            if (user.totp_enabled) {
-                setMfaCookie(res, { id: user.id, purpose: 'mfa_pending' });
-                await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_MFA_PENDING', status: 'SUCCESS', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: 'Đăng nhập vân tay/Face ID thành công — đang chờ nhập mã xác thực hai yếu tố.' });
-                return res.json({ mfaRequired: true, username: user.username });
-            }
-            const secret = authenticator.generateSecret();
-            setMfaCookie(res, { id: user.id, purpose: 'mfa_setup', secret });
-            const otpauthUrl = authenticator.keyuri(user.username, TOTP_ISSUER, secret);
-            const qrDataUrl = await QRCode.toDataURL(otpauthUrl);
-            await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_MFA_SETUP_REQUIRED', status: 'SUCCESS', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: 'Đăng nhập vân tay/Face ID thành công — tài khoản Admin bắt buộc thiết lập xác thực hai yếu tố trước khi vào hệ thống.' });
-            return res.json({ mfaSetupRequired: true, username: user.username, secret, qrDataUrl });
-        }
-
+        // (Quyết định người dùng — xem lịch sử trao đổi) Vân tay/Face ID nay
+        // thay thế luôn cho bước nhập mã 2FA/TOTP của Admin, kể cả khi tài
+        // khoản đã bật 2FA — trước đây route này bắt Admin nhập thêm mã TOTP
+        // sau khi quét vân tay/Face ID thành công (coi vân tay/Face ID chỉ
+        // thay cho mật khẩu, không thay cho lớp 2FA) để tránh WebAuthn thành
+        // đường vòng qua mặt 2FA bắt buộc. Đã đổi theo yêu cầu rõ ràng của
+        // người dùng: chấp nhận đánh đổi — nếu 1 thiết bị đã đăng ký vân
+        // tay/Face ID bị người khác mở khóa được (vân tay người khác cũng
+        // đăng ký, thiết bị bị bẻ khóa...), họ vào thẳng được tài khoản Admin
+        // mà không cần qua lớp bảo vệ thứ 2 nào khác. Đăng ký vân tay/Face ID
+        // lần đầu (POST /api/webauthn/register/*) vẫn đòi hỏi phiên đăng nhập
+        // đã qua đủ mật khẩu + 2FA từ trước (yêu cầu requireAuth), nên đây
+        // không phải đường vòng bỏ qua bước THIẾT LẬP 2FA ban đầu — chỉ bỏ
+        // qua việc phải NHẬP LẠI mã TOTP ở MỖI lần đăng nhập sau đó bằng vân
+        // tay/Face ID.
         const token = signToken(user);
         setAuthCookie(res, token);
         await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_SUCCESS', status: 'SUCCESS', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: 'Đăng nhập hệ thống thành công qua vân tay/Face ID.' });
