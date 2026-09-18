@@ -7870,7 +7870,7 @@ function isPerpetualSoftware(softwareId) {
           if (!duplicateAction) { e.target.value = ''; return; }
           result = await apiFetch('/api/budget2/import', { method: 'POST', body: JSON.stringify({ stage, rows, duplicateAction }) });
         }
-        showToast(`Đã nhập ${result.created} dòng ngân sách mới, cập nhật ${result.updated || 0}${result.skipped ? `, bỏ qua ${result.skipped} dòng trùng` : ''}.`, 'success');
+        showToast(`Đã lưu nháp ${result.created} dòng ngân sách mới (chưa gửi phê duyệt), cập nhật ${result.updated || 0}${result.skipped ? `, bỏ qua ${result.skipped} dòng trùng` : ''}.`, 'success');
         reportImportErrors(result.errors);
         budget2DB.loaded = false;
         await loadBudget2BootstrapData();
@@ -7884,7 +7884,7 @@ function isPerpetualSoftware(softwareId) {
       const rows = budget2DB.lines.filter(l => l.stage === stage).sort((a, b) => a.id - b.id);
       const header = ['STT', 'Nội dung', 'Mô tả', 'Số lượng', 'Đơn giá', 'VAT (%)', 'Thành tiền', 'Loại', 'Danh mục', 'Tháng ngân sách', 'Năm ngân sách', 'Công ty', 'Loại công ty', 'Khối/Ban/Phòng', 'Ghi chú'];
       if (stage === 'APPROVED') header.push('Trạng thái');
-      const statusLabel = { SUBMITTED: 'Chờ duyệt', APPROVED: 'Đã duyệt', REJECTED: 'Từ chối' };
+      const statusLabel = { DRAFT: 'Nháp', SUBMITTED: 'Chờ duyệt', APPROVED: 'Đã duyệt', REJECTED: 'Từ chối' };
       const data = rows.map((l, i) => {
         const companyType = budget2CompanyType(l.companyId);
         const row = [i + 1, l.content, l.description || '', l.quantity, l.unitPrice, l.vatPercent, l.totalAmount, l.budgetType, budget2CategoryLabel(l.itemCategory) || '', l.budgetMonth, l.budgetYear, budget2CompanyName(l.companyId), companyType ? (BUDGET2_COMPANY_TYPE_LABELS[companyType] || companyType) : '', budget2OrgUnitName(l.orgUnitId), l.note || ''];
@@ -8054,6 +8054,14 @@ function isPerpetualSoftware(softwareId) {
       propose: { approve: 'approve-proposal', reject: 'reject-proposal' },
       approved: { approve: 'approve', reject: 'reject' }
     };
+    const BUDGET2_BULK_SUPPLEMENT_ENDPOINTS = {
+      propose: 'request-supplement-proposal',
+      approved: 'request-supplement'
+    };
+    const BUDGET2_BULK_SUBMIT_ENDPOINTS = {
+      propose: 'submit-proposal',
+      approved: 'submit'
+    };
     function budget2RenderBulkBar(key) {
       const el = document.getElementById(`budget2BulkBar_${key}`);
       if (!el) return;
@@ -8063,6 +8071,13 @@ function isPerpetualSoftware(softwareId) {
       const count = selectedIds.length;
       if (count === 0) { el.innerHTML = ''; return; }
       let buttons = '';
+      const draftCount = selectedIds.filter(id => {
+        const l = budget2DB.lines.find(x => x.id === id);
+        return l && l.status === 'DRAFT';
+      }).length;
+      if (draftCount > 0) {
+        buttons += `<button ${dc('bulkSubmitBudget2Lines', key)} class="text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded">🚀 Gửi phê duyệt đã chọn (${draftCount})</button>`;
+      }
       if (canDecide) {
         const pendingCount = selectedIds.filter(id => {
           const l = budget2DB.lines.find(x => x.id === id);
@@ -8071,12 +8086,81 @@ function isPerpetualSoftware(softwareId) {
         if (pendingCount > 0) {
           buttons += `<button ${dc('bulkDecideBudget2Lines', key, 'approve')} class="text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded">✅ Duyệt đã chọn (${pendingCount})</button>`;
           buttons += `<button ${dc('bulkDecideBudget2Lines', key, 'reject')} class="text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 px-3 py-1.5 rounded">❌ Từ chối đã chọn (${pendingCount})</button>`;
+          buttons += `<button ${dc('bulkRequestBudget2Supplement', key)} class="text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded">📋 Y/c bổ sung đã chọn (${pendingCount})</button>`;
         }
       }
       if (isAdmin) {
         buttons += `<button ${dc('bulkDeleteBudget2Lines', key)} class="text-xs font-bold text-white bg-red-600 hover:bg-red-700 px-3 py-1.5 rounded">🗑️ Xóa đã chọn (${count})</button>`;
       }
       el.innerHTML = buttons;
+    }
+    async function bulkSubmitBudget2Lines(key) {
+      const endpoint = BUDGET2_BULK_SUBMIT_ENDPOINTS[key];
+      if (!endpoint) return;
+      const ids = [...budget2SelectedIds[key]].filter(id => {
+        const l = budget2DB.lines.find(x => x.id === id);
+        return l && l.status === 'DRAFT';
+      });
+      if (!ids.length) return;
+      if (!confirm(`Gửi phê duyệt ${ids.length} dòng nháp đã chọn? Sau khi gửi sẽ không tự sửa được nữa (trừ khi người phê duyệt yêu cầu bổ sung).`)) return;
+      let okCount = 0;
+      const failMsgs = [];
+      for (const id of ids) {
+        try {
+          await apiFetch(`/api/budget2/lines/${id}/${endpoint}`, { method: 'POST' });
+          okCount++;
+        } catch (err) {
+          failMsgs.push(`#${id}: ${err.message}`);
+        }
+      }
+      budget2SelectedIds[key].clear();
+      budget2DB.loaded = false;
+      await loadBudget2BootstrapData();
+      renderBudget2ProposedTable();
+      renderBudget2ApprovedTable();
+      renderBudget2UsedTable();
+      if (failMsgs.length) {
+        showToast(`Đã gửi phê duyệt ${okCount}/${ids.length} dòng — ${failMsgs.length} dòng lỗi: ${failMsgs.join('; ')}`, okCount ? 'warning' : 'danger');
+      } else {
+        showToast(`Đã gửi phê duyệt ${okCount} dòng.`, 'success');
+      }
+    }
+    async function bulkRequestBudget2Supplement(key) {
+      const endpoint = BUDGET2_BULK_SUPPLEMENT_ENDPOINTS[key];
+      if (!endpoint) return;
+      const ids = [...budget2SelectedIds[key]].filter(id => {
+        const l = budget2DB.lines.find(x => x.id === id);
+        return l && l.status === 'SUBMITTED';
+      });
+      if (!ids.length) return;
+      const reason = await showPrompt({
+        title: 'Yêu cầu bổ sung thông tin (hàng loạt)',
+        message: `Nhập nội dung cần người tạo bổ sung/sửa lại — áp dụng chung cho cả ${ids.length} dòng đã chọn. Mỗi dòng sẽ được mở khóa sửa đúng 1 lần cho tới khi người tạo lưu lại.`,
+        placeholder: 'VD: Bổ sung báo giá của nhà cung cấp...',
+        required: true
+      });
+      if (reason === null) return;
+      let okCount = 0;
+      const failMsgs = [];
+      for (const id of ids) {
+        try {
+          await apiFetch(`/api/budget2/lines/${id}/${endpoint}`, { method: 'POST', body: JSON.stringify({ reason: reason.trim() }) });
+          okCount++;
+        } catch (err) {
+          failMsgs.push(`#${id}: ${err.message}`);
+        }
+      }
+      budget2SelectedIds[key].clear();
+      budget2DB.loaded = false;
+      await loadBudget2BootstrapData();
+      renderBudget2ProposedTable();
+      renderBudget2ApprovedTable();
+      renderBudget2UsedTable();
+      if (failMsgs.length) {
+        showToast(`Đã yêu cầu bổ sung ${okCount}/${ids.length} dòng — ${failMsgs.length} dòng lỗi: ${failMsgs.join('; ')}`, okCount ? 'warning' : 'danger');
+      } else {
+        showToast(`Đã gửi yêu cầu bổ sung cho ${okCount} dòng.`, 'success');
+      }
     }
     async function bulkDecideBudget2Lines(key, decision) {
       const endpointMap = BUDGET2_BULK_DECIDE_ENDPOINTS[key];
@@ -8192,22 +8276,28 @@ function isPerpetualSoftware(softwareId) {
         // sửa/bổ sung được, trừ khi người phê duyệt đã "Yêu cầu bổ sung"
         // (editRequested) — mở khóa đúng 1 lần cho người tạo. Xem chú thích
         // đầy đủ ở PUT /api/budget2/lines/:id (server.js).
-        const canEditNow = isAdmin || (l.status === 'SUBMITTED' && l.editRequested);
+        const canEditNow = isAdmin || l.status === 'DRAFT' || (l.status === 'SUBMITTED' && l.editRequested);
         // Gọn lại: chỉ giữ Duyệt/Từ chối (tần suất cao nhất) hiện thẳng trên
         // dòng; Sửa/Bổ sung/Xóa gộp vào menu "⋮" — dùng chung cơ chế đã có
         // sẵn cho bảng Tài liệu (renderRowActionsMenu/toggleRowMenu).
         const menuItems = [
           canEditNow ? `<button ${dc('editBudget2LineFromMenu', 'PROPOSED', l.id)} class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">✏️ Sửa</button>` : '',
-          canEditNow ? `<button ${dc('supplementBudget2LineFromMenu', 'PROPOSED', l.id)} class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">📝 Bổ sung</button>` : '',
+          (canEditNow && l.status !== 'DRAFT') ? `<button ${dc('supplementBudget2LineFromMenu', 'PROPOSED', l.id)} class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">📝 Bổ sung</button>` : '',
           // Chờ duyệt: chỉ Admin mới thấy nút Xóa (server cũng chặn xóa với
           // người không phải Admin) — đã duyệt/từ chối thì chỉ Admin còn
-          // được sửa/bổ sung/xóa lại (VD lỡ nhập sai).
+          // được sửa/bổ sung/xóa lại (VD lỡ nhập sai). Nháp: Admin xóa được
+          // như mọi trạng thái khác (server không phân biệt).
           isAdmin ? `<button ${dc('deleteBudget2LineFromMenu', l.id)} class="block w-full text-left px-3 py-2 text-xs text-danger-700 hover:bg-danger-50">🗑️ Xóa</button>` : ''
         ];
         const decidedNote = `<span class="text-gray-400 italic text-[11px] block">Đã xử lý${l.decidedBy ? ' bởi ' + escapeHtml(l.decidedBy) : ''}</span>`;
         const menuId = `rowMenu_propose_${l.id}`;
         let actions;
-        if (l.status === 'SUBMITTED') {
+        if (l.status === 'DRAFT') {
+          actions = `<div class="inline-flex items-center gap-1">
+            <button ${dc('submitBudget2Proposal', l.id)} class="text-xs bg-blue-600 text-white px-2 h-7 rounded font-semibold shadow-sm hover:bg-blue-700 whitespace-nowrap" title="Gửi phê duyệt">🚀 Gửi phê duyệt</button>
+            ${renderRowActionsMenu(menuId, menuItems)}
+          </div>`;
+        } else if (l.status === 'SUBMITTED') {
           actions = `<div class="inline-flex items-center gap-1">
             <button ${dc('approveBudget2Proposal', l.id)} class="text-xs bg-emerald-600 text-white px-2 h-7 rounded font-semibold shadow-sm hover:bg-emerald-700 whitespace-nowrap" title="Duyệt">✓ Duyệt</button>
             <button ${dc('rejectBudget2Proposal', l.id)} class="text-xs bg-danger-600 text-white px-2 h-7 rounded font-semibold shadow-sm hover:bg-danger-700 whitespace-nowrap" title="Từ chối">✕ Từ chối</button>
@@ -8245,6 +8335,16 @@ function isPerpetualSoftware(softwareId) {
       budget2RenderBulkBar('propose');
     }
 
+    async function submitBudget2Proposal(id) {
+      if (!confirm('Gửi phê duyệt đề xuất này? Sau khi gửi sẽ không tự sửa được nữa (trừ khi người phê duyệt yêu cầu bổ sung).')) return;
+      try {
+        await apiFetch(`/api/budget2/lines/${id}/submit-proposal`, { method: 'POST' });
+        budget2DB.loaded = false;
+        await loadBudget2BootstrapData();
+        renderBudget2ProposedTable();
+        showToast('Đã gửi phê duyệt.', 'success');
+      } catch (err) { showToast(err.message, 'danger'); }
+    }
     async function approveBudget2Proposal(id) {
       if (!confirm('Duyệt đề xuất này? Dòng vẫn ở lại tab Đề xuất, không sinh dòng nào ở tab Phê duyệt.')) return;
       try {
@@ -8286,6 +8386,16 @@ function isPerpetualSoftware(softwareId) {
         await loadBudget2BootstrapData();
         renderBudget2ProposedTable();
         showToast('Đã gửi yêu cầu bổ sung — đề xuất đã được mở khóa sửa cho người tạo.', 'success');
+      } catch (err) { showToast(err.message, 'danger'); }
+    }
+    async function submitBudget2Line(id) {
+      if (!confirm('Gửi phê duyệt dòng ngân sách này? Sau khi gửi sẽ không tự sửa được nữa (trừ khi người phê duyệt yêu cầu bổ sung).')) return;
+      try {
+        await apiFetch(`/api/budget2/lines/${id}/submit`, { method: 'POST' });
+        budget2DB.loaded = false;
+        await loadBudget2BootstrapData();
+        renderBudget2ApprovedTable();
+        showToast('Đã gửi phê duyệt.', 'success');
       } catch (err) { showToast(err.message, 'danger'); }
     }
     async function approveBudget2Line(id) {
@@ -8395,7 +8505,9 @@ function isPerpetualSoftware(softwareId) {
       const line = editId ? budget2DB.lines.find(l => l.id === editId) : null;
       let title;
       if (!editId) {
-        title = stage === 'PROPOSED' ? 'Thêm đề xuất ngân sách' : 'Thêm dòng ngân sách phê duyệt (chờ duyệt)';
+        title = stage === 'PROPOSED' ? 'Thêm đề xuất ngân sách (lưu nháp)' : 'Thêm dòng ngân sách phê duyệt (lưu nháp)';
+      } else if (line && line.status === 'DRAFT') {
+        title = stage === 'PROPOSED' ? 'Sửa nháp đề xuất ngân sách' : 'Sửa nháp dòng ngân sách phê duyệt';
       } else if (line && line.status && line.status !== 'SUBMITTED') {
         // Admin sửa lại dòng đã duyệt/từ chối — ghi rõ trên tiêu đề để tránh
         // nhầm với việc sửa dòng đang chờ duyệt bình thường.
@@ -8493,7 +8605,7 @@ function isPerpetualSoftware(softwareId) {
         renderBudget2ProposedTable();
         renderBudget2ApprovedTable();
         renderBudget2UsedTable();
-        showToast('Đã lưu.', 'success');
+        showToast(editId ? 'Đã lưu.' : 'Đã lưu nháp — bấm "Gửi phê duyệt" khi sẵn sàng gửi đi.', 'success');
       } catch (err) { showToast(err.message, 'danger'); }
     }
 
@@ -8519,19 +8631,24 @@ function isPerpetualSoftware(softwareId) {
       const rowsHtmlFn = (pageRows, startIdx) => pageRows.map((l, i) => {
         // (Khóa sửa khi đang chờ duyệt) Xem chú thích tương ứng ở
         // renderBudget2ProposedTable() — logic giống hệt.
-        const canEditNow = isAdmin || (l.status === 'SUBMITTED' && l.editRequested);
+        const canEditNow = isAdmin || l.status === 'DRAFT' || (l.status === 'SUBMITTED' && l.editRequested);
         // Gọn lại: chỉ giữ Duyệt/Từ chối hiện thẳng trên dòng; Sửa/Bổ sung/
         // Xóa gộp vào menu "⋮" (renderRowActionsMenu, dùng chung cơ chế đã
         // có sẵn cho bảng Tài liệu).
         const menuItems = [
           canEditNow ? `<button ${dc('editBudget2LineFromMenu', 'APPROVED', l.id)} class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">✏️ Sửa</button>` : '',
-          canEditNow ? `<button ${dc('supplementBudget2LineFromMenu', 'APPROVED', l.id)} class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">📝 Bổ sung</button>` : '',
+          (canEditNow && l.status !== 'DRAFT') ? `<button ${dc('supplementBudget2LineFromMenu', 'APPROVED', l.id)} class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">📝 Bổ sung</button>` : '',
           isAdmin ? `<button ${dc('deleteBudget2LineFromMenu', l.id)} class="block w-full text-left px-3 py-2 text-xs text-danger-700 hover:bg-danger-50">🗑️ Xóa</button>` : ''
         ];
         const decidedNote = `<span class="text-gray-400 italic text-[11px] block">${escapeHtml(l.decidedBy || '')}</span>`;
         const menuId = `rowMenu_approved_${l.id}`;
         let actions;
-        if (l.status === 'SUBMITTED') {
+        if (l.status === 'DRAFT') {
+          actions = `<div class="inline-flex items-center gap-1">
+            <button ${dc('submitBudget2Line', l.id)} class="text-xs bg-blue-600 text-white px-2 h-7 rounded font-semibold shadow-sm hover:bg-blue-700 whitespace-nowrap" title="Gửi phê duyệt">🚀 Gửi</button>
+            ${renderRowActionsMenu(menuId, menuItems)}
+          </div>`;
+        } else if (l.status === 'SUBMITTED') {
           // Chờ duyệt: chỉ Admin mới thấy nút Xóa (server cũng chặn xóa với
           // người không phải Admin).
           actions = `<div class="inline-flex items-center gap-1">
@@ -8575,7 +8692,7 @@ function isPerpetualSoftware(softwareId) {
         return `<tr class="bg-gray-50 font-bold"><td colspan="8" class="border p-2 text-right">Tổng đã duyệt (năm này)</td><td class="border p-2 text-right">${formatMoney(subtotal)}</td><td class="border p-2" colspan="9"></td></tr>`;
       };
       container.innerHTML = `<div class="flex justify-end mb-2">
-          <button ${dc('openBudget2LineModal', 'APPROVED', null)} class="btn-primary px-3 py-1.5 rounded text-xs font-bold">+ Thêm dòng phê duyệt (chờ duyệt)</button>
+          <button ${dc('openBudget2LineModal', 'APPROVED', null)} class="btn-primary px-3 py-1.5 rounded text-xs font-bold">+ Thêm dòng phê duyệt (lưu nháp)</button>
         </div>`
         + budget2RenderFilterBar('approved')
         + (allRows.length ? budget2RenderYearGroups('approved', grouped, 18, rowsHtmlFn, thead, footerHtmlFn) : '<div class="text-xs text-gray-400 italic p-4 border rounded">Chưa có dòng ngân sách phê duyệt nào.</div>');
