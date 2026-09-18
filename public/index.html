@@ -2029,13 +2029,20 @@
 
       <!-- Bộ chọn Năm báo cáo — áp dụng cho CẢ "Bốn lát cắt nhanh" lẫn "Báo
            cáo đa chiều" bên dưới (KHÔNG áp dụng cho "Tra cứu chi tiết" ở cuối
-           trang — mục đó có bộ lọc Tháng/Năm riêng). Chọn nhiều năm để so
-           sánh — xem renderBudget2OverviewYearChips()/toggleBudget2OverviewYear()
-           trong app.js. -->
-      <div class="flex flex-wrap justify-between items-center gap-2 bg-gray-50 border rounded-lg p-2.5">
-        <div class="flex flex-wrap items-center gap-2">
-          <span class="text-xs font-semibold text-gray-600">📅 Năm báo cáo (chọn nhiều để so sánh):</span>
-          <div id="budget2OverviewYearChips" class="flex flex-wrap gap-1"></div>
+           trang — mục đó có bộ lọc Tháng/Năm riêng). "Năm ngân sách" chọn
+           ĐÚNG 1 năm chính; "Năm so sánh" chọn THÊM được nhiều năm khác để
+           đối chiếu — xem renderBudget2OverviewYearChips()/
+           onBudget2PrimaryYearChange()/toggleBudget2OverviewYear() trong app.js. -->
+      <div class="flex flex-wrap justify-between items-center gap-3 bg-gray-50 border rounded-lg p-2.5">
+        <div class="flex flex-wrap items-center gap-4">
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-semibold text-gray-600">📅 Năm ngân sách:</span>
+            <select id="budget2PrimaryYearSelect" data-evt-change="onBudget2PrimaryYearChange" data-args='[]' class="border p-1.5 rounded bg-white text-sm font-bold text-teal-700"></select>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-xs font-semibold text-gray-600">📊 Năm so sánh (tùy chọn, chọn được nhiều):</span>
+            <div id="budget2CompareYearChips" class="flex flex-wrap gap-1"></div>
+          </div>
         </div>
         <button data-evt-click="exportBudget2OverviewReportXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs whitespace-nowrap">📤 Xuất Excel toàn bộ báo cáo</button>
       </div>
