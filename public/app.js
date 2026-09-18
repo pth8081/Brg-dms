@@ -6990,18 +6990,29 @@ function isPerpetualSoftware(softwareId) {
     }
 
     // ===================== Module Báo cáo =====================
-    const reportsDB = { doc: null, license: null };
+    const reportsDB = { doc: null, license: null, budget2: null };
     const REPORT_COLORS = { doc: '#2563eb', license: '#0d9488', budget: '#d97706', good: '#16a34a', warn: '#d97706', crit: '#dc2626', neutral: '#94a3b8' };
 
     function switchReportsSubsystem(sub) {
       document.getElementById('reportsDocPane').classList.toggle('hidden', sub !== 'doc');
       document.getElementById('reportsLicensePane').classList.toggle('hidden', sub !== 'license');
+      document.getElementById('reportsBudget2Pane').classList.toggle('hidden', sub !== 'budget2');
       const btnDoc = document.getElementById('btnReportsSubDoc');
       const btnLic = document.getElementById('btnReportsSubLicense');
+      const btnBud = document.getElementById('btnReportsSubBudget2');
       btnDoc.classList.toggle('bg-white', sub === 'doc'); btnDoc.classList.toggle('shadow-sm', sub === 'doc'); btnDoc.classList.toggle('text-gray-900', sub === 'doc'); btnDoc.classList.toggle('text-gray-500', sub !== 'doc');
       btnLic.classList.toggle('bg-white', sub === 'license'); btnLic.classList.toggle('shadow-sm', sub === 'license'); btnLic.classList.toggle('text-gray-900', sub === 'license'); btnLic.classList.toggle('text-gray-500', sub !== 'license');
+      btnBud.classList.toggle('bg-white', sub === 'budget2'); btnBud.classList.toggle('shadow-sm', sub === 'budget2'); btnBud.classList.toggle('text-gray-900', sub === 'budget2'); btnBud.classList.toggle('text-gray-500', sub !== 'budget2');
       if (sub === 'doc') loadDocReport();
-      else loadLicenseReport();
+      else if (sub === 'license') loadLicenseReport();
+      else loadBudget2Report();
+    }
+    // Nút "Xem đầy đủ" trong tab Ngân sách của Dashboard — nhảy thẳng sang
+    // đúng tab Báo cáo chi tiết trong module Quản lý Ngân sách (nhiều năm,
+    // đầy đủ bộ lọc/phân trang) thay vì lặp lại toàn bộ UI đó ở đây.
+    function goToBudget2FullReport() {
+      switchTab('budget2');
+      switchBudget2SubTab('reports');
     }
 
     async function loadDocReport() {
@@ -7100,6 +7111,62 @@ function isPerpetualSoftware(softwareId) {
           </tbody>
         </table>
       `;
+    }
+
+    // --- Báo cáo Ngân sách trong Dashboard — bản tóm tắt gọn (4 ô số liệu +
+    // 2 biểu đồ) của đúng năm mới nhất có dữ liệu, dùng lại nguyên
+    // /api/budget2/reports (không cần API riêng) — số liệu đầy đủ nhiều
+    // năm/lọc chi tiết vẫn ở tab Báo cáo riêng trong module Quản lý Ngân
+    // sách (xem goToBudget2FullReport()).
+    async function loadBudget2Report() {
+      if (!reportsDB.budget2) {
+        try { reportsDB.budget2 = await apiFetch('/api/budget2/reports'); }
+        catch (err) { showToast(err.message || 'Không thể tải báo cáo ngân sách.', 'danger'); return; }
+      }
+      await loadBudget2BootstrapData();
+      const d = reportsDB.budget2;
+      const years = [...new Set((d.total || []).map(r => r.budgetYear).filter(Boolean))].sort((a, b) => a - b);
+      const latestYear = years.length ? years[years.length - 1] : new Date().getFullYear();
+      document.getElementById('repBudget2YearLabel').textContent = latestYear;
+
+      const totalOfYear = (d.total || []).filter(r => r.budgetYear === latestYear);
+      const proposed = totalOfYear.reduce((s, r) => s + Number(r.proposed || 0), 0);
+      const approved = totalOfYear.reduce((s, r) => s + Number(r.approved || 0), 0);
+      const used = totalOfYear.reduce((s, r) => s + Number(r.used || 0), 0);
+      document.getElementById('repBudget2Proposed').textContent = formatMoney(proposed);
+      document.getElementById('repBudget2Approved').textContent = formatMoney(approved);
+      document.getElementById('repBudget2Used').textContent = formatMoney(used);
+      document.getElementById('repBudget2Remaining').textContent = formatMoney(approved - used);
+
+      const byCompanyOfYear = new Map();
+      (d.byCompany || []).filter(r => r.budgetYear === latestYear).forEach(r => {
+        const key = r.groupKey ?? 'null';
+        if (!byCompanyOfYear.has(key)) byCompanyOfYear.set(key, { label: budget2CompanyName(r.groupKey) || '(Chưa gán công ty)', approved: 0, used: 0 });
+        const agg = byCompanyOfYear.get(key);
+        agg.approved += Number(r.approved || 0);
+        agg.used += Number(r.used || 0);
+      });
+      const companyData = [...byCompanyOfYear.values()].filter(x => x.approved > 0 || x.used > 0).sort((a, b) => b.approved - a.approved).slice(0, 6);
+      reportGroupedBarChart('chartBudget2Company', companyData.map(x => ({ label: x.label, phe_duyet: x.approved, su_dung: x.used })), [
+        { key: 'phe_duyet', name: 'Phê duyệt', color: REPORT_COLORS.license },
+        { key: 'su_dung', name: 'Sử dụng', color: REPORT_COLORS.budget },
+      ]);
+
+      const byYearMap = new Map();
+      (d.total || []).forEach(r => {
+        if (!r.budgetYear) return;
+        if (!byYearMap.has(r.budgetYear)) byYearMap.set(r.budgetYear, { proposed: 0, approved: 0, used: 0 });
+        const agg = byYearMap.get(r.budgetYear);
+        agg.proposed += Number(r.proposed || 0);
+        agg.approved += Number(r.approved || 0);
+        agg.used += Number(r.used || 0);
+      });
+      const byYearData = [...byYearMap.entries()].sort((a, b) => a[0] - b[0]).map(([y, v]) => ({ label: String(y), de_xuat: v.proposed, phe_duyet: v.approved, su_dung: v.used }));
+      reportGroupedBarChart('chartBudget2ByYear', byYearData, [
+        { key: 'de_xuat', name: 'Đề xuất', color: '#7c3aed' },
+        { key: 'phe_duyet', name: 'Phê duyệt', color: REPORT_COLORS.license },
+        { key: 'su_dung', name: 'Sử dụng', color: REPORT_COLORS.budget },
+      ]);
     }
 
     function reportNiceMax(v) {
