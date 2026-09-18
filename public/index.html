@@ -244,10 +244,10 @@
         <button data-evt-click="closeSidebarDrawer" data-args='[]' class="md:hidden text-white/70 hover:text-white text-xl leading-none px-1" aria-label="Đóng menu điều hướng">✕</button>
       </div>
       <button id="btnHomeTab" data-evt-click="switchTab" data-args='["home"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">🏠</span><span>Trang chủ</span></button>
+      <button id="btnReportsTab" data-evt-click="switchTab" data-args='["reports"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">📊</span><span>Dashboard</span></button>
       <button id="btnDocTab" data-evt-click="switchTab" data-args='["doc"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">📂</span><span>Quản lý tài liệu</span></button>
       <button id="btnLicenseTab" data-evt-click="switchTab" data-args='["license"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">🔑</span><span>Quản lý Bản quyền</span></button>
       <button id="btnLicensePortalTab" data-evt-click="switchTab" data-args='["licensePortal"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">💰</span><span>Ngân sách &amp; Kỳ mua</span></button>
-      <button id="btnReportsTab" data-evt-click="switchTab" data-args='["reports"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">📊</span><span>Báo cáo</span></button>
       <button id="btnItAssetsTab" data-evt-click="switchTab" data-args='["itAssets"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">🖥️</span><span>Quản lý CNTT</span></button>
       <button id="btnBudget2Tab" data-evt-click="switchTab" data-args='["budget2"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">💵</span><span>Quản lý Ngân sách</span></button>
       <button id="btnAdminTab" data-evt-click="switchTab" data-args='["admin"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">🛡️</span><span>Hệ thống</span></button>
@@ -1690,6 +1690,7 @@
     <div class="inline-flex bg-gray-100 border border-gray-200 rounded-lg p-1 gap-1">
       <button id="btnReportsSubDoc" data-evt-click="switchReportsSubsystem" data-args='["doc"]' class="text-xs px-3.5 py-1.5 rounded-md font-semibold">📂 Tài liệu</button>
       <button id="btnReportsSubLicense" data-evt-click="switchReportsSubsystem" data-args='["license"]' class="text-xs px-3.5 py-1.5 rounded-md font-semibold">🔑 Bản quyền</button>
+      <button id="btnReportsSubBudget2" data-evt-click="switchReportsSubsystem" data-args='["budget2"]' class="text-xs px-3.5 py-1.5 rounded-md font-semibold">💵 Ngân sách</button>
     </div>
 
     <!-- ===== Báo cáo Tài liệu ===== -->
@@ -1800,6 +1801,44 @@
         <h3 class="text-sm font-bold text-gray-800">Ngân sách theo Công ty: Kế hoạch vs Thực tế</h3>
         <p class="text-xs text-gray-500 mb-3">Kế hoạch suy ra qua đơn vị trực thuộc của dự trù đã duyệt; Thực tế lấy từ Công ty gán khi ghi nhận mua — "Chưa phân bổ" là các lần mua chung không gán công ty cụ thể</p>
         <div id="tableBudgetByCompany" class="overflow-x-auto"></div>
+      </div>
+    </div>
+
+    <!-- ===== Báo cáo Ngân sách (module Quản lý Ngân sách — Đề xuất/Phê
+         duyệt/Sử dụng, ĐỘC LẬP với lic_budget_* ở tab Bản quyền phía trên) ===== -->
+    <div id="reportsBudget2Pane" class="hidden">
+      <p class="text-xs text-gray-500 mb-3">Số liệu tổng hợp năm <span id="repBudget2YearLabel" class="font-semibold text-gray-700"></span> (năm mới nhất có dữ liệu). Xem đầy đủ nhiều năm + lọc chi tiết tại
+        <button type="button" data-evt-click="goToBudget2FullReport" data-args='[]' class="text-teal-700 font-semibold hover:underline">Quản lý Ngân sách → Báo cáo</button>.
+      </p>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="bg-white border rounded-xl p-4 shadow-sm">
+          <div class="text-xs font-semibold text-gray-500 mb-1">Tổng đề xuất</div>
+          <div id="repBudget2Proposed" class="text-2xl font-bold text-purple-700">—</div>
+        </div>
+        <div class="bg-white border rounded-xl p-4 shadow-sm">
+          <div class="text-xs font-semibold text-gray-500 mb-1">Đã duyệt</div>
+          <div id="repBudget2Approved" class="text-2xl font-bold text-sky-700">—</div>
+        </div>
+        <div class="bg-white border rounded-xl p-4 shadow-sm">
+          <div class="text-xs font-semibold text-gray-500 mb-1">Đã sử dụng</div>
+          <div id="repBudget2Used" class="text-2xl font-bold text-teal-700">—</div>
+        </div>
+        <div class="bg-white border rounded-xl p-4 shadow-sm">
+          <div class="text-xs font-semibold text-gray-500 mb-1">Còn lại (đã duyệt)</div>
+          <div id="repBudget2Remaining" class="text-2xl font-bold text-gray-900">—</div>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+        <div class="bg-white border rounded-xl p-4 shadow-sm">
+          <h3 class="text-sm font-bold text-gray-800">Ngân sách theo Công ty</h3>
+          <p class="text-xs text-gray-500 mb-3">Phê duyệt vs Sử dụng, top 6 công ty — năm mới nhất có dữ liệu</p>
+          <div id="chartBudget2Company" class="overflow-x-auto"></div>
+        </div>
+        <div class="bg-white border rounded-xl p-4 shadow-sm">
+          <h3 class="text-sm font-bold text-gray-800">Đề xuất / Phê duyệt / Sử dụng theo năm</h3>
+          <p class="text-xs text-gray-500 mb-3">Toàn bộ lịch sử năm có dữ liệu</p>
+          <div id="chartBudget2ByYear" class="overflow-x-auto"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -1982,7 +2021,7 @@
       <div class="flex flex-wrap justify-between items-center gap-2">
         <h2 class="text-lg font-bold text-gray-800">Ngân sách đề xuất</h2>
         <div class="flex flex-wrap gap-2 text-xs">
-          <button data-evt-click="openBudget2LineModal" data-args='["PROPOSED", null]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition">+ Thêm đề xuất</button>
+          <button data-evt-click="openBudget2LineModal" data-args='["PROPOSED", null]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition">+ Thêm đề xuất (lưu nháp)</button>
           <button data-evt-click="downloadBudget2Template" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition">📄 Tải File Excel Mẫu</button>
           <label class="btn-secondary px-2.5 py-1.5 rounded font-semibold cursor-pointer transition">
             📥 Nhập Excel <input type="file" accept=".xlsx" data-evt-change="importBudget2Xlsx" data-args='[{"__live__":"event"}, "PROPOSED"]' class="hidden">

@@ -7198,13 +7198,34 @@ app.post('/api/budget2/lines', requireAuth, requireBudgetOrAdmin, async (req, re
         const [result] = await pool.query(
             `INSERT INTO budget2_lines
                 (stage, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, item_category, status, note, created_by, created_at, budget_year, budget_month)
-             VALUES ('PROPOSED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', ?, ?, ?, ?, ?)`,
+             VALUES ('PROPOSED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?)`,
             [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, req.user.username, now, v.budgetYear, v.budgetMonth]
         );
-        await writeAuditLog({ module: 'BUDGET2', actionType: 'CREATE_PROPOSAL', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Tạo đề xuất ngân sách [${v.content}] tháng ${v.budgetMonth}/${v.budgetYear}, thành tiền ${totalAmount.toLocaleString('vi-VN')}.` });
+        await writeAuditLog({ module: 'BUDGET2', actionType: 'CREATE_PROPOSAL', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Lưu nháp đề xuất ngân sách [${v.content}] tháng ${v.budgetMonth}/${v.budgetYear}, thành tiền ${totalAmount.toLocaleString('vi-VN')}.` });
         res.json({ success: true, id: result.insertId });
     } catch (err) {
         console.error('❌ Lỗi tạo đề xuất ngân sách:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Gửi phê duyệt 1 nháp Đề xuất (DRAFT -> SUBMITTED) — từ lúc này đề xuất
+// mới thật sự vào hàng chờ duyệt và bị khóa sửa (xem PUT .../lines/:id).
+// Trước đó, dù đã tạo/nhập Excel, đề xuất vẫn chỉ là nháp riêng của người tạo,
+// người phê duyệt không thấy và không thể duyệt/từ chối/yêu cầu bổ sung. ---
+app.post('/api/budget2/lines/:id/submit-proposal', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'PROPOSED\'', [id]);
+        const line = rows[0];
+        if (!line) return res.status(404).json({ error: 'Không tìm thấy đề xuất.' });
+        if (line.status !== 'DRAFT') return res.status(400).json({ error: 'Đề xuất này không còn ở dạng nháp.' });
+        const [upd] = await pool.query("UPDATE budget2_lines SET status = 'SUBMITTED' WHERE id = ? AND status = 'DRAFT'", [id]);
+        if (upd.affectedRows === 0) return res.status(409).json({ error: 'Đề xuất này vừa được thay đổi, vui lòng tải lại trang.' });
+        await writeAuditLog({ module: 'BUDGET2', actionType: 'SUBMIT_PROPOSAL', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Gửi phê duyệt đề xuất ngân sách [${line.content}] (từ nháp).` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi gửi phê duyệt đề xuất ngân sách:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
@@ -7227,14 +7248,18 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
             // khi CHƯA bị quyết định (SUBMITTED); riêng Admin được sửa cả dòng
             // đã duyệt/từ chối (VD sửa lại số liệu nhập sai) — không ảnh hưởng
             // dữ liệu nơi khác vì Đề xuất không sinh dòng ở giai đoạn khác.
-            if (line.status !== 'SUBMITTED' && !req.user.perms.admin) {
-                return res.status(400).json({ error: 'Đề xuất đã được duyệt/từ chối, không thể sửa.' });
-            }
-            // (Khóa sửa khi đang chờ duyệt) Xem chú thích cột edit_requested ở
-            // schema.sql — chỉ mở khóa đúng 1 lần khi người phê duyệt chủ động
-            // yêu cầu bổ sung, tự khóa lại ngay sau khi sửa xong bên dưới.
-            if (line.status === 'SUBMITTED' && !line.edit_requested && !req.user.perms.admin) {
-                return res.status(400).json({ error: 'Đề xuất đang chờ duyệt — chỉ có thể sửa/bổ sung khi người phê duyệt yêu cầu bổ sung.' });
+            // Nháp (DRAFT, chưa gửi phê duyệt) luôn sửa tự do — chưa vào hàng
+            // chờ duyệt nên không cần khóa gì cả, khác hẳn SUBMITTED.
+            if (line.status !== 'DRAFT') {
+                if (line.status !== 'SUBMITTED' && !req.user.perms.admin) {
+                    return res.status(400).json({ error: 'Đề xuất đã được duyệt/từ chối, không thể sửa.' });
+                }
+                // (Khóa sửa khi đang chờ duyệt) Xem chú thích cột edit_requested ở
+                // schema.sql — chỉ mở khóa đúng 1 lần khi người phê duyệt chủ động
+                // yêu cầu bổ sung, tự khóa lại ngay sau khi sửa xong bên dưới.
+                if (line.status === 'SUBMITTED' && !line.edit_requested && !req.user.perms.admin) {
+                    return res.status(400).json({ error: 'Đề xuất đang chờ duyệt — chỉ có thể sửa/bổ sung khi người phê duyệt yêu cầu bổ sung.' });
+                }
             }
             const v = validateBudget2LineInput(req.body || {}, {}, await getBudget2CategoryCatalog(), await getBudget2OrgScopeCatalog());
             if (v.error) return res.status(400).json({ error: v.error });
@@ -7243,7 +7268,7 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
                 `UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, note = ?, budget_year = ?, budget_month = ?, edit_requested = 0 WHERE id = ?`,
                 [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, v.budgetYear, v.budgetMonth, id]
             );
-            await writeAuditLog({ module: 'BUDGET2', actionType: 'UPDATE_PROPOSAL', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Cập nhật đề xuất ngân sách [${v.content}]${line.status !== 'SUBMITTED' ? ' (đã quyết định — Admin sửa lại)' : ''}.` });
+            await writeAuditLog({ module: 'BUDGET2', actionType: 'UPDATE_PROPOSAL', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Cập nhật đề xuất ngân sách [${v.content}]${line.status === 'DRAFT' ? ' (nháp)' : (line.status !== 'SUBMITTED' ? ' (đã quyết định — Admin sửa lại)' : '')}.` });
             return res.json({ success: true });
         }
 
@@ -7253,14 +7278,18 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
             // đã ĐƯỢC DUYỆT đã tự sinh 1 dòng Sử dụng (mục cha) sao chép y hệt
             // nội dung/số liệu — phải cập nhật đồng bộ luôn dòng đó, nếu không
             // sẽ lệch số liệu vĩnh viễn giữa 2 giai đoạn.
-            if (line.status !== 'SUBMITTED' && !req.user.perms.admin) {
-                return res.status(400).json({ error: 'Dòng ngân sách phê duyệt đã được duyệt/từ chối, không thể sửa.' });
-            }
-            // (Khóa sửa khi đang chờ duyệt) Xem chú thích cột edit_requested ở
-            // schema.sql — chỉ mở khóa đúng 1 lần khi người phê duyệt chủ động
-            // yêu cầu bổ sung, tự khóa lại ngay sau khi sửa xong bên dưới.
-            if (line.status === 'SUBMITTED' && !line.edit_requested && !req.user.perms.admin) {
-                return res.status(400).json({ error: 'Dòng ngân sách phê duyệt đang chờ duyệt — chỉ có thể sửa/bổ sung khi người phê duyệt yêu cầu bổ sung.' });
+            // Nháp (DRAFT, chưa gửi phê duyệt) luôn sửa tự do — xem chú thích ở
+            // nhánh PROPOSED phía trên.
+            if (line.status !== 'DRAFT') {
+                if (line.status !== 'SUBMITTED' && !req.user.perms.admin) {
+                    return res.status(400).json({ error: 'Dòng ngân sách phê duyệt đã được duyệt/từ chối, không thể sửa.' });
+                }
+                // (Khóa sửa khi đang chờ duyệt) Xem chú thích cột edit_requested ở
+                // schema.sql — chỉ mở khóa đúng 1 lần khi người phê duyệt chủ động
+                // yêu cầu bổ sung, tự khóa lại ngay sau khi sửa xong bên dưới.
+                if (line.status === 'SUBMITTED' && !line.edit_requested && !req.user.perms.admin) {
+                    return res.status(400).json({ error: 'Dòng ngân sách phê duyệt đang chờ duyệt — chỉ có thể sửa/bổ sung khi người phê duyệt yêu cầu bổ sung.' });
+                }
             }
             const v = validateBudget2LineInput(req.body || {}, {}, await getBudget2CategoryCatalog(), await getBudget2OrgScopeCatalog());
             if (v.error) return res.status(400).json({ error: v.error });
@@ -7294,7 +7323,7 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
                     [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, v.budgetYear, v.budgetMonth, id]
                 );
             }
-            await writeAuditLog({ module: 'BUDGET2', actionType: 'UPDATE_APPROVED_PENDING', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Cập nhật dòng ngân sách phê duyệt [${v.content}]${line.status !== 'SUBMITTED' ? ` (đã ${line.status === 'APPROVED' ? 'duyệt — Admin sửa lại, đồng bộ dòng Sử dụng' : 'từ chối — Admin sửa lại'})` : ' (chờ duyệt)'}.` });
+            await writeAuditLog({ module: 'BUDGET2', actionType: 'UPDATE_APPROVED_PENDING', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Cập nhật dòng ngân sách phê duyệt [${v.content}]${line.status === 'DRAFT' ? ' (nháp)' : (line.status !== 'SUBMITTED' ? ` (đã ${line.status === 'APPROVED' ? 'duyệt — Admin sửa lại, đồng bộ dòng Sử dụng' : 'từ chối — Admin sửa lại'})` : ' (chờ duyệt)')}.` });
             return res.json({ success: true });
         }
 
@@ -7460,6 +7489,7 @@ app.post('/api/budget2/lines/:id/approve-proposal', requireAuth, requireBudgetOr
         const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'PROPOSED\'', [id]);
         const line = rows[0];
         if (!line) return res.status(404).json({ error: 'Không tìm thấy đề xuất.' });
+        if (line.status === 'DRAFT') return res.status(400).json({ error: 'Đề xuất này vẫn đang ở dạng nháp — người tạo cần bấm "Gửi phê duyệt" trước.' });
         if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Đề xuất này đã được xử lý trước đó.' });
         if (line.created_by === req.user.username) return res.status(403).json({ error: 'Không thể tự duyệt đề xuất do chính mình tạo.' });
         const now = new Date().toISOString();
@@ -7479,6 +7509,7 @@ app.post('/api/budget2/lines/:id/reject-proposal', requireAuth, requireBudgetOrA
         const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'PROPOSED\'', [id]);
         const line = rows[0];
         if (!line) return res.status(404).json({ error: 'Không tìm thấy đề xuất.' });
+        if (line.status === 'DRAFT') return res.status(400).json({ error: 'Đề xuất này vẫn đang ở dạng nháp — người tạo cần bấm "Gửi phê duyệt" trước.' });
         if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Đề xuất này đã được xử lý trước đó.' });
         if (line.created_by === req.user.username) return res.status(403).json({ error: 'Không thể tự từ chối đề xuất do chính mình tạo.' });
         const now = new Date().toISOString();
@@ -7508,8 +7539,14 @@ app.post('/api/budget2/lines/:id/request-supplement-proposal', requireAuth, requ
         const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'PROPOSED\'', [id]);
         const line = rows[0];
         if (!line) return res.status(404).json({ error: 'Không tìm thấy đề xuất.' });
+        if (line.status === 'DRAFT') return res.status(400).json({ error: 'Đề xuất này vẫn đang ở dạng nháp — người tạo cần bấm "Gửi phê duyệt" trước.' });
         if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Đề xuất này đã được xử lý trước đó.' });
-        if (line.created_by === req.user.username) return res.status(403).json({ error: 'Không thể tự yêu cầu bổ sung đề xuất do chính mình tạo.' });
+        // Admin được miễn trừ chặn tự thao tác ở đây (khác Duyệt/Từ chối) vì
+        // Admin vốn đã bỏ qua hoàn toàn cờ edit_requested khi sửa (xem PUT
+        // .../lines/:id) — tự "yêu cầu bổ sung" trên đề xuất của chính mình
+        // không mở thêm quyền gì mà Admin chưa sẵn có, chỉ đỡ phải nhờ người
+        // khác bấm hộ.
+        if (line.created_by === req.user.username && !req.user.perms.admin) return res.status(403).json({ error: 'Không thể tự yêu cầu bổ sung đề xuất do chính mình tạo.' });
         const stamp = `[Yêu cầu bổ sung - ${new Date().toLocaleString('vi-VN')} - ${req.user.name}] ${reason}`;
         const newNote = line.note ? `${line.note}\n${stamp}` : stamp;
         if (newNote.length > 500) return res.status(400).json({ error: 'Ghi chú đã gần đầy, không đủ chỗ để thêm yêu cầu bổ sung — hãy rút gọn nội dung.' });
@@ -7532,6 +7569,7 @@ app.post('/api/budget2/lines/:id/approve', requireAuth, requireBudgetOrAdmin, as
         const [rows] = await conn.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'APPROVED\' FOR UPDATE', [id]);
         const line = rows[0];
         if (!line) { conn.release(); return res.status(404).json({ error: 'Không tìm thấy dòng ngân sách phê duyệt.' }); }
+        if (line.status === 'DRAFT') { conn.release(); return res.status(400).json({ error: 'Dòng này vẫn đang ở dạng nháp — người tạo cần bấm "Gửi phê duyệt" trước.' }); }
         if (line.status !== 'SUBMITTED') { conn.release(); return res.status(400).json({ error: 'Dòng này đã được xử lý trước đó.' }); }
         // (Chuẩn hóa mã lỗi) Chặn tự duyệt là quy tắc PHÂN QUYỀN (ai được phép
         // thực hiện hành động), không phải lỗi dữ liệu đầu vào — đổi từ 400
@@ -7570,6 +7608,7 @@ app.post('/api/budget2/lines/:id/reject', requireAuth, requireBudgetOrAdmin, asy
         const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'APPROVED\'', [id]);
         const line = rows[0];
         if (!line) return res.status(404).json({ error: 'Không tìm thấy dòng ngân sách phê duyệt.' });
+        if (line.status === 'DRAFT') return res.status(400).json({ error: 'Dòng này vẫn đang ở dạng nháp — người tạo cần bấm "Gửi phê duyệt" trước.' });
         if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Dòng này đã được xử lý trước đó.' });
         if (line.created_by === req.user.username) return res.status(403).json({ error: 'Không thể tự từ chối dòng ngân sách do chính mình tạo.' });
         const now = new Date().toISOString();
@@ -7595,8 +7634,10 @@ app.post('/api/budget2/lines/:id/request-supplement', requireAuth, requireBudget
         const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'APPROVED\'', [id]);
         const line = rows[0];
         if (!line) return res.status(404).json({ error: 'Không tìm thấy dòng ngân sách phê duyệt.' });
+        if (line.status === 'DRAFT') return res.status(400).json({ error: 'Dòng này vẫn đang ở dạng nháp — người tạo cần bấm "Gửi phê duyệt" trước.' });
         if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Dòng này đã được xử lý trước đó.' });
-        if (line.created_by === req.user.username) return res.status(403).json({ error: 'Không thể tự yêu cầu bổ sung dòng ngân sách do chính mình tạo.' });
+        // Admin miễn trừ — xem chú thích đầy đủ ở .../request-supplement-proposal.
+        if (line.created_by === req.user.username && !req.user.perms.admin) return res.status(403).json({ error: 'Không thể tự yêu cầu bổ sung dòng ngân sách do chính mình tạo.' });
         const stamp = `[Yêu cầu bổ sung - ${new Date().toLocaleString('vi-VN')} - ${req.user.name}] ${reason}`;
         const newNote = line.note ? `${line.note}\n${stamp}` : stamp;
         if (newNote.length > 500) return res.status(400).json({ error: 'Ghi chú đã gần đầy, không đủ chỗ để thêm yêu cầu bổ sung — hãy rút gọn nội dung.' });
@@ -7623,13 +7664,33 @@ app.post('/api/budget2/lines/approved-direct', requireAuth, requireBudgetOrAdmin
         const [result] = await pool.query(
             `INSERT INTO budget2_lines
                 (stage, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, item_category, status, note, created_by, created_at, budget_year, budget_month)
-             VALUES ('APPROVED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', ?, ?, ?, ?, ?)`,
+             VALUES ('APPROVED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?)`,
             [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, req.user.username, now, v.budgetYear, v.budgetMonth]
         );
-        await writeAuditLog({ module: 'BUDGET2', actionType: 'CREATE_APPROVED_DIRECT', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Nhập trực tiếp dòng ngân sách phê duyệt [${v.content}] (không qua đề xuất) — đang chờ duyệt.` });
+        await writeAuditLog({ module: 'BUDGET2', actionType: 'CREATE_APPROVED_DIRECT', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Lưu nháp dòng ngân sách phê duyệt [${v.content}] (không qua đề xuất).` });
         res.json({ success: true, id: result.insertId });
     } catch (err) {
         console.error('❌ Lỗi tạo dòng ngân sách phê duyệt trực tiếp:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Gửi phê duyệt 1 nháp dòng Phê duyệt (DRAFT -> SUBMITTED) — xem chú
+// thích đầy đủ ở .../lines/:id/submit-proposal, logic giống hệt, chỉ khác
+// stage = 'APPROVED'. ---
+app.post('/api/budget2/lines/:id/submit', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'APPROVED\'', [id]);
+        const line = rows[0];
+        if (!line) return res.status(404).json({ error: 'Không tìm thấy dòng ngân sách phê duyệt.' });
+        if (line.status !== 'DRAFT') return res.status(400).json({ error: 'Dòng này không còn ở dạng nháp.' });
+        const [upd] = await pool.query("UPDATE budget2_lines SET status = 'SUBMITTED' WHERE id = ? AND status = 'DRAFT'", [id]);
+        if (upd.affectedRows === 0) return res.status(409).json({ error: 'Dòng này vừa được thay đổi, vui lòng tải lại trang.' });
+        await writeAuditLog({ module: 'BUDGET2', actionType: 'SUBMIT_APPROVED_PENDING', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Gửi phê duyệt dòng ngân sách phê duyệt [${line.content}] (từ nháp).` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi gửi phê duyệt dòng ngân sách phê duyệt:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
@@ -7664,7 +7725,7 @@ app.post('/api/budget2/import', requireAuth, requireBudgetOrAdmin, async (req, r
         const [units] = await conn.query('SELECT * FROM lic_org_units');
         const categoryCatalog = await getBudget2CategoryCatalog();
         const [existingLines] = await conn.query(
-            'SELECT id, company_id, org_unit_id, content, budget_type, item_category, budget_year, budget_month FROM budget2_lines WHERE stage = ? AND status = \'SUBMITTED\'',
+            'SELECT id, company_id, org_unit_id, content, budget_type, item_category, budget_year, budget_month FROM budget2_lines WHERE stage = ? AND status IN (\'DRAFT\', \'SUBMITTED\')',
             [stage]
         );
         const existingByKey = new Map(existingLines.map(l => [
@@ -7760,7 +7821,7 @@ app.post('/api/budget2/import', requireAuth, requireBudgetOrAdmin, async (req, r
             await conn.query(
                 `INSERT INTO budget2_lines
                     (stage, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, item_category, status, note, created_by, created_at, budget_year, budget_month)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', ?, ?, ?, ?, ?)`,
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?)`,
                 [stage, v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, req.user.username, now, v.budgetYear, v.budgetMonth]
             );
         }
@@ -7775,7 +7836,7 @@ app.post('/api/budget2/import', requireAuth, requireBudgetOrAdmin, async (req, r
         const skipped = duplicateAction === 'skip' ? duplicateLabels.length : 0;
 
         await conn.commit();
-        await writeAuditLog({ module: 'BUDGET2', actionType: 'IMPORT_LINES', status: errors.length ? 'PARTIAL' : 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: stage === 'PROPOSED' ? 'Ngân sách đề xuất' : 'Ngân sách phê duyệt', description: `Nhập Excel ${stage === 'PROPOSED' ? 'Đề xuất' : 'Phê duyệt'}: ${created} dòng mới, ${updated} cập nhật, ${skipped} bỏ qua (trùng), ${errors.length} lỗi.` });
+        await writeAuditLog({ module: 'BUDGET2', actionType: 'IMPORT_LINES', status: errors.length ? 'PARTIAL' : 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: stage === 'PROPOSED' ? 'Ngân sách đề xuất' : 'Ngân sách phê duyệt', description: `Nhập Excel ${stage === 'PROPOSED' ? 'Đề xuất' : 'Phê duyệt'}: ${created} dòng nháp mới (chưa gửi phê duyệt), ${updated} cập nhật, ${skipped} bỏ qua (trùng), ${errors.length} lỗi.` });
         res.json({ success: true, created, updated, skipped, errors });
     } catch (err) {
         if (conn) { try { await conn.rollback(); } catch (_) {} }
@@ -7862,10 +7923,13 @@ app.get('/api/budget2/reports', requireAuth, requireBudgetOrAdmin, async (req, r
         // dữ liệu, không cần gọi lại API.
         const stageSum = async (stage, groupCol, joinSql = '') => {
             // Đề xuất/Sử dụng không qua bước duyệt (module chỉ giai đoạn Phê
-            // duyệt mới có duyệt/từ chối) nên không cần lọc status; riêng
-            // APPROVED phải lọc status='APPROVED' để KHÔNG tính nhầm các dòng
-            // đang chờ duyệt (SUBMITTED) hoặc đã bị từ chối (REJECTED).
-            const extraWhere = stage === 'APPROVED' ? "AND status = 'APPROVED'" : (stage === 'USED' ? 'AND parent_id IS NOT NULL' : '');
+            // duyệt mới có duyệt/từ chối) nên không cần lọc status theo
+            // Duyệt/Từ chối; riêng APPROVED phải lọc status='APPROVED' để
+            // KHÔNG tính nhầm các dòng đang chờ duyệt (SUBMITTED) hoặc đã bị
+            // từ chối (REJECTED). Mọi stage đều phải loại DRAFT — nháp chưa
+            // gửi phê duyệt chỉ là bản riêng của người tạo, chưa phải số liệu
+            // thật để tính vào báo cáo.
+            const extraWhere = stage === 'APPROVED' ? "AND status = 'APPROVED'" : (stage === 'USED' ? "AND parent_id IS NOT NULL AND status != 'DRAFT'" : "AND status != 'DRAFT'");
             const sql = `SELECT ${groupCol} AS groupKey, budget_type AS budgetType, budget_year AS budgetYear, budget_month AS budgetMonth, SUM(total_amount) AS total
                          FROM budget2_lines ${joinSql} WHERE stage = ? ${extraWhere} GROUP BY ${groupCol}, budget_type, budget_year, budget_month`;
             const [rows] = await pool.query(sql, [stage]);
