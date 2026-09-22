@@ -707,6 +707,23 @@
             </div>
           </div>
 
+          <div class="bg-white p-3 rounded border space-y-2 text-xs">
+            <h4 class="font-bold text-teal-800 border-b pb-1 text-xs">7. Phạm vi Ngân sách (Quản lý/Chỉ xem)</h4>
+            <p class="text-[11px] text-gray-500">Chỉ áp dụng khi tài khoản có quyền "Người quản lý Ngân sách" hoặc "Người xem Ngân sách" ở mục 1 — để trống thì được toàn quyền quản lý/xem MỌI công ty/đơn vị như hiện tại; gán phạm vi thì chỉ quản lý/xem được đúng Công ty hoặc Khối/Phòng/Ban (và các đơn vị con) được gán.</p>
+            <select id="userBudgetScopeType" data-evt-change="onScopeTypeChange" data-args='["userBudget"]' class="w-full border p-1.5 rounded text-xs bg-white mb-2">
+              <option value="">-- Không giới hạn (toàn bộ công ty/đơn vị) --</option>
+              <option value="COMPANY">Toàn bộ 1 Công ty</option>
+              <option value="ORG_UNIT">1 Khối/Phòng/Ban thuộc Công ty</option>
+            </select>
+            <div id="userBudgetScopeCompanyWrap" class="hidden">
+              <select id="userBudgetScopeCompanyId" class="w-full border p-1.5 rounded text-xs bg-white"></select>
+            </div>
+            <div id="userBudgetScopeOrgUnitWrap" class="hidden grid grid-cols-2 gap-2">
+              <select id="userBudgetScopeOrgUnitCompanyId" data-evt-change="onScopeOrgUnitCompanyChange" data-args='["userBudget"]' class="w-full border p-1.5 rounded text-xs bg-white"></select>
+              <select id="userBudgetScopeOrgUnitId" class="w-full border p-1.5 rounded text-xs bg-white"></select>
+            </div>
+          </div>
+
           <div class="flex justify-end gap-2 pt-2">
             <button type="button" data-evt-click="resetUserForm" data-args='[]' class="bg-gray-400 text-white px-4 py-1.5 rounded text-xs font-bold">Hủy</button>
             <button id="btnSaveUser" type="submit" class="btn-primary px-6 py-1.5 rounded text-xs font-bold">+ Thêm Vào Danh Sách</button>
