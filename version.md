@@ -12,6 +12,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 
 | Phiên bản | PR | Ngày merge | Nội dung |
 |---|---|---|---|
+| v6.121 | [#95](https://github.com/pth8081/Brg-dms/pull/95) | 2026-09-22 | Thêm phạm vi Công ty/Đơn vị (tùy chọn) cho quyền "Người quản lý Ngân sách"/"Người xem Ngân sách" (PR #94) — trước đây 2 quyền này luôn toàn quyền mọi công ty/phòng ban, nay gán được `budgetScopeType`/`budgetScopeId` (COMPANY hoặc ORG_UNIT, tái sử dụng đúng cơ chế Phạm vi tự phục vụ License có sẵn — ORG_UNIT chứa cả đơn vị con cháu); để trống = không giới hạn như cũ, không ảnh hưởng user hiện có. Lọc đúng phạm vi ở bootstrap + báo cáo; chặn 403 ở mọi route ghi/quyết định (tạo/sửa/nhập Excel/duyệt/từ chối/yêu cầu bổ sung/gửi phê duyệt/thêm mục sử dụng con) nếu dòng hoặc đích mới khi sửa nằm ngoài phạm vi. Thêm ô chọn phạm vi vào form sửa quyền User cá nhân kèm badge hiển thị |
 | v6.119 | [#94](https://github.com/pth8081/Brg-dms/pull/94) | 2026-09-22 | Thêm 3 quyền "Chỉ xem" mới (`licenseViewer`/`budgetViewer`/`itAssetsViewer`) tương ứng 3 quyền quản lý sẵn có (License/Ngân sách/CNTT) — xem được toàn bộ dữ liệu module (bootstrap + báo cáo), không tạo/sửa/xóa/duyệt/nhập Excel được gì (chặn thật ở server qua middleware đọc riêng cho từng route GET, mọi route ghi giữ nguyên chỉ Admin/Manager); thêm checkbox 2 nơi (User cá nhân + Nhóm quyền) kèm badge; nút thao tác ghi bị chặn ngay tại 1 điểm điều phối sự kiện chung (hiện thông báo thân thiện) và ẩn hẳn khỏi giao diện với các nút tĩnh nổi bật nhất. Sửa kèm 1 lỗi có sẵn: `switchItAssetsSubTab()` trước đây chỉ check `perms.admin`, thiếu `itAssetsManager`, khiến Người quản lý CNTT (không phải Admin) bấm vào tab CNTT bị trắng màn hình |
 | v6.117 | [#93](https://github.com/pth8081/Brg-dms/pull/93) | 2026-09-18 | (1) Đổi tên sidebar "Báo cáo" thành "Dashboard", chuyển lên ngay dưới "Trang chủ" (trên "Quản lý tài liệu"), thêm tab con "💵 Ngân sách" tóm tắt nhanh Đề xuất/Đã duyệt/Đã sử dụng/Còn lại + 2 biểu đồ (theo Công ty, theo Năm), dùng lại API `/api/budget2/reports` có sẵn. (2) Thêm chức năng **Lưu nháp** cho Ngân sách Đề xuất/Phê duyệt: tạo dòng mới (nhập tay hoặc Excel) nay lưu ở trạng thái Nháp, sửa/xóa tự do không giới hạn, người phê duyệt chưa thấy — chỉ khi bấm "Gửi phê duyệt" (từng dòng hoặc hàng loạt) mới thật sự vào hàng chờ duyệt và bị khóa sửa; báo cáo tổng hợp loại trừ Nháp khỏi số liệu "Đề xuất". (3) Thêm nút "Yêu cầu bổ sung hàng loạt" cho cả 2 tab Đề xuất/Phê duyệt (giống cơ chế Duyệt/Từ chối/Xóa hàng loạt sẵn có); sửa chặn tự "Yêu cầu bổ sung" áp dụng nhầm cho cả Admin — Admin vốn đã sửa được mọi dòng không cần cờ `edit_requested` nên không cần bị chặn ở bước này |
 | v6.115 | [#92](https://github.com/pth8081/Brg-dms/pull/92) | 2026-09-18 | Sửa lỗi Báo cáo ngân sách: "Năm ngân sách" trước đây mặc định cứng theo năm dương lịch hiện tại — nếu ngân sách được lập sẵn cho năm sau (VD lập kế hoạch 2027 từ giữa năm 2026), năm hiện tại không có dữ liệu gì khiến "Bốn lát cắt nhanh"/"Báo cáo đa chiều" hiện "Chưa có dữ liệu" oan ngay từ đầu dù Đề xuất/Phê duyệt đã có sẵn, dễ hiểu nhầm là lỗi hoặc tưởng phải phê duyệt mới hiện; đoạn code tự sửa về năm mới nhất có dữ liệu có sẵn từ PR #90 nhưng bị lỗi logic tự tham chiếu nên chưa từng chạy được — nay sửa để lần đầu vào Báo cáo tự chọn đúng năm mới nhất có dữ liệu thật làm mặc định, sau đó tôn trọng lựa chọn thủ công của người dùng |
@@ -98,7 +99,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 > v6.55, v6.56, v6.58, v6.60, v6.63, v6.65, v6.66, v6.68, v6.70, v6.72,
 > v6.74, v6.76, v6.78, v6.80, v6.82, v6.84, v6.86, v6.90, v6.92, v6.94, v6.96,
 > v6.98, v6.100, v6.102, v6.104, v6.106, v6.108, v6.110, v6.112, v6.114,
-> v6.116, v6.118 bị
+> v6.116, v6.118, v6.120 bị
 > nhảy cóc trong lịch sử — không có Pull Request tương ứng để đối chiếu nội
 > dung (nhiều khả năng do chạy lại workflow tăng version hoặc sửa trực tiếp
 > trên `main` ngoài luồng PR — ví dụ v6.52 phát sinh từ chính commit cập
@@ -111,7 +112,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 > v6.76/v6.78/v6.80/v6.82/v6.84/v6.86/v6.90/v6.92/v6.94 phát sinh tương tự
 > từ các commit cập nhật version.md trực tiếp trên `main` cho v6.69/v6.71/
 > v6.73/v6.75/v6.77/v6.79/v6.81/v6.83/v6.85/v6.89/v6.91/v6.93/v6.95/v6.97/v6.99/
-> v6.101/v6.103/v6.105/v6.107/v6.109/v6.111/v6.113/v6.115/v6.117 — mỗi lần
+> v6.101/v6.103/v6.105/v6.107/v6.109/v6.111/v6.113/v6.115/v6.117/v6.119 — mỗi lần
 > commit trực tiếp/merge như vậy đều vô tình kích hoạt lại workflow tăng
 > version thêm 1
 > lần nữa). Từ PR #65 trở đi, workflow còn tự rebuild
