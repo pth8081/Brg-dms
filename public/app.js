@@ -303,18 +303,69 @@
     function din(fnName, ...args) { return dEvt('input', fnName, ...args); }
     function dsub(fnName, ...args) { return dEvt('submit', fnName, ...args); }
 
+    // (Người chỉ xem — licenseViewer/budgetViewer/itAssetsViewer) Chặn TẤT CẢ
+    // nút thao tác GHI (tạo/sửa/xóa/duyệt/từ chối/nhập Excel/đồng bộ AD...)
+    // của 3 module License/Ngân sách/CNTT ngay tại điểm điều phối sự kiện
+    // DUY NHẤT — thay vì phải tự bọc điều kiện ẩn rải rác ở hàng chục nút
+    // trong nhiều bảng/modal khác nhau (rất dễ bỏ sót). Server đã chặn thật
+    // các route ghi tương ứng bằng requireXOrAdmin (403) — chặn ở đây chỉ để
+    // hiện ngay thông báo thân thiện, KHÔNG phải lớp bảo mật, không thay thế
+    // middleware phía server.
+    const VIEWER_BLOCKED_ACTIONS = {
+      license: new Set([
+        'openCompanyModal', 'openOrgUnitModal', 'openEmployeeModal', 'openSoftwareModal', 'openBatchModal',
+        'openAllocByEmpModal', 'openAllocModal', 'openAutoAllocateModal', 'openBulkAllocFileModal', 'openBulkAllocateModal',
+        'openBudgetRegistrationModal', 'openBudgetRoundModal', 'openRegistrationModal', 'openRoundModal',
+        'openBudgetItemCatalogModal', 'openBudgetActualsModal', 'openRoundItemModal', 'openBudgetRoundItemModal',
+        'saveBatch', 'saveCompany', 'saveEmployee', 'saveSoftware', 'saveOrgUnit', 'saveAllocByEmp', 'saveAllocation',
+        'saveAutoAllocate', 'saveBulkAllocate', 'saveBudgetItemCatalog', 'saveBudgetRegistration', 'saveBudgetRound',
+        'saveBudgetRoundItem', 'saveRegistration', 'saveRound', 'saveRoundItem',
+        'deleteBatch', 'deleteCompany', 'deleteOrgUnit', 'deleteEmployee', 'deleteSoftware', 'deleteRound', 'deleteRoundItem',
+        'deleteBudgetRound', 'deleteBudgetRoundItem', 'deleteBudgetActual', 'deleteBudgetItemCatalog', 'addBudgetActual',
+        'approveBudgetRegistration', 'approveBulkAllocRequest', 'approveRegistration',
+        'rejectBudgetRegistration', 'rejectBulkAllocRequest', 'rejectRegistration',
+        'revokeAllocation', 'revokeSelectedForEmployee', 'bulkRevokeSelectedAllocations',
+        'toggleBudgetRoundStatus', 'toggleRoundStatus',
+        'importEmployeesXlsx', 'importOrgUnitsXlsx', 'syncAdAccountsNow', 'submitBulkAllocFileRequest'
+      ]),
+      budget2: new Set([
+        'openBudget2LineModal', 'openBudget2ChildModal', 'openBudget2UsedParentModal',
+        'saveBudget2Line', 'saveBudget2Child', 'saveBudget2UsedParent',
+        'deleteBudget2Line', 'deleteBudget2LineFromMenu', 'bulkDeleteBudget2Lines',
+        'approveBudget2Line', 'approveBudget2Proposal', 'rejectBudget2Line', 'rejectBudget2Proposal',
+        'requestBudget2LineSupplement', 'requestBudget2ProposalSupplement', 'supplementBudget2LineFromMenu',
+        'submitBudget2Line', 'submitBudget2Proposal', 'bulkDecideBudget2Lines', 'bulkRequestBudget2Supplement',
+        'bulkSubmitBudget2Lines', 'editBudget2LineFromMenu', 'importBudget2Xlsx'
+      ]),
+      itAssets: new Set([
+        'openItCategoryModal', 'openItItemModal', 'saveItCategory', 'saveItItem', 'saveItReminderConfig',
+        'deleteItCategory', 'deleteItItem', 'importItItemsXlsx', 'runItCheckExpiryNow'
+      ])
+    };
+    function viewerWriteBlockedModule(fnName) {
+      if (!currentUser || !currentUser.perms || currentUser.perms.admin) return null;
+      const p = currentUser.perms;
+      if (VIEWER_BLOCKED_ACTIONS.license.has(fnName) && !p.licenseManager) return 'license';
+      if (VIEWER_BLOCKED_ACTIONS.budget2.has(fnName) && !p.budgetManager) return 'budget2';
+      if (VIEWER_BLOCKED_ACTIONS.itAssets.has(fnName) && !p.itAssetsManager) return 'itAssets';
+      return null;
+    }
     function dispatchDelegatedEvent(evtType, e) {
       const el = e.target.closest(`[data-evt-${evtType}]`);
       if (!el) return;
       const fnName = el.getAttribute(`data-evt-${evtType}`);
       const fn = window[fnName];
       if (typeof fn !== 'function') { console.error('Không tìm thấy hàm xử lý sự kiện:', fnName); return; }
+      if (evtType === 'submit') e.preventDefault();
+      if (viewerWriteBlockedModule(fnName)) {
+        showToast('Bạn chỉ có quyền xem ở module này, không thể thực hiện thao tác này.', 'warning');
+        return;
+      }
       let args = [];
       const raw = el.getAttribute('data-args');
       if (raw) {
         try { args = JSON.parse(raw); } catch (parseErr) { console.error('data-args không hợp lệ cho', fnName, ':', raw); return; }
       }
-      if (evtType === 'submit') e.preventDefault();
       fn.apply(el, resolveLiveArgs(args, el, e));
     }
     document.addEventListener('click', e => dispatchDelegatedEvent('click', e));
@@ -794,19 +845,49 @@
       const canManageLicense = !!(user.perms.admin || user.perms.licenseManager);
       const canManageBudget2 = !!(user.perms.admin || user.perms.budgetManager);
       const canManageItAssets = !!(user.perms.admin || user.perms.itAssetsManager);
+      // (Quyền Chỉ xem) licenseViewer/budgetViewer/itAssetsViewer mở được tab
+      // và xem toàn bộ dữ liệu module như Quản lý, nhưng KHÔNG có quyền
+      // tạo/sửa/xóa/duyệt gì — các nút thao tác ghi tự ẩn bên trong từng
+      // module (xem canWriteLicense/canWriteBudget2/canWriteItAssets).
+      const canViewLicense = canManageLicense || !!user.perms.licenseViewer;
+      const canViewBudget2 = canManageBudget2 || !!user.perms.budgetViewer;
+      const canViewItAssets = canManageItAssets || !!user.perms.itAssetsViewer;
       document.getElementById('btnAdminTab').classList.toggle('hidden', !user.perms.admin);
-      document.getElementById('btnLicenseTab').classList.toggle('hidden', !canManageLicense);
+      document.getElementById('btnLicenseTab').classList.toggle('hidden', !canViewLicense);
       document.getElementById('btnReportsTab').classList.toggle('hidden', !user.perms.admin);
-      document.getElementById('btnItAssetsTab').classList.toggle('hidden', !canManageItAssets);
-      document.getElementById('btnBudget2Tab').classList.toggle('hidden', !canManageBudget2);
+      document.getElementById('btnItAssetsTab').classList.toggle('hidden', !canViewItAssets);
+      document.getElementById('btnBudget2Tab').classList.toggle('hidden', !canViewBudget2);
       document.getElementById('btnDocTab').classList.remove('hidden');
       document.getElementById('btnHomeTab').classList.remove('hidden');
 
-      const hasPortalScope = !canManageLicense && !!user.perms.licenseScopeType;
+      const hasPortalScope = !canViewLicense && !!user.perms.licenseScopeType;
       document.getElementById('btnLicensePortalTab').classList.toggle('hidden', !hasPortalScope);
 
+      applyViewerButtonVisibility(user);
       populateDropdowns();
       switchTab('home');
+    }
+
+    // (Người chỉ xem) Ẩn hẳn các nút thao tác ghi TĨNH (nằm cố định trong
+    // index.html, không render lại theo dữ liệu — "+ Thêm...", "Nhập Excel",
+    // "Đồng bộ ngay"...) khỏi giao diện của người chỉ có quyền Viewer (không
+    // phải Manager/Admin) cho từng module — chỉ cần chạy 1 lần lúc đăng nhập.
+    // Các nút THEO DÒNG dữ liệu (Sửa/Xóa từng dòng trong bảng...) render lại
+    // liên tục nên không lọc được ở đây; những nút đó vẫn có thể hiện ra
+    // nhưng bấm vào sẽ bị chặn ngay (xem viewerWriteBlockedModule trong
+    // dispatchDelegatedEvent) — an toàn dữ liệu vẫn được đảm bảo vì server
+    // luôn từ chối (403) mọi request ghi từ Viewer, chỉ là chưa ẩn được 100%
+    // nút trên giao diện.
+    function applyViewerButtonVisibility(user) {
+      if (!user || !user.perms || user.perms.admin) return;
+      const p = user.perms;
+      const moduleCanManage = { license: !!p.licenseManager, budget2: !!p.budgetManager, itAssets: !!p.itAssetsManager };
+      Object.keys(VIEWER_BLOCKED_ACTIONS).forEach(mod => {
+        if (moduleCanManage[mod]) return;
+        VIEWER_BLOCKED_ACTIONS[mod].forEach(fnName => {
+          document.querySelectorAll(`[data-evt-click="${fnName}"], [data-evt-change="${fnName}"]`).forEach(el => el.classList.add('hidden'));
+        });
+      });
     }
 
     function showLoginScreen() {
@@ -946,11 +1027,11 @@
       if (tabName === 'home') { renderHomeDashboard(); }
       if (tabName === 'doc') { renderDocs(); updateUploadDeptDropdown(); }
       if (tabName === 'admin' && currentUser.perms.admin) { switchAdminSubTab('users'); }
-      if (tabName === 'license' && (currentUser.perms.admin || currentUser.perms.licenseManager)) { switchLicenseSubTab('emp'); }
+      if (tabName === 'license' && (currentUser.perms.admin || currentUser.perms.licenseManager || currentUser.perms.licenseViewer)) { switchLicenseSubTab('emp'); }
       if (tabName === 'reports' && currentUser.perms.admin) { switchReportsSubsystem('doc'); }
       if (tabName === 'licensePortal' && !currentUser.perms.admin && currentUser.perms.licenseScopeType) { switchPortalSubTab('budget'); }
-      if (tabName === 'itAssets' && (currentUser.perms.admin || currentUser.perms.itAssetsManager)) { switchItAssetsSubTab('items'); }
-      if (tabName === 'budget2' && (currentUser.perms.admin || currentUser.perms.budgetManager)) { switchBudget2SubTab('propose'); }
+      if (tabName === 'itAssets' && (currentUser.perms.admin || currentUser.perms.itAssetsManager || currentUser.perms.itAssetsViewer)) { switchItAssetsSubTab('items'); }
+      if (tabName === 'budget2' && (currentUser.perms.admin || currentUser.perms.budgetManager || currentUser.perms.budgetViewer)) { switchBudget2SubTab('propose'); }
     }
 
     // --- Trang chủ: tổng quan các việc đang chờ xử lý, tuỳ theo quyền của
@@ -959,11 +1040,13 @@
     async function renderHomeDashboard() {
       if (!currentUser) return;
       const isAdmin = !!currentUser.perms.admin;
-      const canManageLicense = !!(currentUser.perms.admin || currentUser.perms.licenseManager);
-      const canManageItAssets = !!(currentUser.perms.admin || currentUser.perms.itAssetsManager);
+      const canManageLicense = !!(currentUser.perms.admin || currentUser.perms.licenseManager || currentUser.perms.licenseViewer);
+      const canManageItAssets = !!(currentUser.perms.admin || currentUser.perms.itAssetsManager || currentUser.perms.itAssetsViewer);
       // Dữ liệu License/CNTT chỉ tải khi cần (lazy-load như các module khác) —
       // Trang chủ là màn hình đầu tiên sau đăng nhập nên phải chủ động tải
       // trước khi đếm, nếu không sẽ luôn hiện 0 cho tới khi Admin tự vào module đó.
+      // (Người chỉ xem cũng thấy số liệu Trang chủ như Quản lý — không có thao
+      // tác ghi nào ở đây.)
       const loadPromises = [];
       if (canManageLicense) loadPromises.push(loadLicenseBootstrapData());
       if (canManageItAssets) loadPromises.push(loadItAssetsBootstrapData());
@@ -2522,6 +2605,9 @@
         !p.admin && p.licenseManager ? '<span class="bg-brand-100 text-brand-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔑 Quản lý License</span>' : '',
         !p.admin && p.budgetManager ? '<span class="bg-teal-100 text-teal-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">💵 Quản lý Ngân sách</span>' : '',
         !p.admin && p.itAssetsManager ? '<span class="bg-sky-100 text-sky-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🖥️ Quản lý CNTT</span>' : '',
+        !p.admin && !p.licenseManager && p.licenseViewer ? '<span class="bg-brand-50 text-brand-600 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔎 Xem License</span>' : '',
+        !p.admin && !p.budgetManager && p.budgetViewer ? '<span class="bg-teal-50 text-teal-600 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔎 Xem Ngân sách</span>' : '',
+        !p.admin && !p.itAssetsManager && p.itAssetsViewer ? '<span class="bg-sky-50 text-sky-600 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔎 Xem CNTT</span>' : '',
         p.uploadAll ? '<span class="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">📤 Upload: Tất cả</span>' : (p.uploadDepts && p.uploadDepts.length ? `<span class="bg-blue-50 text-blue-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">📤 Upload: ${p.uploadDepts.length} PB</span>` : ''),
         p.viewDraftAll ? '<span class="bg-amber-100 text-amber-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">📝 Xem nháp: Tất cả</span>' : (p.viewDraftDepts && p.viewDraftDepts.length ? `<span class="bg-amber-50 text-amber-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">📝 Xem nháp: ${p.viewDraftDepts.length} PB</span>` : ''),
         p.viewApprovedAll ? '<span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">✅ Xem duyệt: Tất cả</span>' : (p.viewApprovedDepts && p.viewApprovedDepts.length ? `<span class="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">✅ Xem duyệt: ${p.viewApprovedDepts.length} PB</span>` : ''),
@@ -2570,6 +2656,9 @@
       document.getElementById('gLicenseManager').checked = !!p.licenseManager;
       document.getElementById('gBudgetManager').checked = !!p.budgetManager;
       document.getElementById('gItAssetsManager').checked = !!p.itAssetsManager;
+      document.getElementById('gLicenseViewer').checked = !!p.licenseViewer;
+      document.getElementById('gBudgetViewer').checked = !!p.budgetViewer;
+      document.getElementById('gItAssetsViewer').checked = !!p.itAssetsViewer;
 
       document.getElementById('gUploadAll').checked = !!p.uploadAll;
       document.querySelectorAll('.gUploadDept').forEach(cb => cb.checked = p.uploadDepts ? p.uploadDepts.includes(cb.value) : false);
@@ -2599,6 +2688,9 @@
         licenseManager: document.getElementById('gLicenseManager').checked,
         budgetManager: document.getElementById('gBudgetManager').checked,
         itAssetsManager: document.getElementById('gItAssetsManager').checked,
+        licenseViewer: document.getElementById('gLicenseViewer').checked,
+        budgetViewer: document.getElementById('gBudgetViewer').checked,
+        itAssetsViewer: document.getElementById('gItAssetsViewer').checked,
         uploadAll: document.getElementById('gUploadAll').checked,
         uploadDepts: Array.from(document.querySelectorAll('.gUploadDept:checked')).map(c => c.value),
         viewDraftAll: document.getElementById('gViewDraftAll').checked,
@@ -2750,6 +2842,9 @@
         licenseManager: document.getElementById('pLicenseManager').checked,
         budgetManager: document.getElementById('pBudgetManager').checked,
         itAssetsManager: document.getElementById('pItAssetsManager').checked,
+        licenseViewer: document.getElementById('pLicenseViewer').checked,
+        budgetViewer: document.getElementById('pBudgetViewer').checked,
+        itAssetsViewer: document.getElementById('pItAssetsViewer').checked,
         uploadAll: document.getElementById('pUploadAll').checked,
         uploadDepts: Array.from(document.querySelectorAll('.pUploadDept:checked')).map(c => c.value),
         viewDraftAll: document.getElementById('pViewDraftAll').checked,
@@ -2851,6 +2946,9 @@
       document.getElementById('pLicenseManager').checked = !!p.licenseManager;
       document.getElementById('pBudgetManager').checked = !!p.budgetManager;
       document.getElementById('pItAssetsManager').checked = !!p.itAssetsManager;
+      document.getElementById('pLicenseViewer').checked = !!p.licenseViewer;
+      document.getElementById('pBudgetViewer').checked = !!p.budgetViewer;
+      document.getElementById('pItAssetsViewer').checked = !!p.itAssetsViewer;
 
       document.getElementById('pUploadAll').checked = !!p.uploadAll;
       document.querySelectorAll('.pUploadDept').forEach(cb => cb.checked = p.uploadDepts ? p.uploadDepts.includes(cb.value) : false);
@@ -2965,6 +3063,9 @@
       document.getElementById('pLicenseManager').checked = false;
       document.getElementById('pBudgetManager').checked = false;
       document.getElementById('pItAssetsManager').checked = false;
+      document.getElementById('pLicenseViewer').checked = false;
+      document.getElementById('pBudgetViewer').checked = false;
+      document.getElementById('pItAssetsViewer').checked = false;
       document.getElementById('btnSaveUser').innerText = '+ Thêm Vào Danh Sách';
 
       ['pUploadAll', 'pViewDraftAll', 'pViewApprovedAll', 'pDownloadAll'].forEach(id => {
@@ -3011,6 +3112,9 @@
           !p.admin && p.licenseManager ? '<span class="bg-brand-100 text-brand-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔑 Quản lý License</span>' : '',
           !p.admin && p.budgetManager ? '<span class="bg-teal-100 text-teal-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">💵 Quản lý Ngân sách</span>' : '',
           !p.admin && p.itAssetsManager ? '<span class="bg-sky-100 text-sky-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🖥️ Quản lý CNTT</span>' : '',
+          !p.admin && !p.licenseManager && p.licenseViewer ? '<span class="bg-brand-50 text-brand-600 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔎 Xem License</span>' : '',
+          !p.admin && !p.budgetManager && p.budgetViewer ? '<span class="bg-teal-50 text-teal-600 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔎 Xem Ngân sách</span>' : '',
+          !p.admin && !p.itAssetsManager && p.itAssetsViewer ? '<span class="bg-sky-50 text-sky-600 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔎 Xem CNTT</span>' : '',
           p.uploadAll ? '<span class="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">Upload:ALL</span>' : '',
           p.downloadAll ? '<span class="bg-rose-100 text-rose-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">Tải:ALL</span>' : '',
           scopeLabel ? `<span class="bg-teal-100 text-teal-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔑 ${scopeLabel}</span>` : ''
@@ -3471,7 +3575,7 @@
 
     // Chuyển mục con module Bản quyền — 1 hàng tab phẳng (xem #licenseSubNavRow).
     function switchLicenseSubTab(subName) {
-      if (!currentUser || !(currentUser.perms.admin || currentUser.perms.licenseManager)) return;
+      if (!currentUser || !(currentUser.perms.admin || currentUser.perms.licenseManager || currentUser.perms.licenseViewer)) return;
 
       const subs = { emp: 'licenseSubEmp', software: 'licenseSubSoftware', batch: 'licenseSubBatch', alloc: 'licenseSubAlloc', revokeEmp: 'licenseSubRevokeEmp', ad: 'licenseSubAD', purchase: 'licenseSubPurchase', rounds: 'licenseSubRounds', budget: 'licenseSubBudget' };
       const btns = { emp: 'btnLicenseSubEmp', software: 'btnLicenseSubSoftware', batch: 'btnLicenseSubBatch', alloc: 'btnLicenseSubAlloc', revokeEmp: 'btnLicenseSubRevokeEmp', ad: 'btnLicenseSubAD', purchase: 'btnLicenseSubPurchase', rounds: 'btnLicenseSubRounds', budget: 'btnLicenseSubBudget' };
@@ -7311,7 +7415,11 @@ function isPerpetualSoftware(softwareId) {
     }
 
     function switchItAssetsSubTab(subName) {
-      if (!currentUser || !currentUser.perms.admin) return;
+      // (Sửa lỗi có sẵn) Trước đây chỉ check admin — user chỉ có
+      // itAssetsManager (không phải Admin) bấm vào tab CNTT vẫn thấy nút
+      // sidebar (do canManageItAssets ở enterApp cho qua) nhưng bấm vào lại
+      // không hiện gì do hàm này return sớm; nay check đúng cả 3 quyền.
+      if (!currentUser || !(currentUser.perms.admin || currentUser.perms.itAssetsManager || currentUser.perms.itAssetsViewer)) return;
       const subs = { items: 'itSubItems', categories: 'itSubCategories', config: 'itSubConfig' };
       const btns = { items: 'btnItSubItems', categories: 'btnItSubCategories', config: 'btnItSubConfig' };
       Object.keys(subs).forEach(key => {
@@ -7671,7 +7779,7 @@ function isPerpetualSoftware(softwareId) {
     }
 
     function switchBudget2SubTab(subName) {
-      if (!currentUser || !(currentUser.perms.admin || currentUser.perms.budgetManager)) return;
+      if (!currentUser || !(currentUser.perms.admin || currentUser.perms.budgetManager || currentUser.perms.budgetViewer)) return;
       const subs = { propose: 'budget2SubPropose', approved: 'budget2SubApproved', used: 'budget2SubUsed', reports: 'budget2SubReports' };
       const btns = { propose: 'btnBudget2SubPropose', approved: 'btnBudget2SubApproved', used: 'btnBudget2SubUsed', reports: 'btnBudget2SubReports' };
       Object.keys(subs).forEach(key => {

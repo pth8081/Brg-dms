@@ -431,6 +431,17 @@ function requireLicenseOrAdmin(req, res, next) {
     next();
 }
 
+// (Quyền Chỉ xem) Dùng riêng cho các route ĐỌC (GET) của module License —
+// cho phép thêm cả perms.licenseViewer (chỉ xem toàn bộ dữ liệu module,
+// không có quyền tạo/sửa/xóa/duyệt gì) — mọi route GHI vẫn giữ nguyên
+// requireLicenseOrAdmin ở trên, KHÔNG thêm licenseViewer vào đó.
+function requireLicenseViewOrAdmin(req, res, next) {
+    if (!req.user || !req.user.perms || (!req.user.perms.admin && !req.user.perms.licenseManager && !req.user.perms.licenseViewer)) {
+        return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên, Người quản lý License, hoặc Người xem License.' });
+    }
+    next();
+}
+
 // Lưu ý: mặc định express-rate-limit tính theo địa chỉ IP (req.ip). Nếu nhiều
 // người dùng cùng ra internet qua 1 địa chỉ IP chung (NAT văn phòng — rất phổ
 // biến), TẤT CẢ sẽ dùng chung 1 hạn mức bên dưới. Hạn mức được đặt đủ rộng để
@@ -3722,7 +3733,7 @@ function normalizeBudgetItem(raw, label) {
     return { itemType, capexOpex, unitPrice, softwareId: null, catalogItemId, description };
 }
 
-app.get('/api/license/bootstrap', requireAuth, requireLicenseOrAdmin, async (req, res) => {
+app.get('/api/license/bootstrap', requireAuth, requireLicenseViewOrAdmin, async (req, res) => {
     try {
         const [companies] = await pool.query('SELECT * FROM lic_companies ORDER BY name');
         const [orgUnits] = await pool.query('SELECT * FROM lic_org_units ORDER BY sort_order, name');
@@ -3936,7 +3947,16 @@ function requireLicenseOrBudgetOrAdmin(req, res, next) {
     }
     next();
 }
-app.get('/api/reports/license', requireAuth, requireLicenseOrBudgetOrAdmin, async (req, res) => {
+
+// (Quyền Chỉ xem) Bản ĐỌC của middleware trên — thêm licenseViewer/budgetViewer.
+function requireLicenseOrBudgetViewOrAdmin(req, res, next) {
+    const perms = req.user && req.user.perms;
+    if (!perms || (!perms.admin && !perms.licenseManager && !perms.budgetManager && !perms.licenseViewer && !perms.budgetViewer)) {
+        return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên, Người quản lý/Người xem License hoặc Người quản lý/Người xem Ngân sách.' });
+    }
+    next();
+}
+app.get('/api/reports/license', requireAuth, requireLicenseOrBudgetViewOrAdmin, async (req, res) => {
     try {
         // (RPT-04) companyId lọc theo 1 công ty cụ thể — trước đây tham số này
         // hoàn toàn bị bỏ qua (không có nơi nào đọc req.query.companyId), báo
@@ -6596,7 +6616,15 @@ function requireItAssetsOrAdmin(req, res, next) {
     next();
 }
 
-app.get('/api/it/bootstrap', requireAuth, requireItAssetsOrAdmin, async (req, res) => {
+// (Quyền Chỉ xem) Bản ĐỌC — thêm perms.itAssetsViewer, dùng cho route GET.
+function requireItAssetsViewOrAdmin(req, res, next) {
+    if (!req.user || !req.user.perms || (!req.user.perms.admin && !req.user.perms.itAssetsManager && !req.user.perms.itAssetsViewer)) {
+        return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên, Người quản lý CNTT, hoặc Người xem CNTT.' });
+    }
+    next();
+}
+
+app.get('/api/it/bootstrap', requireAuth, requireItAssetsViewOrAdmin, async (req, res) => {
     try {
         const [categories] = await pool.query('SELECT * FROM it_categories ORDER BY sort_order, name');
         const [items] = await pool.query('SELECT * FROM it_items WHERE deleted_at IS NULL ORDER BY expiry_date');
@@ -6961,6 +6989,14 @@ function requireBudgetOrAdmin(req, res, next) {
     next();
 }
 
+// (Quyền Chỉ xem) Bản ĐỌC — thêm perms.budgetViewer, dùng cho route GET.
+function requireBudgetViewOrAdmin(req, res, next) {
+    if (!req.user || !req.user.perms || (!req.user.perms.admin && !req.user.perms.budgetManager && !req.user.perms.budgetViewer)) {
+        return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên, Người quản lý Ngân sách, hoặc Người xem Ngân sách.' });
+    }
+    next();
+}
+
 function mapBudget2Line(l) {
     return {
         id: l.id,
@@ -7095,7 +7131,7 @@ function validateBudget2LineInput(body, opts = {}, categoryCatalog = [], orgScop
 
 // --- Bootstrap: toàn bộ dòng ngân sách + danh mục Công ty/Đơn vị (chỉ đọc, tái
 // sử dụng lic_companies/lic_org_units do module Bản quyền đã quản lý sẵn) ---
-app.get('/api/budget2/bootstrap', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+app.get('/api/budget2/bootstrap', requireAuth, requireBudgetViewOrAdmin, async (req, res) => {
     try {
         const [lines] = await pool.query('SELECT * FROM budget2_lines ORDER BY id DESC');
         const [companies] = await pool.query('SELECT id, name, code, company_type AS companyType FROM lic_companies WHERE active = 1 ORDER BY name');
@@ -7915,7 +7951,7 @@ async function recomputeBudget2ParentUsage(parentId) {
 // biệt bằng cột "dimension" (theo Công ty / theo Đơn vị / Tổng toàn công ty)
 // và các cột proposed/approved/used tách theo OPEX/CAPEX — client tự lọc theo
 // nhu cầu xem (Đề xuất/Duyệt/Sử dụng riêng lẻ chỉ là chọn đúng 1 cột). ---
-app.get('/api/budget2/reports', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+app.get('/api/budget2/reports', requireAuth, requireBudgetViewOrAdmin, async (req, res) => {
     try {
         // Mỗi dòng kết quả mang thêm budget_year + budget_month — cho phép
         // client vừa lọc 1 kỳ Tháng/Năm cụ thể ("theo kỳ"), vừa dựng bảng so
