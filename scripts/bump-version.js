@@ -1,5 +1,8 @@
 // Tự động tăng phiên bản ứng dụng: mỗi lần chạy tăng số "minor" thêm 1
-// (v6.0 -> v6.1 -> v6.2...), giữ nguyên "major" và luôn đặt "patch" về 0.
+// (v6.0 -> v6.1 -> v6.2...), luôn đặt "patch" về 0. Cả "major" lẫn "minor"
+// đều giữ tối đa 2 chữ số (0-99) — khi "minor" vượt quá 99 (tức đạt 100),
+// tự "tràn" (rollover) sang major: major += 1, minor -= 100 (giữ phần dư,
+// không mất lịch sử số lần đã tăng version, khác với đặt hẳn minor về 0).
 // Cập nhật cả package.json lẫn chuỗi hiển thị "DMS vX.Y" trong public/index.html.
 const fs = require('fs');
 const path = require('path');
@@ -10,8 +13,13 @@ const appJsPath = path.join(__dirname, '..', 'public', 'app.js');
 const swJsPath = path.join(__dirname, '..', 'public', 'sw.js');
 
 const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-const [major, minor] = pkg.version.split('.').map(Number);
-const newMinor = minor + 1;
+let [major, minor] = pkg.version.split('.').map(Number);
+minor += 1;
+while (minor > 99) {
+    major += 1;
+    minor -= 100;
+}
+const newMinor = minor;
 const newVersion = `${major}.${newMinor}.0`;
 const newLabel = `v${major}.${newMinor}`;
 
