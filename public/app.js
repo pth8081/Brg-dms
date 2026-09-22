@@ -9611,7 +9611,7 @@ function isPerpetualSoftware(softwareId) {
         return;
       }
 
-      const dataSetMap = { company: budget2ReportsData.byCompany, orgUnit: budget2ReportsData.byOrgUnit, category: budget2ReportsData.byCategory, total: budget2ReportsData.total };
+      const dataSetMap = { company: budget2ReportsData.byCompany, companyType: budget2ReportsData.byCompanyType, orgUnit: budget2ReportsData.byOrgUnit, category: budget2ReportsData.byCategory, total: budget2ReportsData.total };
       let rows = dataSetMap[dim] || [];
       if (typeFilter) rows = rows.filter(r => r.budgetType === typeFilter);
       if (yearFilter) rows = rows.filter(r => r.budgetYear === Number(yearFilter));
@@ -9628,8 +9628,8 @@ function isPerpetualSoftware(softwareId) {
         agg.proposed += r.proposed; agg.approved += r.approved; agg.used += r.used;
       });
       rows = [...map.values()];
-      const labelFor = (r) => dim === 'company' ? (budget2CompanyName(r.groupKey) || '(Chưa gán công ty)') : (dim === 'orgUnit' ? (budget2OrgUnitName(r.groupKey) || '(Chưa gán đơn vị)') : (dim === 'category' ? (budget2CategoryLabel(r.groupKey) || '(Chưa gán danh mục)') : 'Toàn công ty'));
-      const dimLabel = dim === 'company' ? 'Công ty' : (dim === 'orgUnit' ? 'Phòng/Ban/Khối' : (dim === 'category' ? 'Danh mục' : 'Phạm vi'));
+      const labelFor = (r) => dim === 'company' ? (budget2CompanyName(r.groupKey) || '(Chưa gán công ty)') : (dim === 'companyType' ? (BUDGET2_COMPANY_TYPE_LABELS[r.groupKey] || r.groupKey) : (dim === 'orgUnit' ? (budget2OrgUnitName(r.groupKey) || '(Chưa gán đơn vị)') : (dim === 'category' ? (budget2CategoryLabel(r.groupKey) || '(Chưa gán danh mục)') : 'Toàn công ty')));
+      const dimLabel = dim === 'company' ? 'Công ty' : (dim === 'companyType' ? 'Loại công ty' : (dim === 'orgUnit' ? 'Phòng/Ban/Khối' : (dim === 'category' ? 'Danh mục' : 'Phạm vi')));
 
       budget2ReportExport = {
         header: [dimLabel, 'Loại', 'Đề xuất', 'Phê duyệt', 'Sử dụng'],
@@ -9662,15 +9662,15 @@ function isPerpetualSoftware(softwareId) {
       const dim = budget2ReportFilters.compareDimension;
       const metric = budget2ReportFilters.compareMetric;
       const typeFilter = budget2ReportFilters.compareType;
-      const dataSetMap = { company: budget2ReportsData.byCompany, orgUnit: budget2ReportsData.byOrgUnit, category: budget2ReportsData.byCategory, total: budget2ReportsData.total };
+      const dataSetMap = { company: budget2ReportsData.byCompany, companyType: budget2ReportsData.byCompanyType, orgUnit: budget2ReportsData.byOrgUnit, category: budget2ReportsData.byCategory, total: budget2ReportsData.total };
       let rows = dataSetMap[dim] || [];
       if (typeFilter) rows = rows.filter(r => r.budgetType === typeFilter);
 
       const periodKey = (r) => `${r.budgetYear}-${String(r.budgetMonth).padStart(2, '0')}`;
       const periodLabel = (key) => { const [y, m] = key.split('-'); return `Tháng ${Number(m)}/${y}`; };
       const periods = [...new Set(rows.filter(r => r.budgetYear && r.budgetMonth).map(periodKey))].sort();
-      const labelFor = (r) => dim === 'company' ? (budget2CompanyName(r.groupKey) || '(Chưa gán công ty)') : (dim === 'orgUnit' ? (budget2OrgUnitName(r.groupKey) || '(Chưa gán đơn vị)') : (dim === 'category' ? (budget2CategoryLabel(r.groupKey) || '(Chưa gán danh mục)') : 'Toàn công ty'));
-      const dimLabel = dim === 'company' ? 'Công ty' : (dim === 'orgUnit' ? 'Phòng/Ban/Khối' : (dim === 'category' ? 'Danh mục' : 'Phạm vi'));
+      const labelFor = (r) => dim === 'company' ? (budget2CompanyName(r.groupKey) || '(Chưa gán công ty)') : (dim === 'companyType' ? (BUDGET2_COMPANY_TYPE_LABELS[r.groupKey] || r.groupKey) : (dim === 'orgUnit' ? (budget2OrgUnitName(r.groupKey) || '(Chưa gán đơn vị)') : (dim === 'category' ? (budget2CategoryLabel(r.groupKey) || '(Chưa gán danh mục)') : 'Toàn công ty')));
+      const dimLabel = dim === 'company' ? 'Công ty' : (dim === 'companyType' ? 'Loại công ty' : (dim === 'orgUnit' ? 'Phòng/Ban/Khối' : (dim === 'category' ? 'Danh mục' : 'Phạm vi')));
       const metricLabel = { proposed: 'Ngân sách đề xuất', approved: 'Ngân sách phê duyệt', used: 'Ngân sách chi tiêu' }[metric];
 
       const groupMap = new Map();
