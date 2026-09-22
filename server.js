@@ -3636,6 +3636,20 @@ function getUserLicenseScope(user) {
     return { type: perms.licenseScopeType, id: Number(perms.licenseScopeId) };
 }
 
+// (Phạm vi Ngân sách) Đọc phạm vi Công ty/Đơn vị (nếu có) từ
+// perms.budgetScopeType/budgetScopeId — áp dụng cho CẢ budgetManager lẫn
+// budgetViewer. null = không giới hạn (mặc định, giữ đúng hành vi cũ: toàn
+// quyền quản lý/xem mọi công ty/đơn vị). Cùng cấu trúc {type, id} và tái sử
+// dụng scopeContainsTarget()/orgUnitSubtreeIds() y hệt phạm vi tự phục vụ
+// License ở trên — 2 khái niệm hoàn toàn độc lập (dùng 2 cột perms khác
+// nhau), 1 user có thể có cả 2 phạm vi khác nhau cùng lúc.
+function getUserBudgetScope(user) {
+    const perms = user && user.perms;
+    if (!perms || !perms.budgetScopeType || !perms.budgetScopeId) return null;
+    if (perms.budgetScopeType !== 'COMPANY' && perms.budgetScopeType !== 'ORG_UNIT') return null;
+    return { type: perms.budgetScopeType, id: Number(perms.budgetScopeId) };
+}
+
 // scope = null nghĩa là không giới hạn (dữ liệu cũ / chưa gán phạm vi) -> luôn
 // coi là chứa target. scope COMPANY chứa mọi đơn vị/công ty thuộc công ty đó.
 // scope ORG_UNIT chứa chính đơn vị đó và mọi đơn vị con cháu (subtree).
@@ -6997,6 +7011,46 @@ function requireBudgetViewOrAdmin(req, res, next) {
     next();
 }
 
+// (Phạm vi Ngân sách) Có cho phép user (Admin luôn cho phép, budgetManager/
+// budgetViewer KHÔNG có phạm vi = không giới hạn) tác động/xem 1 dòng có
+// company_id/org_unit_id cho trước hay không — dùng lại đúng logic
+// scopeContainsTarget() đã có sẵn cho phạm vi tự phục vụ License. Lấy danh
+// sách đơn vị mới nhất từ DB (không cache) vì cây tổ chức hiếm khi đổi
+// nhưng phải luôn đúng, và đây không phải đường nóng (hot path) cần tối ưu.
+async function budgetTargetInUserScope(user, companyId, orgUnitId) {
+    if (user.perms && user.perms.admin) return true;
+    const scope = getUserBudgetScope(user);
+    if (!scope) return true;
+    const [orgUnits] = await pool.query('SELECT id, parent_id, company_id FROM lic_org_units');
+    return scopeContainsTarget(scope, orgUnits, companyId, orgUnitId);
+}
+const BUDGET_SCOPE_FORBIDDEN_MSG = 'Dòng ngân sách này nằm ngoài phạm vi Công ty/Đơn vị được gán cho bạn.';
+
+// (Phạm vi Ngân sách - Báo cáo) Xây fragment SQL lọc theo phạm vi cho các
+// câu SUM/GROUP BY của báo cáo — CHỈ gọi khi scope khác null (Admin/không
+// có phạm vi giữ nguyên câu SQL cũ hoàn toàn, không thêm điều kiện gì, để
+// không có rủi ro hồi quy cho trường hợp phổ biến nhất — không giới hạn).
+// colPrefix (VD 'a') dùng khi budget2_lines có alias trong câu SQL (câu
+// variance dùng alias 'a'); để trống khi không có alias.
+function buildBudgetScopeSqlFilter(scope, allOrgUnits, colPrefix = '') {
+    const p = colPrefix ? `${colPrefix}.` : '';
+    if (scope.type === 'COMPANY') {
+        const unitIds = allOrgUnits.filter(u => Number(u.company_id) === scope.id).map(u => u.id);
+        if (!unitIds.length) return { sql: `(${p}company_id = ?)`, params: [scope.id] };
+        return { sql: `((${p}company_id = ?) OR (${p}company_id IS NULL AND ${p}org_unit_id IN (${unitIds.map(() => '?').join(',')})))`, params: [scope.id, ...unitIds] };
+    }
+    // scope.type === 'ORG_UNIT' — chứa chính đơn vị đó + mọi đơn vị con cháu,
+    // cộng thêm dòng chỉ gắn Công ty (không gắn Đơn vị) của ĐÚNG công ty chứa
+    // đơn vị được gán phạm vi (khớp đúng ngữ nghĩa scopeContainsTarget()).
+    const subtreeIds = orgUnitSubtreeIds(allOrgUnits, scope.id);
+    const scopeUnit = allOrgUnits.find(u => u.id === scope.id);
+    const inList = subtreeIds.map(() => '?').join(',');
+    if (scopeUnit && scopeUnit.company_id != null) {
+        return { sql: `((${p}org_unit_id IN (${inList})) OR (${p}org_unit_id IS NULL AND ${p}company_id = ?))`, params: [...subtreeIds, scopeUnit.company_id] };
+    }
+    return { sql: `(${p}org_unit_id IN (${inList}))`, params: subtreeIds };
+}
+
 function mapBudget2Line(l) {
     return {
         id: l.id,
@@ -7137,8 +7191,17 @@ app.get('/api/budget2/bootstrap', requireAuth, requireBudgetViewOrAdmin, async (
         const [companies] = await pool.query('SELECT id, name, code, company_type AS companyType FROM lic_companies WHERE active = 1 ORDER BY name');
         const [orgUnits] = await pool.query('SELECT id, company_id AS companyId, parent_id AS parentId, name, level_label AS levelLabel FROM lic_org_units ORDER BY name');
         const categories = await getBudget2CategoryCatalog();
+        // (Phạm vi Ngân sách) Nếu user được gán phạm vi Công ty/Đơn vị, chỉ trả
+        // về đúng các dòng thuộc phạm vi đó — Admin và người KHÔNG có phạm vi
+        // (mặc định) vẫn thấy toàn bộ như trước, không đổi gì. Danh mục Công
+        // ty/Đơn vị/Loại vẫn trả đủ nguyên vẹn (dữ liệu tham chiếu cho dropdown,
+        // không phải dữ liệu cần giới hạn).
+        const budgetScope = getUserBudgetScope(req.user);
+        const scopedLines = (req.user.perms.admin || !budgetScope)
+            ? lines
+            : lines.filter(l => scopeContainsTarget(budgetScope, orgUnits.map(u => ({ id: u.id, parent_id: u.parentId, company_id: u.companyId })), l.company_id, l.org_unit_id));
         res.json({
-            lines: lines.map(mapBudget2Line),
+            lines: scopedLines.map(mapBudget2Line),
             companies,
             orgUnits,
             categories: categories.map(c => ({ code: c.code, name: c.name }))
@@ -7229,6 +7292,7 @@ app.post('/api/budget2/lines', requireAuth, requireBudgetOrAdmin, async (req, re
     try {
         const v = validateBudget2LineInput(req.body || {}, {}, await getBudget2CategoryCatalog(), await getBudget2OrgScopeCatalog());
         if (v.error) return res.status(400).json({ error: v.error });
+        if (!await budgetTargetInUserScope(req.user, v.companyId, v.orgUnitId)) return res.status(403).json({ error: BUDGET_SCOPE_FORBIDDEN_MSG });
         const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
         const now = new Date().toISOString();
         const [result] = await pool.query(
@@ -7255,6 +7319,7 @@ app.post('/api/budget2/lines/:id/submit-proposal', requireAuth, requireBudgetOrA
         const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'PROPOSED\'', [id]);
         const line = rows[0];
         if (!line) return res.status(404).json({ error: 'Không tìm thấy đề xuất.' });
+        if (!await budgetTargetInUserScope(req.user, line.company_id, line.org_unit_id)) return res.status(403).json({ error: BUDGET_SCOPE_FORBIDDEN_MSG });
         if (line.status !== 'DRAFT') return res.status(400).json({ error: 'Đề xuất này không còn ở dạng nháp.' });
         const [upd] = await pool.query("UPDATE budget2_lines SET status = 'SUBMITTED' WHERE id = ? AND status = 'DRAFT'", [id]);
         if (upd.affectedRows === 0) return res.status(409).json({ error: 'Đề xuất này vừa được thay đổi, vui lòng tải lại trang.' });
@@ -7275,6 +7340,7 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
         const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ?', [id]);
         const line = rows[0];
         if (!line) return res.status(404).json({ error: 'Không tìm thấy dòng ngân sách.' });
+        if (!await budgetTargetInUserScope(req.user, line.company_id, line.org_unit_id)) return res.status(403).json({ error: BUDGET_SCOPE_FORBIDDEN_MSG });
 
         if (line.stage === 'PROPOSED') {
             // (Tách biệt Đề xuất/Phê duyệt) Đề xuất không còn "gửi sang Phê
@@ -7299,6 +7365,7 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
             }
             const v = validateBudget2LineInput(req.body || {}, {}, await getBudget2CategoryCatalog(), await getBudget2OrgScopeCatalog());
             if (v.error) return res.status(400).json({ error: v.error });
+            if (!await budgetTargetInUserScope(req.user, v.companyId, v.orgUnitId)) return res.status(403).json({ error: BUDGET_SCOPE_FORBIDDEN_MSG });
             const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
             await pool.query(
                 `UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, note = ?, budget_year = ?, budget_month = ?, edit_requested = 0 WHERE id = ?`,
@@ -7329,6 +7396,7 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
             }
             const v = validateBudget2LineInput(req.body || {}, {}, await getBudget2CategoryCatalog(), await getBudget2OrgScopeCatalog());
             if (v.error) return res.status(400).json({ error: v.error });
+            if (!await budgetTargetInUserScope(req.user, v.companyId, v.orgUnitId)) return res.status(403).json({ error: BUDGET_SCOPE_FORBIDDEN_MSG });
             const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
             if (line.status === 'APPROVED') {
                 const conn = await pool.getConnection();
@@ -7372,6 +7440,7 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
             // tài chính, nên không phá vỡ nguyên tắc khóa cứng.
             const companyId = req.body && req.body.companyId ? Number(req.body.companyId) : null;
             const orgUnitId = req.body && req.body.orgUnitId ? Number(req.body.orgUnitId) : null;
+            if (!await budgetTargetInUserScope(req.user, companyId, orgUnitId)) return res.status(403).json({ error: BUDGET_SCOPE_FORBIDDEN_MSG });
             const note = req.body && req.body.note ? String(req.body.note).trim() : null;
             await pool.query('UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, note = ? WHERE id = ?', [companyId, orgUnitId, note, id]);
             await writeAuditLog({ module: 'BUDGET2', actionType: 'UPDATE_USAGE_PARENT', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Cập nhật Công ty/Đơn vị/Ghi chú của mục ngân sách sử dụng [${line.content}].` });
@@ -7525,6 +7594,7 @@ app.post('/api/budget2/lines/:id/approve-proposal', requireAuth, requireBudgetOr
         const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'PROPOSED\'', [id]);
         const line = rows[0];
         if (!line) return res.status(404).json({ error: 'Không tìm thấy đề xuất.' });
+        if (!await budgetTargetInUserScope(req.user, line.company_id, line.org_unit_id)) return res.status(403).json({ error: BUDGET_SCOPE_FORBIDDEN_MSG });
         if (line.status === 'DRAFT') return res.status(400).json({ error: 'Đề xuất này vẫn đang ở dạng nháp — người tạo cần bấm "Gửi phê duyệt" trước.' });
         if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Đề xuất này đã được xử lý trước đó.' });
         if (line.created_by === req.user.username) return res.status(403).json({ error: 'Không thể tự duyệt đề xuất do chính mình tạo.' });
@@ -7545,6 +7615,7 @@ app.post('/api/budget2/lines/:id/reject-proposal', requireAuth, requireBudgetOrA
         const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'PROPOSED\'', [id]);
         const line = rows[0];
         if (!line) return res.status(404).json({ error: 'Không tìm thấy đề xuất.' });
+        if (!await budgetTargetInUserScope(req.user, line.company_id, line.org_unit_id)) return res.status(403).json({ error: BUDGET_SCOPE_FORBIDDEN_MSG });
         if (line.status === 'DRAFT') return res.status(400).json({ error: 'Đề xuất này vẫn đang ở dạng nháp — người tạo cần bấm "Gửi phê duyệt" trước.' });
         if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Đề xuất này đã được xử lý trước đó.' });
         if (line.created_by === req.user.username) return res.status(403).json({ error: 'Không thể tự từ chối đề xuất do chính mình tạo.' });
@@ -7575,6 +7646,7 @@ app.post('/api/budget2/lines/:id/request-supplement-proposal', requireAuth, requ
         const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'PROPOSED\'', [id]);
         const line = rows[0];
         if (!line) return res.status(404).json({ error: 'Không tìm thấy đề xuất.' });
+        if (!await budgetTargetInUserScope(req.user, line.company_id, line.org_unit_id)) return res.status(403).json({ error: BUDGET_SCOPE_FORBIDDEN_MSG });
         if (line.status === 'DRAFT') return res.status(400).json({ error: 'Đề xuất này vẫn đang ở dạng nháp — người tạo cần bấm "Gửi phê duyệt" trước.' });
         if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Đề xuất này đã được xử lý trước đó.' });
         // Admin được miễn trừ chặn tự thao tác ở đây (khác Duyệt/Từ chối) vì
@@ -7605,6 +7677,7 @@ app.post('/api/budget2/lines/:id/approve', requireAuth, requireBudgetOrAdmin, as
         const [rows] = await conn.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'APPROVED\' FOR UPDATE', [id]);
         const line = rows[0];
         if (!line) { conn.release(); return res.status(404).json({ error: 'Không tìm thấy dòng ngân sách phê duyệt.' }); }
+        if (!await budgetTargetInUserScope(req.user, line.company_id, line.org_unit_id)) { conn.release(); return res.status(403).json({ error: BUDGET_SCOPE_FORBIDDEN_MSG }); }
         if (line.status === 'DRAFT') { conn.release(); return res.status(400).json({ error: 'Dòng này vẫn đang ở dạng nháp — người tạo cần bấm "Gửi phê duyệt" trước.' }); }
         if (line.status !== 'SUBMITTED') { conn.release(); return res.status(400).json({ error: 'Dòng này đã được xử lý trước đó.' }); }
         // (Chuẩn hóa mã lỗi) Chặn tự duyệt là quy tắc PHÂN QUYỀN (ai được phép
@@ -7644,6 +7717,7 @@ app.post('/api/budget2/lines/:id/reject', requireAuth, requireBudgetOrAdmin, asy
         const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'APPROVED\'', [id]);
         const line = rows[0];
         if (!line) return res.status(404).json({ error: 'Không tìm thấy dòng ngân sách phê duyệt.' });
+        if (!await budgetTargetInUserScope(req.user, line.company_id, line.org_unit_id)) return res.status(403).json({ error: BUDGET_SCOPE_FORBIDDEN_MSG });
         if (line.status === 'DRAFT') return res.status(400).json({ error: 'Dòng này vẫn đang ở dạng nháp — người tạo cần bấm "Gửi phê duyệt" trước.' });
         if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Dòng này đã được xử lý trước đó.' });
         if (line.created_by === req.user.username) return res.status(403).json({ error: 'Không thể tự từ chối dòng ngân sách do chính mình tạo.' });
@@ -7670,6 +7744,7 @@ app.post('/api/budget2/lines/:id/request-supplement', requireAuth, requireBudget
         const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'APPROVED\'', [id]);
         const line = rows[0];
         if (!line) return res.status(404).json({ error: 'Không tìm thấy dòng ngân sách phê duyệt.' });
+        if (!await budgetTargetInUserScope(req.user, line.company_id, line.org_unit_id)) return res.status(403).json({ error: BUDGET_SCOPE_FORBIDDEN_MSG });
         if (line.status === 'DRAFT') return res.status(400).json({ error: 'Dòng này vẫn đang ở dạng nháp — người tạo cần bấm "Gửi phê duyệt" trước.' });
         if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Dòng này đã được xử lý trước đó.' });
         // Admin miễn trừ — xem chú thích đầy đủ ở .../request-supplement-proposal.
@@ -7695,6 +7770,7 @@ app.post('/api/budget2/lines/approved-direct', requireAuth, requireBudgetOrAdmin
     try {
         const v = validateBudget2LineInput(req.body || {}, {}, await getBudget2CategoryCatalog(), await getBudget2OrgScopeCatalog());
         if (v.error) return res.status(400).json({ error: v.error });
+        if (!await budgetTargetInUserScope(req.user, v.companyId, v.orgUnitId)) return res.status(403).json({ error: BUDGET_SCOPE_FORBIDDEN_MSG });
         const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
         const now = new Date().toISOString();
         const [result] = await pool.query(
@@ -7720,6 +7796,7 @@ app.post('/api/budget2/lines/:id/submit', requireAuth, requireBudgetOrAdmin, asy
         const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'APPROVED\'', [id]);
         const line = rows[0];
         if (!line) return res.status(404).json({ error: 'Không tìm thấy dòng ngân sách phê duyệt.' });
+        if (!await budgetTargetInUserScope(req.user, line.company_id, line.org_unit_id)) return res.status(403).json({ error: BUDGET_SCOPE_FORBIDDEN_MSG });
         if (line.status !== 'DRAFT') return res.status(400).json({ error: 'Dòng này không còn ở dạng nháp.' });
         const [upd] = await pool.query("UPDATE budget2_lines SET status = 'SUBMITTED' WHERE id = ? AND status = 'DRAFT'", [id]);
         if (upd.affectedRows === 0) return res.status(409).json({ error: 'Dòng này vừa được thay đổi, vui lòng tải lại trang.' });
@@ -7774,6 +7851,10 @@ app.post('/api/budget2/import', requireAuth, requireBudgetOrAdmin, async (req, r
         const duplicateLabels = [];
         const seenKeysInFile = new Map(); // key -> rowNo dòng đầu tiên gặp
         const now = new Date().toISOString();
+        // (Phạm vi Ngân sách) Tính 1 lần trước vòng lặp, tái sử dụng `units` đã
+        // tải sẵn ở trên (SELECT *) — tránh lặp lại 1 query/dòng cho tới 2000
+        // dòng. Admin/không có phạm vi = null, giữ nguyên hành vi cũ (không lọc).
+        const budgetScope = req.user.perms.admin ? null : getUserBudgetScope(req.user);
 
         for (let i = 0; i < rows.length; i++) {
             const r = rows[i] || {};
@@ -7808,6 +7889,11 @@ app.post('/api/budget2/import', requireAuth, requireBudgetOrAdmin, async (req, r
                 }
             } else if (orgUnitName) {
                 errors.push(`Dòng ${rowNo}: có Đơn vị nhưng thiếu Mã công ty để xác định đúng đơn vị.`);
+                continue;
+            }
+
+            if (budgetScope && !scopeContainsTarget(budgetScope, units, companyId, orgUnitId)) {
+                errors.push(`Dòng ${rowNo}: Công ty/Đơn vị nằm ngoài phạm vi Ngân sách được gán cho bạn.`);
                 continue;
             }
 
@@ -7900,6 +7986,7 @@ app.post('/api/budget2/lines/:id/children', requireAuth, requireBudgetOrAdmin, a
         const [parentRows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'USED\' AND parent_id IS NULL', [id]);
         const parent = parentRows[0];
         if (!parent) return res.status(404).json({ error: 'Không tìm thấy mục ngân sách sử dụng.' });
+        if (!await budgetTargetInUserScope(req.user, parent.company_id, parent.org_unit_id)) return res.status(403).json({ error: BUDGET_SCOPE_FORBIDDEN_MSG });
 
         // (Khóa Nội dung/Mô tả) Mục con LUÔN kế thừa nguyên văn Nội dung/Mô tả
         // của dòng Phê duyệt gốc (qua mục cha) — không tin/chấp nhận giá trị
@@ -7953,6 +8040,15 @@ async function recomputeBudget2ParentUsage(parentId) {
 // nhu cầu xem (Đề xuất/Duyệt/Sử dụng riêng lẻ chỉ là chọn đúng 1 cột). ---
 app.get('/api/budget2/reports', requireAuth, requireBudgetViewOrAdmin, async (req, res) => {
     try {
+        // (Phạm vi Ngân sách) Chỉ tính vào báo cáo các dòng thuộc đúng phạm vi
+        // Công ty/Đơn vị được gán (nếu có) — Admin và người không có phạm vi
+        // (mặc định) giữ nguyên toàn bộ SQL cũ, KHÔNG thêm điều kiện gì.
+        const budgetScope = (req.user.perms.admin) ? null : getUserBudgetScope(req.user);
+        let scopeOrgUnits = null;
+        if (budgetScope) {
+            const [rows] = await pool.query('SELECT id, parent_id, company_id FROM lic_org_units');
+            scopeOrgUnits = rows;
+        }
         // Mỗi dòng kết quả mang thêm budget_year + budget_month — cho phép
         // client vừa lọc 1 kỳ Tháng/Năm cụ thể ("theo kỳ"), vừa dựng bảng so
         // sánh nhiều kỳ Tháng-Năm cạnh nhau ("so sánh nhiều kỳ") từ CÙNG 1 tập
@@ -7966,9 +8062,16 @@ app.get('/api/budget2/reports', requireAuth, requireBudgetViewOrAdmin, async (re
             // gửi phê duyệt chỉ là bản riêng của người tạo, chưa phải số liệu
             // thật để tính vào báo cáo.
             const extraWhere = stage === 'APPROVED' ? "AND status = 'APPROVED'" : (stage === 'USED' ? "AND parent_id IS NOT NULL AND status != 'DRAFT'" : "AND status != 'DRAFT'");
+            const params = [stage];
+            let scopeSql = '';
+            if (budgetScope) {
+                const frag = buildBudgetScopeSqlFilter(budgetScope, scopeOrgUnits);
+                scopeSql = ` AND ${frag.sql}`;
+                params.push(...frag.params);
+            }
             const sql = `SELECT ${groupCol} AS groupKey, budget_type AS budgetType, budget_year AS budgetYear, budget_month AS budgetMonth, SUM(total_amount) AS total
-                         FROM budget2_lines ${joinSql} WHERE stage = ? ${extraWhere} GROUP BY ${groupCol}, budget_type, budget_year, budget_month`;
-            const [rows] = await pool.query(sql, [stage]);
+                         FROM budget2_lines ${joinSql} WHERE stage = ? ${extraWhere}${scopeSql} GROUP BY ${groupCol}, budget_type, budget_year, budget_month`;
+            const [rows] = await pool.query(sql, params);
             return rows;
         };
 
@@ -8001,15 +8104,22 @@ app.get('/api/budget2/reports', requireAuth, requireBudgetViewOrAdmin, async (re
             buildDimension('1')
         ]);
 
+        let varianceScopeSql = '';
+        let varianceScopeParams = [];
+        if (budgetScope) {
+            const frag = buildBudgetScopeSqlFilter(budgetScope, scopeOrgUnits, 'a');
+            varianceScopeSql = ` AND ${frag.sql}`;
+            varianceScopeParams = frag.params;
+        }
         const [variance] = await pool.query(`
             SELECT a.id AS approvedId, a.content, a.company_id AS companyId, a.org_unit_id AS orgUnitId, a.budget_type AS budgetType, a.budget_year AS budgetYear, a.budget_month AS budgetMonth,
                    a.total_amount AS approvedAmount, COALESCE(c.usedChildren, 0) AS usedAmount
             FROM budget2_lines a
             LEFT JOIN budget2_lines u ON u.stage = 'USED' AND u.parent_id IS NULL AND u.source_line_id = a.id
             LEFT JOIN (SELECT parent_id, SUM(total_amount) AS usedChildren FROM budget2_lines WHERE stage = 'USED' AND parent_id IS NOT NULL GROUP BY parent_id) c ON c.parent_id = u.id
-            WHERE a.stage = 'APPROVED' AND a.status = 'APPROVED'
+            WHERE a.stage = 'APPROVED' AND a.status = 'APPROVED'${varianceScopeSql}
             ORDER BY a.id DESC
-        `);
+        `, varianceScopeParams);
 
         res.json({
             byCompany,

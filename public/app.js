@@ -1237,6 +1237,7 @@
       const wasLoaded = licenseDB.loaded;
       if (!wasLoaded) await loadLicenseBootstrapData();
       populateScopePicker('user');
+      populateScopePicker('userBudget');
       populateDeptOrgUnitOptions();
       if (!wasLoaded) { renderUsers(); renderDeptList(); }
     }
@@ -2831,13 +2832,19 @@
 
       const userScope = getScopePayload('user');
       if (userScope.scopeType && !userScope.scopeId) return showToast('Vui lòng chọn công ty/đơn vị cho phạm vi tự phục vụ!', 'warning');
+      const userBudgetScope = getScopePayload('userBudget');
+      if (userBudgetScope.scopeType && !userBudgetScope.scopeId) return showToast('Vui lòng chọn công ty/đơn vị cho phạm vi Ngân sách!', 'warning');
 
       // Nếu có gán Nhóm quyền, quyền hiệu lực của user LUÔN lấy từ nhóm (xem
       // resolveUserPerms ở server.js) — các ô quyền riêng bên dưới bị ẩn nên
-      // không đọc nữa, gửi perms rỗng (chỉ giữ lại Phạm vi tự phục vụ, vốn là
-      // 1 khái niệm riêng của từng user, không thuộc bộ quyền của nhóm).
+      // không đọc nữa, gửi perms rỗng (chỉ giữ lại Phạm vi tự phục vụ + Phạm
+      // vi Ngân sách, đều là khái niệm riêng của từng user, không thuộc bộ
+      // quyền của nhóm).
       const permissionGroupId = document.getElementById('uPermissionGroupId').value ? Number(document.getElementById('uPermissionGroupId').value) : null;
-      const perms = permissionGroupId ? { licenseScopeType: userScope.scopeType, licenseScopeId: userScope.scopeId } : {
+      const perms = permissionGroupId ? {
+        licenseScopeType: userScope.scopeType, licenseScopeId: userScope.scopeId,
+        budgetScopeType: userBudgetScope.scopeType, budgetScopeId: userBudgetScope.scopeId
+      } : {
         admin: document.getElementById('pAdmin').checked,
         licenseManager: document.getElementById('pLicenseManager').checked,
         budgetManager: document.getElementById('pBudgetManager').checked,
@@ -2854,7 +2861,9 @@
         downloadAll: document.getElementById('pDownloadAll').checked,
         downloadDepts: Array.from(document.querySelectorAll('.pDownloadDept:checked')).map(c => c.value),
         licenseScopeType: userScope.scopeType,
-        licenseScopeId: userScope.scopeId
+        licenseScopeId: userScope.scopeId,
+        budgetScopeType: userBudgetScope.scopeType,
+        budgetScopeId: userBudgetScope.scopeId
       };
 
       if (editId) {
@@ -2979,6 +2988,20 @@
           document.getElementById('userScopeOrgUnitId').value = p.licenseScopeId || '';
         }
       }
+
+      populateScopePicker('userBudget');
+      document.getElementById('userBudgetScopeType').value = p.budgetScopeType || '';
+      onScopeTypeChange('userBudget');
+      if (p.budgetScopeType === 'COMPANY') {
+        document.getElementById('userBudgetScopeCompanyId').value = p.budgetScopeId || '';
+      } else if (p.budgetScopeType === 'ORG_UNIT') {
+        const unit = licenseDB.orgUnits.find(u => u.id === Number(p.budgetScopeId));
+        if (unit) {
+          document.getElementById('userBudgetScopeOrgUnitCompanyId').value = unit.companyId;
+          onScopeOrgUnitCompanyChange('userBudget');
+          document.getElementById('userBudgetScopeOrgUnitId').value = p.budgetScopeId || '';
+        }
+      }
     }
 
     async function deleteUser(id) {
@@ -3095,6 +3118,9 @@
       document.getElementById('userScopeType').value = '';
       onScopeTypeChange('user');
       if (licenseDB.loaded) populateScopePicker('user');
+      document.getElementById('userBudgetScopeType').value = '';
+      onScopeTypeChange('userBudget');
+      if (licenseDB.loaded) populateScopePicker('userBudget');
     }
 
     function renderUsers() {
@@ -3106,6 +3132,7 @@
         const p = resolveDisplayPerms(u);
         const group = u.permissionGroupId ? DB.permissionGroups.find(g => g.id === u.permissionGroupId) : null;
         const scopeLabel = roundScopeLabel({ scopeType: p.licenseScopeType, scopeId: p.licenseScopeId });
+        const budgetScopeLabel = roundScopeLabel({ scopeType: p.budgetScopeType, scopeId: p.budgetScopeId });
         const permTags = [
           group ? `<span class="bg-indigo-100 text-indigo-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🏷️ Nhóm: ${escapeHtml(group.name)}</span>` : '',
           p.admin ? '<span class="bg-purple-100 text-purple-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">Admin</span>' : '',
@@ -3117,7 +3144,8 @@
           !p.admin && !p.itAssetsManager && p.itAssetsViewer ? '<span class="bg-sky-50 text-sky-600 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔎 Xem CNTT</span>' : '',
           p.uploadAll ? '<span class="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">Upload:ALL</span>' : '',
           p.downloadAll ? '<span class="bg-rose-100 text-rose-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">Tải:ALL</span>' : '',
-          scopeLabel ? `<span class="bg-teal-100 text-teal-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔑 ${scopeLabel}</span>` : ''
+          scopeLabel ? `<span class="bg-teal-100 text-teal-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔑 ${scopeLabel}</span>` : '',
+          budgetScopeLabel ? `<span class="bg-teal-100 text-teal-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">💵 ${budgetScopeLabel}</span>` : ''
         ].join('');
 
         const isActive = u.active !== false;
