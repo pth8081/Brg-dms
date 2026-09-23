@@ -12,6 +12,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 
 | Phiên bản | PR | Ngày merge | Nội dung |
 |---|---|---|---|
+| v7.27 | [#98](https://github.com/pth8081/Brg-dms/pull/98) | 2026-09-23 | Thêm biến môi trường `SESSION_TIMEOUT_MINUTES` (đơn vị phút) để tự đặt thời gian phiên đăng nhập thay vì cố định cứng 8 giờ như trước — áp dụng cho cả thời hạn JWT lẫn `maxAge` cookie `dms_token`; để trống vẫn mặc định 480 phút (8 giờ, không đổi hành vi cũ), tối thiểu 5 phút (tự nâng lên kèm cảnh báo nếu đặt thấp hơn); in log lúc khởi động để dễ xác nhận |
 | v7.25 | [#97](https://github.com/pth8081/Brg-dms/pull/97) | 2026-09-22 | Giới hạn số phiên bản tối đa 2 chữ số mỗi phần (major.minor) — trước đây "major" cố định ở 6 từ đầu, "minor" tăng mãi không giới hạn (lên tới 124); nay `scripts/bump-version.js` tự "tràn" (rollover) sang major khi minor vượt quá 99 (major += 1, minor -= 100, giữ phần dư). Quy đổi lại phiên bản hiện tại theo đúng quy tắc mới ngay trong PR này: 6.124 (= 6 + 1 dư 24) → v7.24, CI bump kế tiếp lên đúng v7.25 |
 | v6.123 | [#96](https://github.com/pth8081/Brg-dms/pull/96) | 2026-09-22 | Báo cáo Ngân sách — mục "Tra cứu chi tiết" (cả 2 chế độ "Theo kỳ" và "So sánh nhiều kỳ") thêm lựa chọn nhóm theo "Loại công ty" (BRGGROUP/CTTV/Khác), dùng lại nguyên dữ liệu `byCompanyType` đã có sẵn từ `/api/budget2/reports` (trước đây chỉ phục vụ khối "Báo cáo đa chiều"), không thêm API mới |
 | v6.121 | [#95](https://github.com/pth8081/Brg-dms/pull/95) | 2026-09-22 | Thêm phạm vi Công ty/Đơn vị (tùy chọn) cho quyền "Người quản lý Ngân sách"/"Người xem Ngân sách" (PR #94) — trước đây 2 quyền này luôn toàn quyền mọi công ty/phòng ban, nay gán được `budgetScopeType`/`budgetScopeId` (COMPANY hoặc ORG_UNIT, tái sử dụng đúng cơ chế Phạm vi tự phục vụ License có sẵn — ORG_UNIT chứa cả đơn vị con cháu); để trống = không giới hạn như cũ, không ảnh hưởng user hiện có. Lọc đúng phạm vi ở bootstrap + báo cáo; chặn 403 ở mọi route ghi/quyết định (tạo/sửa/nhập Excel/duyệt/từ chối/yêu cầu bổ sung/gửi phê duyệt/thêm mục sử dụng con) nếu dòng hoặc đích mới khi sửa nằm ngoài phạm vi. Thêm ô chọn phạm vi vào form sửa quyền User cá nhân kèm badge hiển thị |
@@ -101,7 +102,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 > v6.55, v6.56, v6.58, v6.60, v6.63, v6.65, v6.66, v6.68, v6.70, v6.72,
 > v6.74, v6.76, v6.78, v6.80, v6.82, v6.84, v6.86, v6.90, v6.92, v6.94, v6.96,
 > v6.98, v6.100, v6.102, v6.104, v6.106, v6.108, v6.110, v6.112, v6.114,
-> v6.116, v6.118, v6.120, v6.122, v6.124 bị
+> v6.116, v6.118, v6.120, v6.122, v6.124, v7.26 bị
 > nhảy cóc trong lịch sử — không có Pull Request tương ứng để đối chiếu nội
 > dung (nhiều khả năng do chạy lại workflow tăng version hoặc sửa trực tiếp
 > trên `main` ngoài luồng PR — ví dụ v6.52 phát sinh từ chính commit cập
@@ -114,7 +115,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 > v6.76/v6.78/v6.80/v6.82/v6.84/v6.86/v6.90/v6.92/v6.94 phát sinh tương tự
 > từ các commit cập nhật version.md trực tiếp trên `main` cho v6.69/v6.71/
 > v6.73/v6.75/v6.77/v6.79/v6.81/v6.83/v6.85/v6.89/v6.91/v6.93/v6.95/v6.97/v6.99/
-> v6.101/v6.103/v6.105/v6.107/v6.109/v6.111/v6.113/v6.115/v6.117/v6.119/v6.121/v6.123 — mỗi lần
+> v6.101/v6.103/v6.105/v6.107/v6.109/v6.111/v6.113/v6.115/v6.117/v6.119/v6.121/v6.123/v7.25 — mỗi lần
 > commit trực tiếp/merge như vậy đều vô tình kích hoạt lại workflow tăng
 > version thêm 1
 > lần nữa). Từ PR #65 trở đi, workflow còn tự rebuild
