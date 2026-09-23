@@ -2092,7 +2092,6 @@
     <div id="budget2SubReports" class="hidden space-y-3">
       <div class="flex flex-wrap justify-between items-center gap-2">
         <h2 class="text-lg font-bold text-gray-800">Báo cáo ngân sách</h2>
-        <button data-evt-click="exportBudget2ReportXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">📤 Xuất Excel báo cáo</button>
       </div>
 
       <!-- Bộ chọn Năm báo cáo — áp dụng cho CẢ "Bốn lát cắt nhanh" lẫn "Báo
@@ -2131,7 +2130,10 @@
         <div id="budget2CompanyTypeMonthReports" class="space-y-4"></div>
       </div>
 
-      <h3 class="text-sm font-bold text-gray-700 pt-2 border-t">Tra cứu chi tiết</h3>
+      <div class="flex flex-wrap justify-between items-center gap-2 pt-2 border-t">
+        <h3 class="text-sm font-bold text-gray-700">Tra cứu chi tiết</h3>
+        <button data-evt-click="exportBudget2ReportXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">📤 Xuất Excel (đúng loại báo cáo + bộ lọc đang chọn)</button>
+      </div>
       <div class="flex gap-1 border-b">
         <button id="btnBudget2ReportModeSingle" data-evt-click="onBudget2ReportModeChange" data-args='["single"]' class="px-3 py-1.5 text-xs font-bold border-b-2 border-teal-600 text-teal-700">📅 Theo kỳ (Tháng/Năm)</button>
         <button id="btnBudget2ReportModeCompare" data-evt-click="onBudget2ReportModeChange" data-args='["compare"]' class="px-3 py-1.5 text-xs font-bold border-b-2 border-transparent text-gray-500">📈 So sánh nhiều kỳ</button>
