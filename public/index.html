@@ -647,6 +647,14 @@
                 <input type="checkbox" id="pItAssetsViewer"> Người xem CNTT (chỉ xem)
               </label>
               <p class="text-[10px] text-gray-500 leading-tight">Xem được toàn bộ dữ liệu module Quản lý CNTT, không tạo/sửa/xóa/duyệt được gì.</p>
+              <label class="flex items-center gap-2 text-indigo-700 font-semibold cursor-pointer border-t pt-2">
+                <input type="checkbox" id="pLicenseApprover"> Người duyệt License
+              </label>
+              <p class="text-[10px] text-gray-500 leading-tight">Chỉ được Duyệt/Từ chối hồ sơ License của người khác — tách riêng khỏi "Người quản lý License" (tạo/sửa/gửi). Không tự có nếu chỉ có quyền Quản lý.</p>
+              <label class="flex items-center gap-2 text-indigo-700 font-semibold cursor-pointer border-t pt-2">
+                <input type="checkbox" id="pBudgetApprover"> Người duyệt Ngân sách
+              </label>
+              <p class="text-[10px] text-gray-500 leading-tight">Chỉ được Duyệt/Từ chối/Yêu cầu bổ sung dòng Ngân sách của người khác — tách riêng khỏi "Người quản lý Ngân sách" (tạo/sửa/gửi). Không tự có nếu chỉ có quyền Quản lý.</p>
             </div>
 
             <div class="bg-white p-3 rounded border space-y-2">
@@ -3603,6 +3611,12 @@
             </label>
             <label class="flex items-center gap-2 text-sky-500 font-semibold cursor-pointer border-t pt-2">
               <input type="checkbox" id="gItAssetsViewer"> Người xem CNTT (chỉ xem)
+            </label>
+            <label class="flex items-center gap-2 text-indigo-700 font-semibold cursor-pointer border-t pt-2">
+              <input type="checkbox" id="gLicenseApprover"> Người duyệt License
+            </label>
+            <label class="flex items-center gap-2 text-indigo-700 font-semibold cursor-pointer border-t pt-2">
+              <input type="checkbox" id="gBudgetApprover"> Người duyệt Ngân sách
             </label>
           </div>
           <div class="bg-white p-3 rounded border space-y-2">

@@ -454,8 +454,19 @@ function requireLicenseOrAdmin(req, res, next) {
 // không có quyền tạo/sửa/xóa/duyệt gì) — mọi route GHI vẫn giữ nguyên
 // requireLicenseOrAdmin ở trên, KHÔNG thêm licenseViewer vào đó.
 function requireLicenseViewOrAdmin(req, res, next) {
-    if (!req.user || !req.user.perms || (!req.user.perms.admin && !req.user.perms.licenseManager && !req.user.perms.licenseViewer)) {
-        return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên, Người quản lý License, hoặc Người xem License.' });
+    if (!req.user || !req.user.perms || (!req.user.perms.admin && !req.user.perms.licenseManager && !req.user.perms.licenseViewer && !req.user.perms.licenseApprover)) {
+        return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên, Người quản lý License, Người xem License, hoặc Người duyệt License.' });
+    }
+    next();
+}
+
+// (Quyền Người duyệt — tách riêng khỏi quyền Quản lý) Dùng CHỈ cho các route
+// duyệt/từ chối/yêu cầu bổ sung của module License — Admin luôn được, nhưng
+// licenseManager (tạo/sửa/gửi) KHÔNG còn tự động có quyền duyệt hồ sơ của
+// người khác nữa; phải được cấp thêm perms.licenseApprover riêng.
+function requireLicenseApproveOrAdmin(req, res, next) {
+    if (!req.user || !req.user.perms || (!req.user.perms.admin && !req.user.perms.licenseApprover)) {
+        return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên hoặc Người duyệt License.' });
     }
     next();
 }
@@ -3980,10 +3991,11 @@ function requireLicenseOrBudgetOrAdmin(req, res, next) {
     next();
 }
 
-// (Quyền Chỉ xem) Bản ĐỌC của middleware trên — thêm licenseViewer/budgetViewer.
+// (Quyền Chỉ xem) Bản ĐỌC của middleware trên — thêm licenseViewer/budgetViewer
+// và licenseApprover/budgetApprover (người duyệt cũng cần xem báo cáo tổng hợp).
 function requireLicenseOrBudgetViewOrAdmin(req, res, next) {
     const perms = req.user && req.user.perms;
-    if (!perms || (!perms.admin && !perms.licenseManager && !perms.budgetManager && !perms.licenseViewer && !perms.budgetViewer)) {
+    if (!perms || (!perms.admin && !perms.licenseManager && !perms.budgetManager && !perms.licenseViewer && !perms.budgetViewer && !perms.licenseApprover && !perms.budgetApprover)) {
         return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên, Người quản lý/Người xem License hoặc Người quản lý/Người xem Ngân sách.' });
     }
     next();
@@ -5329,7 +5341,7 @@ app.post('/api/license/bulk-allocation-requests', requireAuth, requireLicenseOrA
     }
 });
 
-app.post('/api/license/bulk-allocation-requests/:id/reject', requireAuth, requireLicenseOrAdmin, async (req, res) => {
+app.post('/api/license/bulk-allocation-requests/:id/reject', requireAuth, requireLicenseApproveOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const reason = String((req.body && req.body.reason) || '').trim();
@@ -5363,14 +5375,14 @@ class BulkAllocApprovalError extends Error {
 // mới cho các dòng chưa có (employee_id NULL), phát hành thêm mã còn thiếu
 // (tái dùng generateLicenseCodes), rồi gán mã cho từng người. Chặn TỰ DUYỆT ở
 // đây (không chỉ ẩn nút ở client) — người duyệt phải khác requested_by.
-app.post('/api/license/bulk-allocation-requests/:id/approve', requireAuth, requireLicenseOrAdmin, async (req, res) => {
+app.post('/api/license/bulk-allocation-requests/:id/approve', requireAuth, requireLicenseApproveOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
 
         const [preRows] = await pool.query('SELECT * FROM lic_bulk_allocation_requests WHERE id = ?', [id]);
         if (!preRows[0]) return res.status(404).json({ error: 'Không tìm thấy yêu cầu.' });
         if (preRows[0].status !== 'PENDING') return res.status(400).json({ error: 'Yêu cầu này đã được xử lý trước đó.' });
-        if (preRows[0].requested_by === req.user.username) return res.status(403).json({ error: 'Không thể tự duyệt yêu cầu do chính mình tạo — cần một Admin/Người quản lý License khác duyệt.' });
+        if (preRows[0].requested_by === req.user.username) return res.status(403).json({ error: 'Không thể tự duyệt yêu cầu do chính mình tạo — cần một Admin/Người duyệt License khác duyệt.' });
 
         const [items] = await pool.query('SELECT * FROM lic_bulk_allocation_items WHERE request_id = ?', [id]);
         if (items.length === 0) return res.status(400).json({ error: 'Yêu cầu không có dòng nhân sự nào.' });
@@ -5890,13 +5902,13 @@ app.post('/api/license/registrations', requireAuth, async (req, res) => {
     }
 });
 
-app.post('/api/license/registrations/:id/approve', requireAuth, requireLicenseOrAdmin, async (req, res) => {
+app.post('/api/license/registrations/:id/approve', requireAuth, requireLicenseApproveOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const [rows] = await pool.query('SELECT * FROM lic_purchase_registrations WHERE id = ?', [id]);
         if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy đăng ký.' });
         if (rows[0].status !== 'PENDING') return res.status(400).json({ error: 'Đăng ký này đã được xử lý.' });
-        if (rows[0].created_by && rows[0].created_by === req.user.username) return res.status(403).json({ error: 'Không thể tự duyệt đăng ký do chính mình tạo — cần một Admin/Người quản lý License khác duyệt.' });
+        if (rows[0].created_by && rows[0].created_by === req.user.username) return res.status(403).json({ error: 'Không thể tự duyệt đăng ký do chính mình tạo — cần một Admin/Người duyệt License khác duyệt.' });
         // Race condition: trước đây chỉ SELECT-rồi-check-status-ở-JS rồi UPDATE
         // không điều kiện — 2 request duyệt/từ chối gần như đồng thời cùng đọc
         // PENDING trước khi cái nào ghi trước có thể ghi đè lẫn nhau. Thêm
@@ -5915,7 +5927,7 @@ app.post('/api/license/registrations/:id/approve', requireAuth, requireLicenseOr
     }
 });
 
-app.post('/api/license/registrations/:id/reject', requireAuth, requireLicenseOrAdmin, async (req, res) => {
+app.post('/api/license/registrations/:id/reject', requireAuth, requireLicenseApproveOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const [rows] = await pool.query('SELECT * FROM lic_purchase_registrations WHERE id = ?', [id]);
@@ -6252,13 +6264,13 @@ app.post('/api/license/budget-registrations', requireAuth, async (req, res) => {
     }
 });
 
-app.post('/api/license/budget-registrations/:id/approve', requireAuth, requireLicenseOrAdmin, async (req, res) => {
+app.post('/api/license/budget-registrations/:id/approve', requireAuth, requireLicenseApproveOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const [rows] = await pool.query('SELECT * FROM lic_budget_registrations WHERE id = ?', [id]);
         if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy dự trù.' });
         if (rows[0].status !== 'PENDING') return res.status(400).json({ error: 'Dự trù này đã được xử lý.' });
-        if (rows[0].created_by && rows[0].created_by === req.user.username) return res.status(403).json({ error: 'Không thể tự duyệt dự trù do chính mình tạo — cần một Admin/Người quản lý License khác duyệt.' });
+        if (rows[0].created_by && rows[0].created_by === req.user.username) return res.status(403).json({ error: 'Không thể tự duyệt dự trù do chính mình tạo — cần một Admin/Người duyệt License khác duyệt.' });
         // pending_key phải về NULL khi rời PENDING — nếu không, đơn vị này sẽ
         // không bao giờ đăng ký lại được đúng hạng mục đó ở kỳ sau (ràng buộc
         // UNIQUE(pending_key) coi bản ghi đã duyệt vẫn "đang chiếm" khóa).
@@ -6272,7 +6284,7 @@ app.post('/api/license/budget-registrations/:id/approve', requireAuth, requireLi
     }
 });
 
-app.post('/api/license/budget-registrations/:id/reject', requireAuth, requireLicenseOrAdmin, async (req, res) => {
+app.post('/api/license/budget-registrations/:id/reject', requireAuth, requireLicenseApproveOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const [rows] = await pool.query('SELECT * FROM lic_budget_registrations WHERE id = ?', [id]);
@@ -7023,8 +7035,20 @@ function requireBudgetOrAdmin(req, res, next) {
 
 // (Quyền Chỉ xem) Bản ĐỌC — thêm perms.budgetViewer, dùng cho route GET.
 function requireBudgetViewOrAdmin(req, res, next) {
-    if (!req.user || !req.user.perms || (!req.user.perms.admin && !req.user.perms.budgetManager && !req.user.perms.budgetViewer)) {
-        return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên, Người quản lý Ngân sách, hoặc Người xem Ngân sách.' });
+    if (!req.user || !req.user.perms || (!req.user.perms.admin && !req.user.perms.budgetManager && !req.user.perms.budgetViewer && !req.user.perms.budgetApprover)) {
+        return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên, Người quản lý Ngân sách, Người xem Ngân sách, hoặc Người duyệt Ngân sách.' });
+    }
+    next();
+}
+
+// (Quyền Người duyệt — tách riêng khỏi quyền Quản lý) Dùng CHỈ cho các route
+// duyệt/từ chối/yêu cầu bổ sung (cả giai đoạn Đề xuất lẫn Phê duyệt) của
+// module Ngân sách — Admin luôn được, nhưng budgetManager (tạo/sửa/gửi)
+// KHÔNG còn tự động có quyền duyệt dòng của người khác nữa; phải được cấp
+// thêm perms.budgetApprover riêng.
+function requireBudgetApproveOrAdmin(req, res, next) {
+    if (!req.user || !req.user.perms || (!req.user.perms.admin && !req.user.perms.budgetApprover)) {
+        return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên hoặc Người duyệt Ngân sách.' });
     }
     next();
 }
@@ -7606,7 +7630,7 @@ app.delete('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (r
 // độc lập (xem /api/budget2/lines/approved-direct, /api/budget2/import ở
 // dưới), không còn đọc dữ liệu từ Đề xuất nữa. Áp dụng đúng quy tắc chặn tự
 // duyệt như mọi luồng duyệt khác trong hệ thống. ---
-app.post('/api/budget2/lines/:id/approve-proposal', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+app.post('/api/budget2/lines/:id/approve-proposal', requireAuth, requireBudgetApproveOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'PROPOSED\'', [id]);
@@ -7627,7 +7651,7 @@ app.post('/api/budget2/lines/:id/approve-proposal', requireAuth, requireBudgetOr
     }
 });
 
-app.post('/api/budget2/lines/:id/reject-proposal', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+app.post('/api/budget2/lines/:id/reject-proposal', requireAuth, requireBudgetApproveOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'PROPOSED\'', [id]);
@@ -7655,7 +7679,7 @@ app.post('/api/budget2/lines/:id/reject-proposal', requireAuth, requireBudgetOrA
 // do chính mình tạo như Duyệt/Từ chối — nếu không, người tạo có thể tự "yêu
 // cầu bổ sung" chính đề xuất của mình để tự mở khóa sửa, vô hiệu hóa hoàn
 // toàn mục đích của cơ chế khóa.
-app.post('/api/budget2/lines/:id/request-supplement-proposal', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+app.post('/api/budget2/lines/:id/request-supplement-proposal', requireAuth, requireBudgetApproveOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const reason = String((req.body && req.body.reason) || '').trim();
@@ -7688,7 +7712,7 @@ app.post('/api/budget2/lines/:id/request-supplement-proposal', requireAuth, requ
 
 // --- Duyệt 1 dòng ngân sách phê duyệt (đang chờ) — CHỈ giai đoạn Phê duyệt
 // mới có bước duyệt này; tự động sinh dòng Sử dụng (mục cha) tương ứng. ---
-app.post('/api/budget2/lines/:id/approve', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+app.post('/api/budget2/lines/:id/approve', requireAuth, requireBudgetApproveOrAdmin, async (req, res) => {
     const conn = await pool.getConnection();
     try {
         const { id } = req.params;
@@ -7729,7 +7753,7 @@ app.post('/api/budget2/lines/:id/approve', requireAuth, requireBudgetOrAdmin, as
 });
 
 // --- Từ chối 1 dòng ngân sách phê duyệt (đang chờ) ---
-app.post('/api/budget2/lines/:id/reject', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+app.post('/api/budget2/lines/:id/reject', requireAuth, requireBudgetApproveOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'APPROVED\'', [id]);
@@ -7753,7 +7777,7 @@ app.post('/api/budget2/lines/:id/reject', requireAuth, requireBudgetOrAdmin, asy
 // --- Yêu cầu bổ sung thông tin cho 1 dòng ngân sách phê duyệt đang chờ duyệt
 // — xem chú thích đầy đủ ở .../request-supplement-proposal (giai đoạn Đề
 // xuất), logic giống hệt, chỉ khác stage = 'APPROVED'. ---
-app.post('/api/budget2/lines/:id/request-supplement', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+app.post('/api/budget2/lines/:id/request-supplement', requireAuth, requireBudgetApproveOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const reason = String((req.body && req.body.reason) || '').trim();
