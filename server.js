@@ -255,7 +255,25 @@ if (!JWT_SECRET) {
     console.warn('⚠️  JWT_SECRET đang cấu hình quá ngắn (dưới 32 ký tự) — nên đổi sang 1 chuỗi ngẫu nhiên dài hơn để an toàn hơn.');
 }
 const TOKEN_COOKIE = 'dms_token';
-const TOKEN_TTL = '8h';
+// (Timeout phiên đăng nhập) Cấu hình được qua biến môi trường
+// SESSION_TIMEOUT_MINUTES (đơn vị PHÚT) — để trống dùng mặc định 480 phút
+// (8 giờ, giữ nguyên hành vi cũ). Dùng chung cho CẢ thời hạn JWT (TOKEN_TTL)
+// lẫn maxAge của cookie chứa token (setAuthCookie bên dưới) — phải luôn
+// khớp nhau, nếu không JWT hết hạn trước cookie sẽ khiến request vẫn gửi
+// kèm cookie nhưng bị 401 (requireAuth xử lý đúng, chỉ là sớm hơn cần
+// thiết), còn cookie hết hạn trước JWT thì trình duyệt tự xóa cookie sớm
+// hơn JWT thật sự hết hạn — cả 2 đều vô hại nhưng dễ gây hiểu nhầm nên
+// luôn đặt bằng nhau tuyệt đối.
+const SESSION_TIMEOUT_MINUTES = (() => {
+    const parsed = parseInt(process.env.SESSION_TIMEOUT_MINUTES, 10);
+    if (!parsed || parsed <= 0) return 480;
+    if (parsed < 5) {
+        console.warn('⚠️  SESSION_TIMEOUT_MINUTES đang đặt quá ngắn (dưới 5 phút) — dùng tạm 5 phút để tránh đăng xuất liên tục ngoài ý muốn.');
+        return 5;
+    }
+    return parsed;
+})();
+const TOKEN_TTL = `${SESSION_TIMEOUT_MINUTES}m`;
 // Xác thực hai yếu tố (2FA/TOTP) — chỉ bắt buộc với Admin (xem POST
 // /api/auth/login). dms_mfa là JWT NGẮN HẠN riêng, tách khỏi dms_token thật
 // (chưa cấp phiên đăng nhập thật cho tới khi qua được bước này), mang theo
@@ -280,7 +298,7 @@ function setAuthCookie(res, token) {
         httpOnly: true,
         secure: isProd,
         sameSite: 'strict',
-        maxAge: 8 * 60 * 60 * 1000
+        maxAge: SESSION_TIMEOUT_MINUTES * 60 * 1000
     });
 }
 
@@ -8183,5 +8201,6 @@ if (isClusterMode && cluster.isPrimary) {
         // chắc chắn nhất, không phụ thuộc cấu hình proxy.
         console.log(`   🔑 WebAuthn RP ID: ${process.env.WEBAUTHN_RP_ID || '(chưa cấu hình — tự suy ra từ Host header của mỗi request)'}`);
         console.log(`   🔑 WebAuthn Origin: ${process.env.WEBAUTHN_ORIGIN || '(chưa cấu hình — tự suy ra từ protocol/Host header của mỗi request, dễ sai sau reverse proxy)'}`);
+        console.log(`   ⏱️  Thời gian phiên đăng nhập: ${SESSION_TIMEOUT_MINUTES} phút${process.env.SESSION_TIMEOUT_MINUTES ? '' : ' (mặc định — đặt SESSION_TIMEOUT_MINUTES trong .env để đổi)'}`);
     });
 }

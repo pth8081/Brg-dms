@@ -475,6 +475,7 @@ từng biến). Các biến quan trọng nhất cho production:
 |---|---|---|
 | `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | ✅ | Thông tin kết nối MariaDB |
 | `JWT_SECRET` | ✅ | Chuỗi ngẫu nhiên cố định — để trống sẽ mất phiên đăng nhập mỗi lần restart |
+| `SESSION_TIMEOUT_MINUTES` | Tùy chọn | Thời gian phiên đăng nhập tính bằng phút — để trống mặc định 480 (8 giờ) |
 | `NODE_ENV=production` | ✅ | |
 | `TRUST_PROXY=true` | ✅ nếu chạy sau Nginx | Để nhận đúng IP thật của người dùng |
 | `WEBAUTHN_RP_ID`, `WEBAUTHN_ORIGIN` | ✅ nếu dùng đăng nhập vân tay/Face ID | Đặt đúng domain thật (VD `dms.congty-cua-ban.vn` và `https://dms.congty-cua-ban.vn`, không dấu `/` ở cuối) — để trống dễ gây lỗi "Unexpected registration/authentication response origin" sau Nginx, xem mục 15 |
