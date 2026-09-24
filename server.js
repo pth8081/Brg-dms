@@ -154,7 +154,7 @@ app.use(helmet({
             defaultSrc: ["'self'"],
             scriptSrc: ["'self'"],
             scriptSrcAttr: ["'none'"],
-            // Font trang đăng nhập (Spectral, Be Vietnam Pro) tải từ Google Fonts —
+            // Font trang đăng nhập (Literata, Be Vietnam Pro) tải từ Google Fonts —
             // styleSrc cho stylesheet @font-face, fontSrc riêng cho file font nhị phân.
             styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
             fontSrc: ["'self'", "https://fonts.gstatic.com"],
