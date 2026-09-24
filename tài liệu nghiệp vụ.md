@@ -46,9 +46,14 @@ linh hoạt, kết hợp nhiều quyền độc lập:
 | `viewDraftAll` / `viewDraftDepts[]` | Được xem tài liệu **chưa duyệt xong** (PENDING/REJECTED) của tất cả / phòng ban chỉ định. |
 | `viewApprovedAll` / `viewApprovedDepts[]` | Được xem tài liệu **đã duyệt** (APPROVED) của tất cả / phòng ban chỉ định. |
 | `downloadAll` / `downloadDepts[]` | Được tải file PDF của tất cả / phòng ban chỉ định (tách riêng khỏi quyền Xem). |
-| `licenseManager` | Toàn quyền thao tác module Bản quyền + phần lớn module Ngân sách (theo Kỳ mua). |
-| `budgetManager` | Toàn quyền thao tác module Ngân sách 2 (Đề xuất/Phê duyệt/Sử dụng). |
+| `licenseManager` | Tạo/sửa/gửi trong module Bản quyền + phần lớn module Ngân sách (theo Kỳ mua) — **không** bao gồm quyền Duyệt/Từ chối (xem `licenseApprover`). |
+| `budgetManager` | Tạo/sửa/gửi trong module Ngân sách 2 (Đề xuất/Phê duyệt/Sử dụng) — **không** bao gồm quyền Duyệt/Từ chối/Yêu cầu bổ sung (xem `budgetApprover`). |
+| `licenseViewer` / `budgetViewer` / `itAssetsViewer` | Chỉ xem toàn bộ dữ liệu module tương ứng (Bản quyền/Ngân sách/CNTT), không tạo/sửa/xóa/duyệt được gì. |
+| `licenseApprover` | Được Duyệt/Từ chối các đăng ký/dự trù/yêu cầu cấp phát của **người khác** trong module Bản quyền — tách riêng hoàn toàn khỏi `licenseManager` (tạo/sửa/gửi). Một tài khoản chỉ có `licenseManager` (không có `licenseApprover`) không còn thấy nút Duyệt/Từ chối nữa. |
+| `budgetApprover` | Được Duyệt/Từ chối/Yêu cầu bổ sung các dòng Đề xuất/Phê duyệt của **người khác** trong module Ngân sách 2 — tách riêng hoàn toàn khỏi `budgetManager` (tạo/sửa/gửi). Một tài khoản chỉ có `budgetManager` (không có `budgetApprover`) không còn thấy các nút này nữa. |
+| `itAssetsManager` | Toàn quyền thao tác module Quản lý CNTT (không có khái niệm Duyệt/Từ chối riêng). |
 | `licenseScopeType` + `licenseScopeId` | Phạm vi tự phục vụ (COMPANY hoặc ORG_UNIT) — cho tài khoản không phải Admin/License Manager vẫn được dự trù ngân sách/đăng ký mua **trong đúng phạm vi công ty/đơn vị** được gán. |
+| `budgetScopeType` + `budgetScopeId` | Tương tự trên, áp dụng cho module Ngân sách 2 — giới hạn cả xem lẫn thao tác (kể cả Duyệt) theo đúng phạm vi công ty/đơn vị được gán. |
 
 Người tạo tài liệu/nhân viên/tài khoản luôn tự động có quyền xem tài liệu do
 chính mình tạo (dù không có quyền `viewDraft*`/`viewApproved*` tương ứng).
@@ -57,7 +62,12 @@ Người tự tạo 1 yêu cầu (đăng ký mua, dự trù ngân sách, yêu c�
 loạt, dòng ngân sách chờ duyệt...) **không bao giờ được tự duyệt/tự từ chối
 chính yêu cầu đó** — luôn cần một người khác có quyền tương ứng thực hiện.
 Đây là quy tắc "tách biệt nhiệm vụ" (segregation of duties) áp dụng nhất
-quán trên toàn hệ thống.
+quán trên toàn hệ thống. Từ bản v7.30, việc tách biệt này còn được siết chặt
+thêm 1 bước: quyền **Quản lý** (tạo/sửa/gửi) và quyền **Duyệt** ở module Bản
+quyền/Ngân sách giờ là 2 quyền độc lập (`licenseManager`/`budgetManager` so
+với `licenseApprover`/`budgetApprover`) — một tài khoản chỉ được cấp quyền
+Quản lý sẽ không còn tự động có quyền Duyệt/Từ chối hồ sơ của người khác nữa,
+phải được Admin cấp thêm quyền Duyệt riêng.
 
 ---
 
@@ -256,7 +266,9 @@ ghép đúng cha-con dù thứ tự dòng bất kỳ) và Nhân viên (theo mã 
 ## 6. Module Ngân sách (Budget — gắn với Kỳ mua License)
 
 Vai trò truy cập: `admin` hoặc `perms.licenseManager` (lưu ý: **không phải**
-`budgetManager` — 2 quyền này tách biệt, xem mục 8).
+`budgetManager` — 2 quyền này tách biệt, xem mục 8). Riêng thao tác Duyệt/Từ
+chối dự trù (bên dưới) còn đòi hỏi thêm `perms.licenseApprover` — chỉ có
+`licenseManager` không còn tự động duyệt được nữa (xem mục 2).
 
 - **Kỳ ngân sách** (`lic_budget_rounds`): tương tự Kỳ mua, có Năm ngân sách
   và Phạm vi (Công ty/Đơn vị) tùy chọn.
@@ -287,7 +299,10 @@ Vai trò truy cập: `admin` hoặc `perms.licenseManager` (lưu ý: **không ph
 
 Vai trò truy cập: `admin` hoặc `perms.budgetManager` — **module độc lập**
 với mục 6, dùng chung bảng `lic_companies`/`lic_org_units` để chọn phạm vi
-nhưng có luồng và bảng dữ liệu riêng (`budget2_lines`).
+nhưng có luồng và bảng dữ liệu riêng (`budget2_lines`). Riêng thao tác
+Duyệt/Từ chối/Yêu cầu bổ sung (cả 2 giai đoạn Đề xuất và Phê duyệt) còn đòi
+hỏi thêm `perms.budgetApprover` — chỉ có `budgetManager` không còn tự động
+duyệt được nữa (xem mục 2).
 
 Một dòng ngân sách thuộc 1 trong 3 **giai đoạn** (`stage`) độc lập hoàn
 toàn với nhau — Đề xuất và Phê duyệt **không** còn cơ chế "gửi đề xuất

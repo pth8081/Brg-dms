@@ -322,8 +322,6 @@
         'saveBudgetRoundItem', 'saveRegistration', 'saveRound', 'saveRoundItem',
         'deleteBatch', 'deleteCompany', 'deleteOrgUnit', 'deleteEmployee', 'deleteSoftware', 'deleteRound', 'deleteRoundItem',
         'deleteBudgetRound', 'deleteBudgetRoundItem', 'deleteBudgetActual', 'deleteBudgetItemCatalog', 'addBudgetActual',
-        'approveBudgetRegistration', 'approveBulkAllocRequest', 'approveRegistration',
-        'rejectBudgetRegistration', 'rejectBulkAllocRequest', 'rejectRegistration',
         'revokeAllocation', 'revokeSelectedForEmployee', 'bulkRevokeSelectedAllocations',
         'toggleBudgetRoundStatus', 'toggleRoundStatus',
         'importEmployeesXlsx', 'importOrgUnitsXlsx', 'syncAdAccountsNow', 'submitBulkAllocFileRequest'
@@ -332,9 +330,8 @@
         'openBudget2LineModal', 'openBudget2ChildModal', 'openBudget2UsedParentModal',
         'saveBudget2Line', 'saveBudget2Child', 'saveBudget2UsedParent',
         'deleteBudget2Line', 'deleteBudget2LineFromMenu', 'bulkDeleteBudget2Lines',
-        'approveBudget2Line', 'approveBudget2Proposal', 'rejectBudget2Line', 'rejectBudget2Proposal',
-        'requestBudget2LineSupplement', 'requestBudget2ProposalSupplement', 'supplementBudget2LineFromMenu',
-        'submitBudget2Line', 'submitBudget2Proposal', 'bulkDecideBudget2Lines', 'bulkRequestBudget2Supplement',
+        'supplementBudget2LineFromMenu',
+        'submitBudget2Line', 'submitBudget2Proposal',
         'bulkSubmitBudget2Lines', 'editBudget2LineFromMenu', 'importBudget2Xlsx'
       ]),
       itAssets: new Set([
@@ -342,9 +339,27 @@
         'deleteItCategory', 'deleteItItem', 'importItItemsXlsx', 'runItCheckExpiryNow'
       ])
     };
+    // (Quyền Người duyệt — tách riêng khỏi Quản lý) Các thao tác Duyệt/Từ
+    // chối/Yêu cầu bổ sung của License và Ngân sách giờ đòi hỏi
+    // perms.licenseApprover/budgetApprover riêng, KHÔNG còn tự động có sẵn
+    // chỉ vì có quyền Quản lý (tạo/sửa/gửi) nữa — xem server.js
+    // requireLicenseApproveOrAdmin/requireBudgetApproveOrAdmin.
+    const APPROVER_BLOCKED_ACTIONS = {
+      license: new Set([
+        'approveBudgetRegistration', 'approveBulkAllocRequest', 'approveRegistration',
+        'rejectBudgetRegistration', 'rejectBulkAllocRequest', 'rejectRegistration'
+      ]),
+      budget2: new Set([
+        'approveBudget2Line', 'approveBudget2Proposal', 'rejectBudget2Line', 'rejectBudget2Proposal',
+        'requestBudget2LineSupplement', 'requestBudget2ProposalSupplement',
+        'bulkDecideBudget2Lines', 'bulkRequestBudget2Supplement'
+      ])
+    };
     function viewerWriteBlockedModule(fnName) {
       if (!currentUser || !currentUser.perms || currentUser.perms.admin) return null;
       const p = currentUser.perms;
+      if (APPROVER_BLOCKED_ACTIONS.license.has(fnName)) return p.licenseApprover ? null : 'license';
+      if (APPROVER_BLOCKED_ACTIONS.budget2.has(fnName)) return p.budgetApprover ? null : 'budget2';
       if (VIEWER_BLOCKED_ACTIONS.license.has(fnName) && !p.licenseManager) return 'license';
       if (VIEWER_BLOCKED_ACTIONS.budget2.has(fnName) && !p.budgetManager) return 'budget2';
       if (VIEWER_BLOCKED_ACTIONS.itAssets.has(fnName) && !p.itAssetsManager) return 'itAssets';
@@ -849,8 +864,12 @@
       // và xem toàn bộ dữ liệu module như Quản lý, nhưng KHÔNG có quyền
       // tạo/sửa/xóa/duyệt gì — các nút thao tác ghi tự ẩn bên trong từng
       // module (xem canWriteLicense/canWriteBudget2/canWriteItAssets).
-      const canViewLicense = canManageLicense || !!user.perms.licenseViewer;
-      const canViewBudget2 = canManageBudget2 || !!user.perms.budgetViewer;
+      // (Quyền Người duyệt) licenseApprover/budgetApprover tách hẳn khỏi
+      // Quản lý — cũng mở được tab để xem hồ sơ cần duyệt, nhưng chỉ có nút
+      // Duyệt/Từ chối/Bổ sung, KHÔNG có nút tạo/sửa/gửi/nhập (canWriteXxx
+      // vẫn kiểm theo Manager riêng, xem canDecideLicense/canDecideBudget2).
+      const canViewLicense = canManageLicense || !!user.perms.licenseViewer || !!user.perms.licenseApprover;
+      const canViewBudget2 = canManageBudget2 || !!user.perms.budgetViewer || !!user.perms.budgetApprover;
       const canViewItAssets = canManageItAssets || !!user.perms.itAssetsViewer;
       document.getElementById('btnAdminTab').classList.toggle('hidden', !user.perms.admin);
       document.getElementById('btnLicenseTab').classList.toggle('hidden', !canViewLicense);
@@ -885,6 +904,13 @@
       Object.keys(VIEWER_BLOCKED_ACTIONS).forEach(mod => {
         if (moduleCanManage[mod]) return;
         VIEWER_BLOCKED_ACTIONS[mod].forEach(fnName => {
+          document.querySelectorAll(`[data-evt-click="${fnName}"], [data-evt-change="${fnName}"]`).forEach(el => el.classList.add('hidden'));
+        });
+      });
+      const moduleCanApprove = { license: !!p.licenseApprover, budget2: !!p.budgetApprover };
+      Object.keys(APPROVER_BLOCKED_ACTIONS).forEach(mod => {
+        if (moduleCanApprove[mod]) return;
+        APPROVER_BLOCKED_ACTIONS[mod].forEach(fnName => {
           document.querySelectorAll(`[data-evt-click="${fnName}"], [data-evt-change="${fnName}"]`).forEach(el => el.classList.add('hidden'));
         });
       });
@@ -1027,11 +1053,11 @@
       if (tabName === 'home') { renderHomeDashboard(); }
       if (tabName === 'doc') { renderDocs(); updateUploadDeptDropdown(); }
       if (tabName === 'admin' && currentUser.perms.admin) { switchAdminSubTab('users'); }
-      if (tabName === 'license' && (currentUser.perms.admin || currentUser.perms.licenseManager || currentUser.perms.licenseViewer)) { switchLicenseSubTab('emp'); }
+      if (tabName === 'license' && (currentUser.perms.admin || currentUser.perms.licenseManager || currentUser.perms.licenseViewer || currentUser.perms.licenseApprover)) { switchLicenseSubTab('emp'); }
       if (tabName === 'reports' && currentUser.perms.admin) { switchReportsSubsystem('doc'); }
       if (tabName === 'licensePortal' && !currentUser.perms.admin && currentUser.perms.licenseScopeType) { switchPortalSubTab('budget'); }
       if (tabName === 'itAssets' && (currentUser.perms.admin || currentUser.perms.itAssetsManager || currentUser.perms.itAssetsViewer)) { switchItAssetsSubTab('items'); }
-      if (tabName === 'budget2' && (currentUser.perms.admin || currentUser.perms.budgetManager || currentUser.perms.budgetViewer)) { switchBudget2SubTab('propose'); }
+      if (tabName === 'budget2' && (currentUser.perms.admin || currentUser.perms.budgetManager || currentUser.perms.budgetViewer || currentUser.perms.budgetApprover)) { switchBudget2SubTab('propose'); }
     }
 
     // --- Trang chủ: tổng quan các việc đang chờ xử lý, tuỳ theo quyền của
@@ -1040,7 +1066,7 @@
     async function renderHomeDashboard() {
       if (!currentUser) return;
       const isAdmin = !!currentUser.perms.admin;
-      const canManageLicense = !!(currentUser.perms.admin || currentUser.perms.licenseManager || currentUser.perms.licenseViewer);
+      const canManageLicense = !!(currentUser.perms.admin || currentUser.perms.licenseManager || currentUser.perms.licenseViewer || currentUser.perms.licenseApprover);
       const canManageItAssets = !!(currentUser.perms.admin || currentUser.perms.itAssetsManager || currentUser.perms.itAssetsViewer);
       // Dữ liệu License/CNTT chỉ tải khi cần (lazy-load như các module khác) —
       // Trang chủ là màn hình đầu tiên sau đăng nhập nên phải chủ động tải
@@ -2609,6 +2635,8 @@
         !p.admin && !p.licenseManager && p.licenseViewer ? '<span class="bg-brand-50 text-brand-600 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔎 Xem License</span>' : '',
         !p.admin && !p.budgetManager && p.budgetViewer ? '<span class="bg-teal-50 text-teal-600 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔎 Xem Ngân sách</span>' : '',
         !p.admin && !p.itAssetsManager && p.itAssetsViewer ? '<span class="bg-sky-50 text-sky-600 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔎 Xem CNTT</span>' : '',
+        !p.admin && p.licenseApprover ? '<span class="bg-indigo-100 text-indigo-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">✅ Duyệt License</span>' : '',
+        !p.admin && p.budgetApprover ? '<span class="bg-indigo-100 text-indigo-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">✅ Duyệt Ngân sách</span>' : '',
         p.uploadAll ? '<span class="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">📤 Upload: Tất cả</span>' : (p.uploadDepts && p.uploadDepts.length ? `<span class="bg-blue-50 text-blue-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">📤 Upload: ${p.uploadDepts.length} PB</span>` : ''),
         p.viewDraftAll ? '<span class="bg-amber-100 text-amber-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">📝 Xem nháp: Tất cả</span>' : (p.viewDraftDepts && p.viewDraftDepts.length ? `<span class="bg-amber-50 text-amber-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">📝 Xem nháp: ${p.viewDraftDepts.length} PB</span>` : ''),
         p.viewApprovedAll ? '<span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">✅ Xem duyệt: Tất cả</span>' : (p.viewApprovedDepts && p.viewApprovedDepts.length ? `<span class="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">✅ Xem duyệt: ${p.viewApprovedDepts.length} PB</span>` : ''),
@@ -2660,6 +2688,8 @@
       document.getElementById('gLicenseViewer').checked = !!p.licenseViewer;
       document.getElementById('gBudgetViewer').checked = !!p.budgetViewer;
       document.getElementById('gItAssetsViewer').checked = !!p.itAssetsViewer;
+      document.getElementById('gLicenseApprover').checked = !!p.licenseApprover;
+      document.getElementById('gBudgetApprover').checked = !!p.budgetApprover;
 
       document.getElementById('gUploadAll').checked = !!p.uploadAll;
       document.querySelectorAll('.gUploadDept').forEach(cb => cb.checked = p.uploadDepts ? p.uploadDepts.includes(cb.value) : false);
@@ -2692,6 +2722,8 @@
         licenseViewer: document.getElementById('gLicenseViewer').checked,
         budgetViewer: document.getElementById('gBudgetViewer').checked,
         itAssetsViewer: document.getElementById('gItAssetsViewer').checked,
+        licenseApprover: document.getElementById('gLicenseApprover').checked,
+        budgetApprover: document.getElementById('gBudgetApprover').checked,
         uploadAll: document.getElementById('gUploadAll').checked,
         uploadDepts: Array.from(document.querySelectorAll('.gUploadDept:checked')).map(c => c.value),
         viewDraftAll: document.getElementById('gViewDraftAll').checked,
@@ -2852,6 +2884,8 @@
         licenseViewer: document.getElementById('pLicenseViewer').checked,
         budgetViewer: document.getElementById('pBudgetViewer').checked,
         itAssetsViewer: document.getElementById('pItAssetsViewer').checked,
+        licenseApprover: document.getElementById('pLicenseApprover').checked,
+        budgetApprover: document.getElementById('pBudgetApprover').checked,
         uploadAll: document.getElementById('pUploadAll').checked,
         uploadDepts: Array.from(document.querySelectorAll('.pUploadDept:checked')).map(c => c.value),
         viewDraftAll: document.getElementById('pViewDraftAll').checked,
@@ -2958,6 +2992,8 @@
       document.getElementById('pLicenseViewer').checked = !!p.licenseViewer;
       document.getElementById('pBudgetViewer').checked = !!p.budgetViewer;
       document.getElementById('pItAssetsViewer').checked = !!p.itAssetsViewer;
+      document.getElementById('pLicenseApprover').checked = !!p.licenseApprover;
+      document.getElementById('pBudgetApprover').checked = !!p.budgetApprover;
 
       document.getElementById('pUploadAll').checked = !!p.uploadAll;
       document.querySelectorAll('.pUploadDept').forEach(cb => cb.checked = p.uploadDepts ? p.uploadDepts.includes(cb.value) : false);
@@ -3089,6 +3125,8 @@
       document.getElementById('pLicenseViewer').checked = false;
       document.getElementById('pBudgetViewer').checked = false;
       document.getElementById('pItAssetsViewer').checked = false;
+      document.getElementById('pLicenseApprover').checked = false;
+      document.getElementById('pBudgetApprover').checked = false;
       document.getElementById('btnSaveUser').innerText = '+ Thêm Vào Danh Sách';
 
       ['pUploadAll', 'pViewDraftAll', 'pViewApprovedAll', 'pDownloadAll'].forEach(id => {
@@ -3142,6 +3180,8 @@
           !p.admin && !p.licenseManager && p.licenseViewer ? '<span class="bg-brand-50 text-brand-600 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔎 Xem License</span>' : '',
           !p.admin && !p.budgetManager && p.budgetViewer ? '<span class="bg-teal-50 text-teal-600 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔎 Xem Ngân sách</span>' : '',
           !p.admin && !p.itAssetsManager && p.itAssetsViewer ? '<span class="bg-sky-50 text-sky-600 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔎 Xem CNTT</span>' : '',
+          !p.admin && p.licenseApprover ? '<span class="bg-indigo-100 text-indigo-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">✅ Duyệt License</span>' : '',
+          !p.admin && p.budgetApprover ? '<span class="bg-indigo-100 text-indigo-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">✅ Duyệt Ngân sách</span>' : '',
           p.uploadAll ? '<span class="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">Upload:ALL</span>' : '',
           p.downloadAll ? '<span class="bg-rose-100 text-rose-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">Tải:ALL</span>' : '',
           scopeLabel ? `<span class="bg-teal-100 text-teal-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔑 ${scopeLabel}</span>` : '',
@@ -3603,7 +3643,7 @@
 
     // Chuyển mục con module Bản quyền — 1 hàng tab phẳng (xem #licenseSubNavRow).
     function switchLicenseSubTab(subName) {
-      if (!currentUser || !(currentUser.perms.admin || currentUser.perms.licenseManager || currentUser.perms.licenseViewer)) return;
+      if (!currentUser || !(currentUser.perms.admin || currentUser.perms.licenseManager || currentUser.perms.licenseViewer || currentUser.perms.licenseApprover)) return;
 
       const subs = { emp: 'licenseSubEmp', software: 'licenseSubSoftware', batch: 'licenseSubBatch', alloc: 'licenseSubAlloc', revokeEmp: 'licenseSubRevokeEmp', ad: 'licenseSubAD', purchase: 'licenseSubPurchase', rounds: 'licenseSubRounds', budget: 'licenseSubBudget' };
       const btns = { emp: 'btnLicenseSubEmp', software: 'btnLicenseSubSoftware', batch: 'btnLicenseSubBatch', alloc: 'btnLicenseSubAlloc', revokeEmp: 'btnLicenseSubRevokeEmp', ad: 'btnLicenseSubAD', purchase: 'btnLicenseSubPurchase', rounds: 'btnLicenseSubRounds', budget: 'btnLicenseSubBudget' };
@@ -4959,7 +4999,8 @@ function isPerpetualSoftware(softwareId) {
         const software = licenseDB.softwareCatalog.find(s => s.id === r.softwareId);
         const itemCount = (licenseDB.bulkAllocationItems || []).filter(it => it.requestId === r.id).length;
         const isRequester = currentUser && r.requestedBy === currentUser.username;
-        const canDecide = r.status === 'PENDING' && !isRequester;
+        const isApprover = !!(currentUser && currentUser.perms && (currentUser.perms.admin || currentUser.perms.licenseApprover));
+        const canDecide = r.status === 'PENDING' && !isRequester && isApprover;
         return `
           <tr>
             <td class="border p-2">${escapeHtml(company ? company.name : '—')}${orgUnit ? '<br><span class="text-gray-500">' + escapeHtml(orgUnitPath(orgUnit.id)) + '</span>' : ''}</td>
@@ -5696,7 +5737,8 @@ function isPerpetualSoftware(softwareId) {
         const item = licenseDB.purchaseRoundItems.find(x => x.id === r.roundItemId);
         const software = item ? licenseDB.softwareCatalog.find(s => s.id === item.softwareId) : null;
         const isRequester = currentUser && r.createdBy && r.createdBy === currentUser.username;
-        const canDecide = r.status === 'PENDING' && !isRequester;
+        const isApprover = !!(currentUser && currentUser.perms && (currentUser.perms.admin || currentUser.perms.licenseApprover));
+        const canDecide = r.status === 'PENDING' && !isRequester && isApprover;
         return `
           <tr class="hover:bg-gray-50">
             <td class="border p-2">${pageOffset + i + 1}</td>
@@ -6424,7 +6466,8 @@ function isPerpetualSoftware(softwareId) {
         const item = licenseDB.budgetRoundItems.find(x => x.id === r.roundItemId);
         const company = companyOfOrgUnit(r.orgUnitId);
         const isRequester = currentUser && r.createdBy && r.createdBy === currentUser.username;
-        const canDecide = r.status === 'PENDING' && !isRequester;
+        const isApprover = !!(currentUser && currentUser.perms && (currentUser.perms.admin || currentUser.perms.licenseApprover));
+        const canDecide = r.status === 'PENDING' && !isRequester && isApprover;
         return `
           <tr class="hover:bg-gray-50">
             <td class="border p-2">${pageOffset + i + 1}</td>
@@ -7807,7 +7850,7 @@ function isPerpetualSoftware(softwareId) {
     }
 
     function switchBudget2SubTab(subName) {
-      if (!currentUser || !(currentUser.perms.admin || currentUser.perms.budgetManager || currentUser.perms.budgetViewer)) return;
+      if (!currentUser || !(currentUser.perms.admin || currentUser.perms.budgetManager || currentUser.perms.budgetViewer || currentUser.perms.budgetApprover)) return;
       const subs = { propose: 'budget2SubPropose', approved: 'budget2SubApproved', used: 'budget2SubUsed', reports: 'budget2SubReports' };
       const btns = { propose: 'btnBudget2SubPropose', approved: 'btnBudget2SubApproved', used: 'btnBudget2SubUsed', reports: 'btnBudget2SubReports' };
       Object.keys(subs).forEach(key => {
@@ -8202,7 +8245,7 @@ function isPerpetualSoftware(softwareId) {
       const el = document.getElementById(`budget2BulkBar_${key}`);
       if (!el) return;
       const isAdmin = !!(currentUser && currentUser.perms && currentUser.perms.admin);
-      const canDecide = !!(currentUser && currentUser.perms && (currentUser.perms.admin || currentUser.perms.budgetManager)) && BUDGET2_BULK_DECIDE_ENDPOINTS[key];
+      const canDecide = !!(currentUser && currentUser.perms && (currentUser.perms.admin || currentUser.perms.budgetApprover)) && BUDGET2_BULK_DECIDE_ENDPOINTS[key];
       const selectedIds = [...budget2SelectedIds[key]];
       const count = selectedIds.length;
       if (count === 0) { el.innerHTML = ''; return; }
@@ -8413,6 +8456,11 @@ function isPerpetualSoftware(softwareId) {
         // (editRequested) — mở khóa đúng 1 lần cho người tạo. Xem chú thích
         // đầy đủ ở PUT /api/budget2/lines/:id (server.js).
         const canEditNow = isAdmin || l.status === 'DRAFT' || (l.status === 'SUBMITTED' && l.editRequested);
+        // (Quyền Người duyệt — tách riêng khỏi Quản lý) Duyệt/Từ chối/Y.c bổ
+        // sung giờ chỉ hiện cho Admin hoặc người có perms.budgetApprover —
+        // budgetManager không tự động có quyền này nữa. Xem server.js
+        // requireBudgetApproveOrAdmin.
+        const canDecideNow = isAdmin || !!(currentUser && currentUser.perms && currentUser.perms.budgetApprover);
         // Gọn lại: chỉ giữ Duyệt/Từ chối (tần suất cao nhất) hiện thẳng trên
         // dòng; Sửa/Bổ sung/Xóa gộp vào menu "⋮" — dùng chung cơ chế đã có
         // sẵn cho bảng Tài liệu (renderRowActionsMenu/toggleRowMenu).
@@ -8433,13 +8481,15 @@ function isPerpetualSoftware(softwareId) {
             <button ${dc('submitBudget2Proposal', l.id)} class="text-xs bg-blue-600 text-white px-2 h-7 rounded font-semibold shadow-sm hover:bg-blue-700 whitespace-nowrap" title="Gửi phê duyệt">🚀 Gửi phê duyệt</button>
             ${renderRowActionsMenu(menuId, menuItems)}
           </div>`;
-        } else if (l.status === 'SUBMITTED') {
+        } else if (l.status === 'SUBMITTED' && canDecideNow) {
           actions = `<div class="inline-flex items-center gap-1">
             <button ${dc('approveBudget2Proposal', l.id)} class="text-xs bg-emerald-600 text-white px-2 h-7 rounded font-semibold shadow-sm hover:bg-emerald-700 whitespace-nowrap" title="Duyệt">✓ Duyệt</button>
             <button ${dc('rejectBudget2Proposal', l.id)} class="text-xs bg-danger-600 text-white px-2 h-7 rounded font-semibold shadow-sm hover:bg-danger-700 whitespace-nowrap" title="Từ chối">✕ Từ chối</button>
             <button ${dc('requestBudget2ProposalSupplement', l.id)} class="text-xs bg-amber-500 text-white px-2 h-7 rounded font-semibold shadow-sm hover:bg-amber-600 whitespace-nowrap" title="Yêu cầu người tạo bổ sung/sửa lại">📋 Y/c bổ sung</button>
             ${renderRowActionsMenu(menuId, menuItems)}
           </div>`;
+        } else if (l.status === 'SUBMITTED') {
+          actions = `<span class="text-gray-400 italic text-[11px] block">Chờ người duyệt xử lý</span>`;
         } else if (isAdmin) {
           actions = `<div class="inline-flex items-center gap-1">${decidedNote}${renderRowActionsMenu(menuId, menuItems)}</div>`;
         } else {
@@ -8768,6 +8818,9 @@ function isPerpetualSoftware(softwareId) {
         // (Khóa sửa khi đang chờ duyệt) Xem chú thích tương ứng ở
         // renderBudget2ProposedTable() — logic giống hệt.
         const canEditNow = isAdmin || l.status === 'DRAFT' || (l.status === 'SUBMITTED' && l.editRequested);
+        // (Quyền Người duyệt — tách riêng khỏi Quản lý) Xem chú thích tương
+        // ứng ở renderBudget2ProposedTable() — logic giống hệt.
+        const canDecideNow = isAdmin || !!(currentUser && currentUser.perms && currentUser.perms.budgetApprover);
         // Gọn lại: chỉ giữ Duyệt/Từ chối hiện thẳng trên dòng; Sửa/Bổ sung/
         // Xóa gộp vào menu "⋮" (renderRowActionsMenu, dùng chung cơ chế đã
         // có sẵn cho bảng Tài liệu).
@@ -8784,7 +8837,7 @@ function isPerpetualSoftware(softwareId) {
             <button ${dc('submitBudget2Line', l.id)} class="text-xs bg-blue-600 text-white px-2 h-7 rounded font-semibold shadow-sm hover:bg-blue-700 whitespace-nowrap" title="Gửi phê duyệt">🚀 Gửi</button>
             ${renderRowActionsMenu(menuId, menuItems)}
           </div>`;
-        } else if (l.status === 'SUBMITTED') {
+        } else if (l.status === 'SUBMITTED' && canDecideNow) {
           // Chờ duyệt: chỉ Admin mới thấy nút Xóa (server cũng chặn xóa với
           // người không phải Admin).
           actions = `<div class="inline-flex items-center gap-1">
@@ -8793,6 +8846,8 @@ function isPerpetualSoftware(softwareId) {
             <button ${dc('requestBudget2LineSupplement', l.id)} class="text-xs bg-amber-500 text-white w-7 h-7 rounded font-semibold shadow-sm hover:bg-amber-600" title="Yêu cầu người tạo bổ sung/sửa lại">📋</button>
             ${renderRowActionsMenu(menuId, menuItems)}
           </div>`;
+        } else if (l.status === 'SUBMITTED') {
+          actions = `<span class="text-gray-400 italic text-[11px] block">Chờ người duyệt xử lý</span>`;
         } else if (isAdmin) {
           // Đã duyệt/từ chối: chỉ Admin được sửa/bổ sung/xóa lại. Sửa dòng đã
           // DUYỆT sẽ tự đồng bộ luôn dòng Sử dụng tương ứng (server lo);

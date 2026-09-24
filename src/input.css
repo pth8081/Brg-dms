@@ -58,9 +58,11 @@ input[type="date"] {
   --color-gold-500: #b6893f;
   --color-gold-600: #96702f;
 
-  /* Font riêng cho trang Đăng Nhập (Spectral cho tiêu đề/logo, Be Vietnam Pro
-     cho phần nội dung) — phần còn lại của ứng dụng vẫn dùng font hệ thống. */
-  --font-brand: "Spectral", Georgia, serif;
+  /* Font riêng cho trang Đăng Nhập (Literata cho tiêu đề/logo, Be Vietnam Pro
+     cho phần nội dung) — phần còn lại của ứng dụng vẫn dùng font hệ thống.
+     Đổi từ Spectral sang Literata (xem chú thích ở index.html) để tránh lỗi
+     ghép sai dấu thanh với nguyên âm có dấu mũ tiếng Việt. */
+  --font-brand: "Literata", Georgia, serif;
   --font-vietnam: "Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif;
 
   /* Sidebar điều hướng chính (thay thanh menu ngang cũ) — nền tối nghiêng
