@@ -7115,6 +7115,8 @@ function mapBudget2Line(l) {
         note: l.note,
         createdBy: l.created_by,
         createdAt: l.created_at,
+        updatedBy: l.updated_by,
+        updatedAt: l.updated_at,
         decidedBy: l.decided_by,
         decidedAt: l.decided_at,
         budgetYear: l.budget_year,
@@ -7363,7 +7365,7 @@ app.post('/api/budget2/lines/:id/submit-proposal', requireAuth, requireBudgetOrA
         if (!line) return res.status(404).json({ error: 'Không tìm thấy đề xuất.' });
         if (!await budgetTargetInUserScope(req.user, line.company_id, line.org_unit_id)) return res.status(403).json({ error: BUDGET_SCOPE_FORBIDDEN_MSG });
         if (line.status !== 'DRAFT') return res.status(400).json({ error: 'Đề xuất này không còn ở dạng nháp.' });
-        const [upd] = await pool.query("UPDATE budget2_lines SET status = 'SUBMITTED' WHERE id = ? AND status = 'DRAFT'", [id]);
+        const [upd] = await pool.query("UPDATE budget2_lines SET status = 'SUBMITTED', updated_by = ?, updated_at = ? WHERE id = ? AND status = 'DRAFT'", [req.user.username, new Date().toISOString(), id]);
         if (upd.affectedRows === 0) return res.status(409).json({ error: 'Đề xuất này vừa được thay đổi, vui lòng tải lại trang.' });
         await writeAuditLog({ module: 'BUDGET2', actionType: 'SUBMIT_PROPOSAL', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Gửi phê duyệt đề xuất ngân sách [${line.content}] (từ nháp).` });
         res.json({ success: true });
@@ -7383,6 +7385,7 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
         const line = rows[0];
         if (!line) return res.status(404).json({ error: 'Không tìm thấy dòng ngân sách.' });
         if (!await budgetTargetInUserScope(req.user, line.company_id, line.org_unit_id)) return res.status(403).json({ error: BUDGET_SCOPE_FORBIDDEN_MSG });
+        const updNow = new Date().toISOString();
 
         if (line.stage === 'PROPOSED') {
             // (Tách biệt Đề xuất/Phê duyệt) Đề xuất không còn "gửi sang Phê
@@ -7410,8 +7413,8 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
             if (!await budgetTargetInUserScope(req.user, v.companyId, v.orgUnitId)) return res.status(403).json({ error: BUDGET_SCOPE_FORBIDDEN_MSG });
             const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
             await pool.query(
-                `UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, note = ?, budget_year = ?, budget_month = ?, edit_requested = 0 WHERE id = ?`,
-                [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, v.budgetYear, v.budgetMonth, id]
+                `UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, note = ?, budget_year = ?, budget_month = ?, edit_requested = 0, updated_by = ?, updated_at = ? WHERE id = ?`,
+                [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, v.budgetYear, v.budgetMonth, req.user.username, updNow, id]
             );
             await writeAuditLog({ module: 'BUDGET2', actionType: 'UPDATE_PROPOSAL', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Cập nhật đề xuất ngân sách [${v.content}]${line.status === 'DRAFT' ? ' (nháp)' : (line.status !== 'SUBMITTED' ? ' (đã quyết định — Admin sửa lại)' : '')}.` });
             return res.json({ success: true });
@@ -7445,14 +7448,14 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
                 try {
                     await conn.beginTransaction();
                     await conn.query(
-                        `UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, note = ?, budget_year = ?, budget_month = ?, edit_requested = 0 WHERE id = ?`,
-                        [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, v.budgetYear, v.budgetMonth, id]
+                        `UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, note = ?, budget_year = ?, budget_month = ?, edit_requested = 0, updated_by = ?, updated_at = ? WHERE id = ?`,
+                        [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, v.budgetYear, v.budgetMonth, req.user.username, updNow, id]
                     );
                     const [usedRows] = await conn.query('SELECT id FROM budget2_lines WHERE source_line_id = ?', [id]);
                     if (usedRows[0]) {
                         await conn.query(
-                            `UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, note = ?, budget_year = ?, budget_month = ? WHERE id = ?`,
-                            [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, v.budgetYear, v.budgetMonth, usedRows[0].id]
+                            `UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, note = ?, budget_year = ?, budget_month = ?, updated_by = ?, updated_at = ? WHERE id = ?`,
+                            [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, v.budgetYear, v.budgetMonth, req.user.username, updNow, usedRows[0].id]
                         );
                     }
                     await conn.commit();
@@ -7465,8 +7468,8 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
                 }
             } else {
                 await pool.query(
-                    `UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, note = ?, budget_year = ?, budget_month = ?, edit_requested = 0 WHERE id = ?`,
-                    [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, v.budgetYear, v.budgetMonth, id]
+                    `UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, note = ?, budget_year = ?, budget_month = ?, edit_requested = 0, updated_by = ?, updated_at = ? WHERE id = ?`,
+                    [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, v.budgetYear, v.budgetMonth, req.user.username, updNow, id]
                 );
             }
             await writeAuditLog({ module: 'BUDGET2', actionType: 'UPDATE_APPROVED_PENDING', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Cập nhật dòng ngân sách phê duyệt [${v.content}]${line.status === 'DRAFT' ? ' (nháp)' : (line.status !== 'SUBMITTED' ? ` (đã ${line.status === 'APPROVED' ? 'duyệt — Admin sửa lại, đồng bộ dòng Sử dụng' : 'từ chối — Admin sửa lại'})` : ' (chờ duyệt)')}.` });
@@ -7484,7 +7487,7 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
             const orgUnitId = req.body && req.body.orgUnitId ? Number(req.body.orgUnitId) : null;
             if (!await budgetTargetInUserScope(req.user, companyId, orgUnitId)) return res.status(403).json({ error: BUDGET_SCOPE_FORBIDDEN_MSG });
             const note = req.body && req.body.note ? String(req.body.note).trim() : null;
-            await pool.query('UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, note = ? WHERE id = ?', [companyId, orgUnitId, note, id]);
+            await pool.query('UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, note = ?, updated_by = ?, updated_at = ? WHERE id = ?', [companyId, orgUnitId, note, req.user.username, updNow, id]);
             await writeAuditLog({ module: 'BUDGET2', actionType: 'UPDATE_USAGE_PARENT', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Cập nhật Công ty/Đơn vị/Ghi chú của mục ngân sách sử dụng [${line.content}].` });
             return res.json({ success: true });
         }
@@ -7508,8 +7511,8 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
             }
             const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
             await pool.query(
-                `UPDATE budget2_lines SET content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, note = ?, reallocation_reason = ?, purchase_month = ? WHERE id = ?`,
-                [v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, reallocationReason, pm.purchaseMonth, id]
+                `UPDATE budget2_lines SET content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, note = ?, reallocation_reason = ?, purchase_month = ?, updated_by = ?, updated_at = ? WHERE id = ?`,
+                [v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, reallocationReason, pm.purchaseMonth, req.user.username, updNow, id]
             );
             await recomputeBudget2ParentUsage(line.parent_id);
             await writeAuditLog({ module: 'BUDGET2', actionType: 'UPDATE_USAGE_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Cập nhật mục sử dụng con [${v.content}].` });
@@ -7840,7 +7843,7 @@ app.post('/api/budget2/lines/:id/submit', requireAuth, requireBudgetOrAdmin, asy
         if (!line) return res.status(404).json({ error: 'Không tìm thấy dòng ngân sách phê duyệt.' });
         if (!await budgetTargetInUserScope(req.user, line.company_id, line.org_unit_id)) return res.status(403).json({ error: BUDGET_SCOPE_FORBIDDEN_MSG });
         if (line.status !== 'DRAFT') return res.status(400).json({ error: 'Dòng này không còn ở dạng nháp.' });
-        const [upd] = await pool.query("UPDATE budget2_lines SET status = 'SUBMITTED' WHERE id = ? AND status = 'DRAFT'", [id]);
+        const [upd] = await pool.query("UPDATE budget2_lines SET status = 'SUBMITTED', updated_by = ?, updated_at = ? WHERE id = ? AND status = 'DRAFT'", [req.user.username, new Date().toISOString(), id]);
         if (upd.affectedRows === 0) return res.status(409).json({ error: 'Dòng này vừa được thay đổi, vui lòng tải lại trang.' });
         await writeAuditLog({ module: 'BUDGET2', actionType: 'SUBMIT_APPROVED_PENDING', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Gửi phê duyệt dòng ngân sách phê duyệt [${line.content}] (từ nháp).` });
         res.json({ success: true });

@@ -7905,6 +7905,20 @@ function isPerpetualSoftware(softwareId) {
       };
       return map[status] || status;
     }
+    // (Thông tin người tạo/sửa) Hiện thêm dưới badge Trạng thái ở cả 3 tab
+    // Đề xuất/Phê duyệt/Sử dụng — trước đây không có cách nào biết ai tạo/sửa
+    // 1 dòng (chỉ có "Đã xử lý bởi X" cho hành động Duyệt/Từ chối). createdBy
+    // không đổi sau khi tạo; updatedBy cập nhật ở CẢ 2 trường hợp sửa nội dung
+    // (PUT) và bấm "Gửi phê duyệt" (coi là 1 hành động cập nhật) — chỉ hiện
+    // dòng "Sửa/gửi" khi khác người tạo, tránh lặp thông tin khi không ai
+    // khác từng đụng vào dòng đó.
+    function budget2PeopleInfoHtml(l) {
+      const parts = [];
+      if (l.createdBy) parts.push(`Tạo: ${escapeHtml(l.createdBy)}`);
+      if (l.updatedBy && l.updatedBy !== l.createdBy) parts.push(`Sửa/gửi: ${escapeHtml(l.updatedBy)}`);
+      if (!parts.length) return '';
+      return `<div class="text-[10px] text-gray-400 mt-1 leading-tight">${parts.join('<br>')}</div>`;
+    }
     // (Đợt gộp danh mục) "Danh mục" của Ngân sách trước đây là 4 giá trị viết
     // cứng — nay đọc từ budget2DB.categories (Hệ thống > Quản lý danh mục),
     // Admin thêm được danh mục mới ngoài 4 mã gốc. 4 mã gốc vẫn giữ đúng màu
@@ -8512,7 +8526,7 @@ function isPerpetualSoftware(softwareId) {
           <td class="border p-2 text-center">${budget2CompanyTypeBadge(budget2CompanyType(l.companyId))}</td>
           <td class="border p-2">${budget2OrgUnitCell(l)}</td>
           <td class="border p-2">${escapeHtml(l.note || '')}</td>
-          <td class="border p-2 text-center">${budget2StatusBadge(l.status)}</td>
+          <td class="border p-2 text-center">${budget2StatusBadge(l.status)}${budget2PeopleInfoHtml(l)}</td>
           <td class="border p-2 text-center whitespace-nowrap">${actions}</td>
         </tr>`;
       }).join('');
@@ -8874,7 +8888,7 @@ function isPerpetualSoftware(softwareId) {
           <td class="border p-2 text-center">${budget2CompanyTypeBadge(budget2CompanyType(l.companyId))}</td>
           <td class="border p-2">${budget2OrgUnitCell(l)}</td>
           <td class="border p-2">${escapeHtml(l.note || '')}</td>
-          <td class="border p-2 text-center">${budget2StatusBadge(l.status)}</td>
+          <td class="border p-2 text-center">${budget2StatusBadge(l.status)}${budget2PeopleInfoHtml(l)}</td>
           <td class="border p-2 text-center whitespace-nowrap">${actions}</td>
         </tr>`;
       }).join('');
@@ -8913,6 +8927,7 @@ function isPerpetualSoftware(softwareId) {
                 <span class="text-[10px] font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full ml-1">Tháng ${p.budgetMonth || '—'}/${p.budgetYear || '—'}</span>
                 <span class="text-[11px] text-gray-500 ml-2">${budget2CompanyOrgLabel(p)}</span>
                 ${budget2CompanyTypeBadge(budget2CompanyType(p.companyId))}
+                ${budget2PeopleInfoHtml(p)}
               </div>
             </div>
             <div class="flex items-center gap-2">
@@ -8927,7 +8942,7 @@ function isPerpetualSoftware(softwareId) {
               <thead><tr class="bg-gray-100 text-left">
                 <th class="border p-2 w-8"></th><th class="border p-2 w-10">#</th><th class="border p-2">Nội dung</th><th class="border p-2">Mô tả</th>
                 <th class="border p-2 text-right">SL</th><th class="border p-2 text-right">Đơn giá</th><th class="border p-2 text-right">VAT</th>
-                <th class="border p-2 text-right">Thành tiền</th><th class="border p-2 text-center">Loại</th><th class="border p-2 text-center">Tháng mua</th><th class="border p-2">Lý do tái phân bổ</th><th class="border p-2">Ghi chú</th><th class="border p-2 text-center w-16">Thao tác</th>
+                <th class="border p-2 text-right">Thành tiền</th><th class="border p-2 text-center">Loại</th><th class="border p-2 text-center">Tháng mua</th><th class="border p-2">Lý do tái phân bổ</th><th class="border p-2">Ghi chú</th><th class="border p-2">Người tạo/sửa</th><th class="border p-2 text-center w-16">Thao tác</th>
               </tr></thead>
               <tbody>
                 ${children.length ? children.map((c, i) => `<tr>
@@ -8943,12 +8958,13 @@ function isPerpetualSoftware(softwareId) {
                   <td class="border p-2 text-center">${c.purchaseMonth || '—'}</td>
                   <td class="border p-2">${escapeHtml(c.reallocationReason || '')}</td>
                   <td class="border p-2">${escapeHtml(c.note || '')}</td>
+                  <td class="border p-2">${budget2PeopleInfoHtml(c)}</td>
                   <td class="border p-2 text-center whitespace-nowrap">
                     <button ${dc('openBudget2ChildModal', p.id, c.id)} class="text-blue-600 hover:underline mr-1" title="Sửa">✏️</button>
                     <button ${dc('deleteBudget2Line', c.id)} class="text-red-600 hover:underline" title="Xóa">🗑️</button>
                   </td>
-                </tr>`).join('') : '<tr><td colspan="13" class="text-center p-3 text-gray-400 italic">Chưa có mục sử dụng con nào.</td></tr>'}
-                <tr class="bg-emerald-50 font-bold"><td colspan="7" class="border p-2 text-right">Ngân sách còn lại</td><td class="border p-2 text-right ${remaining < 0 ? 'text-red-600' : 'text-emerald-700'}">${formatMoney(remaining)}</td><td colspan="5" class="border p-2"></td></tr>
+                </tr>`).join('') : '<tr><td colspan="14" class="text-center p-3 text-gray-400 italic">Chưa có mục sử dụng con nào.</td></tr>'}
+                <tr class="bg-emerald-50 font-bold"><td colspan="7" class="border p-2 text-right">Ngân sách còn lại</td><td class="border p-2 text-right ${remaining < 0 ? 'text-red-600' : 'text-emerald-700'}">${formatMoney(remaining)}</td><td colspan="6" class="border p-2"></td></tr>
               </tbody>
             </table>
           </div>
