@@ -359,6 +359,15 @@ duyệt/Từ chối)**.
   Gửi phê duyệt hàng loạt (dòng Nháp), Duyệt/Từ chối hàng loạt, Yêu cầu bổ
   sung hàng loạt (nhập 1 lý do chung áp dụng cho mọi dòng đã chọn), và Xóa
   hàng loạt (chỉ Admin).
+- **Người tạo/sửa** — mỗi dòng (cả 3 giai đoạn Đề xuất/Phê duyệt/Sử dụng)
+  lưu `created_by` (người tạo, không đổi sau khi tạo) và `updated_by`
+  (người thực hiện hành động sửa nội dung HOẶC gửi phê duyệt gần nhất — coi
+  "gửi phê duyệt" cũng là 1 hành động cập nhật; tách biệt hoàn toàn với
+  `decided_by`, vốn chỉ ghi người Duyệt/Từ chối/Yêu cầu bổ sung gần nhất).
+  Hiển thị ở giao diện: gộp chung vào cột "Trạng thái" (Đề xuất/Phê duyệt)
+  dưới dạng ghi chú nhỏ "Tạo: x / Sửa/gửi: y" (chỉ hiện dòng Sửa/gửi khi
+  khác người tạo); ở tab Sử dụng — mục cha hiện ở phần đầu thẻ, mục con có
+  cột riêng "Người tạo/sửa" (không có cột Trạng thái để gộp vào).
 
 Nhập hàng loạt từ Excel vào giai đoạn Đề xuất **hoặc** thẳng vào Phê duyệt
 (dùng mã công ty + tên đơn vị để tự tra ID) — mọi dòng mới tạo qua Excel

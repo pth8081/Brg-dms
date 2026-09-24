@@ -960,6 +960,17 @@ ON DUPLICATE KEY UPDATE code=code;
 -- liệu cũ vì 4 chuỗi hiện có vẫn hợp lệ y hệt dưới dạng VARCHAR.
 ALTER TABLE budget2_lines MODIFY COLUMN item_category VARCHAR(30) NULL DEFAULT NULL;
 
+-- Trước đây chỉ có created_by (người tạo, không đổi sau khi tạo) và
+-- decided_by (người duyệt/từ chối/yêu cầu bổ sung gần nhất) — không có cách
+-- nào biết ai là người SỬA nội dung gần nhất (PUT .../lines/:id) hoặc ai là
+-- người bấm GỬI PHÊ DUYỆT (POST .../submit-proposal, .../submit), quan
+-- trọng vì Nháp/dòng đang chờ bổ sung có thể được sửa bởi bất kỳ ai có
+-- quyền Ngân sách, không nhất thiết là người tạo ban đầu. 2 cột này được cập
+-- nhật ở CẢ 2 trường hợp trên (coi "gửi phê duyệt" cũng là 1 hành động cập
+-- nhật trạng thái dòng), tách biệt hoàn toàn với decided_by.
+CALL add_column_if_not_exists('budget2_lines', 'updated_by', 'VARCHAR(100) NULL DEFAULT NULL');
+CALL add_column_if_not_exists('budget2_lines', 'updated_at', 'VARCHAR(100) NULL DEFAULT NULL');
+
 -- Dọn dẹp: xóa các thủ tục tạm sau khi dùng xong, không để lại trong CSDL thật.
 DROP PROCEDURE IF EXISTS create_index_if_not_exists;
 DROP PROCEDURE IF EXISTS create_unique_index_if_not_exists;
