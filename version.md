@@ -12,6 +12,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 
 | Phiên bản | PR | Ngày merge | Nội dung |
 |---|---|---|---|
+| v7.33 | [#101](https://github.com/pth8081/Brg-dms/pull/101) | 2026-09-24 | Ngân sách — hiện thông tin Người tạo/sửa ở cả 3 tab Đề xuất/Phê duyệt/Sử dụng, trước đây không có cách nào biết ai tạo/sửa 1 dòng (chỉ có `decided_by` cho hành động Duyệt/Từ chối). Thêm cột `updated_by`/`updated_at` (`budget2_lines`), cập nhật khi sửa nội dung (PUT) HOẶC bấm "Gửi phê duyệt" (coi là 1 hành động cập nhật), tách biệt hoàn toàn với `decided_by`. Hiển thị: gộp vào cột "Trạng thái" sẵn có ở tab Đề xuất/Phê duyệt dạng ghi chú nhỏ "Tạo: x / Sửa/gửi: y" (chỉ hiện dòng thứ 2 khi khác người tạo); tab Sử dụng — mục cha hiện ở đầu thẻ, mục con thêm cột riêng "Người tạo/sửa" |
 | v7.31 | [#100](https://github.com/pth8081/Brg-dms/pull/100) | 2026-09-24 | Tách quyền "Người duyệt" riêng khỏi quyền "Quản lý" cho License và Ngân sách — trước đây bất kỳ ai có quyền `licenseManager`/`budgetManager` đều tự động Duyệt/Từ chối/Yêu cầu bổ sung được hồ sơ của người khác (chỉ chặn đúng 1 trường hợp là tự duyệt hồ sơ của chính mình), không phân biệt được người chỉ được tạo/gửi với người thực sự được duyệt; nay thêm 2 quyền mới `licenseApprover`/`budgetApprover` độc lập hoàn toàn, áp cho 12 endpoint quyết định (6 License + 6 Ngân sách) và ẩn nút Duyệt/Từ chối/Bổ sung ở giao diện (bảng đơn + thanh duyệt hàng loạt) nếu không có quyền Duyệt tương ứng; thêm checkbox 2 quyền mới vào form User và Nhóm quyền. Kèm sửa font tiêu đề trang đăng nhập (đổi từ Spectral sang Literata) do Spectral ghép sai dấu thanh với nguyên âm có dấu mũ tiếng Việt (ầ/ề/ấ/ố...) trên một số trình duyệt/máy |
 | v7.29 | [#99](https://github.com/pth8081/Brg-dms/pull/99) | 2026-09-23 | Báo cáo Ngân sách — dời nút "Xuất Excel báo cáo" (mục Tra cứu chi tiết, tự cập nhật đúng theo chế độ Theo kỳ/So sánh nhiều kỳ + nhóm/bộ lọc đang chọn, kể cả nhóm "Loại công ty" mới thêm ở PR #96) từ đầu trang xuống ngay cạnh tiêu đề "Tra cứu chi tiết" — chức năng đã có sẵn từ trước nhưng đặt quá xa nên khó nhận ra; xác nhận không có xuất Excel nào trùng lặp với nút "Xuất Excel toàn bộ báo cáo" (dữ liệu hoàn toàn khác nhau) |
 | v7.27 | [#98](https://github.com/pth8081/Brg-dms/pull/98) | 2026-09-23 | Thêm biến môi trường `SESSION_TIMEOUT_MINUTES` (đơn vị phút) để tự đặt thời gian phiên đăng nhập thay vì cố định cứng 8 giờ như trước — áp dụng cho cả thời hạn JWT lẫn `maxAge` cookie `dms_token`; để trống vẫn mặc định 480 phút (8 giờ, không đổi hành vi cũ), tối thiểu 5 phút (tự nâng lên kèm cảnh báo nếu đặt thấp hơn); in log lúc khởi động để dễ xác nhận |
@@ -104,7 +105,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 > v6.55, v6.56, v6.58, v6.60, v6.63, v6.65, v6.66, v6.68, v6.70, v6.72,
 > v6.74, v6.76, v6.78, v6.80, v6.82, v6.84, v6.86, v6.90, v6.92, v6.94, v6.96,
 > v6.98, v6.100, v6.102, v6.104, v6.106, v6.108, v6.110, v6.112, v6.114,
-> v6.116, v6.118, v6.120, v6.122, v6.124, v7.26, v7.28, v7.30 bị
+> v6.116, v6.118, v6.120, v6.122, v6.124, v7.26, v7.28, v7.30, v7.32 bị
 > nhảy cóc trong lịch sử — không có Pull Request tương ứng để đối chiếu nội
 > dung (nhiều khả năng do chạy lại workflow tăng version hoặc sửa trực tiếp
 > trên `main` ngoài luồng PR — ví dụ v6.52 phát sinh từ chính commit cập
@@ -117,7 +118,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 > v6.76/v6.78/v6.80/v6.82/v6.84/v6.86/v6.90/v6.92/v6.94 phát sinh tương tự
 > từ các commit cập nhật version.md trực tiếp trên `main` cho v6.69/v6.71/
 > v6.73/v6.75/v6.77/v6.79/v6.81/v6.83/v6.85/v6.89/v6.91/v6.93/v6.95/v6.97/v6.99/
-> v6.101/v6.103/v6.105/v6.107/v6.109/v6.111/v6.113/v6.115/v6.117/v6.119/v6.121/v6.123/v7.25/v7.27/v7.29 — mỗi lần
+> v6.101/v6.103/v6.105/v6.107/v6.109/v6.111/v6.113/v6.115/v6.117/v6.119/v6.121/v6.123/v7.25/v7.27/v7.29/v7.31 — mỗi lần
 > commit trực tiếp/merge như vậy đều vô tình kích hoạt lại workflow tăng
 > version thêm 1
 > lần nữa). Từ PR #65 trở đi, workflow còn tự rebuild
