@@ -56,6 +56,130 @@
     // (licenseExpandedNodes) — mặc định đóng, bấm vào từng kỳ mới xổ bảng.
     let expandedPurchaseRounds = new Set();
     let expandedBudgetRounds = new Set();
+    // --- Chọn nhiều dòng để Duyệt/Từ chối/Yêu cầu bổ sung hàng loạt — 2 bảng
+    // Duyệt đăng ký mua (adminReg) và Ngân sách (budgetReg), mirror y hệt cơ
+    // chế budget2SelectedIds của module Ngân sách. Chỉ áp dụng cho dòng đang
+    // Chờ duyệt VÀ người xem có quyền quyết định (không phải người tạo) —
+    // checkbox chỉ hiện ở những dòng đó, xem renderAdminRegistrationsTable/
+    // renderBudgetRegistrationsTable.
+    const licenseRegSelectedIds = { adminReg: new Set(), budgetReg: new Set() };
+    function onLicenseRegRowCheckToggle(key, id, checked) {
+      if (checked) licenseRegSelectedIds[key].add(id); else licenseRegSelectedIds[key].delete(id);
+      licenseRegRenderBulkBar(key);
+    }
+    // "Chọn tất cả" chỉ tác động các dòng ĐANG HIỂN THỊ có checkbox (đúng
+    // những gì người dùng nhìn thấy trên trang hiện tại).
+    function onLicenseRegSelectAllToggle(key, checked) {
+      document.querySelectorAll(`[data-license-reg-check="${key}"]`).forEach(cb => {
+        cb.checked = checked;
+        const id = Number(cb.getAttribute('data-id'));
+        if (checked) licenseRegSelectedIds[key].add(id); else licenseRegSelectedIds[key].delete(id);
+      });
+      licenseRegRenderBulkBar(key);
+    }
+    const LICENSE_REG_BULK_CONFIG = {
+      adminReg: {
+        list: () => licenseDB.purchaseRegistrations,
+        approveEndpoint: id => `/api/license/registrations/${id}/approve`,
+        rejectEndpoint: id => `/api/license/registrations/${id}/reject`,
+        supplementEndpoint: id => `/api/license/registrations/${id}/request-supplement`,
+        rerender: () => renderAdminRegistrationsTable(),
+        noun: 'đăng ký'
+      },
+      budgetReg: {
+        list: () => licenseDB.budgetRegistrations,
+        approveEndpoint: id => `/api/license/budget-registrations/${id}/approve`,
+        rejectEndpoint: id => `/api/license/budget-registrations/${id}/reject`,
+        supplementEndpoint: id => `/api/license/budget-registrations/${id}/request-supplement`,
+        rerender: () => renderBudgetRegistrationsTable(),
+        noun: 'dự trù'
+      }
+    };
+    function licenseRegRenderBulkBar(key) {
+      const el = document.getElementById(key === 'budgetReg' ? 'budgetRegBulkBar' : 'adminRegBulkBar');
+      if (!el) return;
+      const cfg = LICENSE_REG_BULK_CONFIG[key];
+      const list = cfg.list();
+      const selectedIds = [...licenseRegSelectedIds[key]].filter(id => {
+        const r = list.find(x => x.id === id);
+        return r && r.status === 'PENDING';
+      });
+      if (selectedIds.length === 0) { el.innerHTML = ''; return; }
+      const supplementEligible = selectedIds.filter(id => !list.find(x => x.id === id).editRequested).length;
+      el.innerHTML = `
+        <div class="flex flex-wrap items-center gap-2 bg-blue-50 border border-blue-200 rounded p-2">
+          <span class="text-xs font-semibold text-blue-800">Đã chọn ${selectedIds.length} ${cfg.noun}:</span>
+          <button ${dc('bulkDecideLicenseRegs', key, 'approve')} class="text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded">✅ Duyệt đã chọn (${selectedIds.length})</button>
+          <button ${dc('bulkDecideLicenseRegs', key, 'reject')} class="text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 px-3 py-1.5 rounded">❌ Từ chối đã chọn (${selectedIds.length})</button>
+          ${supplementEligible > 0 ? `<button ${dc('bulkRequestLicenseRegSupplement', key)} class="text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded">📋 Y/c bổ sung đã chọn (${supplementEligible})</button>` : ''}
+        </div>`;
+    }
+    async function bulkDecideLicenseRegs(key, decision) {
+      const cfg = LICENSE_REG_BULK_CONFIG[key];
+      const list = cfg.list();
+      const ids = [...licenseRegSelectedIds[key]].filter(id => {
+        const r = list.find(x => x.id === id);
+        return r && r.status === 'PENDING';
+      });
+      if (!ids.length) return;
+      const verb = decision === 'approve' ? 'Duyệt' : 'Từ chối';
+      const ok = await showConfirm({ title: `${verb} hàng loạt`, message: `${verb} ${ids.length} ${cfg.noun} đang chờ duyệt đã chọn?`, danger: decision === 'reject', confirmText: verb });
+      if (!ok) return;
+      let okCount = 0;
+      const failMsgs = [];
+      for (const id of ids) {
+        try {
+          await apiFetch(decision === 'approve' ? cfg.approveEndpoint(id) : cfg.rejectEndpoint(id), { method: 'POST' });
+          okCount++;
+        } catch (err) {
+          failMsgs.push(`#${id}: ${err.message}`);
+        }
+      }
+      licenseRegSelectedIds[key].clear();
+      licenseDB.loaded = false;
+      await loadLicenseBootstrapData();
+      cfg.rerender();
+      if (failMsgs.length) {
+        showToast(`Đã ${verb.toLowerCase()} ${okCount}/${ids.length} ${cfg.noun} — ${failMsgs.length} dòng lỗi: ${failMsgs.join('; ')}`, okCount ? 'warning' : 'danger');
+      } else {
+        showToast(`Đã ${verb.toLowerCase()} ${okCount} ${cfg.noun}.`, 'success');
+      }
+    }
+    async function bulkRequestLicenseRegSupplement(key) {
+      const cfg = LICENSE_REG_BULK_CONFIG[key];
+      const list = cfg.list();
+      const ids = [...licenseRegSelectedIds[key]].filter(id => {
+        const r = list.find(x => x.id === id);
+        return r && r.status === 'PENDING' && !r.editRequested;
+      });
+      if (!ids.length) return;
+      const reason = await showPrompt({
+        title: 'Yêu cầu bổ sung thông tin (hàng loạt)',
+        message: `Nhập nội dung cần bổ sung/sửa lại — áp dụng chung cho cả ${ids.length} ${cfg.noun} đã chọn. Mỗi dòng sẽ được mở khóa sửa đúng 1 lần.`,
+        placeholder: 'VD: Bổ sung số lượng đúng theo nhu cầu thực tế...',
+        required: true
+      });
+      if (reason === null) return;
+      let okCount = 0;
+      const failMsgs = [];
+      for (const id of ids) {
+        try {
+          await apiFetch(cfg.supplementEndpoint(id), { method: 'POST', body: JSON.stringify({ reason: reason.trim() }) });
+          okCount++;
+        } catch (err) {
+          failMsgs.push(`#${id}: ${err.message}`);
+        }
+      }
+      licenseRegSelectedIds[key].clear();
+      licenseDB.loaded = false;
+      await loadLicenseBootstrapData();
+      cfg.rerender();
+      if (failMsgs.length) {
+        showToast(`Đã yêu cầu bổ sung ${okCount}/${ids.length} ${cfg.noun} — ${failMsgs.length} dòng lỗi: ${failMsgs.join('; ')}`, okCount ? 'warning' : 'danger');
+      } else {
+        showToast(`Đã gửi yêu cầu bổ sung cho ${okCount} ${cfg.noun}.`, 'success');
+      }
+    }
     function toggleRoundExpand(kind, roundId) {
       const set = kind === 'budget' ? expandedBudgetRounds : expandedPurchaseRounds;
       if (set.has(roundId)) set.delete(roundId); else set.add(roundId);
@@ -400,7 +524,8 @@
       license: new Set([
         'approveBudgetRegistration', 'approveBulkAllocRequest', 'approveRegistration',
         'rejectBudgetRegistration', 'rejectBulkAllocRequest', 'rejectRegistration',
-        'requestRegistrationSupplement', 'requestBudgetRegistrationSupplement'
+        'requestRegistrationSupplement', 'requestBudgetRegistrationSupplement',
+        'bulkDecideLicenseRegs', 'bulkRequestLicenseRegSupplement'
       ]),
       budget2: new Set([
         'approveBudget2Line', 'approveBudget2Proposal', 'rejectBudget2Line', 'rejectBudget2Proposal',
@@ -5815,16 +5940,18 @@ function isPerpetualSoftware(softwareId) {
       const status = document.getElementById('adminRegFilterStatus').value;
       const tbody = document.getElementById('adminRegistrationsTableBody');
       if (!roundId) {
-        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-gray-500 p-6">👆 Chọn 1 Kỳ mua ở trên để xem danh sách đăng ký.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="10" class="text-center text-gray-500 p-6">👆 Chọn 1 Kỳ mua ở trên để xem danh sách đăng ký.</td></tr>`;
         renderPaginationBar('adminRegistrationsPaginationBox', 'adminRegistrations', 0, 'renderAdminRegistrationsTable', { itemLabel: 'đăng ký' });
+        licenseRegRenderBulkBar('adminReg');
         return;
       }
       let rows = licenseDB.purchaseRegistrations.slice();
       if (roundId) rows = rows.filter(r => r.roundId === Number(roundId));
       if (status) rows = rows.filter(r => r.status === status);
       if (rows.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-gray-500 p-4">Không có đăng ký nào.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="10" class="text-center text-gray-500 p-4">Không có đăng ký nào.</td></tr>`;
         renderPaginationBar('adminRegistrationsPaginationBox', 'adminRegistrations', 0, 'renderAdminRegistrationsTable', { itemLabel: 'đăng ký' });
+        licenseRegRenderBulkBar('adminReg');
         return;
       }
       const pageOffset = (getPaginationState('adminRegistrations').page - 1) * getPaginationState('adminRegistrations').pageSize;
@@ -5838,6 +5965,7 @@ function isPerpetualSoftware(softwareId) {
         const canDecide = r.status === 'PENDING' && !isRequester && isApprover;
         return `
           <tr class="hover:bg-gray-50">
+            <td class="border p-2 text-center">${canDecide ? `<input type="checkbox" data-license-reg-check="adminReg" data-id="${r.id}" ${licenseRegSelectedIds.adminReg.has(r.id) ? 'checked' : ''} ${dchg('onLicenseRegRowCheckToggle', 'adminReg', r.id, LIVE_CHECKED)}>` : ''}</td>
             <td class="border p-2">${pageOffset + i + 1}</td>
             <td class="border p-2">${escapeHtml(company ? company.name : '—')}</td>
             <td class="border p-2">${escapeHtml(software ? software.name : '—')}</td>
@@ -5857,6 +5985,7 @@ function isPerpetualSoftware(softwareId) {
         `;
       }).join('');
       renderPaginationBar('adminRegistrationsPaginationBox', 'adminRegistrations', rows.length, 'renderAdminRegistrationsTable', { itemLabel: 'đăng ký' });
+      licenseRegRenderBulkBar('adminReg');
     }
     async function approveRegistration(id) {
       const ok = await showConfirm({ title: 'Duyệt đăng ký', message: 'Duyệt đăng ký mua bản quyền này?', confirmText: 'Duyệt' });
@@ -6628,8 +6757,9 @@ function isPerpetualSoftware(softwareId) {
       const status = document.getElementById('budgetRegFilterStatus').value;
       const tbody = document.getElementById('budgetRegistrationsTableBody');
       if (!roundId) {
-        tbody.innerHTML = `<tr><td colspan="10" class="text-center text-gray-500 p-6">👆 Chọn 1 Kỳ ngân sách ở trên để xem danh sách dự trù.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="11" class="text-center text-gray-500 p-6">👆 Chọn 1 Kỳ ngân sách ở trên để xem danh sách dự trù.</td></tr>`;
         renderPaginationBar('budgetRegistrationsPaginationBox', 'budgetRegistrations', 0, 'renderBudgetRegistrationsTable', { itemLabel: 'dự trù' });
+        licenseRegRenderBulkBar('budgetReg');
         return;
       }
       let rows = licenseDB.budgetRegistrations.slice();
@@ -6637,8 +6767,9 @@ function isPerpetualSoftware(softwareId) {
       if (companyId) rows = rows.filter(r => (companyOfOrgUnit(r.orgUnitId) || {}).id === Number(companyId));
       if (status) rows = rows.filter(r => r.status === status);
       if (rows.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="10" class="text-center text-gray-500 p-4">Chưa có dự trù nào.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="11" class="text-center text-gray-500 p-4">Chưa có dự trù nào.</td></tr>`;
         renderPaginationBar('budgetRegistrationsPaginationBox', 'budgetRegistrations', 0, 'renderBudgetRegistrationsTable', { itemLabel: 'dự trù' });
+        licenseRegRenderBulkBar('budgetReg');
         return;
       }
       const pageOffset = (getPaginationState('budgetRegistrations').page - 1) * getPaginationState('budgetRegistrations').pageSize;
@@ -6651,6 +6782,7 @@ function isPerpetualSoftware(softwareId) {
         const canDecide = r.status === 'PENDING' && !isRequester && isApprover;
         return `
           <tr class="hover:bg-gray-50">
+            <td class="border p-2 text-center">${canDecide ? `<input type="checkbox" data-license-reg-check="budgetReg" data-id="${r.id}" ${licenseRegSelectedIds.budgetReg.has(r.id) ? 'checked' : ''} ${dchg('onLicenseRegRowCheckToggle', 'budgetReg', r.id, LIVE_CHECKED)}>` : ''}</td>
             <td class="border p-2">${pageOffset + i + 1}</td>
             <td class="border p-2">${escapeHtml(company ? company.name : '—')}</td>
             <td class="border p-2">${escapeHtml(orgUnitPath(r.orgUnitId))}</td>
@@ -6673,6 +6805,7 @@ function isPerpetualSoftware(softwareId) {
         `;
       }).join('');
       renderPaginationBar('budgetRegistrationsPaginationBox', 'budgetRegistrations', rows.length, 'renderBudgetRegistrationsTable', { itemLabel: 'dự trù' });
+      licenseRegRenderBulkBar('budgetReg');
     }
     async function approveBudgetRegistration(id) {
       const ok = await showConfirm({ title: 'Duyệt dự trù', message: 'Duyệt dự trù ngân sách này?', confirmText: 'Duyệt' });
