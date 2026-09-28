@@ -1332,6 +1332,7 @@
       <button id="btnLicenseSubPurchase" data-evt-click="switchLicenseSubTab" data-args='["purchase"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🛒 Đăng ký mua bản quyền</button>
       <button id="btnLicenseSubRounds" data-evt-click="switchLicenseSubTab" data-args='["rounds"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📋 Phát hành đăng ký mua</button>
       <button id="btnLicenseSubBudget" data-evt-click="switchLicenseSubTab" data-args='["budget"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">💰 Ngân sách</button>
+      <button id="btnLicenseSubReports" data-evt-click="switchLicenseSubTab" data-args='["reports"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📊 Báo cáo</button>
     </div>
 
     <!-- Sub-tab: Danh sách nhân viên -->
@@ -1723,6 +1724,131 @@
           </table>
         </div>
         <div id="budgetRegistrationsPaginationBox" class="flex flex-col sm:flex-row justify-between items-center gap-3 bg-gray-50 p-3 rounded border text-xs text-gray-700"></div>
+      </div>
+    </div>
+
+    <!-- Sub-tab: Báo cáo Bản quyền — 4 khối độc lập, mỗi khối tự có bộ lọc/biểu
+         đồ/bảng/xuất Excel riêng (bộ lọc Công ty ở đầu trang áp dụng chung cho
+         cả 4 khối). -->
+    <div id="licenseSubReports" class="hidden space-y-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded border text-xs">
+        <div>
+          <label class="block font-semibold text-gray-600 mb-1">Lọc theo Công ty (áp dụng cho cả 4 báo cáo bên dưới)</label>
+          <select id="licRepFilterCompany" data-evt-change="onLicenseReportFilterChange" data-args='[]' class="w-full border p-1.5 rounded bg-white"></select>
+        </div>
+        <div>
+          <label class="block font-semibold text-gray-600 mb-1">Lọc theo Phần mềm (chỉ áp dụng báo cáo 1 — Người dùng)</label>
+          <select id="licRepFilterSoftware" data-evt-change="onLicenseReportFilterChange" data-args='[]' class="w-full border p-1.5 rounded bg-white"></select>
+        </div>
+      </div>
+
+      <!-- Báo cáo 1: Người dùng bản quyền -->
+      <div class="bg-white border rounded-xl p-4 shadow-sm">
+        <div class="flex justify-between items-center mb-2">
+          <h3 class="font-bold text-gray-800 text-sm">1. Người dùng bản quyền theo Công ty/Khối/Phòng/Ban</h3>
+          <button data-evt-click="exportLicenseUsageReportXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">📤 Xuất Excel</button>
+        </div>
+        <p class="text-[11px] text-gray-500 mb-2">Không chọn Công ty: hiện tổng toàn hệ thống theo Công ty. Chọn 1 Công ty: hiện thêm chi tiết theo Khối/Phòng/Ban của công ty đó.</p>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+          <div class="bg-gray-50 border rounded p-3">
+            <div class="text-[11px] font-semibold text-gray-500">Tổng số mã đang dùng</div>
+            <div id="licRepUsageTotalCnt" class="text-xl font-bold text-gray-900">—</div>
+          </div>
+          <div class="bg-gray-50 border rounded p-3">
+            <div class="text-[11px] font-semibold text-gray-500">Tổng số người dùng</div>
+            <div id="licRepUsageTotalUsers" class="text-xl font-bold text-gray-900">—</div>
+          </div>
+        </div>
+        <div id="licRepUsageChart" class="overflow-x-auto"></div>
+        <div class="overflow-x-auto mt-2">
+          <table class="w-full border-collapse border bg-white text-xs">
+            <thead><tr class="bg-gray-100 text-left">
+              <th class="border p-2">Đơn vị</th><th class="border p-2 text-center">Số mã đang dùng</th><th class="border p-2 text-center">Số người dùng</th>
+            </tr></thead>
+            <tbody id="licRepUsageTableBody"></tbody>
+          </table>
+        </div>
+        <div class="mt-3">
+          <h4 class="font-semibold text-gray-700 text-xs mb-1">Theo phần mềm</h4>
+          <div class="overflow-x-auto">
+            <table class="w-full border-collapse border bg-white text-xs">
+              <thead><tr class="bg-gray-100 text-left"><th class="border p-2">Phần mềm</th><th class="border p-2 text-center">Số mã đang dùng</th><th class="border p-2 text-center">Số người dùng</th></tr></thead>
+              <tbody id="licRepUsageSoftwareTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Báo cáo 2: Kỳ đăng ký & Kỳ mua bản quyền -->
+      <div class="bg-white border rounded-xl p-4 shadow-sm">
+        <div class="flex justify-between items-center mb-2">
+          <h3 class="font-bold text-gray-800 text-sm">2. Kỳ đăng ký & Kỳ mua bản quyền</h3>
+          <button data-evt-click="exportLicenseRoundsReportXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">📤 Xuất Excel</button>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1 text-xs">Kỳ mua bản quyền (chỉ nhóm được theo Công ty)</label>
+            <select id="licRepPurchaseRoundSelect" data-evt-change="onLicenseReportFilterChange" data-args='[]' class="w-full border p-1.5 rounded bg-white text-xs mb-2"></select>
+            <div id="licRepPurchaseChart" class="overflow-x-auto"></div>
+            <div class="overflow-x-auto mt-2">
+              <table class="w-full border-collapse border bg-white text-xs">
+                <thead><tr class="bg-gray-100 text-left"><th class="border p-2">Công ty</th><th class="border p-2 text-center">Hiện có</th><th class="border p-2 text-center">Đăng ký</th><th class="border p-2 text-right">Thành tiền</th></tr></thead>
+                <tbody id="licRepPurchaseTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1 text-xs">Kỳ ngân sách (nhóm được theo Khối/Phòng/Ban)</label>
+            <select id="licRepBudgetRoundSelect" data-evt-change="onLicenseReportFilterChange" data-args='[]' class="w-full border p-1.5 rounded bg-white text-xs mb-2"></select>
+            <div id="licRepBudgetChart" class="overflow-x-auto"></div>
+            <div class="overflow-x-auto mt-2">
+              <table class="w-full border-collapse border bg-white text-xs">
+                <thead><tr class="bg-gray-100 text-left"><th class="border p-2">Đơn vị</th><th class="border p-2">Công ty</th><th class="border p-2 text-center">Hiện có</th><th class="border p-2 text-center">Đăng ký</th><th class="border p-2 text-right">Thành tiền</th></tr></thead>
+                <tbody id="licRepBudgetTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Báo cáo 3: Bản quyền vừa được cấp -->
+      <div class="bg-white border rounded-xl p-4 shadow-sm">
+        <div class="flex justify-between items-center mb-2">
+          <h3 class="font-bold text-gray-800 text-sm">3. Bản quyền vừa được cấp</h3>
+          <button data-evt-click="exportLicenseRecentReportXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">📤 Xuất Excel</button>
+        </div>
+        <div class="flex gap-1 mb-2">
+          <button id="btnLicRepRecentDay" data-evt-click="onLicenseReportRecentPeriodChange" data-args='["day"]' class="nav-tab text-xs px-3 py-1.5 font-semibold">Trong ngày</button>
+          <button id="btnLicRepRecentWeek" data-evt-click="onLicenseReportRecentPeriodChange" data-args='["week"]' class="nav-tab text-xs px-3 py-1.5 font-semibold">Trong tuần</button>
+          <button id="btnLicRepRecentMonth" data-evt-click="onLicenseReportRecentPeriodChange" data-args='["month"]' class="nav-tab text-xs px-3 py-1.5 font-semibold">Trong tháng</button>
+        </div>
+        <div id="licRepRecentChart" class="overflow-x-auto"></div>
+        <div class="overflow-x-auto mt-2">
+          <table class="w-full border-collapse border bg-white text-xs">
+            <thead><tr class="bg-gray-100 text-left"><th class="border p-2">Ngày cấp</th><th class="border p-2">Nhân viên</th><th class="border p-2">Công ty</th><th class="border p-2">Phần mềm</th><th class="border p-2">Mã license</th></tr></thead>
+            <tbody id="licRepRecentTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Báo cáo 4: Bản quyền sắp hết hạn -->
+      <div class="bg-white border rounded-xl p-4 shadow-sm">
+        <div class="flex justify-between items-center mb-2">
+          <h3 class="font-bold text-gray-800 text-sm">4. Bản quyền sắp hết hạn</h3>
+          <button data-evt-click="exportLicenseExpiryReportXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">📤 Xuất Excel</button>
+        </div>
+        <div class="flex gap-1 mb-2">
+          <button id="btnLicRepExpiry1" data-evt-click="onLicenseReportExpiryMonthsChange" data-args='[1]' class="nav-tab text-xs px-3 py-1.5 font-semibold">1 tháng</button>
+          <button id="btnLicRepExpiry2" data-evt-click="onLicenseReportExpiryMonthsChange" data-args='[2]' class="nav-tab text-xs px-3 py-1.5 font-semibold">2 tháng</button>
+          <button id="btnLicRepExpiry3" data-evt-click="onLicenseReportExpiryMonthsChange" data-args='[3]' class="nav-tab text-xs px-3 py-1.5 font-semibold">3 tháng</button>
+        </div>
+        <div id="licRepExpiryStatusBar" class="overflow-x-auto"></div>
+        <div class="overflow-x-auto mt-2">
+          <table class="w-full border-collapse border bg-white text-xs">
+            <thead><tr class="bg-gray-100 text-left"><th class="border p-2">Mã license</th><th class="border p-2">Công ty</th><th class="border p-2">Phần mềm</th><th class="border p-2 text-center">Ngày hết hạn</th><th class="border p-2">Người giữ</th></tr></thead>
+            <tbody id="licRepExpiryTableBody"></tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>

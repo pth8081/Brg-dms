@@ -3645,8 +3645,8 @@
     function switchLicenseSubTab(subName) {
       if (!currentUser || !(currentUser.perms.admin || currentUser.perms.licenseManager || currentUser.perms.licenseViewer || currentUser.perms.licenseApprover)) return;
 
-      const subs = { emp: 'licenseSubEmp', software: 'licenseSubSoftware', batch: 'licenseSubBatch', alloc: 'licenseSubAlloc', revokeEmp: 'licenseSubRevokeEmp', ad: 'licenseSubAD', purchase: 'licenseSubPurchase', rounds: 'licenseSubRounds', budget: 'licenseSubBudget' };
-      const btns = { emp: 'btnLicenseSubEmp', software: 'btnLicenseSubSoftware', batch: 'btnLicenseSubBatch', alloc: 'btnLicenseSubAlloc', revokeEmp: 'btnLicenseSubRevokeEmp', ad: 'btnLicenseSubAD', purchase: 'btnLicenseSubPurchase', rounds: 'btnLicenseSubRounds', budget: 'btnLicenseSubBudget' };
+      const subs = { emp: 'licenseSubEmp', software: 'licenseSubSoftware', batch: 'licenseSubBatch', alloc: 'licenseSubAlloc', revokeEmp: 'licenseSubRevokeEmp', ad: 'licenseSubAD', purchase: 'licenseSubPurchase', rounds: 'licenseSubRounds', budget: 'licenseSubBudget', reports: 'licenseSubReports' };
+      const btns = { emp: 'btnLicenseSubEmp', software: 'btnLicenseSubSoftware', batch: 'btnLicenseSubBatch', alloc: 'btnLicenseSubAlloc', revokeEmp: 'btnLicenseSubRevokeEmp', ad: 'btnLicenseSubAD', purchase: 'btnLicenseSubPurchase', rounds: 'btnLicenseSubRounds', budget: 'btnLicenseSubBudget', reports: 'btnLicenseSubReports' };
       Object.keys(subs).forEach(key => {
         document.getElementById(subs[key]).classList.toggle('hidden', key !== subName);
         document.getElementById(btns[key]).classList.toggle('active', key === subName);
@@ -3662,6 +3662,7 @@
         if (subName === 'purchase') { populateRegistrationFilterSelects(); renderRegistrationsTable(); }
         if (subName === 'rounds') { renderRoundsList(); populateAdminRegFilterSelects(); renderAdminRegistrationsTable(); }
         if (subName === 'budget') { renderBudgetRoundsList(); populateBudgetRegFilterSelects(); renderBudgetRegistrationsTable(); }
+        if (subName === 'reports') { populateLicenseReportFilterSelects(); loadAndRenderLicenseReports(); }
       }).catch(err => showToast(err.message || 'Không thể tải dữ liệu module Bản quyền.', 'danger'));
     }
 
@@ -7466,6 +7467,172 @@ function isPerpetualSoftware(softwareId) {
           ${dots}
         </svg>
       `;
+    }
+
+    // ============================================================
+    // BÁO CÁO MODULE BẢN QUYỀN — 4 khối độc lập (Người dùng, Kỳ đăng ký/mua,
+    // Vừa cấp, Sắp hết hạn), 1 endpoint GET duy nhất /api/license/reports trả
+    // đủ dữ liệu cho cả 4 khối theo bộ lọc hiện tại — chỉ đọc, không thao tác
+    // ghi nào ở đây nên không cần chặn theo VIEWER_BLOCKED_ACTIONS.
+    // ============================================================
+    const licRepFilterState = { companyId: '', softwareId: '', purchaseRoundId: '', budgetRoundId: '', recentPeriod: 'week', expiryMonths: 1 };
+    let licRepData = null;
+
+    function populateLicenseReportFilterSelects() {
+      document.getElementById('licRepFilterCompany').innerHTML = '<option value="">-- Tất cả công ty --</option>' +
+        licenseDB.companies.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+      document.getElementById('licRepFilterCompany').value = licRepFilterState.companyId;
+      document.getElementById('licRepFilterSoftware').innerHTML = '<option value="">-- Tất cả phần mềm --</option>' +
+        licenseDB.softwareCatalog.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+      document.getElementById('licRepFilterSoftware').value = licRepFilterState.softwareId;
+      const purchaseRoundsSorted = [...licenseDB.purchaseRounds].sort((a, b) => b.id - a.id);
+      const budgetRoundsSorted = [...licenseDB.budgetRounds].sort((a, b) => b.id - a.id);
+      document.getElementById('licRepPurchaseRoundSelect').innerHTML = purchaseRoundsSorted.length
+        ? purchaseRoundsSorted.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('')
+        : '<option value="">-- Chưa có kỳ mua nào --</option>';
+      document.getElementById('licRepBudgetRoundSelect').innerHTML = budgetRoundsSorted.length
+        ? budgetRoundsSorted.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('')
+        : '<option value="">-- Chưa có kỳ ngân sách nào --</option>';
+      if (!licRepFilterState.purchaseRoundId && purchaseRoundsSorted[0]) licRepFilterState.purchaseRoundId = String(purchaseRoundsSorted[0].id);
+      if (!licRepFilterState.budgetRoundId && budgetRoundsSorted[0]) licRepFilterState.budgetRoundId = String(budgetRoundsSorted[0].id);
+      document.getElementById('licRepPurchaseRoundSelect').value = licRepFilterState.purchaseRoundId;
+      document.getElementById('licRepBudgetRoundSelect').value = licRepFilterState.budgetRoundId;
+    }
+
+    function onLicenseReportFilterChange() {
+      licRepFilterState.companyId = document.getElementById('licRepFilterCompany').value;
+      licRepFilterState.softwareId = document.getElementById('licRepFilterSoftware').value;
+      licRepFilterState.purchaseRoundId = document.getElementById('licRepPurchaseRoundSelect').value;
+      licRepFilterState.budgetRoundId = document.getElementById('licRepBudgetRoundSelect').value;
+      loadAndRenderLicenseReports();
+    }
+    function onLicenseReportRecentPeriodChange(period) {
+      licRepFilterState.recentPeriod = period;
+      loadAndRenderLicenseReports();
+    }
+    function onLicenseReportExpiryMonthsChange(months) {
+      licRepFilterState.expiryMonths = months;
+      loadAndRenderLicenseReports();
+    }
+    function updateLicenseReportActiveButtons() {
+      const periodBtnIds = { day: 'btnLicRepRecentDay', week: 'btnLicRepRecentWeek', month: 'btnLicRepRecentMonth' };
+      Object.keys(periodBtnIds).forEach(p => document.getElementById(periodBtnIds[p]).classList.toggle('active', licRepFilterState.recentPeriod === p));
+      [1, 2, 3].forEach(m => document.getElementById('btnLicRepExpiry' + m).classList.toggle('active', Number(licRepFilterState.expiryMonths) === m));
+    }
+
+    async function loadAndRenderLicenseReports() {
+      const params = new URLSearchParams();
+      if (licRepFilterState.companyId) params.set('companyId', licRepFilterState.companyId);
+      if (licRepFilterState.softwareId) params.set('softwareId', licRepFilterState.softwareId);
+      if (licRepFilterState.purchaseRoundId) params.set('purchaseRoundId', licRepFilterState.purchaseRoundId);
+      if (licRepFilterState.budgetRoundId) params.set('budgetRoundId', licRepFilterState.budgetRoundId);
+      params.set('recentPeriod', licRepFilterState.recentPeriod);
+      params.set('expiryMonths', licRepFilterState.expiryMonths);
+      try {
+        licRepData = await apiFetch(`/api/license/reports?${params.toString()}`);
+      } catch (err) {
+        showToast(err.message, 'danger');
+        return;
+      }
+      if (!licRepFilterState.purchaseRoundId && licRepData.rounds.purchaseRoundId) {
+        licRepFilterState.purchaseRoundId = String(licRepData.rounds.purchaseRoundId);
+        document.getElementById('licRepPurchaseRoundSelect').value = licRepFilterState.purchaseRoundId;
+      }
+      if (!licRepFilterState.budgetRoundId && licRepData.rounds.budgetRoundId) {
+        licRepFilterState.budgetRoundId = String(licRepData.rounds.budgetRoundId);
+        document.getElementById('licRepBudgetRoundSelect').value = licRepFilterState.budgetRoundId;
+      }
+      renderLicenseUsageReport(licRepData.usage);
+      renderLicenseRoundsReport(licRepData.rounds);
+      renderLicenseRecentReport(licRepData.recent);
+      renderLicenseExpiryReport(licRepData.expiry);
+      updateLicenseReportActiveButtons();
+    }
+
+    // --- Báo cáo 1: Người dùng bản quyền theo Công ty/Khối/Phòng/Ban ---
+    function renderLicenseUsageReport(usage) {
+      document.getElementById('licRepUsageTotalCnt').textContent = (usage.total.cnt || 0).toLocaleString('vi-VN');
+      document.getElementById('licRepUsageTotalUsers').textContent = (usage.total.userCnt || 0).toLocaleString('vi-VN');
+      const drillDown = !!licRepFilterState.companyId && usage.byOrgUnit.length > 0;
+      const rows = drillDown ? usage.byOrgUnit : usage.byCompany;
+      const labelKey = drillDown ? 'orgUnitName' : 'companyName';
+      const headerLabel = drillDown ? 'Khối/Phòng/Ban' : 'Công ty';
+      reportBarChart('licRepUsageChart', rows.map(r => ({ label: r[labelKey], value: r.cnt })), { color: REPORT_COLORS.license, unit: ' mã' });
+      document.querySelector('#licRepUsageTableBody').parentElement.querySelector('thead th').textContent = headerLabel;
+      document.getElementById('licRepUsageTableBody').innerHTML = rows.length
+        ? rows.map(r => `<tr><td class="border p-2">${escapeHtml(r[labelKey])}</td><td class="border p-2 text-center">${r.cnt}</td><td class="border p-2 text-center">${r.userCnt}</td></tr>`).join('')
+        : '<tr><td colspan="3" class="text-center p-3 text-gray-400 italic">Chưa có dữ liệu.</td></tr>';
+      document.getElementById('licRepUsageSoftwareTableBody').innerHTML = usage.bySoftware.length
+        ? usage.bySoftware.map(r => `<tr><td class="border p-2">${escapeHtml(r.softwareName)}</td><td class="border p-2 text-center">${r.cnt}</td><td class="border p-2 text-center">${r.userCnt}</td></tr>`).join('')
+        : '<tr><td colspan="3" class="text-center p-3 text-gray-400 italic">Chưa có dữ liệu.</td></tr>';
+    }
+    function exportLicenseUsageReportXlsx() {
+      if (!licRepData) return showToast('Chưa có dữ liệu để xuất.', 'warning');
+      const drillDown = !!licRepFilterState.companyId && licRepData.usage.byOrgUnit.length > 0;
+      const rows = drillDown ? licRepData.usage.byOrgUnit : licRepData.usage.byCompany;
+      const labelKey = drillDown ? 'orgUnitName' : 'companyName';
+      const sheets = [
+        { name: drillDown ? 'Theo Khối-Phòng-Ban' : 'Theo Công ty', header: [drillDown ? 'Khối/Phòng/Ban' : 'Công ty', 'Số mã đang dùng', 'Số người dùng'], rows: rows.map(r => [r[labelKey], r.cnt, r.userCnt]) },
+        { name: 'Theo Phần mềm', header: ['Phần mềm', 'Số mã đang dùng', 'Số người dùng'], rows: licRepData.usage.bySoftware.map(r => [r.softwareName, r.cnt, r.userCnt]) }
+      ];
+      downloadMultiSheetXlsxFile(`BaoCao_NguoiDungBanQuyen_${new Date().toISOString().slice(0, 10)}.xlsx`, sheets);
+    }
+
+    // --- Báo cáo 2: Kỳ đăng ký & Kỳ mua bản quyền ---
+    function renderLicenseRoundsReport(rounds) {
+      reportGroupedBarChart('licRepPurchaseChart', rounds.purchaseByCompany.map(r => ({ label: r.companyName, current: Number(r.currentQuantity) || 0, requested: Number(r.requestedQuantity) || 0 })),
+        [{ key: 'current', name: 'Hiện có', color: REPORT_COLORS.neutral }, { key: 'requested', name: 'Đăng ký', color: REPORT_COLORS.license }]);
+      document.getElementById('licRepPurchaseTableBody').innerHTML = rounds.purchaseByCompany.length
+        ? rounds.purchaseByCompany.map(r => `<tr><td class="border p-2">${escapeHtml(r.companyName)}</td><td class="border p-2 text-center">${r.currentQuantity}</td><td class="border p-2 text-center">${r.requestedQuantity}</td><td class="border p-2 text-right">${formatMoney(r.totalAmount)}</td></tr>`).join('')
+        : '<tr><td colspan="4" class="text-center p-3 text-gray-400 italic">Chưa có dữ liệu.</td></tr>';
+      reportGroupedBarChart('licRepBudgetChart', rounds.budgetRegByOrgUnit.map(r => ({ label: r.orgUnitName, current: Number(r.currentQuantity) || 0, requested: Number(r.requestedQuantity) || 0 })),
+        [{ key: 'current', name: 'Hiện có', color: REPORT_COLORS.neutral }, { key: 'requested', name: 'Đăng ký', color: REPORT_COLORS.budget }]);
+      document.getElementById('licRepBudgetTableBody').innerHTML = rounds.budgetRegByOrgUnit.length
+        ? rounds.budgetRegByOrgUnit.map(r => `<tr><td class="border p-2">${escapeHtml(r.orgUnitName)}</td><td class="border p-2">${escapeHtml(r.companyName)}</td><td class="border p-2 text-center">${r.currentQuantity}</td><td class="border p-2 text-center">${r.requestedQuantity}</td><td class="border p-2 text-right">${formatMoney(r.totalAmount)}</td></tr>`).join('')
+        : '<tr><td colspan="5" class="text-center p-3 text-gray-400 italic">Chưa có dữ liệu.</td></tr>';
+    }
+    function exportLicenseRoundsReportXlsx() {
+      if (!licRepData) return showToast('Chưa có dữ liệu để xuất.', 'warning');
+      const sheets = [
+        { name: 'Kỳ mua theo Công ty', header: ['Công ty', 'Hiện có', 'Đăng ký', 'Thành tiền'], rows: licRepData.rounds.purchaseByCompany.map(r => [r.companyName, r.currentQuantity, r.requestedQuantity, r.totalAmount]) },
+        { name: 'Kỳ ngân sách theo Đơn vị', header: ['Khối/Phòng/Ban', 'Công ty', 'Hiện có', 'Đăng ký', 'Thành tiền'], rows: licRepData.rounds.budgetRegByOrgUnit.map(r => [r.orgUnitName, r.companyName, r.currentQuantity, r.requestedQuantity, r.totalAmount]) }
+      ];
+      downloadMultiSheetXlsxFile(`BaoCao_KyDangKy_KyMua_${new Date().toISOString().slice(0, 10)}.xlsx`, sheets);
+    }
+
+    // --- Báo cáo 3: Bản quyền vừa được cấp (ngày/tuần/tháng) ---
+    function renderLicenseRecentReport(recent) {
+      reportBarChart('licRepRecentChart', recent.trend.map(t => ({ label: t.date.slice(5), value: t.cnt })), { color: REPORT_COLORS.license, unit: ' mã' });
+      document.getElementById('licRepRecentTableBody').innerHTML = recent.assignments.length
+        ? recent.assignments.map(r => `<tr><td class="border p-2 text-center">${escapeHtml(r.assignedAt)}</td><td class="border p-2">${escapeHtml(r.employeeName)}</td><td class="border p-2">${escapeHtml(r.companyName)}</td><td class="border p-2">${escapeHtml(r.softwareName)}</td><td class="border p-2 font-mono">${escapeHtml(r.licenseCode)}</td></tr>`).join('')
+        : '<tr><td colspan="5" class="text-center p-3 text-gray-400 italic">Không có bản quyền nào được cấp trong khoảng thời gian này.</td></tr>';
+    }
+    function exportLicenseRecentReportXlsx() {
+      if (!licRepData) return showToast('Chưa có dữ liệu để xuất.', 'warning');
+      const periodLabel = { day: 'TrongNgay', week: 'TrongTuan', month: 'TrongThang' }[licRepData.recent.period];
+      downloadXlsxFile(`BaoCao_BanQuyenVuaCap_${periodLabel}_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        ['Ngày cấp', 'Nhân viên', 'Công ty', 'Phần mềm', 'Mã license'],
+        licRepData.recent.assignments.map(r => [r.assignedAt, r.employeeName, r.companyName, r.softwareName, r.licenseCode]));
+    }
+
+    // --- Báo cáo 4: Bản quyền sắp hết hạn (1/2/3 tháng) ---
+    function renderLicenseExpiryReport(expiry) {
+      const s = expiry.summary || {};
+      reportStatusBar('licRepExpiryStatusBar', [
+        { label: 'Còn hạn', value: Number(s.validCnt) || 0, color: REPORT_COLORS.good },
+        { label: `Sắp hết hạn (trong ${expiry.months} tháng)`, value: Number(s.expiringSoonCnt) || 0, color: REPORT_COLORS.warn },
+        { label: 'Đã hết hạn', value: Number(s.expiredCnt) || 0, color: REPORT_COLORS.crit },
+        { label: 'Vĩnh viễn', value: Number(s.perpetualCnt) || 0, color: REPORT_COLORS.neutral }
+      ]);
+      document.getElementById('licRepExpiryTableBody').innerHTML = expiry.rows.length
+        ? expiry.rows.map(r => `<tr><td class="border p-2 font-mono">${escapeHtml(r.licenseCode)}</td><td class="border p-2">${escapeHtml(r.companyName)}</td><td class="border p-2">${escapeHtml(r.softwareName)}</td><td class="border p-2 text-center">${escapeHtml(r.expiryDate)}</td><td class="border p-2">${escapeHtml(r.assignedTo || '—')}</td></tr>`).join('')
+        : '<tr><td colspan="5" class="text-center p-3 text-gray-400 italic">Không có mã nào sắp hết hạn trong khoảng đã chọn.</td></tr>';
+    }
+    function exportLicenseExpiryReportXlsx() {
+      if (!licRepData) return showToast('Chưa có dữ liệu để xuất.', 'warning');
+      downloadXlsxFile(`BaoCao_BanQuyenSapHetHan_${licRepData.expiry.months}Thang_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        ['Mã license', 'Công ty', 'Phần mềm', 'Ngày hết hạn', 'Người giữ'],
+        licRepData.expiry.rows.map(r => [r.licenseCode, r.companyName, r.softwareName, r.expiryDate, r.assignedTo || '']));
     }
 
     // ============================================================

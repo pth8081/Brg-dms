@@ -260,6 +260,27 @@ ghép đúng cha-con dù thứ tự dòng bất kỳ) và Nhân viên (theo mã 
   theo lô phát hành mới nhất của phần mềm đó; nếu phần mềm chưa từng có lô
   phát hành, dòng đó được báo rõ trong `skipped[]` kèm lý do thay vì âm
   thầm bỏ qua.
+- **Báo cáo** (sub-tab riêng, `GET /api/license/reports`, vai trò truy cập
+  giống bootstrap — `admin`/`licenseManager`/`licenseViewer`/`licenseApprover`,
+  chỉ đọc): 4 khối độc lập, mỗi khối tự có biểu đồ + bảng + nút Xuất Excel
+  riêng, dùng chung 1 bộ lọc Công ty ở đầu trang (Phần mềm chỉ áp dụng khối 1).
+  1. **Người dùng bản quyền** — dựa trên `lic_license_code_assignments`
+     JOIN `lic_employees`. Không chọn Công ty: tổng toàn hệ thống theo Công
+     ty. Chọn 1 Công ty: hiện thêm chi tiết theo Khối/Phòng/Ban của công ty
+     đó. Luôn kèm bảng phụ theo Phần mềm. Mỗi dòng có 2 số: "Số mã đang
+     dùng" (1 người có thể giữ nhiều mã) và "Số người dùng" (đếm riêng biệt).
+  2. **Kỳ đăng ký & Kỳ mua** — 2 khối riêng vì khác bảng dữ liệu: **Kỳ mua**
+     (`lic_purchase_registrations`) chỉ nhóm được theo Công ty (bảng này
+     không có `org_unit_id`); **Kỳ ngân sách** (`lic_budget_registrations`)
+     nhóm được tới Khối/Phòng/Ban (có `org_unit_id`). Mỗi khối có dropdown
+     chọn đúng 1 kỳ để xem, biểu đồ cột nhóm Hiện có/Đăng ký.
+  3. **Bản quyền vừa được cấp** — theo `assigned_at`, chọn khoảng Trong
+     ngày/Trong tuần (ISO, thứ Hai→hiện tại)/Trong tháng (đầu tháng→hiện
+     tại), biểu đồ cột theo ngày + bảng chi tiết ai vừa được cấp gì.
+  4. **Bản quyền sắp hết hạn** — chọn ngưỡng 1/2/3 tháng, chỉ tính mã có
+     hạn (`expiry_date IS NOT NULL`, license Vĩnh viễn luôn loại trừ khỏi
+     thống kê ngưỡng), thanh trạng thái Còn hạn/Sắp hết/Đã hết/Vĩnh viễn +
+     bảng chi tiết mã nào, ai đang giữ.
 
 ---
 
