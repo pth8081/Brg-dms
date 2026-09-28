@@ -3653,12 +3653,12 @@ function mapCodeAssignment(a) { return { id: a.id, codeId: a.code_id, employeeId
 function mapAdAccount(a) { return { id: a.id, username: a.username, fullName: a.full_name, email: a.email, active: !!a.active, company: a.company, orgUnit: a.org_unit, disabledAt: fmtDate(a.disabled_at), lastSyncedAt: a.last_synced_at }; }
 function mapRound(r) { return { id: r.id, name: r.name, note: r.note, status: r.status, createdAt: r.created_at, budgetRoundId: r.budget_round_id, scopeType: r.scope_type, scopeId: r.scope_id, roundType: r.round_type }; }
 function mapRoundItem(i) { return { id: i.id, roundId: i.round_id, softwareId: i.software_id, unitPrice: Number(i.unit_price), expiryDate: fmtDate(i.expiry_date) }; }
-function mapRegistration(r) { return { id: r.id, roundId: r.round_id, roundItemId: r.round_item_id, companyId: r.company_id, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity, budgetQuantity: r.budget_quantity === null || r.budget_quantity === undefined ? null : Number(r.budget_quantity), unitPrice: Number(r.unit_price), totalAmount: Number(r.total_amount), expiryDate: fmtDate(r.expiry_date), status: r.status, note: r.note, createdAt: r.created_at, createdBy: r.created_by, decidedBy: r.decided_by, decidedAt: r.decided_at, issuedBatchId: r.issued_batch_id, issuedQuantity: r.issued_quantity, issuedAt: r.issued_at }; }
+function mapRegistration(r) { return { id: r.id, roundId: r.round_id, roundItemId: r.round_item_id, companyId: r.company_id, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity, budgetQuantity: r.budget_quantity === null || r.budget_quantity === undefined ? null : Number(r.budget_quantity), unitPrice: Number(r.unit_price), totalAmount: Number(r.total_amount), expiryDate: fmtDate(r.expiry_date), status: r.status, note: r.note, createdAt: r.created_at, createdBy: r.created_by, decidedBy: r.decided_by, decidedAt: r.decided_at, issuedBatchId: r.issued_batch_id, issuedQuantity: r.issued_quantity, issuedAt: r.issued_at, editRequested: !!r.edit_requested }; }
 function mapBudgetRound(r) { return { id: r.id, name: r.name, note: r.note, status: r.status, createdAt: r.created_at, scopeType: r.scope_type, scopeId: r.scope_id }; }
 function mapBudgetRoundItem(i) { return { id: i.id, roundId: i.round_id, softwareId: i.software_id, itemType: i.item_type || 'SOFTWARE', itemName: i.item_name, catalogItemId: i.catalog_item_id, capexOpex: i.capex_opex || 'OPEX', unitPrice: Number(i.unit_price), description: i.description }; }
 function mapBudgetItemCatalog(c) { return { id: c.id, itemType: c.item_type, name: c.name, unit: c.unit, active: !!c.active, systemCategoryCode: c.system_category_code || null }; }
 function mapBudgetActual(a) { return { id: a.id, roundItemId: a.round_item_id, companyId: a.company_id, purchaseDate: fmtDate(a.purchase_date), vendor: a.vendor, quantity: Number(a.quantity), unitPrice: Number(a.unit_price), amount: Number(a.amount), note: a.note, createdBy: a.created_by, createdAt: a.created_at }; }
-function mapBudgetRegistration(r) { return { id: r.id, roundId: r.round_id, roundItemId: r.round_item_id, orgUnitId: r.org_unit_id, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity, unitPrice: Number(r.unit_price), totalAmount: Number(r.total_amount), status: r.status, note: r.note, createdAt: r.created_at, createdBy: r.created_by, decidedBy: r.decided_by, decidedAt: r.decided_at }; }
+function mapBudgetRegistration(r) { return { id: r.id, roundId: r.round_id, roundItemId: r.round_item_id, orgUnitId: r.org_unit_id, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity, unitPrice: Number(r.unit_price), totalAmount: Number(r.total_amount), status: r.status, note: r.note, createdAt: r.created_at, createdBy: r.created_by, decidedBy: r.decided_by, decidedAt: r.decided_at, editRequested: !!r.edit_requested }; }
 function mapBulkAllocationRequest(r) { return { id: r.id, companyId: r.company_id, orgUnitId: r.org_unit_id, softwareId: r.software_id, issuedDate: fmtDate(r.issued_date), expiryDate: fmtDate(r.expiry_date), note: r.note, status: r.status, requestedBy: r.requested_by, requestedAt: r.requested_at, approvedBy: r.approved_by, approvedAt: r.approved_at, rejectReason: r.reject_reason }; }
 function mapBulkAllocationItem(i) { return { id: i.id, requestId: i.request_id, employeeCode: i.employee_code, fullName: i.full_name, deptLabel: i.dept_label, orgUnitId: i.org_unit_id, email: i.email, employeeId: i.employee_id, conflictType: i.conflict_type, resolution: i.resolution }; }
 function mapItCategory(c) { return { id: c.id, name: c.name, active: !!c.active, sortOrder: c.sort_order }; }
@@ -5791,6 +5791,45 @@ app.post('/api/license/rounds/:id/items', requireAuth, requireLicenseOrAdmin, as
     }
 });
 
+// Sửa 1 hạng mục kỳ mua đã tạo (trước đây chỉ thêm/xóa được — giống lỗi đã
+// sửa ở kỳ ngân sách, xem PUT .../budget-rounds/:roundId/items/:itemId).
+// Chỉ cho sửa unitPrice/expiryDate (không cho đổi phần mềm — coi như xóa+tạo
+// mới, đã có sẵn đường đó). Áp dụng đúng điều kiện chặn như xóa: kỳ phải còn
+// OPEN, và hạng mục chưa có công ty nào đăng ký (nếu đã có, số liệu đăng ký
+// cũ sẽ không còn khớp với đơn giá/hạn mới).
+app.put('/api/license/rounds/:roundId/items/:itemId', requireAuth, requireLicenseOrAdmin, async (req, res) => {
+    try {
+        const { roundId, itemId } = req.params;
+        const unitPrice = Number(req.body && req.body.unitPrice);
+        if (!Number.isFinite(unitPrice) || unitPrice < 0) return res.status(400).json({ error: 'Đơn giá không hợp lệ.' });
+        const rawExpiryDate = String((req.body && req.body.expiryDate) || '').trim();
+
+        const [itemRows] = await pool.query('SELECT id, software_id FROM lic_purchase_round_items WHERE id = ? AND round_id = ?', [itemId, roundId]);
+        if (!itemRows[0]) return res.status(404).json({ error: 'Không tìm thấy hạng mục trong kỳ mua.' });
+        const [roundRows] = await pool.query('SELECT status, round_type FROM lic_purchase_rounds WHERE id = ?', [roundId]);
+        if (!roundRows[0]) return res.status(404).json({ error: 'Không tìm thấy kỳ mua.' });
+        if (roundRows[0].status !== 'OPEN') return res.status(400).json({ error: 'Kỳ mua đã đóng, không thể sửa hạng mục.' });
+        const [regRows] = await pool.query('SELECT COUNT(*) AS cnt FROM lic_purchase_registrations WHERE round_item_id = ?', [itemId]);
+        if (regRows[0].cnt > 0) return res.status(400).json({ error: 'Không thể sửa — đã có công ty đăng ký mua phần mềm này trong kỳ.' });
+        const [softwareRows] = await pool.query('SELECT license_type FROM lic_software_catalog WHERE id = ?', [itemRows[0].software_id]);
+        const isPerpetual = softwareRows[0] && softwareRows[0].license_type === 'PERPETUAL';
+        let expiryDate = null;
+        if (!isPerpetual && roundRows[0].round_type === 'RENEWAL') {
+            if (!validDateStr(rawExpiryDate)) return res.status(400).json({ error: 'Ngày hết hạn không hợp lệ.' });
+            expiryDate = rawExpiryDate;
+        } else if (!isPerpetual && rawExpiryDate && validDateStr(rawExpiryDate)) {
+            expiryDate = rawExpiryDate;
+        }
+
+        await pool.query('UPDATE lic_purchase_round_items SET unit_price = ?, expiry_date = ? WHERE id = ?', [unitPrice, expiryDate, itemId]);
+        await writeAuditLog({ module: 'LICENSE', actionType: 'UPDATE_ROUND_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `Hạng mục #${itemId}`, description: `Cập nhật hạng mục #${itemId} trong kỳ mua #${roundId}: đơn giá ${unitPrice}${expiryDate ? `, hạn ${expiryDate}` : ''}.` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi sửa hạng mục kỳ mua:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
 app.delete('/api/license/rounds/:roundId/items/:itemId', requireAuth, requireLicenseOrAdmin, async (req, res) => {
     try {
         const { roundId, itemId } = req.params;
@@ -5991,6 +6030,81 @@ app.post('/api/license/registrations/:id/reject', requireAuth, requireLicenseApp
         res.json({ success: true });
     } catch (err) {
         console.error('❌ Lỗi từ chối đăng ký:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Yêu cầu bổ sung thông tin cho 1 đăng ký đang chờ duyệt — mở khóa PUT
+// .../registrations/:id đúng 1 lần (đặt edit_requested = 1) để người tạo (hoặc
+// bất kỳ ai có quyền License) sửa lại số lượng/ghi chú, PUT sẽ tự khóa lại
+// ngay sau khi sửa xong. Cơ chế mirror y hệt Ngân sách (budget2_lines), xem
+// chú thích đầy đủ ở POST /api/budget2/lines/:id/request-supplement-proposal —
+// vì đăng ký mua License không có giai đoạn Nháp/Gửi phê duyệt riêng (tạo
+// xong là PENDING luôn), đây là cách DUY NHẤT để sửa lại 1 đăng ký đã tạo.
+app.post('/api/license/registrations/:id/request-supplement', requireAuth, requireLicenseApproveOrAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const reason = String((req.body && req.body.reason) || '').trim();
+        if (!reason) return res.status(400).json({ error: 'Vui lòng nhập nội dung cần bổ sung.' });
+        if (reason.length > 400) return res.status(400).json({ error: 'Nội dung cần bổ sung quá dài (tối đa 400 ký tự).' });
+        const [rows] = await pool.query('SELECT * FROM lic_purchase_registrations WHERE id = ?', [id]);
+        if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy đăng ký.' });
+        if (rows[0].status !== 'PENDING') return res.status(400).json({ error: 'Đăng ký này đã được xử lý.' });
+        // Admin miễn trừ chặn tự thao tác — xem chú thích đầy đủ ở
+        // .../budget2/lines/:id/request-supplement-proposal.
+        if (rows[0].created_by && rows[0].created_by === req.user.username && !req.user.perms.admin) return res.status(403).json({ error: 'Không thể tự yêu cầu bổ sung đăng ký do chính mình tạo.' });
+        const stamp = `[Yêu cầu bổ sung - ${new Date().toLocaleString('vi-VN')} - ${req.user.name}] ${reason}`;
+        const newNote = rows[0].note ? `${rows[0].note}\n${stamp}` : stamp;
+        if (newNote.length > 500) return res.status(400).json({ error: 'Ghi chú đã gần đầy, không đủ chỗ để thêm yêu cầu bổ sung — hãy rút gọn nội dung.' });
+        const [upd] = await pool.query("UPDATE lic_purchase_registrations SET edit_requested = 1, note = ? WHERE id = ? AND status = 'PENDING'", [newNote, id]);
+        if (upd.affectedRows === 0) return res.status(409).json({ error: 'Đăng ký này vừa được xử lý bởi người khác, vui lòng tải lại trang.' });
+        await writeAuditLog({ module: 'LICENSE', actionType: 'REQUEST_SUPPLEMENT_REGISTRATION', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `Đăng ký #${id}`, description: `Yêu cầu bổ sung thông tin cho đăng ký mua bản quyền #${id}: ${reason}` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi yêu cầu bổ sung đăng ký:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// Sửa lại 1 đăng ký đang chờ duyệt — CHỈ cho phép khi edit_requested = 1 (vừa
+// được người duyệt yêu cầu bổ sung, xem endpoint ở trên). Chỉ cho sửa số
+// lượng/ghi chú, không cho đổi phần mềm/công ty/kỳ mua (đổi "bản chất" đăng
+// ký nên coi như từ chối rồi tạo lại). Tự khóa lại (edit_requested về 0)
+// ngay sau khi sửa xong.
+app.put('/api/license/registrations/:id', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const requestedQuantity = Number(req.body && req.body.requestedQuantity);
+        const note = String((req.body && req.body.note) || '').trim();
+        if (!Number.isInteger(requestedQuantity) || requestedQuantity < 1 || requestedQuantity > 5000) return res.status(400).json({ error: 'Số lượng phải là số nguyên từ 1 đến 5000.' });
+        if (note.length > 500) return res.status(400).json({ error: 'Ghi chú quá dài (tối đa 500 ký tự).' });
+
+        const [rows] = await pool.query('SELECT * FROM lic_purchase_registrations WHERE id = ?', [id]);
+        if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy đăng ký.' });
+        const reg = rows[0];
+        if (reg.status !== 'PENDING') return res.status(400).json({ error: 'Đăng ký này đã được xử lý, không thể sửa.' });
+        if (!reg.edit_requested) return res.status(403).json({ error: 'Đăng ký này chưa được yêu cầu bổ sung — không thể tự sửa.' });
+
+        // Cùng logic phạm vi như lúc TẠO đăng ký (POST /api/license/registrations
+        // ở trên) — sửa lại 1 đăng ký đã tạo cũng phải kiểm tra đúng phạm vi đó,
+        // không tin request đã đi qua kiểm tra này lúc tạo là đủ.
+        const isAdmin = !!(req.user.perms && (req.user.perms.admin || req.user.perms.licenseManager));
+        if (!isAdmin) {
+            const [roundRows] = await pool.query('SELECT scope_type, scope_id FROM lic_purchase_rounds WHERE id = ?', [reg.round_id]);
+            const userScope = getUserLicenseScope(req.user);
+            const [allOrgUnitsRows] = await pool.query('SELECT id, parent_id, company_id FROM lic_org_units');
+            const roundScope = roundRows[0] && roundRows[0].scope_type ? { type: roundRows[0].scope_type, id: roundRows[0].scope_id } : null;
+            const allowed = userCanActOnTarget({ isAdmin, userScope, roundScope, allOrgUnits: allOrgUnitsRows, targetCompanyId: reg.company_id, targetOrgUnitId: null });
+            if (!allowed) return res.status(403).json({ error: 'Bạn không có quyền sửa đăng ký của công ty này.' });
+        }
+
+        const totalAmount = requestedQuantity * Number(reg.unit_price);
+        const [upd] = await pool.query("UPDATE lic_purchase_registrations SET requested_quantity = ?, total_amount = ?, note = ?, edit_requested = 0 WHERE id = ? AND status = 'PENDING' AND edit_requested = 1", [requestedQuantity, totalAmount, note || null, id]);
+        if (upd.affectedRows === 0) return res.status(409).json({ error: 'Đăng ký này vừa được xử lý hoặc khóa lại bởi người khác, vui lòng tải lại trang.' });
+        await writeAuditLog({ module: 'LICENSE', actionType: 'UPDATE_REGISTRATION', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `Đăng ký #${id}`, description: `Sửa đăng ký mua bản quyền #${id} sau khi được yêu cầu bổ sung: số lượng mới ${requestedQuantity}.` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi sửa đăng ký:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
@@ -6348,6 +6462,67 @@ app.post('/api/license/budget-registrations/:id/reject', requireAuth, requireLic
         res.json({ success: true });
     } catch (err) {
         console.error('❌ Lỗi từ chối dự trù ngân sách:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Yêu cầu bổ sung + sửa lại dự trù đang chờ duyệt — mirror y hệt cơ chế
+// ở đăng ký mua bản quyền (POST/PUT .../registrations/:id ở trên), xem chú
+// thích đầy đủ tại đó.
+app.post('/api/license/budget-registrations/:id/request-supplement', requireAuth, requireLicenseApproveOrAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const reason = String((req.body && req.body.reason) || '').trim();
+        if (!reason) return res.status(400).json({ error: 'Vui lòng nhập nội dung cần bổ sung.' });
+        if (reason.length > 400) return res.status(400).json({ error: 'Nội dung cần bổ sung quá dài (tối đa 400 ký tự).' });
+        const [rows] = await pool.query('SELECT * FROM lic_budget_registrations WHERE id = ?', [id]);
+        if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy dự trù.' });
+        if (rows[0].status !== 'PENDING') return res.status(400).json({ error: 'Dự trù này đã được xử lý.' });
+        if (rows[0].created_by && rows[0].created_by === req.user.username && !req.user.perms.admin) return res.status(403).json({ error: 'Không thể tự yêu cầu bổ sung dự trù do chính mình tạo.' });
+        const stamp = `[Yêu cầu bổ sung - ${new Date().toLocaleString('vi-VN')} - ${req.user.name}] ${reason}`;
+        const newNote = rows[0].note ? `${rows[0].note}\n${stamp}` : stamp;
+        if (newNote.length > 500) return res.status(400).json({ error: 'Ghi chú đã gần đầy, không đủ chỗ để thêm yêu cầu bổ sung — hãy rút gọn nội dung.' });
+        const [upd] = await pool.query("UPDATE lic_budget_registrations SET edit_requested = 1, note = ? WHERE id = ? AND status = 'PENDING'", [newNote, id]);
+        if (upd.affectedRows === 0) return res.status(409).json({ error: 'Dự trù này vừa được xử lý bởi người khác, vui lòng tải lại trang.' });
+        await writeAuditLog({ module: 'LICENSE', actionType: 'REQUEST_SUPPLEMENT_BUDGET_REGISTRATION', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `Dự trù #${id}`, description: `Yêu cầu bổ sung thông tin cho dự trù ngân sách #${id}: ${reason}` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi yêu cầu bổ sung dự trù ngân sách:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.put('/api/license/budget-registrations/:id', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const requestedQuantity = Number(req.body && req.body.requestedQuantity);
+        const note = String((req.body && req.body.note) || '').trim();
+        if (!Number.isInteger(requestedQuantity) || requestedQuantity < 1 || requestedQuantity > 5000) return res.status(400).json({ error: 'Số lượng phải là số nguyên từ 1 đến 5000.' });
+        if (note.length > 500) return res.status(400).json({ error: 'Ghi chú quá dài (tối đa 500 ký tự).' });
+
+        const [rows] = await pool.query('SELECT * FROM lic_budget_registrations WHERE id = ?', [id]);
+        if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy dự trù.' });
+        const reg = rows[0];
+        if (reg.status !== 'PENDING') return res.status(400).json({ error: 'Dự trù này đã được xử lý, không thể sửa.' });
+        if (!reg.edit_requested) return res.status(403).json({ error: 'Dự trù này chưa được yêu cầu bổ sung — không thể tự sửa.' });
+
+        const isAdmin = !!(req.user.perms && (req.user.perms.admin || req.user.perms.licenseManager));
+        if (!isAdmin) {
+            const [roundRows] = await pool.query('SELECT scope_type, scope_id FROM lic_budget_rounds WHERE id = ?', [reg.round_id]);
+            const userScope = getUserLicenseScope(req.user);
+            const [allOrgUnitsRows] = await pool.query('SELECT id, parent_id, company_id FROM lic_org_units');
+            const roundScope = roundRows[0] && roundRows[0].scope_type ? { type: roundRows[0].scope_type, id: roundRows[0].scope_id } : null;
+            const allowed = userCanActOnTarget({ isAdmin, userScope, roundScope, allOrgUnits: allOrgUnitsRows, targetCompanyId: null, targetOrgUnitId: reg.org_unit_id });
+            if (!allowed) return res.status(403).json({ error: 'Bạn không có quyền sửa dự trù của đơn vị này.' });
+        }
+
+        const totalAmount = requestedQuantity * Number(reg.unit_price);
+        const [upd] = await pool.query("UPDATE lic_budget_registrations SET requested_quantity = ?, total_amount = ?, note = ?, edit_requested = 0 WHERE id = ? AND status = 'PENDING' AND edit_requested = 1", [requestedQuantity, totalAmount, note || null, id]);
+        if (upd.affectedRows === 0) return res.status(409).json({ error: 'Dự trù này vừa được xử lý hoặc khóa lại bởi người khác, vui lòng tải lại trang.' });
+        await writeAuditLog({ module: 'LICENSE', actionType: 'UPDATE_BUDGET_REGISTRATION', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `Dự trù #${id}`, description: `Sửa dự trù ngân sách #${id} sau khi được yêu cầu bổ sung: số lượng mới ${requestedQuantity}.` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi sửa dự trù ngân sách:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });

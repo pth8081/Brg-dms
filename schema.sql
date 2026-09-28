@@ -567,6 +567,12 @@ ALTER TABLE lic_purchase_registrations MODIFY COLUMN expiry_date DATE NULL DEFAU
 -- Người tạo đăng ký — dùng để chặn tự duyệt đăng ký của chính mình (server
 -- kiểm tra created_by === người đang duyệt), giống lic_bulk_allocation_requests.
 CALL add_column_if_not_exists('lic_purchase_registrations', 'created_by', 'VARCHAR(100) NULL DEFAULT NULL');
+-- Khóa sửa khi đang chờ duyệt (mirror y hệt budget2_lines.edit_requested) —
+-- đăng ký mua bản quyền không có giai đoạn Nháp/Gửi phê duyệt riêng như Ngân
+-- sách (tạo xong là PENDING luôn), nên đây là cơ chế DUY NHẤT để sửa lại 1
+-- đăng ký đã tạo: người duyệt "Yêu cầu bổ sung" mở khóa đúng 1 lần, PUT tự
+-- khóa lại ngay sau khi sửa xong. Xem POST/PUT /api/license/registrations/:id.
+CALL add_column_if_not_exists('lic_purchase_registrations', 'edit_requested', 'TINYINT(1) NOT NULL DEFAULT 0');
 
 -- 9b. Cấp phát hàng loạt từ file (đích danh từng nhân viên) — khác Kỳ mua ở
 -- trên (vốn theo SỐ LƯỢNG cho 1 phạm vi): đây đi thẳng theo danh sách nhân sự
@@ -665,6 +671,9 @@ CALL add_column_if_not_exists('lic_budget_registrations', 'created_by', 'VARCHAR
 CALL add_column_if_not_exists('lic_budget_registrations', 'pending_key', 'VARCHAR(150) NULL DEFAULT NULL');
 UPDATE lic_budget_registrations SET pending_key = CONCAT(round_id, ':', round_item_id, ':', org_unit_id) WHERE status = 'PENDING' AND pending_key IS NULL;
 CALL create_unique_index_if_not_exists('lic_budget_registrations', 'uq_lic_budget_reg_pending', 'pending_key');
+-- Khóa sửa khi đang chờ duyệt — mirror y hệt lic_purchase_registrations ở
+-- trên (xem chú thích đầy đủ tại đó).
+CALL add_column_if_not_exists('lic_budget_registrations', 'edit_requested', 'TINYINT(1) NOT NULL DEFAULT 0');
 
 -- Cùng lý do/cơ chế như lic_budget_registrations.pending_key ở trên, áp dụng
 -- cho lic_purchase_registrations (đăng ký mua License) — xác nhận qua kiểm
