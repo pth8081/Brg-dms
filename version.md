@@ -12,6 +12,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 
 | Phiên bản | PR | Ngày merge | Nội dung |
 |---|---|---|---|
+| v7.39 | [#104](https://github.com/pth8081/Brg-dms/pull/104) | 2026-09-28 | (1) License — bỏ đơn vị "ảo" tự tạo "Chưa phân đơn vị" (PR #103) gây rối mắt khi quản lý cây tổ chức, đổi hẳn sang `org_unit_id` NULL thật sự khi công ty không chọn Đơn vị (kèm migration dọn các đơn vị ảo đã lỡ tạo trên production); sửa theo 3 chỗ JOIN qua đơn vị để tra công ty nhân viên (cấp license, đối chiếu trùng mã file phân bổ hàng loạt, báo cáo Dashboard lọc AD) từng âm thầm bỏ sót nhân viên không có đơn vị, đổi sang tra thẳng `lic_employees.company_id`; báo cáo License (usage theo đơn vị) đổi sang LEFT JOIN để nhân viên không đơn vị vẫn được gộp vào nhóm "(Chưa phân đơn vị)" mà không tạo dòng thật. (2) Tự gia hạn phiên đăng nhập (`POST /api/auth/refresh`) khi người dùng còn thao tác trong 10 phút gần nhất và phiên còn ≤ 15 phút nữa hết hạn — tránh bị tự đăng xuất giữa chừng khi đang làm việc dở. (3) Sửa cột "Ngày hết hạn" ở tab Đăng ký mua bản quyền — trước đây mặc định hiện "Vĩnh viễn" cho mọi phần mềm dù hạn dùng thật chưa chốt (chỉ chốt ở bước Phát hành), nay tạm hiện đúng Loại license khai báo ở tab Phần mềm |
 | v7.37 | [#103](https://github.com/pth8081/Brg-dms/pull/103) | 2026-09-28 | License — cho phép thêm/nhập nhân viên với công ty chưa có đơn vị. Trước đây `org_unit_id` bắt buộc ở cả form Thêm nhân viên lẫn nhập Excel hàng loạt — công ty chưa/không chia đơn vị con (Khối/Phòng/Ban) không thêm/nhập được nhân viên nào (dropdown Đơn vị trống hoặc báo lỗi "không tìm thấy đơn vị"). Không đổi schema (`org_unit_id` vẫn `NOT NULL`) — khi để trống Đơn vị, hệ thống tự tạo/tái dùng (idempotent theo tên) 1 đơn vị gốc đặc biệt "Chưa phân đơn vị" cho đúng công ty đó qua hàm dùng chung `getOrCreateUnassignedOrgUnit()`; dropdown Đơn vị luôn có lựa chọn "Trực thuộc công ty (không chọn đơn vị)"; nhập Excel để trống cột `don_vi` là được (file mẫu thêm dòng ví dụ minh họa) |
 | v7.35 | [#102](https://github.com/pth8081/Brg-dms/pull/102) | 2026-09-28 | Thêm tab "📊 Báo cáo" cho module Quản lý Bản quyền — 4 khối độc lập, mỗi khối có biểu đồ + bảng chi tiết + xuất Excel riêng: (1) Người dùng bản quyền theo Công ty/Khối/Phòng/Ban (gộp báo cáo tổng quan toàn hệ thống + chi tiết theo cùng bộ lọc, không chọn Công ty = tổng, chọn 1 Công ty = thêm chi tiết theo đơn vị), kèm bảng phụ theo Phần mềm; (2) Kỳ đăng ký & Kỳ mua bản quyền — Kỳ mua (`lic_purchase_registrations`) chỉ nhóm được theo Công ty (không có `org_unit_id`), Kỳ ngân sách (`lic_budget_registrations`) nhóm được tới Khối/Phòng/Ban; (3) Bản quyền vừa được cấp trong ngày/tuần/tháng; (4) Bản quyền sắp hết hạn trong 1/2/3 tháng (loại trừ license Vĩnh viễn). 1 endpoint `GET /api/license/reports` mới, tái dùng nguyên các hàm vẽ biểu đồ SVG và cơ chế xuất Excel có sẵn, không thêm thư viện ngoài |
 | v7.33 | [#101](https://github.com/pth8081/Brg-dms/pull/101) | 2026-09-24 | Ngân sách — hiện thông tin Người tạo/sửa ở cả 3 tab Đề xuất/Phê duyệt/Sử dụng, trước đây không có cách nào biết ai tạo/sửa 1 dòng (chỉ có `decided_by` cho hành động Duyệt/Từ chối). Thêm cột `updated_by`/`updated_at` (`budget2_lines`), cập nhật khi sửa nội dung (PUT) HOẶC bấm "Gửi phê duyệt" (coi là 1 hành động cập nhật), tách biệt hoàn toàn với `decided_by`. Hiển thị: gộp vào cột "Trạng thái" sẵn có ở tab Đề xuất/Phê duyệt dạng ghi chú nhỏ "Tạo: x / Sửa/gửi: y" (chỉ hiện dòng thứ 2 khi khác người tạo); tab Sử dụng — mục cha hiện ở đầu thẻ, mục con thêm cột riêng "Người tạo/sửa" |
@@ -108,7 +109,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 > v6.74, v6.76, v6.78, v6.80, v6.82, v6.84, v6.86, v6.90, v6.92, v6.94, v6.96,
 > v6.98, v6.100, v6.102, v6.104, v6.106, v6.108, v6.110, v6.112, v6.114,
 > v6.116, v6.118, v6.120, v6.122, v6.124, v7.26, v7.28, v7.30, v7.32, v7.34,
-> v7.36 bị nhảy cóc trong lịch sử — không có Pull Request tương ứng để đối chiếu nội
+> v7.36, v7.38 bị nhảy cóc trong lịch sử — không có Pull Request tương ứng để đối chiếu nội
 > dung (nhiều khả năng do chạy lại workflow tăng version hoặc sửa trực tiếp
 > trên `main` ngoài luồng PR — ví dụ v6.52 phát sinh từ chính commit cập
 > nhật version.md cho v6.51, v6.55/v6.56/v6.58/v6.60 phát sinh tương tự từ
@@ -120,7 +121,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 > v6.76/v6.78/v6.80/v6.82/v6.84/v6.86/v6.90/v6.92/v6.94 phát sinh tương tự
 > từ các commit cập nhật version.md trực tiếp trên `main` cho v6.69/v6.71/
 > v6.73/v6.75/v6.77/v6.79/v6.81/v6.83/v6.85/v6.89/v6.91/v6.93/v6.95/v6.97/v6.99/
-> v6.101/v6.103/v6.105/v6.107/v6.109/v6.111/v6.113/v6.115/v6.117/v6.119/v6.121/v6.123/v7.25/v7.27/v7.29/v7.31/v7.33/v7.35 — mỗi lần
+> v6.101/v6.103/v6.105/v6.107/v6.109/v6.111/v6.113/v6.115/v6.117/v6.119/v6.121/v6.123/v7.25/v7.27/v7.29/v7.31/v7.33/v7.35/v7.37 — mỗi lần
 > commit trực tiếp/merge như vậy đều vô tình kích hoạt lại workflow tăng
 > version thêm 1
 > lần nữa). Từ PR #65 trở đi, workflow còn tự rebuild
