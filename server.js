@@ -302,6 +302,15 @@ function setAuthCookie(res, token) {
     });
 }
 
+// Mốc thời gian (ms, epoch) phiên đăng nhập sẽ hết hạn — dùng NGAY sau khi
+// signToken()+setAuthCookie() để trả về cho client, vì token nằm trong cookie
+// httpOnly (JS không đọc được exp bên trong) — client cần biết mốc này để tự
+// gia hạn phiên (POST /api/auth/refresh) trước khi hết hạn nếu người dùng vẫn
+// đang thao tác (xem thêm ở app.js, theo dõi hoạt động + gọi refresh định kỳ).
+function newSessionExpiresAt() {
+    return Date.now() + SESSION_TIMEOUT_MINUTES * 60 * 1000;
+}
+
 function setMfaCookie(res, payload) {
     const token = jwt.sign(payload, JWT_SECRET, { expiresIn: `${MFA_TOKEN_TTL_MIN}m` });
     res.cookie(MFA_COOKIE, token, {
@@ -416,6 +425,10 @@ async function requireAuth(req, res, next) {
 
         req.user = dbUser;
         req.user.perms = await resolveUserPerms(dbUser);
+        // payload.exp tính bằng GIÂY (chuẩn JWT) — client cần mốc mili-giây để
+        // tự tính còn bao lâu thì hết phiên (xem newSessionExpiresAt() và
+        // POST /api/auth/refresh).
+        req.tokenExpiresAtMs = payload.exp * 1000;
         next();
     } catch (err) {
         return res.status(401).json({ error: 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn.' });
@@ -1270,7 +1283,7 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
 
         await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_SUCCESS', status: 'SUCCESS', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: authSource === 'LDAP' ? 'Đăng nhập hệ thống thành công qua LDAP/Active Directory.' : 'Đăng nhập hệ thống thành công.' });
 
-        res.json({ user: sanitizeUser({ ...user, perms }) });
+        res.json({ user: sanitizeUser({ ...user, perms }), sessionExpiresAt: newSessionExpiresAt() });
     } catch (err) {
         console.error('❌ Lỗi đăng nhập:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
@@ -1343,7 +1356,7 @@ app.post('/api/auth/2fa/verify', loginLimiter, async (req, res) => {
         await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_SUCCESS', status: 'SUCCESS', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: 'Đăng nhập hệ thống thành công (đã xác thực hai yếu tố).' });
 
         const perms = await resolveUserPerms(user);
-        res.json({ user: sanitizeUser({ ...user, perms }) });
+        res.json({ user: sanitizeUser({ ...user, perms }), sessionExpiresAt: newSessionExpiresAt() });
     } catch (err) {
         console.error('❌ Lỗi xác thực hai yếu tố:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
@@ -1398,7 +1411,7 @@ app.post('/api/auth/2fa/setup/verify', loginLimiter, async (req, res) => {
         await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_SUCCESS', status: 'SUCCESS', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: 'Đăng nhập hệ thống thành công (vừa thiết lập xác thực hai yếu tố).' });
 
         const perms = await resolveUserPerms(user);
-        res.json({ user: sanitizeUser({ ...user, perms, totp_enabled: 1, totp_enrolled_at: enrolledAt }) });
+        res.json({ user: sanitizeUser({ ...user, perms, totp_enabled: 1, totp_enrolled_at: enrolledAt }), sessionExpiresAt: newSessionExpiresAt() });
     } catch (err) {
         console.error('❌ Lỗi thiết lập xác thực hai yếu tố:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
@@ -1430,7 +1443,18 @@ app.post('/api/auth/logout', async (req, res) => {
 });
 
 app.get('/api/auth/me', requireAuth, (req, res) => {
-    res.json({ user: sanitizeUser(req.user) });
+    res.json({ user: sanitizeUser(req.user), sessionExpiresAt: req.tokenExpiresAtMs });
+});
+
+// Gia hạn phiên đăng nhập (không đổi mật khẩu/quyền, chỉ ký lại token với hạn
+// mới) — client tự gọi định kỳ NẾU người dùng vẫn còn thao tác trên trang và
+// phiên sắp hết hạn (xem app.js), để tránh bị tự đăng xuất giữa chừng khi
+// đang làm việc dở, nhưng KHÔNG gia hạn vô thời hạn nếu người dùng đã rời đi
+// (client ngừng gọi khi không phát hiện thao tác nào gần đây).
+app.post('/api/auth/refresh', requireAuth, (req, res) => {
+    const token = signToken(req.user);
+    setAuthCookie(res, token);
+    res.json({ success: true, sessionExpiresAt: newSessionExpiresAt() });
 });
 
 // --- ĐĂNG NHẬP VÂN TAY / FACE ID (WebAuthn/passkey) — LỐI VÀO NHANH bổ sung,
@@ -1614,7 +1638,7 @@ app.post('/api/webauthn/login/verify', loginLimiter, async (req, res) => {
         const token = signToken(user);
         setAuthCookie(res, token);
         await writeAuditLog({ module: 'USER_MGM', actionType: 'LOGIN_SUCCESS', status: 'SUCCESS', username: user.username, fullName: user.name, ip: req.ip, targetObject: user.username, description: 'Đăng nhập hệ thống thành công qua vân tay/Face ID.' });
-        res.json({ user: sanitizeUser({ ...user, perms }) });
+        res.json({ user: sanitizeUser({ ...user, perms }), sessionExpiresAt: newSessionExpiresAt() });
     } catch (err) {
         console.error('❌ Lỗi xác thực đăng nhập vân tay/Face ID:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
@@ -1697,7 +1721,7 @@ app.post('/api/profile', requireAuth, async (req, res) => {
             username: req.user.username, fullName: name, ip: req.ip, targetObject: req.user.username,
             description: bumpTokenVersion ? 'Tự đổi mật khẩu cá nhân.' : 'Tự cập nhật thông tin hồ sơ cá nhân.'
         });
-        res.json({ user: sanitizeUser({ ...updated, perms }) });
+        res.json({ user: sanitizeUser({ ...updated, perms }), ...(bumpTokenVersion ? { sessionExpiresAt: newSessionExpiresAt() } : {}) });
     } catch (err) {
         console.error('❌ Lỗi cập nhật hồ sơ:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });

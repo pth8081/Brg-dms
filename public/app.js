@@ -80,6 +80,20 @@
     }
 
     let currentUser = null;
+    // --- Tự gia hạn phiên đăng nhập khi người dùng vẫn đang thao tác ---
+    // Token có hạn SESSION_TIMEOUT_MINUTES (mặc định 8h) — nếu ai đó đang làm
+    // dở việc (VD nhập liệu lâu) đúng lúc token hết hạn, request tiếp theo bị
+    // 401 và apiFetch() đưa thẳng về màn đăng nhập, có thể mất dữ liệu chưa
+    // lưu. sessionExpiresAt (mốc mili-giây, server trả kèm mọi lần đăng
+    // nhập/refresh) + lastActivityAt (cập nhật bởi initSessionAutoRefresh())
+    // dùng để tự gọi POST /api/auth/refresh gia hạn thêm 1 chu kỳ TRƯỚC khi
+    // hết hạn, nhưng CHỈ khi còn dấu hiệu người dùng thật sự đang thao tác —
+    // rời máy lâu vẫn bị đăng xuất như cũ (không gia hạn vô thời hạn).
+    let sessionExpiresAt = null;
+    let lastActivityAt = Date.now();
+    const SESSION_REFRESH_BEFORE_EXPIRY_MS = 15 * 60 * 1000;
+    const SESSION_ACTIVITY_WINDOW_MS = 10 * 60 * 1000;
+    let sessionRefreshInFlight = false;
     let currentPage = 1;
     let pageSize = 5;
     let currentFilterCard = '';
@@ -226,11 +240,48 @@
     async function restoreSession() {
       try {
         const data = await apiFetch('/api/auth/me');
-        await enterApp(data.user);
+        await enterApp(data.user, data.sessionExpiresAt);
       } catch (e) {
         // Chưa đăng nhập / phiên hết hạn -> giữ nguyên màn hình đăng nhập mặc định.
       }
     }
+
+    // Gắn 1 lần duy nhất (init() gọi ở cuối file) — nghe các sự kiện tương tác
+    // phổ biến để biết người dùng còn "sống" trên trang, không throttle nặng
+    // vì chỉ ghi 1 timestamp, không render gì.
+    function markSessionActivity() { lastActivityAt = Date.now(); }
+    function initSessionActivityListeners() {
+      ['mousedown', 'keydown', 'touchstart', 'scroll'].forEach(evt => {
+        document.addEventListener(evt, markSessionActivity, { passive: true });
+      });
+    }
+    // Kiểm tra mỗi phút: phiên sắp hết hạn (còn <= 15 phút) + người dùng có
+    // thao tác gần đây (trong 10 phút) -> gọi refresh gia hạn thêm 1 chu kỳ.
+    // Không thao tác gần đây (rời máy) -> để phiên tự hết hạn như cũ, tránh
+    // gia hạn vô thời hạn cho tab bỏ quên không ai dùng.
+    async function checkSessionRefresh() {
+      if (!currentUser || !sessionExpiresAt || sessionRefreshInFlight) return;
+      const now = Date.now();
+      const stillActive = (now - lastActivityAt) <= SESSION_ACTIVITY_WINDOW_MS;
+      const nearingExpiry = (sessionExpiresAt - now) <= SESSION_REFRESH_BEFORE_EXPIRY_MS;
+      if (!stillActive || !nearingExpiry) return;
+      sessionRefreshInFlight = true;
+      try {
+        const data = await apiFetch('/api/auth/refresh', { method: 'POST' });
+        if (data && data.sessionExpiresAt) sessionExpiresAt = data.sessionExpiresAt;
+      } catch (e) {
+        // apiFetch() đã tự đưa về màn đăng nhập nếu 401 — không cần xử lý thêm.
+      } finally {
+        sessionRefreshInFlight = false;
+      }
+    }
+    let sessionRefreshTimer = null;
+    function initSessionAutoRefresh() {
+      initSessionActivityListeners();
+      if (sessionRefreshTimer) clearInterval(sessionRefreshTimer);
+      sessionRefreshTimer = setInterval(checkSessionRefresh, 60 * 1000);
+    }
+    initSessionAutoRefresh();
     restoreSession();
 
     function escapeHtml(str) {
@@ -678,7 +729,7 @@
         // mfaSetupRequired cho route này.
         const data = await apiFetch('/api/webauthn/login/verify', { method: 'POST', body: JSON.stringify({ credential: credentialForServer }) });
         localStorage.setItem(WEBAUTHN_REMEMBERED_USERNAME_KEY, username);
-        await enterApp(data.user);
+        await enterApp(data.user, data.sessionExpiresAt);
       } catch (e) {
         if (e && e.name === 'NotAllowedError') {
           showToast('Đã hủy hoặc không xác thực được vân tay/Face ID.', 'warning');
@@ -825,7 +876,7 @@
         // đăng ký ngay (chưa bật) trước khi enterApp().
         if (data.mfaRequired) { showMfaVerifyView(data.username); return; }
         if (data.mfaSetupRequired) { showMfaSetupView(data.username, data.secret, data.qrDataUrl); return; }
-        await enterApp(data.user);
+        await enterApp(data.user, data.sessionExpiresAt);
       } catch (e) {
         // Khi chip "tài khoản được nhớ" đang hiện (ô nhập username bị ẩn),
         // người dùng có thể không để ý là mật khẩu vừa gõ đang được kiểm tra
@@ -844,8 +895,10 @@
       }
     }
 
-    async function enterApp(user) {
+    async function enterApp(user, sessionExpiresAtParam) {
       currentUser = user;
+      sessionExpiresAt = sessionExpiresAtParam || null;
+      lastActivityAt = Date.now();
       await loadBootstrapData();
       // Đăng nhập thành công/thất bại giờ do server tự ghi log (writeAuditLog),
       // không cần client gửi log riêng nữa — tránh trùng lặp và đảm bảo luôn
@@ -918,6 +971,7 @@
 
     function showLoginScreen() {
       currentUser = null;
+      sessionExpiresAt = null;
       document.getElementById('loginSection').classList.remove('hidden');
       document.getElementById('appShell').classList.add('!hidden');
       document.getElementById('homeSection').classList.add('hidden');
@@ -977,7 +1031,7 @@
       try {
         const data = await apiFetch('/api/auth/2fa/verify', { method: 'POST', body: JSON.stringify({ code }) });
         document.getElementById('mfaSection').classList.add('hidden');
-        await enterApp(data.user);
+        await enterApp(data.user, data.sessionExpiresAt);
       } catch (err) {
         showToast(err.message || 'Mã xác thực không đúng.', 'danger');
         const input = document.getElementById('txtMfaCode');
@@ -997,7 +1051,7 @@
         const data = await apiFetch('/api/auth/2fa/setup/verify', { method: 'POST', body: JSON.stringify({ code }) });
         document.getElementById('mfaSection').classList.add('hidden');
         showToast('Đã bật xác thực hai yếu tố thành công!', 'success');
-        await enterApp(data.user);
+        await enterApp(data.user, data.sessionExpiresAt);
       } catch (err) {
         showToast(err.message || 'Mã xác thực không đúng.', 'danger');
         const input = document.getElementById('txtMfaSetupCode');
@@ -3584,6 +3638,10 @@
           body: JSON.stringify({ name: newName, email: newEmail, phone: newPhone, newPassword: newPass || undefined })
         });
         currentUser = data.user;
+        // Nếu vừa đổi mật khẩu, server đã ký lại token (xem POST /api/profile)
+        // — cập nhật lại mốc hết hạn phiên phía client cho khớp, nếu không
+        // initSessionAutoRefresh() sẽ tính nhầm theo mốc cũ đã hết hiệu lực.
+        if (data.sessionExpiresAt) sessionExpiresAt = data.sessionExpiresAt;
         const userIdx = DB.users.findIndex(u => u.username === currentUser.username);
         if (userIdx !== -1) DB.users[userIdx] = currentUser;
 
@@ -5844,7 +5902,10 @@ function isPerpetualSoftware(softwareId) {
             <td class="border p-2 text-center font-semibold">${r.requestedQuantity}</td>
             <td class="border p-2 text-right">${formatMoney(r.unitPrice)}</td>
             <td class="border p-2 text-right font-semibold">${formatMoney(r.totalAmount)}</td>
-            <td class="border p-2">${expiryLabel(r.expiryDate)}</td>
+            <!-- Ở bước đăng ký mua, hạn dùng thật (r.expiryDate) chưa xác định
+                 (chỉ chốt khi Phát hành) — tạm hiển thị Loại license khai báo
+                 ở tab Phần mềm thay vì mặc định "Vĩnh viễn". -->
+            <td class="border p-2">${r.expiryDate ? expiryLabel(r.expiryDate) : (software ? licenseTypeBadge(software.licenseType) : '—')}</td>
             <td class="border p-2 text-center">${purchaseStatusBadge(r.status)}</td>
           </tr>
         `;
