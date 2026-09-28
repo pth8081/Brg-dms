@@ -6643,6 +6643,165 @@ app.post('/api/license/employees/import', requireAuth, requireLicenseOrAdmin, as
 });
 
 // ============================================================
+// BÁO CÁO MODULE BẢN QUYỀN — 4 khối báo cáo độc lập, mỗi khối tự truy vấn
+// riêng (không dùng chung 1 câu SQL) vì nguồn dữ liệu/kiểu nhóm khác nhau
+// hoàn toàn. Chỉ đọc (GET), không có thao tác ghi nào ở đây.
+// ============================================================
+app.get('/api/license/reports', requireAuth, requireLicenseViewOrAdmin, async (req, res) => {
+    try {
+        const companyId = req.query.companyId ? Number(req.query.companyId) : null;
+        const softwareId = req.query.softwareId ? Number(req.query.softwareId) : null;
+
+        // --- 1) Người dùng bản quyền theo Công ty/Khối/Phòng/Ban (gộp báo cáo
+        // tổng quan + chi tiết theo yêu cầu — không lọc companyId thì trả theo
+        // Công ty (tổng toàn hệ thống), có lọc companyId thì trả thêm theo Khối/
+        // Phòng/Ban CỦA công ty đó. cnt = số mã đang gán (1 người có thể giữ
+        // nhiều mã); userCnt = số người dùng riêng biệt (DISTINCT employee). ---
+        let usageFilterSql = '';
+        const usageFilterParams = [];
+        if (softwareId) { usageFilterSql += ' AND c.software_id = ?'; usageFilterParams.push(softwareId); }
+        const [usageByCompany] = await pool.query(
+            `SELECT co.id AS companyId, co.name AS companyName, COUNT(*) AS cnt, COUNT(DISTINCT a.employee_id) AS userCnt
+             FROM lic_license_code_assignments a
+             JOIN lic_employees e ON e.id = a.employee_id
+             JOIN lic_companies co ON co.id = e.company_id
+             JOIN lic_license_codes c ON c.id = a.code_id
+             WHERE 1=1${usageFilterSql}
+             GROUP BY co.id ORDER BY cnt DESC`,
+            usageFilterParams
+        );
+        let usageByOrgUnit = [];
+        if (companyId) {
+            usageByOrgUnit = (await pool.query(
+                `SELECT u.id AS orgUnitId, u.name AS orgUnitName, COUNT(*) AS cnt, COUNT(DISTINCT a.employee_id) AS userCnt
+                 FROM lic_license_code_assignments a
+                 JOIN lic_employees e ON e.id = a.employee_id
+                 JOIN lic_org_units u ON u.id = e.org_unit_id
+                 JOIN lic_license_codes c ON c.id = a.code_id
+                 WHERE e.company_id = ?${usageFilterSql}
+                 GROUP BY u.id ORDER BY cnt DESC`,
+                [companyId, ...usageFilterParams]
+            ))[0];
+        }
+        const [usageBySoftware] = await pool.query(
+            `SELECT sw.id AS softwareId, sw.name AS softwareName, COUNT(*) AS cnt, COUNT(DISTINCT a.employee_id) AS userCnt
+             FROM lic_license_code_assignments a
+             JOIN lic_employees e ON e.id = a.employee_id
+             JOIN lic_license_codes c ON c.id = a.code_id
+             JOIN lic_software_catalog sw ON sw.id = c.software_id
+             WHERE 1=1${companyId ? ' AND e.company_id = ?' : ''}
+             GROUP BY sw.id ORDER BY cnt DESC`,
+            companyId ? [companyId] : []
+        );
+        const [[usageTotal]] = await pool.query(
+            `SELECT COUNT(*) AS cnt, COUNT(DISTINCT a.employee_id) AS userCnt
+             FROM lic_license_code_assignments a
+             JOIN lic_employees e ON e.id = a.employee_id
+             WHERE 1=1${companyId ? ' AND e.company_id = ?' : ''}`,
+            companyId ? [companyId] : []
+        );
+
+        // --- 2a) Kỳ mua bản quyền (lic_purchase_rounds) theo Công ty — bảng
+        // lic_purchase_registrations CHỈ có company_id, không có org_unit_id
+        // nên không nhóm được tới Khối/Phòng/Ban (khác hẳn Kỳ ngân sách bên
+        // dưới) — giới hạn dữ liệu thật, không phải thiếu sót khi viết báo cáo. ---
+        const [purchaseRounds] = await pool.query('SELECT id, name, status FROM lic_purchase_rounds ORDER BY id DESC');
+        const purchaseRoundId = req.query.purchaseRoundId ? Number(req.query.purchaseRoundId) : (purchaseRounds[0] ? purchaseRounds[0].id : null);
+        let purchaseByCompany = [];
+        if (purchaseRoundId) {
+            purchaseByCompany = (await pool.query(
+                `SELECT co.id AS companyId, co.name AS companyName,
+                        SUM(r.current_quantity) AS currentQuantity, SUM(r.requested_quantity) AS requestedQuantity, SUM(r.total_amount) AS totalAmount
+                 FROM lic_purchase_registrations r JOIN lic_companies co ON co.id = r.company_id
+                 WHERE r.round_id = ?${companyId ? ' AND co.id = ?' : ''}
+                 GROUP BY co.id ORDER BY totalAmount DESC`,
+                companyId ? [purchaseRoundId, companyId] : [purchaseRoundId]
+            ))[0];
+        }
+
+        // --- 2b) Kỳ ngân sách (lic_budget_rounds) theo Công ty + Khối/Phòng/
+        // Ban — lic_budget_registrations có org_unit_id nên nhóm được tới cấp
+        // đơn vị, khác Kỳ mua ở trên. ---
+        const [budgetRounds] = await pool.query('SELECT id, name FROM lic_budget_rounds ORDER BY id DESC');
+        const budgetRoundId = req.query.budgetRoundId ? Number(req.query.budgetRoundId) : (budgetRounds[0] ? budgetRounds[0].id : null);
+        let budgetRegByOrgUnit = [];
+        if (budgetRoundId) {
+            budgetRegByOrgUnit = (await pool.query(
+                `SELECT u.id AS orgUnitId, u.name AS orgUnitName, co.id AS companyId, co.name AS companyName,
+                        SUM(r.current_quantity) AS currentQuantity, SUM(r.requested_quantity) AS requestedQuantity, SUM(r.total_amount) AS totalAmount
+                 FROM lic_budget_registrations r
+                 JOIN lic_org_units u ON u.id = r.org_unit_id
+                 JOIN lic_companies co ON co.id = u.company_id
+                 WHERE r.round_id = ?${companyId ? ' AND co.id = ?' : ''}
+                 GROUP BY u.id ORDER BY totalAmount DESC`,
+                companyId ? [budgetRoundId, companyId] : [budgetRoundId]
+            ))[0];
+        }
+
+        // --- 3) Bản quyền vừa cấp (ngày/tuần/tháng) — assigned_at là DATE, so
+        // sánh trực tiếp bằng hàm ngày MySQL/MariaDB, không cần parse ở JS. ---
+        const recentPeriod = ['day', 'week', 'month'].includes(req.query.recentPeriod) ? req.query.recentPeriod : 'week';
+        const recentWhereMap = {
+            day: 'a.assigned_at = CURDATE()',
+            week: 'YEARWEEK(a.assigned_at, 3) = YEARWEEK(CURDATE(), 3)',
+            month: 'YEAR(a.assigned_at) = YEAR(CURDATE()) AND MONTH(a.assigned_at) = MONTH(CURDATE())'
+        };
+        const [recentAssignments] = await pool.query(
+            `SELECT DATE_FORMAT(a.assigned_at, '%Y-%m-%d') AS assignedAt, e.full_name AS employeeName, co.name AS companyName, sw.name AS softwareName, c.code AS licenseCode
+             FROM lic_license_code_assignments a
+             JOIN lic_employees e ON e.id = a.employee_id
+             JOIN lic_companies co ON co.id = e.company_id
+             JOIN lic_license_codes c ON c.id = a.code_id
+             JOIN lic_software_catalog sw ON sw.id = c.software_id
+             WHERE ${recentWhereMap[recentPeriod]}${companyId ? ' AND e.company_id = ?' : ''}
+             ORDER BY a.assigned_at DESC`,
+            companyId ? [companyId] : []
+        );
+        const recentTrendMap = new Map();
+        recentAssignments.forEach(r => {
+            const key = r.assignedAt; // đã là chuỗi YYYY-MM-DD từ driver mysql2
+            recentTrendMap.set(key, (recentTrendMap.get(key) || 0) + 1);
+        });
+        const recentTrend = [...recentTrendMap.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1).map(([date, cnt]) => ({ date, cnt }));
+
+        // --- 4) Bản quyền sắp hết hạn (1/2/3 tháng) — chỉ tính mã có hạn
+        // (expiry_date NOT NULL), loại PERPETUAL ra khỏi mọi thống kê ngưỡng. ---
+        const expiryMonths = [1, 2, 3].includes(Number(req.query.expiryMonths)) ? Number(req.query.expiryMonths) : 1;
+        const [expiryRows] = await pool.query(
+            `SELECT c.code AS licenseCode, co.name AS companyName, sw.name AS softwareName, DATE_FORMAT(c.expiry_date, '%Y-%m-%d') AS expiryDate,
+                    GROUP_CONCAT(DISTINCT e.full_name SEPARATOR ', ') AS assignedTo
+             FROM lic_license_codes c
+             JOIN lic_companies co ON co.id = c.company_id
+             JOIN lic_software_catalog sw ON sw.id = c.software_id
+             LEFT JOIN lic_license_code_assignments a ON a.code_id = c.id
+             LEFT JOIN lic_employees e ON e.id = a.employee_id
+             WHERE c.expiry_date IS NOT NULL AND c.expiry_date <= DATE_ADD(CURDATE(), INTERVAL ? MONTH)${companyId ? ' AND c.company_id = ?' : ''}
+             GROUP BY c.id ORDER BY c.expiry_date ASC`,
+            companyId ? [expiryMonths, companyId] : [expiryMonths]
+        );
+        const [[expirySummary]] = await pool.query(
+            `SELECT
+               SUM(expiry_date IS NULL) AS perpetualCnt,
+               SUM(expiry_date IS NOT NULL AND expiry_date < CURDATE()) AS expiredCnt,
+               SUM(expiry_date IS NOT NULL AND expiry_date >= CURDATE() AND expiry_date <= DATE_ADD(CURDATE(), INTERVAL ? MONTH)) AS expiringSoonCnt,
+               SUM(expiry_date IS NOT NULL AND expiry_date > DATE_ADD(CURDATE(), INTERVAL ? MONTH)) AS validCnt
+             FROM lic_license_codes${companyId ? ' WHERE company_id = ?' : ''}`,
+            companyId ? [expiryMonths, expiryMonths, companyId] : [expiryMonths, expiryMonths]
+        );
+
+        res.json({
+            usage: { byCompany: usageByCompany, byOrgUnit: usageByOrgUnit, bySoftware: usageBySoftware, total: { cnt: usageTotal.cnt, userCnt: usageTotal.userCnt } },
+            rounds: { purchaseRounds, purchaseRoundId, purchaseByCompany, budgetRounds, budgetRoundId, budgetRegByOrgUnit },
+            recent: { period: recentPeriod, assignments: recentAssignments, trend: recentTrend },
+            expiry: { months: expiryMonths, rows: expiryRows, summary: expirySummary }
+        });
+    } catch (err) {
+        console.error('❌ Lỗi tải báo cáo License:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// ============================================================
 // MODULE QUẢN LÝ CNTT — theo dõi ngày hết hạn các dịch vụ/bản quyền do CNTT
 // quản lý (cước Internet, bản quyền Firewall, tên miền, SSL, email, phần mềm
 // hệ thống, phần mềm khác...) và tự động gửi email nhắc trước khi hết hạn.
