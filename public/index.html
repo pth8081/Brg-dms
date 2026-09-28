@@ -1612,6 +1612,7 @@
               <th class="border p-2 text-right">Thành tiền</th>
               <th class="border p-2">Ngày hết hạn</th>
               <th class="border p-2 text-center whitespace-nowrap">Trạng thái</th>
+              <th class="border p-2 text-center whitespace-nowrap">Thao tác</th>
             </tr>
           </thead>
           <tbody id="registrationsTableBody"></tbody>
@@ -3230,8 +3231,9 @@
   <!-- MODAL: Thêm phần mềm vào Kỳ mua -->
   <div id="roundItemModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">
     <div class="bg-white rounded-lg shadow-2xl max-w-sm w-full p-5 space-y-4">
-      <h3 class="font-bold text-gray-900 text-base">Thêm phần mềm vào kỳ mua</h3>
+      <h3 id="roundItemModalTitle" class="font-bold text-gray-900 text-base">Thêm phần mềm vào kỳ mua</h3>
       <input type="hidden" id="roundItemRoundId">
+      <input type="hidden" id="roundItemItemId">
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Phần mềm <span id="roundItemLicenseTypeBadge"></span></label>
         <select id="roundItemSoftware" data-evt-change="onRoundItemSoftwareChange" data-args='[]' class="w-full border p-2 rounded text-sm bg-white"></select>
@@ -3247,7 +3249,31 @@
       </div>
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" data-evt-click="closeLicenseModal" data-args='["roundItemModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" data-evt-click="saveRoundItem" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Thêm</button>
+        <button type="button" id="roundItemSaveBtn" data-evt-click="saveRoundItem" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Thêm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Sửa đăng ký mua/dự trù (chỉ mở được sau khi người duyệt Yêu cầu
+       bổ sung — dùng chung cho cả 2 loại đăng ký mua bản quyền lẫn dự trù
+       ngân sách, phân biệt qua registrationEditKind) -->
+  <div id="registrationEditModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-sm w-full p-5 space-y-4">
+      <h3 class="font-bold text-gray-900 text-base">Sửa đăng ký (theo yêu cầu bổ sung)</h3>
+      <input type="hidden" id="registrationEditKind">
+      <input type="hidden" id="registrationEditId">
+      <div id="registrationEditReasonBox" class="bg-blue-50 border border-blue-200 rounded p-2 text-xs text-blue-800"></div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Số lượng</label>
+        <input id="registrationEditQuantity" type="number" min="1" max="5000" class="w-full border p-2 rounded text-sm">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Ghi chú</label>
+        <textarea id="registrationEditNote" rows="3" maxlength="500" class="w-full border p-2 rounded text-sm"></textarea>
+      </div>
+      <div class="flex justify-end gap-2 pt-1">
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["registrationEditModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveRegistrationEdit" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
       </div>
     </div>
   </div>
@@ -3365,8 +3391,9 @@
   <!-- MODAL: Thêm hạng mục vào Kỳ ngân sách -->
   <div id="budgetRoundItemModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">
     <div class="bg-white rounded-lg shadow-2xl max-w-sm w-full p-5 space-y-4">
-      <h3 class="font-bold text-gray-900 text-base">Thêm hạng mục vào kỳ ngân sách</h3>
+      <h3 id="budgetRoundItemModalTitle" class="font-bold text-gray-900 text-base">Thêm hạng mục vào kỳ ngân sách</h3>
       <input type="hidden" id="budgetRoundItemRoundId">
+      <input type="hidden" id="budgetRoundItemItemId">
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Loại hạng mục</label>
         <select id="budgetRoundItemType" data-evt-change="onBudgetRoundItemTypeChange" data-args='[]' class="w-full border p-2 rounded text-sm bg-white">
@@ -3405,7 +3432,7 @@
       </div>
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" data-evt-click="closeLicenseModal" data-args='["budgetRoundItemModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" data-evt-click="saveBudgetRoundItem" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Thêm</button>
+        <button type="button" id="budgetRoundItemSaveBtn" data-evt-click="saveBudgetRoundItem" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Thêm</button>
       </div>
     </div>
   </div>
