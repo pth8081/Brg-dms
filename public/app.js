@@ -3867,10 +3867,18 @@
     }
     function populateOrgUnitSelectFor(companySelectId, orgSelectId) {
       const companyId = document.getElementById(companySelectId).value;
-      const units = companyId ? licenseDB.orgUnits.filter(u => u.companyId === Number(companyId)) : [];
-      document.getElementById(orgSelectId).innerHTML = units.length
-        ? units.map(u => `<option value="${u.id}">${escapeHtml(orgUnitPath(u.id))}</option>`).join('')
-        : '<option value="">-- Chọn công ty trước --</option>';
+      if (!companyId) {
+        document.getElementById(orgSelectId).innerHTML = '<option value="">-- Chọn công ty trước --</option>';
+        return;
+      }
+      const units = licenseDB.orgUnits.filter(u => u.companyId === Number(companyId));
+      // (Trực thuộc công ty, không chọn Đơn vị) Luôn có lựa chọn để trống — một
+      // số công ty chưa/không chia đơn vị con, để trống thì server tự tạo/tái
+      // dùng 1 đơn vị gốc đặc biệt "Chưa phân đơn vị" cho công ty đó (xem
+      // getOrCreateUnassignedOrgUnit trong server.js).
+      document.getElementById(orgSelectId).innerHTML =
+        '<option value="">-- Trực thuộc công ty (không chọn đơn vị) --</option>' +
+        units.map(u => `<option value="${u.id}">${escapeHtml(orgUnitPath(u.id))}</option>`).join('');
     }
 
     function renderLicenseEmployees() {
@@ -3935,12 +3943,17 @@
       const id = document.getElementById('employeeEditId').value;
       const fullName = document.getElementById('employeeName').value.trim();
       const title = document.getElementById('employeeTitle').value.trim();
-      const orgUnitId = Number(document.getElementById('employeeOrgUnit').value);
+      const companyId = Number(document.getElementById('employeeCompany').value) || null;
+      // (Trực thuộc công ty, không chọn Đơn vị) Đơn vị giờ không bắt buộc —
+      // để trống thì server tự gán vào 1 đơn vị gốc đặc biệt của công ty đã
+      // chọn (xem populateOrgUnitSelectFor).
+      const orgUnitIdRaw = document.getElementById('employeeOrgUnit').value;
+      const orgUnitId = orgUnitIdRaw ? Number(orgUnitIdRaw) : null;
       const employeeCode = document.getElementById('employeeCode').value.trim();
       const email = document.getElementById('employeeEmail').value.trim();
-      if (!fullName || !orgUnitId) return showToast('Vui lòng nhập Họ tên và chọn Đơn vị.', 'warning');
+      if (!fullName || !companyId) return showToast('Vui lòng nhập Họ tên và chọn Công ty.', 'warning');
       try {
-        const payload = JSON.stringify({ orgUnitId, fullName, title, employeeCode, email });
+        const payload = JSON.stringify({ orgUnitId, companyId, fullName, title, employeeCode, email });
         if (id) {
           await apiFetch(`/api/license/employees/${id}`, { method: 'PUT', body: payload });
           showToast(`Đã cập nhật nhân viên "${fullName}".`, 'success');
@@ -6786,11 +6799,16 @@ function isPerpetualSoftware(softwareId) {
           ['SV', 'Công ty Cổ phần Đầu tư Sao Việt', 'Ban Bán hàng', 'Ban', 'Khối Kinh doanh'],
         ]);
     }
+    // (Trực thuộc công ty, để trống cột don_vi) Dòng ví dụ thứ 2 để trống
+    // don_vi — công ty chưa/không chia đơn vị con vẫn nhập được, server tự
+    // gán vào 1 đơn vị gốc đặc biệt "Chưa phân đơn vị" của đúng công ty đó
+    // (xem getOrCreateUnassignedOrgUnit trong server.js).
     function downloadEmployeeTemplate() {
       downloadXlsxFile('mau_nhan_vien.xlsx',
         ['ma_nv', 'ho_ten', 'chuc_danh', 'ma_cong_ty', 'don_vi', 'email'],
         [
           ['SV-004', 'Nguyễn Văn Example', 'Chuyên viên', 'SV', 'Phòng Bán hàng Miền Bắc', 'example@saoviet.vn'],
+          ['SV-005', 'Trần Thị Example2', 'Chuyên viên', 'SV', '', 'example2@saoviet.vn'],
         ]);
     }
 
