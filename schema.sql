@@ -379,6 +379,21 @@ DELIMITER ;
 CALL add_unique_lic_employees_code_if_safe();
 DROP PROCEDURE add_unique_lic_employees_code_if_safe;
 
+-- (Nhân viên trực thuộc công ty, chưa/không chia đơn vị con) Phiên bản trước
+-- xử lý trường hợp này bằng cách TỰ TẠO 1 đơn vị "ảo" tên cố định "Chưa phân
+-- đơn vị" cho từng công ty rồi gán nhân viên vào đó (né phải đổi org_unit_id
+-- thành NULLABLE) — nhưng đơn vị ảo này lại lẫn vào danh sách Đơn vị tổ chức
+-- THẬT, gây rối mắt khi quản lý cây tổ chức. Nay đổi hẳn: cho phép
+-- org_unit_id = NULL thật sự (hiển thị trống trên giao diện), và dọn sạch
+-- các đơn vị ảo + gán lại nhân viên của chúng về NULL (company_id đã có sẵn
+-- từ trước, không mất thông tin công ty).
+UPDATE lic_employees e
+    JOIN lic_org_units u ON u.id = e.org_unit_id
+    SET e.org_unit_id = NULL
+    WHERE u.parent_id IS NULL AND u.name = 'Chưa phân đơn vị';
+DELETE FROM lic_org_units WHERE parent_id IS NULL AND name = 'Chưa phân đơn vị';
+ALTER TABLE lic_employees MODIFY COLUMN org_unit_id BIGINT NULL DEFAULT NULL;
+
 CREATE TABLE IF NOT EXISTS lic_software_catalog (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) UNIQUE NOT NULL,

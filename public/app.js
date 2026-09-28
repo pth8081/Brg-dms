@@ -3873,9 +3873,8 @@
       }
       const units = licenseDB.orgUnits.filter(u => u.companyId === Number(companyId));
       // (Trực thuộc công ty, không chọn Đơn vị) Luôn có lựa chọn để trống — một
-      // số công ty chưa/không chia đơn vị con, để trống thì server tự tạo/tái
-      // dùng 1 đơn vị gốc đặc biệt "Chưa phân đơn vị" cho công ty đó (xem
-      // getOrCreateUnassignedOrgUnit trong server.js).
+      // số công ty chưa/không chia đơn vị con, để trống thì lưu org_unit_id =
+      // NULL thật sự (không tạo đơn vị "ảo" nào), hiển thị trống ở cột Đơn vị.
       document.getElementById(orgSelectId).innerHTML =
         '<option value="">-- Trực thuộc công ty (không chọn đơn vị) --</option>' +
         units.map(u => `<option value="${u.id}">${escapeHtml(orgUnitPath(u.id))}</option>`).join('');
@@ -3887,9 +3886,10 @@
       const search = document.getElementById('empFilterSearch').value.trim().toLowerCase();
 
       let rows = licenseDB.employees.filter(e => {
-        const unit = licenseDB.orgUnits.find(u => u.id === e.orgUnitId);
         if (orgUnitId && e.orgUnitId !== Number(orgUnitId)) return false;
-        if (companyId && (!unit || unit.companyId !== Number(companyId))) return false;
+        // Dùng thẳng e.companyId — nhân viên không có đơn vị (orgUnitId null)
+        // vẫn phải lọc đúng theo công ty.
+        if (companyId && e.companyId !== Number(companyId)) return false;
         if (search) {
           const hay = `${e.fullName} ${e.employeeCode || ''} ${e.email || ''}`.toLowerCase();
           if (!hay.includes(search)) return false;
@@ -3904,13 +3904,13 @@
         const pageOffset = (getPaginationState('licenseEmp').page - 1) * getPaginationState('licenseEmp').pageSize;
         const pageItems = paginateSlice('licenseEmp', rows);
         tbody.innerHTML = pageItems.map((e, i) => {
-          const company = companyOfOrgUnit(e.orgUnitId);
+          const company = licenseDB.companies.find(c => c.id === e.companyId);
           return `
             <tr class="hover:bg-gray-50">
               <td class="border p-2">${pageOffset + i + 1}</td>
               <td class="border p-2"><div class="font-bold">${escapeHtml(e.fullName)}</div><div class="text-[11px] text-gray-400">${escapeHtml(e.title || '')}</div></td>
               <td class="border p-2">${escapeHtml(e.employeeCode || '')}</td>
-              <td class="border p-2">${escapeHtml(orgUnitPath(e.orgUnitId))}</td>
+              <td class="border p-2">${escapeHtml(orgUnitPath(e.orgUnitId) || '—')}</td>
               <td class="border p-2">${escapeHtml(company ? company.name : '—')}</td>
               <td class="border p-2">${escapeHtml(e.email || '')}</td>
               <td class="border p-2 text-center">
@@ -3933,10 +3933,12 @@
       document.getElementById('employeeTitle').value = e ? (e.title || '') : '';
       document.getElementById('employeeCode').value = e ? (e.employeeCode || '') : '';
       document.getElementById('employeeEmail').value = e ? (e.email || '') : '';
-      const unit = e ? licenseDB.orgUnits.find(u => u.id === e.orgUnitId) : null;
-      document.getElementById('employeeCompany').value = unit ? unit.companyId : '';
+      // (Trực thuộc công ty, không chọn Đơn vị) Dùng thẳng e.companyId — không
+      // suy công ty qua orgUnitId nữa vì orgUnitId có thể là null (không có
+      // đơn vị nào để tra).
+      document.getElementById('employeeCompany').value = e ? (e.companyId || '') : '';
       populateOrgUnitSelectFor('employeeCompany', 'employeeOrgUnit');
-      if (unit) document.getElementById('employeeOrgUnit').value = unit.id;
+      if (e && e.orgUnitId) document.getElementById('employeeOrgUnit').value = e.orgUnitId;
       openLicenseModal('employeeModal');
     }
     async function saveEmployee() {
@@ -5149,7 +5151,8 @@ function isPerpetualSoftware(softwareId) {
     let allocCreateRows = [];
     let allocCreateRowSeq = 1;
     function employeeLabel(e) {
-      return `${e.fullName}${e.employeeCode ? ' (' + e.employeeCode + ')' : ''} — ${orgUnitPath(e.orgUnitId)}`;
+      const unitPath = orgUnitPath(e.orgUnitId);
+      return `${e.fullName}${e.employeeCode ? ' (' + e.employeeCode + ')' : ''}${unitPath ? ' — ' + unitPath : ''}`;
     }
     function renderAllocCreateRows() {
       const tbody = document.getElementById('allocCreateRowsBody');
@@ -6800,9 +6803,8 @@ function isPerpetualSoftware(softwareId) {
         ]);
     }
     // (Trực thuộc công ty, để trống cột don_vi) Dòng ví dụ thứ 2 để trống
-    // don_vi — công ty chưa/không chia đơn vị con vẫn nhập được, server tự
-    // gán vào 1 đơn vị gốc đặc biệt "Chưa phân đơn vị" của đúng công ty đó
-    // (xem getOrCreateUnassignedOrgUnit trong server.js).
+    // don_vi — công ty chưa/không chia đơn vị con vẫn nhập được, org_unit_id
+    // lưu NULL thật sự (không tạo đơn vị "ảo" nào cho công ty đó).
     function downloadEmployeeTemplate() {
       downloadXlsxFile('mau_nhan_vien.xlsx',
         ['ma_nv', 'ho_ten', 'chuc_danh', 'ma_cong_ty', 'don_vi', 'email'],
