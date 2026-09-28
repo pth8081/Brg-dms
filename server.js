@@ -4240,6 +4240,27 @@ app.delete('/api/license/companies/:id', requireAuth, requireLicenseOrAdmin, asy
     }
 });
 
+// (Nhân viên trực thuộc công ty, chưa/không chia đơn vị con) Một số công ty
+// chưa có cây tổ chức chi tiết — cho phép thêm/nhập nhân viên trực tiếp vào
+// công ty bằng cách tự tạo (nếu chưa có, tra theo tên cố định nên idempotent)
+// 1 đơn vị gốc đặc biệt cho công ty đó, tái dùng nguyên hạ tầng org_unit_id
+// NOT NULL sẵn có (xem schema.sql) — không đổi schema, không ảnh hưởng những
+// nơi khác đang giả định nhân viên luôn có org_unit_id hợp lệ. db là pool
+// hoặc 1 connection đang trong transaction — cả 2 đều có .query().
+const UNASSIGNED_ORG_UNIT_NAME = 'Chưa phân đơn vị';
+async function getOrCreateUnassignedOrgUnit(db, companyId) {
+    const [rows] = await db.query(
+        'SELECT id FROM lic_org_units WHERE company_id = ? AND parent_id IS NULL AND name = ? LIMIT 1',
+        [companyId, UNASSIGNED_ORG_UNIT_NAME]
+    );
+    if (rows[0]) return rows[0].id;
+    const [result] = await db.query(
+        "INSERT INTO lic_org_units (company_id, parent_id, name, level_label, sort_order) VALUES (?, NULL, ?, 'Công ty', 999)",
+        [companyId, UNASSIGNED_ORG_UNIT_NAME]
+    );
+    return result.insertId;
+}
+
 // --- Đơn vị tổ chức (cây N cấp) ---
 app.post('/api/license/org-units', requireAuth, requireLicenseOrAdmin, async (req, res) => {
     try {
@@ -4315,18 +4336,30 @@ app.delete('/api/license/org-units/:id', requireAuth, requireLicenseOrAdmin, asy
 // --- Nhân viên ---
 app.post('/api/license/employees', requireAuth, requireLicenseOrAdmin, async (req, res) => {
     try {
-        const orgUnitId = Number(req.body && req.body.orgUnitId);
+        let orgUnitId = Number(req.body && req.body.orgUnitId) || null;
+        const companyIdInput = Number(req.body && req.body.companyId) || null;
         const fullName = String((req.body && req.body.fullName) || '').trim();
         const title = String((req.body && req.body.title) || '').trim();
         const employeeCode = String((req.body && req.body.employeeCode) || '').trim();
         const email = String((req.body && req.body.email) || '').trim();
-        if (!orgUnitId) return res.status(400).json({ error: 'Vui lòng chọn Đơn vị.' });
+        if (!orgUnitId && !companyIdInput) return res.status(400).json({ error: 'Vui lòng chọn Công ty hoặc Đơn vị.' });
         if (!fullName) return res.status(400).json({ error: 'Họ và tên không được để trống.' });
         if (fullName.length > 255) return res.status(400).json({ error: 'Họ và tên quá dài (tối đa 255 ký tự).' });
         if (title.length > 255) return res.status(400).json({ error: 'Chức danh quá dài (tối đa 255 ký tự).' });
         if (email.length > 255) return res.status(400).json({ error: 'Email quá dài (tối đa 255 ký tự).' });
-        const [unitRows] = await pool.query('SELECT id, company_id FROM lic_org_units WHERE id = ?', [orgUnitId]);
-        if (!unitRows[0]) return res.status(400).json({ error: 'Đơn vị không tồn tại.' });
+        let companyId;
+        if (orgUnitId) {
+            const [unitRows] = await pool.query('SELECT id, company_id FROM lic_org_units WHERE id = ?', [orgUnitId]);
+            if (!unitRows[0]) return res.status(400).json({ error: 'Đơn vị không tồn tại.' });
+            companyId = unitRows[0].company_id;
+        } else {
+            // (Trực thuộc công ty, không chọn Đơn vị) Xem chú thích
+            // getOrCreateUnassignedOrgUnit() phía trên.
+            const [companyRows] = await pool.query('SELECT id FROM lic_companies WHERE id = ?', [companyIdInput]);
+            if (!companyRows[0]) return res.status(400).json({ error: 'Công ty không tồn tại.' });
+            companyId = companyIdInput;
+            orgUnitId = await getOrCreateUnassignedOrgUnit(pool, companyId);
+        }
         // Import CSV (employees/import) coi (company_id, employee_code) là khóa
         // định danh để quyết định cập nhật hay tạo mới — nếu thêm tay 1 nhân
         // viên trùng mã với nhân viên đã có trong cùng công ty (khác dòng), lần
@@ -4336,7 +4369,7 @@ app.post('/api/license/employees', requireAuth, requireLicenseOrAdmin, async (re
             const [dupRows] = await pool.query(
                 `SELECT e.id FROM lic_employees e JOIN lic_org_units u ON u.id = e.org_unit_id
                  WHERE u.company_id = ? AND e.employee_code = ?`,
-                [unitRows[0].company_id, employeeCode]
+                [companyId, employeeCode]
             );
             if (dupRows.length > 0) return res.status(400).json({ error: `Mã nhân viên [${employeeCode}] đã tồn tại trong công ty này.` });
         }
@@ -4346,7 +4379,7 @@ app.post('/api/license/employees', requireAuth, requireLicenseOrAdmin, async (re
         // buộc CSDL chỉ là lưới an toàn cuối cùng cho race condition.
         const [result] = await pool.query(
             'INSERT INTO lic_employees (org_unit_id, company_id, full_name, title, employee_code, email, active) VALUES (?, ?, ?, ?, ?, ?, TRUE)',
-            [orgUnitId, unitRows[0].company_id, fullName, title || null, employeeCode || null, email || null]
+            [orgUnitId, companyId, fullName, title || null, employeeCode || null, email || null]
         );
         await writeAuditLog({ module: 'LICENSE', actionType: 'CREATE_EMPLOYEE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: fullName, description: `Thêm nhân viên [${fullName}] vào module Bản quyền.` });
         res.json({ success: true, id: result.insertId });
@@ -4360,29 +4393,39 @@ app.post('/api/license/employees', requireAuth, requireLicenseOrAdmin, async (re
 app.put('/api/license/employees/:id', requireAuth, requireLicenseOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
-        const orgUnitId = Number(req.body && req.body.orgUnitId);
+        let orgUnitId = Number(req.body && req.body.orgUnitId) || null;
+        const companyIdInput = Number(req.body && req.body.companyId) || null;
         const fullName = String((req.body && req.body.fullName) || '').trim();
         const title = String((req.body && req.body.title) || '').trim();
         const employeeCode = String((req.body && req.body.employeeCode) || '').trim();
         const email = String((req.body && req.body.email) || '').trim();
-        if (!orgUnitId) return res.status(400).json({ error: 'Vui lòng chọn Đơn vị.' });
+        if (!orgUnitId && !companyIdInput) return res.status(400).json({ error: 'Vui lòng chọn Công ty hoặc Đơn vị.' });
         if (!fullName) return res.status(400).json({ error: 'Họ và tên không được để trống.' });
         if (fullName.length > 255) return res.status(400).json({ error: 'Họ và tên quá dài (tối đa 255 ký tự).' });
         if (title.length > 255) return res.status(400).json({ error: 'Chức danh quá dài (tối đa 255 ký tự).' });
         if (email.length > 255) return res.status(400).json({ error: 'Email quá dài (tối đa 255 ký tự).' });
-        const [unitRows] = await pool.query('SELECT id, company_id FROM lic_org_units WHERE id = ?', [orgUnitId]);
-        if (!unitRows[0]) return res.status(400).json({ error: 'Đơn vị không tồn tại.' });
+        let companyId;
+        if (orgUnitId) {
+            const [unitRows] = await pool.query('SELECT id, company_id FROM lic_org_units WHERE id = ?', [orgUnitId]);
+            if (!unitRows[0]) return res.status(400).json({ error: 'Đơn vị không tồn tại.' });
+            companyId = unitRows[0].company_id;
+        } else {
+            const [companyRows] = await pool.query('SELECT id FROM lic_companies WHERE id = ?', [companyIdInput]);
+            if (!companyRows[0]) return res.status(400).json({ error: 'Công ty không tồn tại.' });
+            companyId = companyIdInput;
+            orgUnitId = await getOrCreateUnassignedOrgUnit(pool, companyId);
+        }
         if (employeeCode) {
             const [dupRows] = await pool.query(
                 `SELECT e.id FROM lic_employees e JOIN lic_org_units u ON u.id = e.org_unit_id
                  WHERE u.company_id = ? AND e.employee_code = ? AND e.id != ?`,
-                [unitRows[0].company_id, employeeCode, id]
+                [companyId, employeeCode, id]
             );
             if (dupRows.length > 0) return res.status(400).json({ error: `Mã nhân viên [${employeeCode}] đã tồn tại trong công ty này.` });
         }
         const [result] = await pool.query(
             'UPDATE lic_employees SET org_unit_id = ?, company_id = ?, full_name = ?, title = ?, employee_code = ?, email = ? WHERE id = ?',
-            [orgUnitId, unitRows[0].company_id, fullName, title || null, employeeCode || null, email || null, id]
+            [orgUnitId, companyId, fullName, title || null, employeeCode || null, email || null, id]
         );
         if (result.affectedRows === 0) return res.status(404).json({ error: 'Không tìm thấy nhân viên.' });
         await writeAuditLog({ module: 'LICENSE', actionType: 'UPDATE_EMPLOYEE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: fullName, description: `Cập nhật nhân viên [${fullName}].` });
@@ -6581,10 +6624,28 @@ app.post('/api/license/employees/import', requireAuth, requireLicenseOrAdmin, as
             if (!fullName) { errors.push(`Dòng ${rowNo}: thiếu Họ và tên.`); continue; }
             const company = companyByCode.get(companyCode);
             if (!company) { errors.push(`Dòng ${rowNo}: không tìm thấy công ty mã [${companyCode}].`); continue; }
-            const candidateUnits = units.filter(u => u.company_id === company.id && u.name === unitName);
-            if (candidateUnits.length === 0) { errors.push(`Dòng ${rowNo}: không tìm thấy đơn vị [${unitName}] trong công ty [${companyCode}] — nhập Tổ chức công ty trước.`); continue; }
-            if (candidateUnits.length > 1) { errors.push(`Dòng ${rowNo}: có nhiều hơn 1 đơn vị tên [${unitName}] trong công ty [${companyCode}] — không thể xác định đúng đơn vị, hãy đổi tên đơn vị cho không trùng.`); continue; }
-            const unit = candidateUnits[0];
+            let unit;
+            if (!unitName) {
+                // (Trực thuộc công ty, để trống cột don_vi) Xem chú thích
+                // getOrCreateUnassignedOrgUnit() — tự tạo/tái dùng 1 đơn vị gốc
+                // đặc biệt cho công ty này, không bắt buộc phải có Tổ chức công
+                // ty sẵn. Thêm ngay vào cache `units` để các dòng sau trong CÙNG
+                // file (cùng công ty, cũng để trống don_vi) tái dùng lại đúng
+                // đơn vị này thay vì gọi lại CSDL mỗi dòng.
+                let unassigned = units.find(u => u.company_id === company.id && u.parent_id === null && u.name === UNASSIGNED_ORG_UNIT_NAME);
+                if (!unassigned) {
+                    const unassignedId = await getOrCreateUnassignedOrgUnit(conn, company.id);
+                    unassigned = { id: unassignedId, company_id: company.id, parent_id: null, name: UNASSIGNED_ORG_UNIT_NAME };
+                    units.push(unassigned);
+                    unitById.set(unassignedId, unassigned);
+                }
+                unit = unassigned;
+            } else {
+                const candidateUnits = units.filter(u => u.company_id === company.id && u.name === unitName);
+                if (candidateUnits.length === 0) { errors.push(`Dòng ${rowNo}: không tìm thấy đơn vị [${unitName}] trong công ty [${companyCode}] — nhập Tổ chức công ty trước.`); continue; }
+                if (candidateUnits.length > 1) { errors.push(`Dòng ${rowNo}: có nhiều hơn 1 đơn vị tên [${unitName}] trong công ty [${companyCode}] — không thể xác định đúng đơn vị, hãy đổi tên đơn vị cho không trùng.`); continue; }
+                unit = candidateUnits[0];
+            }
 
             const employeeKey = `${company.id}::${employeeCode.toUpperCase()}`;
             if (employeeCode && seenKeysInFile.has(employeeKey)) {

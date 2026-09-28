@@ -201,10 +201,16 @@ quán), lưới an toàn cấp tiến trình (không sập cả server vì 1 l�
   công ty, có "Cấp" tùy chỉnh (Khối/Ban/Phòng...). Không đổi công ty/cha khi
   sửa (tránh vòng lặp) — muốn chuyển nhánh phải xóa/tạo lại. Không xóa được
   nếu còn đơn vị con/nhân viên/dự trù ngân sách gắn với nó.
-- **Nhân viên** (`lic_employees`): thuộc 1 đơn vị. `(công ty, mã nhân viên)`
-  là cặp định danh duy nhất (dùng để import CSV khớp cập nhật/tạo mới) —
-  chặn trùng ngay khi thêm/sửa thủ công. Không xóa được nếu đang giữ
-  license (phải thu hồi hết trước).
+- **Nhân viên** (`lic_employees`): thuộc 1 đơn vị (`org_unit_id NOT NULL`
+  ở CSDL — không đổi để tránh ảnh hưởng các chỗ khác đang giả định nhân
+  viên luôn có đơn vị). `(công ty, mã nhân viên)` là cặp định danh duy
+  nhất (dùng để import CSV khớp cập nhật/tạo mới) — chặn trùng ngay khi
+  thêm/sửa thủ công. Không xóa được nếu đang giữ license (phải thu hồi
+  hết trước). Công ty **chưa/không chia đơn vị con** vẫn thêm/nhập được
+  nhân viên bình thường: để trống Đơn vị (thêm tay: chọn "Trực thuộc công
+  ty — không chọn đơn vị"; import Excel: để trống cột `don_vi`), hệ thống
+  tự tạo/tái dùng (idempotent theo tên) 1 đơn vị gốc đặc biệt tên cố định
+  **"Chưa phân đơn vị"** cho đúng công ty đó.
 - **Danh mục phần mềm** (`lic_software_catalog`): tên duy nhất, mã, **Loại
   license** (`PERPETUAL` Vĩnh viễn / `TERM` Có thời hạn / `MAINTENANCE` Bảo
   trì), **Số người dùng chung tối đa** (`max_assignees` — hỗ trợ 1 mã license
