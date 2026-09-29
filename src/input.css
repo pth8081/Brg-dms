@@ -61,8 +61,14 @@ input[type="date"] {
   /* Font riêng cho trang Đăng Nhập (Literata cho tiêu đề/logo, Be Vietnam Pro
      cho phần nội dung) — phần còn lại của ứng dụng vẫn dùng font hệ thống.
      Đổi từ Spectral sang Literata (xem chú thích ở index.html) để tránh lỗi
-     ghép sai dấu thanh với nguyên âm có dấu mũ tiếng Việt. */
-  --font-brand: "Literata", Georgia, serif;
+     ghép sai dấu thanh với nguyên âm có dấu mũ tiếng Việt — NHƯNG lỗi này vẫn
+     có thể tái diễn trong khoảng thời gian ngắn TRƯỚC khi Literata tải xong
+     (font-display: swap tạm hiện font dự phòng), vì Georgia trên Windows ghép
+     sai dấu ầ/ề/ấ tương tự Spectral. Bỏ Georgia khỏi danh sách dự phòng, dùng
+     Be Vietnam Pro (đã tải sẵn cùng lúc, ghép dấu tiếng Việt đúng) trước khi
+     rơi về font hệ thống — không đặt tên font serif cụ thể nào khác vì không
+     kiểm soát được font đó có hỗ trợ đúng tiếng Việt trên mọi máy hay không. */
+  --font-brand: "Literata", "Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif;
   --font-vietnam: "Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif;
 
   /* Sidebar điều hướng chính (thay thanh menu ngang cũ) — nền tối nghiêng
