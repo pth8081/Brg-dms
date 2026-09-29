@@ -12,6 +12,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 
 | Phiên bản | PR | Ngày merge | Nội dung |
 |---|---|---|---|
+| v7.51 | [#108](https://github.com/pth8081/Brg-dms/pull/108) | 2026-09-29 | Sửa lỗi hiển thị font trang đăng nhập ghép sai dấu thanh với nguyên âm có dấu mũ tiếng Việt (ầ/ề/ấ) ở tiêu đề chính — không phải lỗi chính tả trong mã nguồn, mà do "Georgia" (font dự phòng cũ của `--font-brand`/Literata) ghép sai dấu trên một số máy/trình duyệt (đặc biệt Windows), xảy ra trong khoảng thời gian ngắn trước khi web font Literata tải xong (`font-display: swap`) — cùng loại lỗi Spectral đã sửa ở PR #100. Đổi font dự phòng sang "Be Vietnam Pro" (đã tải sẵn cùng lúc, ghép dấu tiếng Việt đúng) rồi mới rơi về font hệ thống |
 | v7.48 | [#107](https://github.com/pth8081/Brg-dms/pull/107) | 2026-09-29 | Ngân sách — thêm bộ lọc "Trạng thái" cho cả 3 tab Đề xuất/Phê duyệt/Sử dụng (cả 3 tab dùng chung 1 hàm vẽ thanh bộ lọc nên chỉ cần sửa 1 chỗ). Tab Đề xuất/Phê duyệt lọc theo `status` (Nháp/Chờ duyệt/Đã duyệt/Từ chối); tab Sử dụng đổi sang lọc theo `usageStatus` (Chưa sử dụng/Sử dụng từng phần/Đã sử dụng) vì mục cha ở đó luôn đã ở trạng thái Đã duyệt sẵn (tự sinh khi duyệt), lọc theo status gốc không có ý nghĩa |
 | v7.45 | [#106](https://github.com/pth8081/Brg-dms/pull/106) | 2026-09-28 | License — cho phép chọn nhiều dòng để Duyệt/Từ chối/Yêu cầu bổ sung hàng loạt ở tab "Phát hành đăng ký mua" và "Ngân sách" (bổ sung phần còn thiếu của PR #105, vốn mới làm được thao tác từng dòng) — checkbox chọn dòng + "chọn tất cả" (chỉ tác động các dòng đang hiển thị trên trang), thanh thao tác hàng loạt hiện khi có dòng được chọn, mirror cơ chế `budget2SelectedIds`/`budget2RenderBulkBar` của module Ngân sách; lặp gọi lại đúng 3 endpoint đơn lẻ đã có sẵn cho từng dòng, báo riêng dòng nào lỗi thay vì rớt cả loạt. Checkbox chỉ hiện ở dòng đang Chờ duyệt và người xem có quyền quyết định (không phải người tạo). Chưa làm "Xóa hàng loạt" — 2 bảng đăng ký chưa có endpoint xóa từng dòng nào cả, cần thiết kế riêng |
 | v7.42 | [#105](https://github.com/pth8081/Brg-dms/pull/105) | 2026-09-28 | (1) License — cho phép sửa hạng mục kỳ mua (trước đây chỉ thêm/xóa được, thiếu hẳn PUT) và nối dây nút Sửa cho hạng mục kỳ ngân sách (PUT đã có sẵn ở backend từ trước nhưng chưa từng được gọi từ giao diện) — chỉ sửa được khi kỳ còn Đang mở và hạng mục chưa có đăng ký/dự trù nào tham chiếu. (2) Đăng ký mua bản quyền/dự trù ngân sách không có giai đoạn Nháp/Gửi phê duyệt như Ngân sách (budget2_lines) nên trước đây không sửa lại được sau khi tạo — thêm cơ chế "Yêu cầu bổ sung" (mirror `edit_requested` của budget2_lines): người duyệt yêu cầu bổ sung mở khóa sửa đúng 1 lần (chặn tự yêu cầu trên đăng ký của chính mình, trừ Admin), người đăng ký sửa số lượng/ghi chú rồi tự khóa lại — áp dụng cho cả 2 loại đăng ký (mua bản quyền và dự trù ngân sách) |
@@ -112,7 +113,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 > v6.74, v6.76, v6.78, v6.80, v6.82, v6.84, v6.86, v6.90, v6.92, v6.94, v6.96,
 > v6.98, v6.100, v6.102, v6.104, v6.106, v6.108, v6.110, v6.112, v6.114,
 > v6.116, v6.118, v6.120, v6.122, v6.124, v7.26, v7.28, v7.30, v7.32, v7.34,
-> v7.36, v7.38, v7.40, v7.41, v7.43, v7.44, v7.46, v7.47, v7.49 bị nhảy cóc trong lịch sử — không có Pull Request tương ứng để đối chiếu nội
+> v7.36, v7.38, v7.40, v7.41, v7.43, v7.44, v7.46, v7.47, v7.49, v7.50 bị nhảy cóc trong lịch sử — không có Pull Request tương ứng để đối chiếu nội
 > dung (nhiều khả năng do chạy lại workflow tăng version hoặc sửa trực tiếp
 > trên `main` ngoài luồng PR — ví dụ v6.52 phát sinh từ chính commit cập
 > nhật version.md cho v6.51, v6.55/v6.56/v6.58/v6.60 phát sinh tương tự từ
@@ -124,7 +125,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 > v6.76/v6.78/v6.80/v6.82/v6.84/v6.86/v6.90/v6.92/v6.94 phát sinh tương tự
 > từ các commit cập nhật version.md trực tiếp trên `main` cho v6.69/v6.71/
 > v6.73/v6.75/v6.77/v6.79/v6.81/v6.83/v6.85/v6.89/v6.91/v6.93/v6.95/v6.97/v6.99/
-> v6.101/v6.103/v6.105/v6.107/v6.109/v6.111/v6.113/v6.115/v6.117/v6.119/v6.121/v6.123/v7.25/v7.27/v7.29/v7.31/v7.33/v7.35/v7.37/v7.39/v7.40/v7.42/v7.43/v7.45/v7.46/v7.48 — mỗi lần
+> v6.101/v6.103/v6.105/v6.107/v6.109/v6.111/v6.113/v6.115/v6.117/v6.119/v6.121/v6.123/v7.25/v7.27/v7.29/v7.31/v7.33/v7.35/v7.37/v7.39/v7.40/v7.42/v7.43/v7.45/v7.46/v7.48/v7.49 — mỗi lần
 > commit trực tiếp/merge như vậy đều vô tình kích hoạt lại workflow tăng
 > version thêm 1
 > lần nữa). Từ PR #65 trở đi, workflow còn tự rebuild
