@@ -492,10 +492,10 @@
         'openAllocByEmpModal', 'openAllocModal', 'openAutoAllocateModal', 'openBulkAllocFileModal', 'openBulkAllocateModal',
         'openBudgetRegistrationModal', 'openBudgetRoundModal', 'openRegistrationModal', 'openRoundModal',
         'openBudgetItemCatalogModal', 'openBudgetActualsModal', 'openRoundItemModal', 'openBudgetRoundItemModal',
-        'openRegistrationEditModal', 'openBudgetRegistrationEditModal',
+        'openRegistrationEditModal', 'openBudgetRegistrationEditModal', 'openRoundItemSupplementModal',
         'saveBatch', 'saveCompany', 'saveEmployee', 'saveSoftware', 'saveOrgUnit', 'saveAllocByEmp', 'saveAllocation',
         'saveAutoAllocate', 'saveBulkAllocate', 'saveBudgetItemCatalog', 'saveBudgetRegistration', 'saveBudgetRound',
-        'saveBudgetRoundItem', 'saveRegistration', 'saveRound', 'saveRoundItem', 'saveRegistrationEdit',
+        'saveBudgetRoundItem', 'saveRegistration', 'saveRound', 'saveRoundItem', 'saveRegistrationEdit', 'saveRoundItemSupplement',
         'deleteBatch', 'deleteCompany', 'deleteOrgUnit', 'deleteEmployee', 'deleteSoftware', 'deleteRound', 'deleteRoundItem',
         'deleteBudgetRound', 'deleteBudgetRoundItem', 'deleteBudgetActual', 'deleteBudgetItemCatalog', 'addBudgetActual',
         'revokeAllocation', 'revokeSelectedForEmployee', 'bulkRevokeSelectedAllocations',
@@ -5553,16 +5553,6 @@ function isPerpetualSoftware(softwareId) {
       }
       input.setSelectionRange(pos, pos);
     }
-    // Cột "Ngân sách" — chỉ có giá trị khi Kỳ mua được tạo có liên kết tới 1
-    // Kỳ ngân sách; nếu không liên kết thì budgetQuantity = null, hiện "—".
-    // Tô cảnh báo khi số đăng ký thực tế VƯỢT số đã dự trù được duyệt.
-    function budgetQuantityCell(r) {
-      if (r.budgetQuantity === null || r.budgetQuantity === undefined) return '<span class="text-gray-400">—</span>';
-      const overBudget = r.requestedQuantity > r.budgetQuantity;
-      return overBudget
-        ? `<span class="text-amber-700 font-semibold" title="Vượt ngân sách đã duyệt">${r.budgetQuantity} ⚠️</span>`
-        : `<span>${r.budgetQuantity}</span>`;
-    }
     function purchaseStatusBadge(status) {
       if (status === 'ISSUED') return `<span class="text-[10px] font-bold text-teal-700 bg-teal-100 px-2 py-0.5 rounded-full whitespace-nowrap">Đã phát hành</span>`;
       if (status === 'APPROVED') return `<span class="text-[10px] font-bold text-success-700 bg-success-100 px-2 py-0.5 rounded-full whitespace-nowrap">Đã duyệt</span>`;
@@ -5659,12 +5649,24 @@ function isPerpetualSoftware(softwareId) {
                   <tbody>
                     ${items.map(i => {
                       const sw = licenseDB.softwareCatalog.find(s => s.id === i.softwareId);
+                      const itemRegs = licenseDB.purchaseRegistrations.filter(reg => reg.roundItemId === i.id);
+                      const hasIssued = itemRegs.some(reg => reg.status === 'ISSUED');
+                      const hasAnyReg = itemRegs.length > 0;
+                      // Đã có đăng ký ISSUED (đã phát hành license theo giá cũ) — khóa
+                      // hẳn, không cho sửa nữa (kể cả qua Gửi bổ sung). Có đăng ký
+                      // nhưng chưa ISSUED — dùng nút "Gửi bổ sung" (xem POST
+                      // .../request-supplement) thay vì Sửa thường (bị PUT chặn).
+                      const editBtn = hasIssued
+                        ? `<span class="px-1.5 py-0.5 text-gray-300" title="Đã có license phát hành theo giá này — không thể sửa">🔒</span>`
+                        : hasAnyReg
+                          ? `<button ${dc('openRoundItemSupplementModal', r.id, i.id)} class="px-1.5 py-0.5 rounded hover:bg-amber-100 text-amber-700" title="Gửi bổ sung sửa giá">📋</button>`
+                          : `<button ${dc('openRoundItemModal', r.id, i.id)} class="px-1.5 py-0.5 rounded hover:bg-brand-100 text-brand-700">✏️</button>`;
                       return `<tr>
                         <td class="border p-1.5">${escapeHtml(sw ? sw.name : '—')}</td>
                         <td class="border p-1.5 text-right">${formatMoney(i.unitPrice)}</td>
                         ${r.roundType === 'NEW' ? '' : `<td class="border p-1.5">${expiryLabel(i.expiryDate)}</td>`}
                         <td class="border p-1.5 text-center whitespace-nowrap">
-                          <button ${dc('openRoundItemModal', r.id, i.id)} class="px-1.5 py-0.5 rounded hover:bg-brand-100 text-brand-700">✏️</button>
+                          ${editBtn}
                           <button ${dc('deleteRoundItem', r.id, i.id)} class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600">🗑️</button>
                         </td>
                       </tr>`;
@@ -5864,6 +5866,26 @@ function isPerpetualSoftware(softwareId) {
       } else {
         hint.textContent = '';
       }
+      refreshRoundItemBudgetPriceRef(roundId, softwareId);
+    }
+    // Giá ngân sách tham chiếu (chỉ đọc) — tra theo tên phần mềm khớp với dòng
+    // Ngân sách (Budget2) đã duyệt đúng năm hiện tại, xem GET
+    // /api/license/rounds/:roundId/budget-price-reference. Gọi lại mỗi khi đổi
+    // phần mềm/mở modal; lỗi mạng chỉ hiện "—", không chặn việc Thêm/Sửa hạng mục.
+    let roundItemBudgetPriceRefSeq = 0;
+    async function refreshRoundItemBudgetPriceRef(roundId, softwareId) {
+      const field = document.getElementById('roundItemBudgetPriceRef');
+      if (!softwareId || !roundId) { field.value = '—'; return; }
+      const mySeq = ++roundItemBudgetPriceRefSeq;
+      field.value = 'Đang tải...';
+      try {
+        const result = await apiFetch(`/api/license/rounds/${roundId}/budget-price-reference?softwareId=${softwareId}`);
+        if (mySeq !== roundItemBudgetPriceRefSeq) return; // trả lời trễ của lần đổi trước, bỏ qua
+        field.value = result.found ? `${formatMoney(result.unitPrice)} (năm ${result.budgetYear})` : 'Không tìm thấy trong Ngân sách';
+      } catch (err) {
+        if (mySeq !== roundItemBudgetPriceRefSeq) return;
+        field.value = '—';
+      }
     }
     function openRoundItemModal(roundId, itemId) {
       document.getElementById('roundItemRoundId').value = roundId;
@@ -5918,6 +5940,47 @@ function isPerpetualSoftware(softwareId) {
         showToast(err.message, 'danger');
       }
     }
+    // --- Gửi bổ sung sửa giá hạng mục kỳ mua ĐÃ có công ty đăng ký — xem chú
+    // thích đầy đủ ở POST /api/license/rounds/:roundId/items/:itemId/request-supplement.
+    function openRoundItemSupplementModal(roundId, itemId) {
+      const item = licenseDB.purchaseRoundItems.find(i => i.id === itemId);
+      if (!item) return;
+      const round = licenseDB.purchaseRounds.find(r => r.id === roundId);
+      const isNewType = round && round.roundType === 'NEW';
+      const perpetual = isPerpetualSoftware(item.softwareId);
+      document.getElementById('roundItemSupplementRoundId').value = roundId;
+      document.getElementById('roundItemSupplementItemId').value = itemId;
+      document.getElementById('roundItemSupplementUnitPrice').value = String(item.unitPrice);
+      document.getElementById('roundItemSupplementExpiryWrap').classList.toggle('hidden', perpetual || isNewType);
+      document.getElementById('roundItemSupplementExpiryDate').value = item.expiryDate || '';
+      document.getElementById('roundItemSupplementReason').value = '';
+      openLicenseModal('roundItemSupplementModal');
+    }
+    async function saveRoundItemSupplement() {
+      const roundId = Number(document.getElementById('roundItemSupplementRoundId').value);
+      const itemId = Number(document.getElementById('roundItemSupplementItemId').value);
+      const item = licenseDB.purchaseRoundItems.find(i => i.id === itemId);
+      const round = licenseDB.purchaseRounds.find(r => r.id === roundId);
+      const isNewType = round && round.roundType === 'NEW';
+      const perpetual = item && isPerpetualSoftware(item.softwareId);
+      const unitPrice = parseThousandsInput(document.getElementById('roundItemSupplementUnitPrice').value);
+      const expiryDate = (perpetual || isNewType) ? null : document.getElementById('roundItemSupplementExpiryDate').value;
+      const reason = document.getElementById('roundItemSupplementReason').value.trim();
+      if (!Number.isFinite(unitPrice) || unitPrice < 0) return showToast('Giá mua không hợp lệ.', 'warning');
+      if (!perpetual && !isNewType && !expiryDate) return showToast('Vui lòng chọn Ngày hết hạn dự kiến.', 'warning');
+      if (!reason) return showToast('Vui lòng nhập lý do sửa giá.', 'warning');
+      try {
+        const result = await apiFetch(`/api/license/rounds/${roundId}/items/${itemId}/request-supplement`, { method: 'POST', body: JSON.stringify({ unitPrice, expiryDate, reason }) });
+        showToast(`Đã cập nhật giá. Chuyển lại chờ duyệt ${result.affectedApproved} đăng ký, cập nhật ${result.affectedPending} đăng ký đang chờ.`, 'success');
+        closeLicenseModal('roundItemSupplementModal');
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        renderRoundsList();
+        renderAdminRegistrationsTable();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
     async function deleteRoundItem(roundId, itemId) {
       const ok = await showConfirm({ title: 'Xóa hạng mục', message: 'Xóa phần mềm này khỏi kỳ mua? Chỉ xóa được khi chưa có công ty nào đăng ký.', danger: true, confirmText: 'Xóa' });
       if (!ok) return;
@@ -5940,7 +6003,7 @@ function isPerpetualSoftware(softwareId) {
       const status = document.getElementById('adminRegFilterStatus').value;
       const tbody = document.getElementById('adminRegistrationsTableBody');
       if (!roundId) {
-        tbody.innerHTML = `<tr><td colspan="10" class="text-center text-gray-500 p-6">👆 Chọn 1 Kỳ mua ở trên để xem danh sách đăng ký.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-gray-500 p-6">👆 Chọn 1 Kỳ mua ở trên để xem danh sách đăng ký.</td></tr>`;
         renderPaginationBar('adminRegistrationsPaginationBox', 'adminRegistrations', 0, 'renderAdminRegistrationsTable', { itemLabel: 'đăng ký' });
         licenseRegRenderBulkBar('adminReg');
         return;
@@ -5949,7 +6012,7 @@ function isPerpetualSoftware(softwareId) {
       if (roundId) rows = rows.filter(r => r.roundId === Number(roundId));
       if (status) rows = rows.filter(r => r.status === status);
       if (rows.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="10" class="text-center text-gray-500 p-4">Không có đăng ký nào.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-gray-500 p-4">Không có đăng ký nào.</td></tr>`;
         renderPaginationBar('adminRegistrationsPaginationBox', 'adminRegistrations', 0, 'renderAdminRegistrationsTable', { itemLabel: 'đăng ký' });
         licenseRegRenderBulkBar('adminReg');
         return;
@@ -5970,7 +6033,6 @@ function isPerpetualSoftware(softwareId) {
             <td class="border p-2">${escapeHtml(company ? company.name : '—')}</td>
             <td class="border p-2">${escapeHtml(software ? software.name : '—')}</td>
             <td class="border p-2 text-center">${r.currentQuantity}</td>
-            <td class="border p-2 text-center">${budgetQuantityCell(r)}</td>
             <td class="border p-2 text-center font-semibold">${r.requestedQuantity}</td>
             <td class="border p-2 text-right font-semibold">${formatMoney(r.totalAmount)}</td>
             <td class="border p-2 text-center">${purchaseStatusBadge(r.status)}${r.status === 'PENDING' && isRequester ? '<br><span class="text-[10px] text-gray-400">Chờ người khác duyệt</span>' : ''}${r.status === 'PENDING' && r.editRequested ? '<br><span class="text-[10px] font-bold text-blue-600">Đã yêu cầu bổ sung</span>' : ''}</td>
@@ -6078,7 +6140,7 @@ function isPerpetualSoftware(softwareId) {
       const status = document.getElementById('regFilterStatus').value;
       const tbody = document.getElementById('registrationsTableBody');
       if (!roundId) {
-        tbody.innerHTML = `<tr><td colspan="12" class="text-center text-gray-500 p-6">👆 Chọn 1 Kỳ mua ở trên để xem/đăng ký.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="11" class="text-center text-gray-500 p-6">👆 Chọn 1 Kỳ mua ở trên để xem/đăng ký.</td></tr>`;
         renderPaginationBar('registrationsPaginationBox', 'registrations', 0, 'renderRegistrationsTable', { itemLabel: 'đăng ký' });
         return;
       }
@@ -6086,7 +6148,7 @@ function isPerpetualSoftware(softwareId) {
       if (roundId) rows = rows.filter(r => r.roundId === Number(roundId));
       if (status) rows = rows.filter(r => r.status === status);
       if (rows.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="12" class="text-center text-gray-500 p-4">Chưa có đăng ký nào.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="11" class="text-center text-gray-500 p-4">Chưa có đăng ký nào.</td></tr>`;
         renderPaginationBar('registrationsPaginationBox', 'registrations', 0, 'renderRegistrationsTable', { itemLabel: 'đăng ký' });
         return;
       }
@@ -6104,7 +6166,6 @@ function isPerpetualSoftware(softwareId) {
             <td class="border p-2">${escapeHtml(company ? company.name : '—')}</td>
             <td class="border p-2">${escapeHtml(software ? software.name : '—')}</td>
             <td class="border p-2 text-center">${r.currentQuantity}</td>
-            <td class="border p-2 text-center">${budgetQuantityCell(r)}</td>
             <td class="border p-2 text-center font-semibold">${r.requestedQuantity}</td>
             <td class="border p-2 text-right">${formatMoney(r.unitPrice)}</td>
             <td class="border p-2 text-right font-semibold">${formatMoney(r.totalAmount)}</td>

@@ -4736,7 +4736,7 @@ app.post('/api/license/batches', requireAuth, requireLicenseOrAdmin, async (req,
 
             const [companyRows] = await conn.query('SELECT id, code FROM lic_companies WHERE id = ?', [companyId]);
             if (!companyRows[0]) throw new IssueBatchError(400, 'Công ty không tồn tại.');
-            const [softwareRows] = await conn.query('SELECT id, code, license_type FROM lic_software_catalog WHERE id = ?', [softwareId]);
+            const [softwareRows] = await conn.query('SELECT id, code, name, license_type FROM lic_software_catalog WHERE id = ?', [softwareId]);
             if (!softwareRows[0]) throw new IssueBatchError(400, 'Phần mềm không tồn tại.');
             companyCode = companyRows[0].code;
             softwareCode = softwareRows[0].code;
@@ -4811,6 +4811,28 @@ app.post('/api/license/batches', requireAuth, requireLicenseOrAdmin, async (req,
                 'UPDATE lic_purchase_registrations SET status = ?, issued_batch_id = ?, issued_quantity = ?, issued_at = ? WHERE id = ?',
                 ['ISSUED', batchId, quantity, issuedAt, registrationId]
             );
+
+            // "Chốt thực tế" — đồng bộ sang Ngân sách sử dụng (module Ngân sách
+            // thật, budget2_lines): tạo 1 dòng USED độc lập (parent_id NULL, không
+            // gắn với dòng Đề xuất/Phê duyệt nào có sẵn — License có nguồn giá
+            // riêng, không đi qua quy trình Ngân sách) theo đúng Giá mua đang lưu ở
+            // hạng mục kỳ mua tại THỜI ĐIỂM phát hành này (giá có thể đã được sửa
+            // qua "Gửi bổ sung" so với lúc đăng ký). Bỏ qua khi quantity = 0 (phát
+            // hành 0 mã, không phát sinh chi phí thật).
+            if (quantity > 0) {
+                const [priceRows] = await conn.query('SELECT unit_price FROM lic_purchase_round_items WHERE id = ?', [registration.round_item_id]);
+                const finalUnitPrice = priceRows[0] ? Number(priceRows[0].unit_price) : Number(registration.unit_price);
+                const budgetTotal = quantity * finalUnitPrice;
+                const issuedDateObj = new Date(issuedDate);
+                const budgetYear = issuedDateObj.getFullYear();
+                const budgetMonth = issuedDateObj.getMonth() + 1;
+                await conn.query(
+                    `INSERT INTO budget2_lines
+                        (stage, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, item_category, usage_status, status, note, created_by, created_at, budget_year, budget_month, purchase_month)
+                     VALUES ('USED', ?, NULL, ?, ?, ?, ?, 0, ?, 'OPEX', 'SOFTWARE', 'USED', 'APPROVED', ?, ?, ?, ?, ?, ?)`,
+                    [companyId, `[License] ${softwareRows[0].name}`, `Phát hành license theo đăng ký mua #${registrationId}, kỳ mua #${registration.round_id}.`, quantity, finalUnitPrice, budgetTotal, note || null, req.user.username, issuedAt, budgetYear, budgetMonth, budgetMonth]
+                );
+            }
 
             await conn.commit();
             outcome = { batchId, toGenerate, renewedCount, keptOldExpiryCount, roundType, quantity, expiryDate };
@@ -5826,6 +5848,130 @@ app.put('/api/license/rounds/:roundId/items/:itemId', requireAuth, requireLicens
         res.json({ success: true });
     } catch (err) {
         console.error('❌ Lỗi sửa hạng mục kỳ mua:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Gửi bổ sung sửa giá 1 hạng mục kỳ mua ĐÃ có công ty đăng ký — PUT
+// .../items/:itemId ở trên khóa hoàn toàn ngay khi có bất kỳ đăng ký nào tham
+// chiếu (tránh sửa giá "chui" sau khi công ty đã đăng ký theo giá cũ). Endpoint
+// này mở lại đường sửa giá khi CẦN báo giá lại thật, với ranh giới: KHÔNG được
+// đụng tới hạng mục đã có đăng ký ISSUED (đã phát hành license theo giá cũ —
+// coi như giao dịch đã hoàn tất, không thể sửa ngược thời gian). Các đăng ký
+// PENDING/APPROVED (chưa phát hành) được tính lại Thành tiền theo giá mới;
+// đăng ký APPROVED bị chuyển về PENDING (mất trạng thái duyệt cũ, xóa
+// decided_by/decided_at) để người duyệt xem lại theo giá mới — đúng yêu cầu
+// nghiệp vụ "sửa giá xong thì gửi lại phê duyệt".
+app.post('/api/license/rounds/:roundId/items/:itemId/request-supplement', requireAuth, requireLicenseOrAdmin, async (req, res) => {
+    try {
+        const { roundId, itemId } = req.params;
+        const unitPrice = Number(req.body && req.body.unitPrice);
+        if (!Number.isFinite(unitPrice) || unitPrice < 0) return res.status(400).json({ error: 'Đơn giá không hợp lệ.' });
+        const rawExpiryDate = String((req.body && req.body.expiryDate) || '').trim();
+        const reason = String((req.body && req.body.reason) || '').trim();
+        if (!reason) return res.status(400).json({ error: 'Vui lòng nhập lý do sửa giá.' });
+        if (reason.length > 400) return res.status(400).json({ error: 'Lý do quá dài (tối đa 400 ký tự).' });
+
+        const [itemRows] = await pool.query('SELECT id, software_id FROM lic_purchase_round_items WHERE id = ? AND round_id = ?', [itemId, roundId]);
+        if (!itemRows[0]) return res.status(404).json({ error: 'Không tìm thấy hạng mục trong kỳ mua.' });
+        const [roundRows] = await pool.query('SELECT status, round_type FROM lic_purchase_rounds WHERE id = ?', [roundId]);
+        if (!roundRows[0]) return res.status(404).json({ error: 'Không tìm thấy kỳ mua.' });
+        if (roundRows[0].status !== 'OPEN') return res.status(400).json({ error: 'Kỳ mua đã đóng, không thể sửa hạng mục.' });
+
+        const [issuedRows] = await pool.query("SELECT COUNT(*) AS cnt FROM lic_purchase_registrations WHERE round_item_id = ? AND status = 'ISSUED'", [itemId]);
+        if (issuedRows[0].cnt > 0) return res.status(400).json({ error: 'Không thể sửa — đã có đăng ký được phát hành license theo giá cũ trong hạng mục này.' });
+
+        const [softwareRows] = await pool.query('SELECT license_type FROM lic_software_catalog WHERE id = ?', [itemRows[0].software_id]);
+        const isPerpetual = softwareRows[0] && softwareRows[0].license_type === 'PERPETUAL';
+        let expiryDate = null;
+        if (!isPerpetual && roundRows[0].round_type === 'RENEWAL') {
+            if (!validDateStr(rawExpiryDate)) return res.status(400).json({ error: 'Ngày hết hạn không hợp lệ.' });
+            expiryDate = rawExpiryDate;
+        } else if (!isPerpetual && rawExpiryDate && validDateStr(rawExpiryDate)) {
+            expiryDate = rawExpiryDate;
+        }
+
+        const conn = await pool.getConnection();
+        let affectedApproved = 0, affectedPending = 0, skipped = 0;
+        try {
+            await conn.beginTransaction();
+            await conn.query('UPDATE lic_purchase_round_items SET unit_price = ?, expiry_date = ? WHERE id = ?', [unitPrice, expiryDate, itemId]);
+
+            // Khóa toàn bộ đăng ký PENDING/APPROVED liên quan TRƯỚC khi tính lại
+            // — chống 2 request gửi bổ sung/duyệt chạy song song đọc trùng dữ liệu cũ.
+            const [regRows] = await conn.query("SELECT * FROM lic_purchase_registrations WHERE round_item_id = ? AND status IN ('PENDING','APPROVED') FOR UPDATE", [itemId]);
+            for (const reg of regRows) {
+                const newTotal = Number(reg.requested_quantity) * unitPrice;
+                if (reg.status === 'APPROVED') {
+                    // pending_key có ràng buộc UNIQUE khi status=PENDING — trường hợp
+                    // hiếm gặp công ty này đã tự tạo 1 đăng ký PENDING MỚI cho cùng
+                    // hạng mục (được phép vì kiểm tra trùng chỉ chặn theo PENDING, đăng
+                    // ký cũ lúc đó đã APPROVED) thì bỏ qua, không tự ý xử lý thay.
+                    const newPendingKey = `${reg.round_id}:${reg.round_item_id}:${reg.company_id}`;
+                    try {
+                        await conn.query(
+                            "UPDATE lic_purchase_registrations SET unit_price = ?, total_amount = ?, status = 'PENDING', decided_by = NULL, decided_at = NULL, pending_key = ? WHERE id = ?",
+                            [unitPrice, newTotal, newPendingKey, reg.id]
+                        );
+                        affectedApproved++;
+                    } catch (e) {
+                        if (e.code === 'ER_DUP_ENTRY') { skipped++; continue; }
+                        throw e;
+                    }
+                } else {
+                    await conn.query('UPDATE lic_purchase_registrations SET unit_price = ?, total_amount = ? WHERE id = ?', [unitPrice, newTotal, reg.id]);
+                    affectedPending++;
+                }
+            }
+            await conn.commit();
+        } catch (e) {
+            await conn.rollback();
+            throw e;
+        } finally {
+            conn.release();
+        }
+
+        await writeAuditLog({ module: 'LICENSE', actionType: 'REQUEST_SUPPLEMENT_ROUND_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `Hạng mục #${itemId}`, description: `Gửi bổ sung sửa giá hạng mục #${itemId} trong kỳ mua #${roundId}: đơn giá mới ${unitPrice}${expiryDate ? `, hạn ${expiryDate}` : ''}. Lý do: ${reason}. Chuyển lại chờ duyệt ${affectedApproved} đăng ký, cập nhật ${affectedPending} đăng ký đang chờ${skipped ? `, bỏ qua ${skipped} đăng ký (trùng khóa chờ duyệt)` : ''}.` });
+        res.json({ success: true, affectedApproved, affectedPending, skipped });
+    } catch (err) {
+        console.error('❌ Lỗi gửi bổ sung sửa giá hạng mục:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Giá ngân sách tham chiếu cho 1 phần mềm trong kỳ mua — khớp theo TÊN
+// phần mềm với các dòng Ngân sách (module Ngân sách thật, budget2_lines) đã
+// duyệt ở giai đoạn "Phê duyệt" (stage=APPROVED, status=APPROVED), đúng năm
+// hiện tại, và đúng công ty nếu kỳ mua có giới hạn phạm vi — KHÔNG đổi schema
+// Ngân sách (không thêm cột liên kết phần mềm), chỉ đọc tham chiếu để hiển thị.
+app.get('/api/license/rounds/:roundId/budget-price-reference', requireAuth, requireLicenseOrAdmin, async (req, res) => {
+    try {
+        const { roundId } = req.params;
+        const softwareId = Number(req.query.softwareId);
+        if (!softwareId) return res.status(400).json({ error: 'Thiếu phần mềm.' });
+        const [roundRows] = await pool.query('SELECT scope_type, scope_id FROM lic_purchase_rounds WHERE id = ?', [roundId]);
+        if (!roundRows[0]) return res.status(404).json({ error: 'Không tìm thấy kỳ mua.' });
+        const [swRows] = await pool.query('SELECT name FROM lic_software_catalog WHERE id = ?', [softwareId]);
+        if (!swRows[0]) return res.status(404).json({ error: 'Không tìm thấy phần mềm.' });
+
+        let companyId = null;
+        if (roundRows[0].scope_type === 'COMPANY') companyId = roundRows[0].scope_id;
+        else if (roundRows[0].scope_type === 'ORG_UNIT') {
+            const [ouRows] = await pool.query('SELECT company_id FROM lic_org_units WHERE id = ?', [roundRows[0].scope_id]);
+            companyId = ouRows[0] ? ouRows[0].company_id : null;
+        }
+
+        const year = new Date().getFullYear();
+        const params = [`%${swRows[0].name}%`, year];
+        let sql = `SELECT id, unit_price, budget_year, company_id FROM budget2_lines
+                    WHERE item_category = 'SOFTWARE' AND stage = 'APPROVED' AND status = 'APPROVED' AND content LIKE ? AND budget_year = ?`;
+        if (companyId) { sql += ' AND company_id = ?'; params.push(companyId); }
+        sql += ' ORDER BY id DESC LIMIT 1';
+        const [matchRows] = await pool.query(sql, params);
+        if (!matchRows[0]) return res.json({ found: false });
+        res.json({ found: true, unitPrice: Number(matchRows[0].unit_price), budgetYear: matchRows[0].budget_year });
+    } catch (err) {
+        console.error('❌ Lỗi tra giá ngân sách tham chiếu:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });

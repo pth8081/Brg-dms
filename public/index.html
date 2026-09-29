@@ -1331,7 +1331,11 @@
       <button id="btnLicenseSubAD" data-evt-click="switchLicenseSubTab" data-args='["ad"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🗂️ Tài khoản AD</button>
       <button id="btnLicenseSubPurchase" data-evt-click="switchLicenseSubTab" data-args='["purchase"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🛒 Đăng ký mua bản quyền</button>
       <button id="btnLicenseSubRounds" data-evt-click="switchLicenseSubTab" data-args='["rounds"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📋 Phát hành đăng ký mua</button>
-      <button id="btnLicenseSubBudget" data-evt-click="switchLicenseSubTab" data-args='["budget"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">💰 Ngân sách</button>
+      <!-- Tab "Ngân sách" nội bộ License ẩn khỏi điều hướng (module ngân sách
+           thật là Quản lý Ngân sách — Budget2) — giữ nguyên element (hidden,
+           không xóa hẳn) để switchLicenseSubTab() không phải sửa; dữ liệu
+           lic_budget_* GIỮ NGUYÊN trong CSDL, chỉ không truy cập được qua UI. -->
+      <button id="btnLicenseSubBudget" data-evt-click="switchLicenseSubTab" data-args='["budget"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap hidden">💰 Ngân sách</button>
       <button id="btnLicenseSubReports" data-evt-click="switchLicenseSubTab" data-args='["reports"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📊 Báo cáo</button>
     </div>
 
@@ -1606,7 +1610,6 @@
               <th class="border p-2">Công ty</th>
               <th class="border p-2">Phần mềm</th>
               <th class="border p-2 text-center whitespace-nowrap">Đang dùng</th>
-              <th class="border p-2 text-center whitespace-nowrap">Ngân sách</th>
               <th class="border p-2 text-center whitespace-nowrap">Mua thực tế</th>
               <th class="border p-2 text-right">Đơn giá</th>
               <th class="border p-2 text-right">Thành tiền</th>
@@ -1658,7 +1661,6 @@
                 <th class="border p-2">Công ty</th>
                 <th class="border p-2">Phần mềm</th>
                 <th class="border p-2 text-center whitespace-nowrap">Đang dùng</th>
-                <th class="border p-2 text-center whitespace-nowrap">Ngân sách</th>
                 <th class="border p-2 text-center whitespace-nowrap">Mua thực tế</th>
                 <th class="border p-2 text-right">Thành tiền</th>
                 <th class="border p-2 text-center whitespace-nowrap">Trạng thái</th>
@@ -3243,7 +3245,11 @@
         <select id="roundItemSoftware" data-evt-change="onRoundItemSoftwareChange" data-args='[]' class="w-full border p-2 rounded text-sm bg-white"></select>
       </div>
       <div>
-        <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn giá (VNĐ)</label>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Giá ngân sách <span class="font-normal text-gray-400">(tham chiếu, theo năm hiện tại)</span></label>
+        <input id="roundItemBudgetPriceRef" type="text" readonly class="w-full border bg-gray-50 text-gray-600 p-2 rounded text-sm" value="—">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Giá mua (VNĐ)</label>
         <input id="roundItemUnitPrice" type="text" inputmode="numeric" data-evt-input="onMoneyInputFormat" data-args='[{"__live__":"event"}]' class="w-full border p-2 rounded text-sm" placeholder="VD: 1.500.000">
       </div>
       <div id="roundItemExpiryWrap">
@@ -3254,6 +3260,35 @@
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" data-evt-click="closeLicenseModal" data-args='["roundItemModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
         <button type="button" id="roundItemSaveBtn" data-evt-click="saveRoundItem" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Thêm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Gửi bổ sung sửa giá hạng mục kỳ mua (khi đã có công ty đăng ký,
+       PUT thường bị khóa — xem chú thích POST .../request-supplement) -->
+  <div id="roundItemSupplementModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-sm w-full p-5 space-y-4">
+      <h3 class="font-bold text-gray-900 text-base">Gửi bổ sung — sửa giá hạng mục</h3>
+      <input type="hidden" id="roundItemSupplementRoundId">
+      <input type="hidden" id="roundItemSupplementItemId">
+      <div class="bg-amber-50 border border-amber-200 rounded p-2 text-[11px] text-amber-800">
+        Hạng mục này đã có công ty đăng ký mua. Sửa giá sẽ tự tính lại Thành tiền cho các đăng ký đang chờ/đã duyệt (chưa phát hành) — đăng ký đã duyệt sẽ chuyển lại về Chờ duyệt để xét lại theo giá mới.
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Giá mua mới (VNĐ)</label>
+        <input id="roundItemSupplementUnitPrice" type="text" inputmode="numeric" data-evt-input="onMoneyInputFormat" data-args='[{"__live__":"event"}]' class="w-full border p-2 rounded text-sm" placeholder="VD: 1.500.000">
+      </div>
+      <div id="roundItemSupplementExpiryWrap">
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày hết hạn dự kiến</label>
+        <input id="roundItemSupplementExpiryDate" type="date" class="w-full border p-2 rounded text-sm">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Lý do sửa giá</label>
+        <textarea id="roundItemSupplementReason" rows="2" maxlength="400" class="w-full border p-2 rounded text-sm" placeholder="VD: Báo giá lại từ nhà cung cấp"></textarea>
+      </div>
+      <div class="flex justify-end gap-2 pt-1">
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["roundItemSupplementModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveRoundItemSupplement" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Gửi bổ sung</button>
       </div>
     </div>
   </div>
