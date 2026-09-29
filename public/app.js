@@ -8638,9 +8638,9 @@ function isPerpetualSoftware(softwareId) {
     // người dùng thực sự cần duyệt qua, không phải tổng số dòng toàn bộ lịch sử.
     const BUDGET2_PAGE_SIZE = 10;
     const budget2FilterState = {
-      propose: { year: '', type: '', category: '', orgUnit: '', q: '' },
-      approved: { year: '', type: '', category: '', orgUnit: '', q: '' },
-      used: { year: '', type: '', category: '', orgUnit: '', q: '' }
+      propose: { year: '', type: '', category: '', orgUnit: '', q: '', status: '' },
+      approved: { year: '', type: '', category: '', orgUnit: '', q: '', status: '' },
+      used: { year: '', type: '', category: '', orgUnit: '', q: '', status: '' }
     };
     const budget2PageState = { propose: {}, approved: {}, used: {} };
     const budget2SelectedIds = { propose: new Set(), approved: new Set(), used: new Set() };
@@ -8648,11 +8648,16 @@ function isPerpetualSoftware(softwareId) {
     function budget2ApplyFilters(rows, key) {
       const f = budget2FilterState[key];
       const q = f.q.trim().toLowerCase();
+      // Tab Sử dụng không có khái niệm status (Nháp/Chờ duyệt/Đã duyệt/Từ
+      // chối — mục cha ở đây luôn đã APPROVED) mà lọc theo usageStatus (Chưa
+      // sử dụng/Sử dụng từng phần/Đã sử dụng) — xem budget2RenderFilterBar().
+      const statusField = key === 'used' ? 'usageStatus' : 'status';
       return rows.filter(l =>
         (!f.year || String(l.budgetYear) === f.year) &&
         (!f.type || l.budgetType === f.type) &&
         (!f.category || l.itemCategory === f.category) &&
         (!f.orgUnit || String(l.orgUnitId) === f.orgUnit) &&
+        (!f.status || l[statusField] === f.status) &&
         (!q || l.content.toLowerCase().includes(q))
       );
     }
@@ -8722,7 +8727,7 @@ function isPerpetualSoftware(softwareId) {
       budget2RerenderTable(key);
     }
     function clearBudget2Filters(key) {
-      budget2FilterState[key] = { year: '', type: '', category: '', orgUnit: '', q: '' };
+      budget2FilterState[key] = { year: '', type: '', category: '', orgUnit: '', q: '', status: '' };
       budget2PageState[key] = {};
       budget2RerenderTable(key);
     }
@@ -8751,6 +8756,20 @@ function isPerpetualSoftware(softwareId) {
           <select ${dchg('onBudget2FilterFieldChange', key, 'orgUnit', LIVE_VALUE)} class="border p-1.5 rounded text-xs bg-white">
             <option value="">Tất cả</option>
             ${orgUnitOptions.map(u => `<option value="${u.id}" ${f.orgUnit === String(u.id) ? 'selected' : ''}>${escapeHtml(u.name)}</option>`).join('')}
+          </select></div>
+        <div><label class="block text-[10px] font-bold text-gray-500 uppercase mb-0.5">Trạng thái</label>
+          <select ${dchg('onBudget2FilterFieldChange', key, 'status', LIVE_VALUE)} class="border p-1.5 rounded text-xs bg-white">
+            <option value="">Tất cả</option>
+            ${key === 'used' ? `
+              <option value="NOT_USED" ${f.status === 'NOT_USED' ? 'selected' : ''}>Chưa sử dụng</option>
+              <option value="PARTIALLY_USED" ${f.status === 'PARTIALLY_USED' ? 'selected' : ''}>Sử dụng từng phần</option>
+              <option value="USED" ${f.status === 'USED' ? 'selected' : ''}>Đã sử dụng</option>
+            ` : `
+              <option value="DRAFT" ${f.status === 'DRAFT' ? 'selected' : ''}>Nháp</option>
+              <option value="SUBMITTED" ${f.status === 'SUBMITTED' ? 'selected' : ''}>Chờ duyệt</option>
+              <option value="APPROVED" ${f.status === 'APPROVED' ? 'selected' : ''}>Đã duyệt</option>
+              <option value="REJECTED" ${f.status === 'REJECTED' ? 'selected' : ''}>Từ chối</option>
+            `}
           </select></div>
         <div class="flex-1 min-w-[160px]"><label class="block text-[10px] font-bold text-gray-500 uppercase mb-0.5">Nội dung</label>
           <input ${din('onBudget2FilterFieldChange', key, 'q', LIVE_VALUE)} data-budget2-search="${key}" type="search" value="${escapeHtml(f.q)}" placeholder="Tìm theo nội dung…" class="w-full border p-1.5 rounded text-xs bg-white"></div>
