@@ -7574,10 +7574,16 @@ function requireBudgetOrAdmin(req, res, next) {
     next();
 }
 
-// (Quyền Chỉ xem) Bản ĐỌC — thêm perms.budgetViewer, dùng cho route GET.
+// (Quyền Chỉ xem) Bản ĐỌC — thêm perms.budgetViewer, dùng cho route GET. Từ
+// đợt thêm 3 quyền "theo phòng" (budgetDeptTransfer/budgetDeptViewer/
+// budgetDeptReportViewer, xem chú thích ở dưới), cả 3 đều được xem bootstrap
+// (danh sách dòng) — dữ liệu trả về đã tự lọc đúng Phạm vi của họ ở
+// getUserBudgetScope()/budgetTargetInUserScope(), nên không lộ dữ liệu ngoài
+// phòng dù middleware này cho qua.
 function requireBudgetViewOrAdmin(req, res, next) {
-    if (!req.user || !req.user.perms || (!req.user.perms.admin && !req.user.perms.budgetManager && !req.user.perms.budgetViewer && !req.user.perms.budgetApprover)) {
-        return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên, Người quản lý Ngân sách, Người xem Ngân sách, hoặc Người duyệt Ngân sách.' });
+    const p = req.user && req.user.perms;
+    if (!p || !(p.admin || p.budgetManager || p.budgetViewer || p.budgetApprover || p.budgetDeptTransfer || p.budgetDeptViewer || p.budgetDeptReportViewer)) {
+        return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên, Người quản lý Ngân sách, Người xem Ngân sách, Người duyệt Ngân sách, hoặc 1 trong các quyền theo phòng.' });
     }
     next();
 }
@@ -7590,6 +7596,39 @@ function requireBudgetViewOrAdmin(req, res, next) {
 function requireBudgetApproveOrAdmin(req, res, next) {
     if (!req.user || !req.user.perms || (!req.user.perms.admin && !req.user.perms.budgetApprover)) {
         return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên hoặc Người duyệt Ngân sách.' });
+    }
+    next();
+}
+
+// (3 quyền "theo phòng" mới) Khác hẳn Phạm vi Ngân sách cũ (chỉ là add-on TÙY
+// CHỌN đi kèm budgetManager/budgetViewer, dễ quên gán) — 3 quyền này là vai
+// trò ĐỘC LẬP, hẹp hơn, LUÔN bắt buộc có Phạm vi Đơn vị đi kèm (ép validate ở
+// PUT/POST /api/users), dành cho người chỉ cần đúng 1 khả năng trong phạm vi
+// phòng mình, không cần toàn quyền Quản lý/Chỉ xem không giới hạn công ty:
+//   - budgetDeptTransfer: CHỈ bấm được nút "Chuyển sang Phê duyệt"/"Chuyển
+//     sang Sử dụng" — không tạo/sửa/xóa được dòng ngân sách nào.
+//   - budgetDeptViewer: CHỈ xem được 3 tab Đề xuất/Phê duyệt/Sử dụng (không
+//     xem được tab Báo cáo trừ khi có thêm budgetDeptReportViewer).
+//   - budgetDeptReportViewer: CHỈ xem được tab Báo cáo (tách riêng khỏi xem
+//     dữ liệu thô — 1 người có thể chỉ cần xem số liệu tổng hợp, không cần
+//     thấy từng dòng chi tiết).
+// Cả 3 quyền đều đã bao gồm Quản lý/Chỉ xem/Duyệt (budgetManager/budgetViewer/
+// budgetApprover/admin) — ai có 1 trong các quyền rộng đó thì luôn được, chỉ
+// thêm 3 quyền này làm lối vào hẹp hơn cho người không có quyền rộng.
+function requireBudgetTransferOrAdmin(req, res, next) {
+    const p = req.user && req.user.perms;
+    if (!p || !(p.admin || p.budgetManager || p.budgetDeptTransfer)) {
+        return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên, Người quản lý Ngân sách, hoặc Quyền chuyển ngân sách theo phòng.' });
+    }
+    next();
+}
+// (Báo cáo tách riêng khỏi xem dữ liệu thô) budgetDeptTransfer/budgetDeptViewer
+// KHÔNG tự động xem được Báo cáo — phải có thêm budgetDeptReportViewer, hoặc
+// 1 trong các quyền rộng (Quản lý/Chỉ xem/Duyệt/Admin) như trước giờ.
+function requireBudgetReportViewOrAdmin(req, res, next) {
+    const p = req.user && req.user.perms;
+    if (!p || !(p.admin || p.budgetManager || p.budgetViewer || p.budgetApprover || p.budgetDeptReportViewer)) {
+        return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên, Người quản lý Ngân sách, Người xem Ngân sách, Người duyệt Ngân sách, hoặc Quyền xem báo cáo theo phòng.' });
     }
     next();
 }
@@ -7949,6 +7988,14 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
                     return res.status(400).json({ error: 'Đề xuất đang chờ duyệt — chỉ có thể sửa/bổ sung khi người phê duyệt yêu cầu bổ sung.' });
                 }
             }
+            // (Chỉ người tạo mới sửa) Trước đây BẤT KỲ ai có quyền Ngân sách
+            // cùng phạm vi đều sửa được dòng Nháp/chờ bổ sung của người KHÁC —
+            // dễ ghi đè nhầm số liệu người khác đang nhập dở. Nay chỉ người tạo
+            // (created_by) hoặc Admin mới sửa được. created_by rỗng (dữ liệu cũ
+            // trước khi có cột này) không bị chặn.
+            if (!req.user.perms.admin && line.created_by && line.created_by !== req.user.username) {
+                return res.status(403).json({ error: 'Chỉ người tạo dòng này mới được sửa.' });
+            }
             const v = validateBudget2LineInput(req.body || {}, {}, await getBudget2CategoryCatalog(), await getBudget2OrgScopeCatalog());
             if (v.error) return res.status(400).json({ error: v.error });
             if (!await budgetTargetInUserScope(req.user, v.companyId, v.orgUnitId)) return res.status(403).json({ error: BUDGET_SCOPE_FORBIDDEN_MSG });
@@ -7979,6 +8026,10 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
                 if (line.status === 'SUBMITTED' && !line.edit_requested && !req.user.perms.admin) {
                     return res.status(400).json({ error: 'Dòng ngân sách phê duyệt đang chờ duyệt — chỉ có thể sửa/bổ sung khi người phê duyệt yêu cầu bổ sung.' });
                 }
+            }
+            // (Chỉ người tạo mới sửa) Xem chú thích đầy đủ ở nhánh PROPOSED phía trên.
+            if (!req.user.perms.admin && line.created_by && line.created_by !== req.user.username) {
+                return res.status(403).json({ error: 'Chỉ người tạo dòng này mới được sửa.' });
             }
             const v = validateBudget2LineInput(req.body || {}, {}, await getBudget2CategoryCatalog(), await getBudget2OrgScopeCatalog());
             if (v.error) return res.status(400).json({ error: v.error });
@@ -8063,6 +8114,36 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
         return res.status(400).json({ error: 'Dòng này không cho phép sửa trực tiếp.' });
     } catch (err) {
         console.error('❌ Lỗi cập nhật dòng ngân sách:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Đổi người phụ trách (created_by) 1 dòng ngân sách — CHỈ Admin, dùng khi
+// người nhập ban đầu đã nghỉ việc: gán lại cho người khác để người đó có
+// quyền sửa dòng Nháp/chờ bổ sung (xem kiểm tra created_by ở PUT phía trên).
+// Không giới hạn theo stage/status — Admin luôn sửa được mọi dòng nên đổi chủ
+// sở hữu ở bất kỳ trạng thái nào đều không mở thêm lỗ hổng.
+app.put('/api/budget2/lines/:id/owner', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const newOwner = req.body && req.body.username ? String(req.body.username).trim() : '';
+        if (!newOwner) return res.status(400).json({ error: 'Vui lòng chọn người phụ trách mới.' });
+
+        const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ?', [id]);
+        const line = rows[0];
+        if (!line) return res.status(404).json({ error: 'Không tìm thấy dòng ngân sách.' });
+
+        const [userRows] = await pool.query('SELECT username, active FROM users WHERE username = ?', [newOwner]);
+        const targetUser = userRows[0];
+        if (!targetUser) return res.status(400).json({ error: 'Người dùng không tồn tại.' });
+        if (!targetUser.active) return res.status(400).json({ error: 'Người dùng đã bị khóa, không thể gán làm người phụ trách.' });
+
+        const oldOwner = line.created_by || '(chưa có)';
+        await pool.query('UPDATE budget2_lines SET created_by = ? WHERE id = ?', [newOwner, id]);
+        await writeAuditLog({ module: 'BUDGET2', actionType: 'REASSIGN_OWNER', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Đổi người phụ trách dòng ngân sách [${line.content}] từ "${oldOwner}" sang "${newOwner}".` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi đổi người phụ trách dòng ngân sách:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
@@ -8262,7 +8343,7 @@ app.post('/api/budget2/lines/:id/request-supplement-proposal', requireAuth, requ
 // chuyển" bằng cách kiểm tra có dòng Phê duyệt nào source_line_id trỏ về nó
 // hay chưa (không cần thêm cột CSDL), và chặn chuyển lại lần 2 cho cùng 1
 // đề xuất để tránh tạo trùng lặp dữ liệu ở Phê duyệt.
-app.post('/api/budget2/lines/:id/transfer-to-approved', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+app.post('/api/budget2/lines/:id/transfer-to-approved', requireAuth, requireBudgetTransferOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'PROPOSED\'', [id]);
@@ -8599,7 +8680,7 @@ function validateBudget2PurchaseMonth(body) {
 }
 
 // --- Thêm mục con Sử dụng dưới 1 mục cha (dòng USED gốc, parent_id NULL) ---
-app.post('/api/budget2/lines/:id/children', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+app.post('/api/budget2/lines/:id/children', requireAuth, requireBudgetTransferOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const [parentRows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'USED\' AND parent_id IS NULL', [id]);
@@ -8657,7 +8738,7 @@ async function recomputeBudget2ParentUsage(parentId) {
 // biệt bằng cột "dimension" (theo Công ty / theo Đơn vị / Tổng toàn công ty)
 // và các cột proposed/approved/used tách theo OPEX/CAPEX — client tự lọc theo
 // nhu cầu xem (Đề xuất/Duyệt/Sử dụng riêng lẻ chỉ là chọn đúng 1 cột). ---
-app.get('/api/budget2/reports', requireAuth, requireBudgetViewOrAdmin, async (req, res) => {
+app.get('/api/budget2/reports', requireAuth, requireBudgetReportViewOrAdmin, async (req, res) => {
     try {
         // (Phạm vi Ngân sách) Chỉ tính vào báo cáo các dòng thuộc đúng phạm vi
         // Công ty/Đơn vị được gán (nếu có) — Admin và người không có phạm vi

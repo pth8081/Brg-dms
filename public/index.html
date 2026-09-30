@@ -660,6 +660,18 @@
                 <input type="checkbox" id="pBudgetApprover"> Người duyệt Ngân sách
               </label>
               <p class="text-[10px] text-gray-500 leading-tight">Chỉ được Duyệt/Từ chối/Yêu cầu bổ sung dòng Ngân sách của người khác — tách riêng khỏi "Người quản lý Ngân sách" (tạo/sửa/gửi). Không tự có nếu chỉ có quyền Quản lý.</p>
+              <label class="flex items-center gap-2 text-cyan-700 font-semibold cursor-pointer border-t pt-2">
+                <input type="checkbox" id="pBudgetDeptTransfer" data-evt-change="onBudgetDeptPermChange" data-args='[]'> Quyền chuyển ngân sách theo phòng
+              </label>
+              <p class="text-[10px] text-gray-500 leading-tight">CHỈ bấm được "Chuyển sang Phê duyệt"/"Chuyển sang Sử dụng" trong đúng Phạm vi Ngân sách (mục 7) — không tạo/sửa/xóa được dòng nào. Bắt buộc chọn Phạm vi ở mục 7.</p>
+              <label class="flex items-center gap-2 text-cyan-700 font-semibold cursor-pointer border-t pt-2">
+                <input type="checkbox" id="pBudgetDeptViewer" data-evt-change="onBudgetDeptPermChange" data-args='[]'> Quyền xem ngân sách theo phòng
+              </label>
+              <p class="text-[10px] text-gray-500 leading-tight">CHỈ xem được 3 tab Đề xuất/Phê duyệt/Sử dụng trong đúng Phạm vi Ngân sách (mục 7), không xem tab Báo cáo. Bắt buộc chọn Phạm vi ở mục 7.</p>
+              <label class="flex items-center gap-2 text-cyan-700 font-semibold cursor-pointer border-t pt-2">
+                <input type="checkbox" id="pBudgetDeptReportViewer" data-evt-change="onBudgetDeptPermChange" data-args='[]'> Quyền xem báo cáo theo phòng
+              </label>
+              <p class="text-[10px] text-gray-500 leading-tight">CHỈ xem được tab Báo cáo trong đúng Phạm vi Ngân sách (mục 7), không xem dữ liệu thô 3 tab kia. Bắt buộc chọn Phạm vi ở mục 7.</p>
             </div>
 
             <div class="bg-white p-3 rounded border space-y-2">
@@ -721,8 +733,8 @@
           </div>
 
           <div class="bg-white p-3 rounded border space-y-2 text-xs">
-            <h4 class="font-bold text-teal-800 border-b pb-1 text-xs">7. Phạm vi Ngân sách (Quản lý/Chỉ xem)</h4>
-            <p class="text-[11px] text-gray-500">Chỉ áp dụng khi tài khoản có quyền "Người quản lý Ngân sách" hoặc "Người xem Ngân sách" ở mục 1 — để trống thì được toàn quyền quản lý/xem MỌI công ty/đơn vị như hiện tại; gán phạm vi thì chỉ quản lý/xem được đúng Công ty hoặc Khối/Phòng/Ban (và các đơn vị con) được gán.</p>
+            <h4 class="font-bold text-teal-800 border-b pb-1 text-xs">7. Phạm vi Ngân sách (Quản lý/Chỉ xem/3 quyền theo phòng)</h4>
+            <p class="text-[11px] text-gray-500">Với "Người quản lý Ngân sách"/"Người xem Ngân sách" ở mục 1 — để trống thì được toàn quyền quản lý/xem MỌI công ty/đơn vị như hiện tại; gán phạm vi thì chỉ quản lý/xem được đúng Công ty hoặc Khối/Phòng/Ban (và các đơn vị con) được gán. Với 3 quyền "...theo phòng" ở mục 1 — BẮT BUỘC phải chọn phạm vi ở đây, không được để trống.</p>
             <select id="userBudgetScopeType" data-evt-change="onScopeTypeChange" data-args='["userBudget"]' class="w-full border p-1.5 rounded text-xs bg-white mb-2">
               <option value="">-- Không giới hạn (toàn bộ công ty/đơn vị) --</option>
               <option value="COMPANY">Toàn bộ 1 Công ty</option>
@@ -2616,6 +2628,34 @@
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" data-evt-click="closeLicenseModal" data-args='["budget2ChildModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
         <button type="button" data-evt-click="saveBudget2Child" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Đổi người phụ trách (created_by) 1 dòng ngân sách — CHỈ Admin,
+       dùng khi người nhập ban đầu đã nghỉ việc (xem PUT
+       /api/budget2/lines/:id/owner, server.js). -->
+  <div id="budget2OwnerModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-md w-full p-5 space-y-3">
+      <h3 class="font-bold text-gray-900 text-base">Đổi người phụ trách</h3>
+      <p class="text-[11px] text-gray-500">Người phụ trách mới sẽ có quyền sửa dòng này khi đang Nháp hoặc khi người duyệt yêu cầu bổ sung. Dùng khi người phụ trách cũ đã nghỉ việc/chuyển bộ phận.</p>
+      <input type="hidden" id="budget2OwnerStage">
+      <input type="hidden" id="budget2OwnerLineId">
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Nội dung dòng ngân sách</label>
+        <input id="budget2OwnerContent" type="text" disabled class="w-full border p-2 rounded text-sm bg-gray-100 text-gray-600 cursor-not-allowed">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Người phụ trách hiện tại</label>
+        <input id="budget2OwnerCurrent" type="text" disabled class="w-full border p-2 rounded text-sm bg-gray-100 text-gray-600 cursor-not-allowed">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Người phụ trách mới</label>
+        <select id="budget2OwnerNewUser" class="w-full border p-2 rounded text-sm bg-white"></select>
+      </div>
+      <div class="flex justify-end gap-2 pt-1">
+        <button type="button" data-evt-click="closeLicenseModal" data-args='["budget2OwnerModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveBudget2Owner" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Lưu</button>
       </div>
     </div>
   </div>
