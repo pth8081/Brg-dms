@@ -534,13 +534,26 @@
         'bulkDecideBudget2Lines', 'bulkRequestBudget2Supplement'
       ])
     };
+    // (Quyền "Chuyển ngân sách theo phòng") CHỈ 2 hành động này — không tạo/
+    // sửa/xóa được gì (đúng theo yêu cầu "chỉ đúng hành động Chuyển"). Phạm
+    // vi đã được server kiểm tra riêng (budgetTargetInUserScope) nên mở ở
+    // đây không lộ dữ liệu ngoài phòng.
+    // saveBudget2Child cũng nằm trong nhóm mở lại — CHỈ vì đây là bước LƯU của
+    // modal "Chuyển sang Sử dụng" đơn lẻ (transferBudget2ToUsed tự mở modal
+    // này bằng lời gọi hàm thường, không qua click nên không bị chặn ở đây);
+    // nút "+ Thêm mục con" thủ công vẫn bị chặn bình thường vì click thẳng
+    // vào đó gọi openBudget2ChildModal — hàm KHÔNG có trong danh sách này.
+    const BUDGET_DEPT_TRANSFER_ACTIONS = new Set(['bulkTransferBudget2ToApproved', 'transferBudget2ToUsed', 'saveBudget2Child']);
     function viewerWriteBlockedModule(fnName) {
       if (!currentUser || !currentUser.perms || currentUser.perms.admin) return null;
       const p = currentUser.perms;
       if (APPROVER_BLOCKED_ACTIONS.license.has(fnName)) return p.licenseApprover ? null : 'license';
       if (APPROVER_BLOCKED_ACTIONS.budget2.has(fnName)) return p.budgetApprover ? null : 'budget2';
       if (VIEWER_BLOCKED_ACTIONS.license.has(fnName) && !p.licenseManager) return 'license';
-      if (VIEWER_BLOCKED_ACTIONS.budget2.has(fnName) && !p.budgetManager) return 'budget2';
+      if (VIEWER_BLOCKED_ACTIONS.budget2.has(fnName) && !p.budgetManager) {
+        if (BUDGET_DEPT_TRANSFER_ACTIONS.has(fnName) && p.budgetDeptTransfer) return null;
+        return 'budget2';
+      }
       if (VIEWER_BLOCKED_ACTIONS.itAssets.has(fnName) && !p.itAssetsManager) return 'itAssets';
       return null;
     }
@@ -1050,7 +1063,12 @@
       // Duyệt/Từ chối/Bổ sung, KHÔNG có nút tạo/sửa/gửi/nhập (canWriteXxx
       // vẫn kiểm theo Manager riêng, xem canDecideLicense/canDecideBudget2).
       const canViewLicense = canManageLicense || !!user.perms.licenseViewer || !!user.perms.licenseApprover;
-      const canViewBudget2 = canManageBudget2 || !!user.perms.budgetViewer || !!user.perms.budgetApprover;
+      // (3 quyền "...theo phòng") budgetDeptTransfer/budgetDeptViewer/
+      // budgetDeptReportViewer mở được tab Ngân sách nhưng KHÔNG xem được mọi
+      // dữ liệu như Viewer/Approver — chỉ đúng phạm vi + đúng nhóm sub-tab
+      // của quyền đó (xem applyBudgetDeptScopeUI() bên dưới, chạy ngay sau).
+      const canViewBudget2 = canManageBudget2 || !!user.perms.budgetViewer || !!user.perms.budgetApprover
+        || !!user.perms.budgetDeptTransfer || !!user.perms.budgetDeptViewer || !!user.perms.budgetDeptReportViewer;
       const canViewItAssets = canManageItAssets || !!user.perms.itAssetsViewer;
       document.getElementById('btnAdminTab').classList.toggle('hidden', !user.perms.admin);
       document.getElementById('btnLicenseTab').classList.toggle('hidden', !canViewLicense);
@@ -1064,6 +1082,7 @@
       document.getElementById('btnLicensePortalTab').classList.toggle('hidden', !hasPortalScope);
 
       applyViewerButtonVisibility(user);
+      applyBudgetDeptScopeUI(user);
       populateDropdowns();
       switchTab('home');
     }
@@ -1085,6 +1104,13 @@
       Object.keys(VIEWER_BLOCKED_ACTIONS).forEach(mod => {
         if (moduleCanManage[mod]) return;
         VIEWER_BLOCKED_ACTIONS[mod].forEach(fnName => {
+          // (Quyền "Chuyển ngân sách theo phòng") saveBudget2Child là nút "Lưu"
+          // TĨNH bên trong modal Chuyển sang Sử dụng đơn lẻ — nếu ẩn cùng các
+          // nút ghi khác ở đây (chỉ chạy 1 lần lúc đăng nhập), người có
+          // budgetDeptTransfer sẽ KHÔNG BAO GIỜ bấm "Lưu" được trong modal đó
+          // nữa dù viewerWriteBlockedModule() đã mở lại quyền click. Giữ nguyên
+          // hiển thị cho đúng nhóm quyền này.
+          if (mod === 'budget2' && p.budgetDeptTransfer && BUDGET_DEPT_TRANSFER_ACTIONS.has(fnName)) return;
           document.querySelectorAll(`[data-evt-click="${fnName}"], [data-evt-change="${fnName}"]`).forEach(el => el.classList.add('hidden'));
         });
       });
@@ -1095,6 +1121,40 @@
           document.querySelectorAll(`[data-evt-click="${fnName}"], [data-evt-change="${fnName}"]`).forEach(el => el.classList.add('hidden'));
         });
       });
+    }
+
+    // (3 quyền "...theo phòng") Ẩn/hiện đúng sub-tab Ngân sách theo quyền —
+    // KHÔNG áp dụng nếu user đã có 1 trong 4 quyền rộng hơn (Admin/
+    // budgetManager/budgetViewer/budgetApprover), vì họ vẫn thấy đủ mọi
+    // sub-tab như trước, không giới hạn gì thêm.
+    // - budgetDeptTransfer/budgetDeptViewer: thấy 3 tab dữ liệu thô (Đề xuất/
+    //   Phê duyệt/Sử dụng), KHÔNG thấy tab Báo cáo. Dữ liệu bên trong đã tự
+    //   giới hạn đúng Phạm vi Ngân sách của họ (server — getUserBudgetScope).
+    // - budgetDeptReportViewer: CHỈ thấy tab Báo cáo, ẩn hẳn 3 tab dữ liệu thô.
+    // Nút ghi (Thêm/Sửa/Xóa/Gửi/Duyệt...) trong 3 tab dữ liệu đã tự ẩn theo
+    // applyViewerButtonVisibility() (không phải budgetManager); riêng 2 nút
+    // "Chuyển sang Phê duyệt/Sử dụng" được mở lại cho budgetDeptTransfer ở
+    // viewerWriteBlockedModule() bên dưới.
+    function applyBudgetDeptScopeUI(user) {
+      if (!user || !user.perms) return;
+      const p = user.perms;
+      if (p.admin || p.budgetManager || p.budgetViewer || p.budgetApprover) return;
+      const showData = !!(p.budgetDeptTransfer || p.budgetDeptViewer);
+      const showReports = !!p.budgetDeptReportViewer;
+      ['btnBudget2SubPropose', 'btnBudget2SubApproved', 'btnBudget2SubUsed'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.toggle('hidden', !showData);
+      });
+      const reportsBtn = document.getElementById('btnBudget2SubReports');
+      if (reportsBtn) reportsBtn.classList.toggle('hidden', !showReports);
+    }
+    // Tab mặc định khi vào module Ngân sách — người chỉ có
+    // budgetDeptReportViewer (không có 3 tab dữ liệu) phải mở thẳng "reports",
+    // nếu không sẽ mở "propose" đang bị ẩn, trắng màn hình.
+    function budget2DefaultSubTab(perms) {
+      const hasBroaderOrData = perms.admin || perms.budgetManager || perms.budgetViewer || perms.budgetApprover
+        || perms.budgetDeptTransfer || perms.budgetDeptViewer;
+      return hasBroaderOrData ? 'propose' : 'reports';
     }
 
     function showLoginScreen() {
@@ -1239,7 +1299,10 @@
       if (tabName === 'reports' && currentUser.perms.admin) { switchReportsSubsystem('doc'); }
       if (tabName === 'licensePortal' && !currentUser.perms.admin && currentUser.perms.licenseScopeType) { switchPortalSubTab('budget'); }
       if (tabName === 'itAssets' && (currentUser.perms.admin || currentUser.perms.itAssetsManager || currentUser.perms.itAssetsViewer)) { switchItAssetsSubTab('items'); }
-      if (tabName === 'budget2' && (currentUser.perms.admin || currentUser.perms.budgetManager || currentUser.perms.budgetViewer || currentUser.perms.budgetApprover)) { switchBudget2SubTab('propose'); }
+      if (tabName === 'budget2' && (currentUser.perms.admin || currentUser.perms.budgetManager || currentUser.perms.budgetViewer || currentUser.perms.budgetApprover
+          || currentUser.perms.budgetDeptTransfer || currentUser.perms.budgetDeptViewer || currentUser.perms.budgetDeptReportViewer)) {
+        switchBudget2SubTab(budget2DefaultSubTab(currentUser.perms));
+      }
     }
 
     // --- Trang chủ: tổng quan các việc đang chờ xử lý, tuỳ theo quyền của
@@ -2949,6 +3012,18 @@
 
     // Khi chọn/bỏ chọn Nhóm quyền trong form User: ẩn hẳn bộ ô quyền riêng
     // (nhóm là nguồn duy nhất khi đã gán) và hiện tóm tắt quyền của nhóm đó.
+    // Nhắc ngay khi bật 1 trong 3 quyền "...theo phòng" mà chưa chọn Phạm vi
+    // Ngân sách (mục 7) — chặn thật sự vẫn nằm ở saveUser(), đây chỉ là gợi ý
+    // sớm cho người dùng, không có checkbox nào bị bỏ tick.
+    function onBudgetDeptPermChange() {
+      const anyChecked = document.getElementById('pBudgetDeptTransfer').checked
+        || document.getElementById('pBudgetDeptViewer').checked
+        || document.getElementById('pBudgetDeptReportViewer').checked;
+      if (anyChecked && !getScopePayload('userBudget').scopeId) {
+        showToast('Nhớ chọn Phạm vi Ngân sách (mục 7) cho quyền "...theo phòng" vừa bật!', 'warning');
+      }
+    }
+
     function onUserGroupChange() {
       const groupId = Number(document.getElementById('uPermissionGroupId').value) || null;
       document.getElementById('userIndividualPermsWrap').classList.toggle('hidden', !!groupId);
@@ -3049,6 +3124,19 @@
       const userBudgetScope = getScopePayload('userBudget');
       if (userBudgetScope.scopeType && !userBudgetScope.scopeId) return showToast('Vui lòng chọn công ty/đơn vị cho phạm vi Ngân sách!', 'warning');
 
+      // 3 quyền "...theo phòng" chỉ có ý nghĩa khi gán đúng Phạm vi Ngân sách
+      // (không gán nhóm quyền — nhóm không mang được phạm vi, xem nhánh perms
+      // bên dưới) — bắt buộc chọn phạm vi, không cho để trống.
+      const permissionGroupIdCheck = document.getElementById('uPermissionGroupId').value;
+      if (!permissionGroupIdCheck) {
+        const hasDeptPerm = document.getElementById('pBudgetDeptTransfer').checked
+          || document.getElementById('pBudgetDeptViewer').checked
+          || document.getElementById('pBudgetDeptReportViewer').checked;
+        if (hasDeptPerm && !userBudgetScope.scopeId) {
+          return showToast('Vui lòng chọn Phạm vi Ngân sách (mục 7) khi bật 1 trong 3 quyền "...theo phòng"!', 'warning');
+        }
+      }
+
       // Nếu có gán Nhóm quyền, quyền hiệu lực của user LUÔN lấy từ nhóm (xem
       // resolveUserPerms ở server.js) — các ô quyền riêng bên dưới bị ẩn nên
       // không đọc nữa, gửi perms rỗng (chỉ giữ lại Phạm vi tự phục vụ + Phạm
@@ -3068,6 +3156,9 @@
         itAssetsViewer: document.getElementById('pItAssetsViewer').checked,
         licenseApprover: document.getElementById('pLicenseApprover').checked,
         budgetApprover: document.getElementById('pBudgetApprover').checked,
+        budgetDeptTransfer: document.getElementById('pBudgetDeptTransfer').checked,
+        budgetDeptViewer: document.getElementById('pBudgetDeptViewer').checked,
+        budgetDeptReportViewer: document.getElementById('pBudgetDeptReportViewer').checked,
         uploadAll: document.getElementById('pUploadAll').checked,
         uploadDepts: Array.from(document.querySelectorAll('.pUploadDept:checked')).map(c => c.value),
         viewDraftAll: document.getElementById('pViewDraftAll').checked,
@@ -3176,6 +3267,9 @@
       document.getElementById('pItAssetsViewer').checked = !!p.itAssetsViewer;
       document.getElementById('pLicenseApprover').checked = !!p.licenseApprover;
       document.getElementById('pBudgetApprover').checked = !!p.budgetApprover;
+      document.getElementById('pBudgetDeptTransfer').checked = !!p.budgetDeptTransfer;
+      document.getElementById('pBudgetDeptViewer').checked = !!p.budgetDeptViewer;
+      document.getElementById('pBudgetDeptReportViewer').checked = !!p.budgetDeptReportViewer;
 
       document.getElementById('pUploadAll').checked = !!p.uploadAll;
       document.querySelectorAll('.pUploadDept').forEach(cb => cb.checked = p.uploadDepts ? p.uploadDepts.includes(cb.value) : false);
@@ -3309,6 +3403,9 @@
       document.getElementById('pItAssetsViewer').checked = false;
       document.getElementById('pLicenseApprover').checked = false;
       document.getElementById('pBudgetApprover').checked = false;
+      document.getElementById('pBudgetDeptTransfer').checked = false;
+      document.getElementById('pBudgetDeptViewer').checked = false;
+      document.getElementById('pBudgetDeptReportViewer').checked = false;
       document.getElementById('btnSaveUser').innerText = '+ Thêm Vào Danh Sách';
 
       ['pUploadAll', 'pViewDraftAll', 'pViewApprovedAll', 'pDownloadAll'].forEach(id => {
@@ -8429,7 +8526,8 @@ function isPerpetualSoftware(softwareId) {
     }
 
     function switchBudget2SubTab(subName) {
-      if (!currentUser || !(currentUser.perms.admin || currentUser.perms.budgetManager || currentUser.perms.budgetViewer || currentUser.perms.budgetApprover)) return;
+      if (!currentUser || !(currentUser.perms.admin || currentUser.perms.budgetManager || currentUser.perms.budgetViewer || currentUser.perms.budgetApprover
+          || currentUser.perms.budgetDeptTransfer || currentUser.perms.budgetDeptViewer || currentUser.perms.budgetDeptReportViewer)) return;
       const subs = { propose: 'budget2SubPropose', approved: 'budget2SubApproved', used: 'budget2SubUsed', reports: 'budget2SubReports' };
       const btns = { propose: 'btnBudget2SubPropose', approved: 'btnBudget2SubApproved', used: 'btnBudget2SubUsed', reports: 'btnBudget2SubReports' };
       Object.keys(subs).forEach(key => {
@@ -9219,7 +9317,8 @@ function isPerpetualSoftware(softwareId) {
           // người không phải Admin) — đã duyệt/từ chối thì chỉ Admin còn
           // được sửa/bổ sung/xóa lại (VD lỡ nhập sai). Nháp: Admin xóa được
           // như mọi trạng thái khác (server không phân biệt).
-          isAdmin ? `<button ${dc('deleteBudget2LineFromMenu', l.id)} class="block w-full text-left px-3 py-2 text-xs text-danger-700 hover:bg-danger-50">🗑️ Xóa</button>` : ''
+          isAdmin ? `<button ${dc('deleteBudget2LineFromMenu', l.id)} class="block w-full text-left px-3 py-2 text-xs text-danger-700 hover:bg-danger-50">🗑️ Xóa</button>` : '',
+          isAdmin ? `<button ${dc('openBudget2OwnerModal', 'PROPOSED', l.id)} class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">👤 Đổi người phụ trách</button>` : ''
         ];
         const decidedNote = `<span class="text-gray-400 italic text-[11px] block">Đã xử lý${l.decidedBy ? ' bởi ' + escapeHtml(l.decidedBy) : ''}</span>`;
         const menuId = `rowMenu_propose_${l.id}`;
@@ -9427,6 +9526,39 @@ function isPerpetualSoftware(softwareId) {
     function supplementBudget2LineFromMenu(stage, id) { closeAllRowMenus(); supplementBudget2LineNote(stage, id); }
     function deleteBudget2LineFromMenu(id) { closeAllRowMenus(); deleteBudget2Line(id); }
 
+    // --- Modal: Đổi người phụ trách (created_by) — Admin only. Dùng khi
+    // người nhập ban đầu đã nghỉ việc: gán lại để người khác trở thành chủ
+    // sở hữu, sau này được quyền sửa khi đang Nháp/chờ bổ sung (xem PUT
+    // /api/budget2/lines/:id ở server.js). ---
+    function openBudget2OwnerModal(stage, id) {
+      closeAllRowMenus();
+      const line = budget2DB.lines.find(l => l.id === id);
+      if (!line) return;
+      document.getElementById('budget2OwnerStage').value = stage;
+      document.getElementById('budget2OwnerLineId').value = id;
+      document.getElementById('budget2OwnerContent').value = line.content || '';
+      document.getElementById('budget2OwnerCurrent').value = line.createdBy || '(chưa có)';
+      const sel = document.getElementById('budget2OwnerNewUser');
+      sel.innerHTML = DB.users.filter(u => u.active !== false).map(u =>
+        `<option value="${escapeHtml(u.username)}" ${u.username === line.createdBy ? 'selected' : ''}>${escapeHtml(u.name)} (${escapeHtml(u.username)})</option>`
+      ).join('');
+      openLicenseModal('budget2OwnerModal');
+    }
+    async function saveBudget2Owner() {
+      const id = document.getElementById('budget2OwnerLineId').value;
+      const stage = document.getElementById('budget2OwnerStage').value;
+      const username = document.getElementById('budget2OwnerNewUser').value;
+      if (!username) return showToast('Vui lòng chọn người phụ trách mới!', 'warning');
+      try {
+        await apiFetch(`/api/budget2/lines/${id}/owner`, { method: 'PUT', body: JSON.stringify({ username }) });
+        closeLicenseModal('budget2OwnerModal');
+        budget2DB.loaded = false;
+        await loadBudget2BootstrapData();
+        if (stage === 'PROPOSED') renderBudget2ProposedTable(); else renderBudget2ApprovedTable();
+        showToast('Đã đổi người phụ trách.', 'success');
+      } catch (err) { showToast(err.message, 'danger'); }
+    }
+
     // --- Modal dùng chung: Thêm/sửa 1 dòng Đề xuất, hoặc thêm trực tiếp 1
     // dòng Phê duyệt (không qua đề xuất) ---
     function openBudget2LineModal(stage, editId) {
@@ -9575,7 +9707,8 @@ function isPerpetualSoftware(softwareId) {
         const menuItems = [
           canEditNow ? `<button ${dc('editBudget2LineFromMenu', 'APPROVED', l.id)} class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">✏️ Sửa</button>` : '',
           (canEditNow && l.status !== 'DRAFT') ? `<button ${dc('supplementBudget2LineFromMenu', 'APPROVED', l.id)} class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">📝 Bổ sung</button>` : '',
-          isAdmin ? `<button ${dc('deleteBudget2LineFromMenu', l.id)} class="block w-full text-left px-3 py-2 text-xs text-danger-700 hover:bg-danger-50">🗑️ Xóa</button>` : ''
+          isAdmin ? `<button ${dc('deleteBudget2LineFromMenu', l.id)} class="block w-full text-left px-3 py-2 text-xs text-danger-700 hover:bg-danger-50">🗑️ Xóa</button>` : '',
+          isAdmin ? `<button ${dc('openBudget2OwnerModal', 'APPROVED', l.id)} class="block w-full text-left px-3 py-2 text-xs hover:bg-gray-100">👤 Đổi người phụ trách</button>` : ''
         ];
         const decidedNote = `<span class="text-gray-400 italic text-[11px] block">${escapeHtml(l.decidedBy || '')}</span>`;
         const menuId = `rowMenu_approved_${l.id}`;
