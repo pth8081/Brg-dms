@@ -8254,6 +8254,39 @@ app.post('/api/budget2/lines/:id/request-supplement-proposal', requireAuth, requ
     }
 });
 
+// --- Chuyển 1 đề xuất ĐÃ DUYỆT (giai đoạn Đề xuất) sang giai đoạn Phê duyệt —
+// tạo 1 dòng MỚI ở Phê duyệt (copy nguyên nội dung/số lượng/giá/loại/danh
+// mục/công ty/đơn vị), status bắt đầu ở SUBMITTED (vào thẳng hàng chờ duyệt,
+// không cần "Gửi phê duyệt" thêm — nội dung đã được duyệt ở Đề xuất rồi).
+// Dòng Đề xuất gốc GIỮ NGUYÊN (không xóa/đổi trạng thái) — chỉ đánh dấu "đã
+// chuyển" bằng cách kiểm tra có dòng Phê duyệt nào source_line_id trỏ về nó
+// hay chưa (không cần thêm cột CSDL), và chặn chuyển lại lần 2 cho cùng 1
+// đề xuất để tránh tạo trùng lặp dữ liệu ở Phê duyệt.
+app.post('/api/budget2/lines/:id/transfer-to-approved', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'PROPOSED\'', [id]);
+        const line = rows[0];
+        if (!line) return res.status(404).json({ error: 'Không tìm thấy đề xuất.' });
+        if (!await budgetTargetInUserScope(req.user, line.company_id, line.org_unit_id)) return res.status(403).json({ error: BUDGET_SCOPE_FORBIDDEN_MSG });
+        if (line.status !== 'APPROVED') return res.status(400).json({ error: 'Chỉ chuyển được đề xuất đã ở trạng thái "Đã duyệt".' });
+        const [existingRows] = await pool.query("SELECT id FROM budget2_lines WHERE stage = 'APPROVED' AND source_line_id = ?", [id]);
+        if (existingRows.length > 0) return res.status(400).json({ error: 'Đề xuất này đã được chuyển sang Phê duyệt trước đó.' });
+        const now = new Date().toISOString();
+        const [result] = await pool.query(
+            `INSERT INTO budget2_lines
+                (stage, source_line_id, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, item_category, status, note, created_by, created_at, budget_year, budget_month)
+             VALUES ('APPROVED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', ?, ?, ?, ?, ?)`,
+            [line.id, line.company_id, line.org_unit_id, line.content, line.description, line.quantity, line.unit_price, line.vat_percent, line.total_amount, line.budget_type, line.item_category, line.note, req.user.username, now, line.budget_year, line.budget_month]
+        );
+        await writeAuditLog({ module: 'BUDGET2', actionType: 'TRANSFER_TO_APPROVED', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Chuyển đề xuất ngân sách [${line.content}] (đã duyệt) sang Phê duyệt, vào hàng chờ duyệt.` });
+        res.json({ success: true, id: result.insertId });
+    } catch (err) {
+        console.error('❌ Lỗi chuyển đề xuất sang Phê duyệt:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
 // --- Duyệt 1 dòng ngân sách phê duyệt (đang chờ) — CHỈ giai đoạn Phê duyệt
 // mới có bước duyệt này; tự động sinh dòng Sử dụng (mục cha) tương ứng. ---
 app.post('/api/budget2/lines/:id/approve', requireAuth, requireBudgetApproveOrAdmin, async (req, res) => {
