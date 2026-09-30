@@ -508,7 +508,8 @@
         'deleteBudget2Line', 'deleteBudget2LineFromMenu', 'bulkDeleteBudget2Lines',
         'supplementBudget2LineFromMenu',
         'submitBudget2Line', 'submitBudget2Proposal',
-        'bulkSubmitBudget2Lines', 'editBudget2LineFromMenu', 'importBudget2Xlsx'
+        'bulkSubmitBudget2Lines', 'editBudget2LineFromMenu', 'importBudget2Xlsx',
+        'bulkTransferBudget2ToApproved', 'transferBudget2ToUsed'
       ]),
       itAssets: new Set([
         'openItCategoryModal', 'openItItemModal', 'saveItCategory', 'saveItItem', 'saveItReminderConfig',
@@ -8483,6 +8484,13 @@ function isPerpetualSoftware(softwareId) {
       };
       return map[status] || status;
     }
+    // (Chuyển sang Phê duyệt) 1 đề xuất coi là "đã chuyển" nếu đã tồn tại 1
+    // dòng ở giai đoạn Phê duyệt có source_line_id trỏ về đúng đề xuất này —
+    // không cần thêm cột CSDL, tự đúng ngay cả khi dòng Phê duyệt đó sau này
+    // bị xóa (đề xuất lại chuyển được, hợp lý vì bản sao không còn tồn tại).
+    function budget2ProposalTransferred(proposalId) {
+      return budget2DB.lines.some(x => x.stage === 'APPROVED' && x.sourceLineId === proposalId);
+    }
     // (Thông tin người tạo/sửa) Hiện thêm dưới badge Trạng thái ở cả 3 tab
     // Đề xuất/Phê duyệt/Sử dụng — trước đây không có cách nào biết ai tạo/sửa
     // 1 dòng (chỉ có "Đã xử lý bởi X" cho hành động Duyệt/Từ chối). createdBy
@@ -8879,6 +8887,32 @@ function isPerpetualSoftware(softwareId) {
           buttons += `<button ${dc('bulkRequestBudget2Supplement', key)} class="text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded">📋 Y/c bổ sung đã chọn (${pendingCount})</button>`;
         }
       }
+      // (Chuyển sang Phê duyệt) chỉ tính đề xuất ĐÃ DUYỆT và CHƯA có bản sao
+      // nào ở Phê duyệt (source_line_id trỏ về nó) — xem budget2ProposalTransferred.
+      if (key === 'propose') {
+        const transferableCount = selectedIds.filter(id => {
+          const l = budget2DB.lines.find(x => x.id === id);
+          return l && l.status === 'APPROVED' && !budget2ProposalTransferred(id);
+        }).length;
+        if (transferableCount > 0) {
+          buttons += `<button ${dc('bulkTransferBudget2ToApproved')} class="text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded">📤 Chuyển sang Phê duyệt (${transferableCount})</button>`;
+        }
+      }
+      // (Chuyển sang Sử dụng) chỉ tính dòng Phê duyệt ĐÃ DUYỆT — mỗi dòng đã
+      // duyệt luôn có sẵn 1 "mục cha" Sử dụng tự sinh (xem POST .../approve),
+      // ghi nhận thêm 1 lần sử dụng thực tế dưới mục cha đó qua POST
+      // .../lines/:id/children đã có sẵn — không cần API mới. Đúng 1 dòng
+      // được chọn: mở modal cho sửa Số lượng/Đơn giá trước khi lưu; từ 2 dòng
+      // trở lên: copy y nguyên (không hỏi sửa từng dòng).
+      if (key === 'approved') {
+        const usableIds = selectedIds.filter(id => {
+          const l = budget2DB.lines.find(x => x.id === id);
+          return l && l.status === 'APPROVED';
+        });
+        if (usableIds.length > 0) {
+          buttons += `<button ${dc('transferBudget2ToUsed')} class="text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded">📤 Chuyển sang Sử dụng (${usableIds.length})</button>`;
+        }
+      }
       if (isAdmin) {
         buttons += `<button ${dc('bulkDeleteBudget2Lines', key)} class="text-xs font-bold text-white bg-red-600 hover:bg-red-700 px-3 py-1.5 rounded">🗑️ Xóa đã chọn (${count})</button>`;
       }
@@ -8982,6 +9016,109 @@ function isPerpetualSoftware(softwareId) {
         showToast(`Đã ${verb.toLowerCase()} ${okCount}/${ids.length} dòng — ${failMsgs.length} dòng lỗi: ${failMsgs.join('; ')}`, okCount ? 'warning' : 'danger');
       } else {
         showToast(`Đã ${verb.toLowerCase()} ${okCount} dòng.`, 'success');
+      }
+    }
+    // --- Chuyển đề xuất (đã duyệt) sang Phê duyệt — xem chú thích đầy đủ ở
+    // POST /api/budget2/lines/:id/transfer-to-approved. Luôn copy y nguyên,
+    // không hỏi sửa (khác hẳn "Chuyển sang Sử dụng" bên dưới). ---
+    async function bulkTransferBudget2ToApproved() {
+      const ids = [...budget2SelectedIds.propose].filter(id => {
+        const l = budget2DB.lines.find(x => x.id === id);
+        return l && l.status === 'APPROVED' && !budget2ProposalTransferred(id);
+      });
+      if (!ids.length) return;
+      if (!confirm(`Chuyển ${ids.length} đề xuất đã chọn sang Phê duyệt? Sẽ tạo dòng mới ở Phê duyệt (vào thẳng hàng chờ duyệt), đề xuất gốc giữ nguyên.`)) return;
+      let okCount = 0;
+      const failMsgs = [];
+      for (const id of ids) {
+        try {
+          await apiFetch(`/api/budget2/lines/${id}/transfer-to-approved`, { method: 'POST' });
+          okCount++;
+        } catch (err) {
+          failMsgs.push(`#${id}: ${err.message}`);
+        }
+      }
+      budget2SelectedIds.propose.clear();
+      budget2DB.loaded = false;
+      await loadBudget2BootstrapData();
+      renderBudget2ProposedTable();
+      renderBudget2ApprovedTable();
+      if (failMsgs.length) {
+        showToast(`Đã chuyển ${okCount}/${ids.length} dòng sang Phê duyệt — ${failMsgs.length} dòng lỗi: ${failMsgs.join('; ')}`, okCount ? 'warning' : 'danger');
+      } else {
+        showToast(`Đã chuyển ${okCount} dòng sang Phê duyệt.`, 'success');
+      }
+    }
+    // --- Chuyển dòng Phê duyệt (đã duyệt) sang Sử dụng — ghi nhận 1 lần sử
+    // dụng thực tế dưới đúng "mục cha" Sử dụng đã tự sinh sẵn khi duyệt (xem
+    // POST /api/budget2/lines/:id/approve), qua API "Thêm mục sử dụng con" đã
+    // có sẵn (POST /api/budget2/lines/:parentId/children) — không cần API
+    // mới. Chọn đúng 1 dòng: mở modal cho sửa Số lượng/Đơn giá thực tế trước
+    // khi lưu. Từ 2 dòng trở lên: copy y nguyên số lượng/đơn giá đã duyệt,
+    // không hỏi sửa từng dòng (không có ý nghĩa khi giá trị khác nhau/dòng). ---
+    function budget2UsedParentOf(approvedId) {
+      return budget2DB.lines.find(x => x.stage === 'USED' && !x.parentId && x.sourceLineId === approvedId);
+    }
+    async function transferBudget2ToUsed() {
+      const ids = [...budget2SelectedIds.approved].filter(id => {
+        const l = budget2DB.lines.find(x => x.id === id);
+        return l && l.status === 'APPROVED';
+      });
+      if (!ids.length) return;
+      if (ids.length === 1) {
+        const parent = budget2UsedParentOf(ids[0]);
+        if (!parent) { showToast('Không tìm thấy mục Sử dụng tương ứng cho dòng này.', 'danger'); return; }
+        const approvedLine = budget2DB.lines.find(x => x.id === ids[0]);
+        openBudget2ChildModal(parent.id);
+        // Ghi đè giá trị mặc định (1/0) của modal thêm mới bằng đúng số lượng/
+        // đơn giá/VAT đã duyệt — điểm khác biệt so với bấm "+ Mục con" bình
+        // thường ở tab Sử dụng (vốn để trống cho người dùng tự nhập từ đầu).
+        document.getElementById('budget2ChildQuantity').value = approvedLine.quantity;
+        document.getElementById('budget2ChildUnitPrice').value = digitsToThousands(String(approvedLine.unitPrice));
+        document.getElementById('budget2ChildVat').value = approvedLine.vatPercent;
+        // Bỏ chọn ngay dòng này — nếu không, lỡ bấm "Chuyển sang Sử dụng" lần
+        // nữa cho dòng khác (chọn thêm rồi bấm hàng loạt) sẽ vô tình ghi nhận
+        // sử dụng TRÙNG thêm 1 lần nữa cho dòng đã xử lý ở đây, dù modal có
+        // đóng lại mà không lưu (Hủy) hay không.
+        budget2SelectedIds.approved.delete(ids[0]);
+        renderBudget2ApprovedTable();
+        return;
+      }
+      if (!confirm(`Chuyển ${ids.length} dòng đã chọn sang Sử dụng? Mỗi dòng ghi nhận 1 lần sử dụng thực tế đúng bằng số lượng/đơn giá đã duyệt (tháng mua = tháng hiện tại). Muốn sửa lại số lượng/đơn giá, hãy chọn từng dòng riêng lẻ.`)) return;
+      const purchaseMonth = new Date().getMonth() + 1;
+      let okCount = 0;
+      const failMsgs = [];
+      for (const id of ids) {
+        const line = budget2DB.lines.find(x => x.id === id);
+        const parent = budget2UsedParentOf(id);
+        if (!parent) { failMsgs.push(`#${id}: không tìm thấy mục Sử dụng tương ứng`); continue; }
+        try {
+          await apiFetch(`/api/budget2/lines/${parent.id}/children`, {
+            method: 'POST',
+            body: JSON.stringify({
+              description: line.description || '',
+              quantity: line.quantity,
+              unitPrice: line.unitPrice,
+              vatPercent: line.vatPercent,
+              budgetType: line.budgetType,
+              purchaseMonth,
+              note: ''
+            })
+          });
+          okCount++;
+        } catch (err) {
+          failMsgs.push(`#${id}: ${err.message}`);
+        }
+      }
+      budget2SelectedIds.approved.clear();
+      budget2DB.loaded = false;
+      await loadBudget2BootstrapData();
+      renderBudget2ApprovedTable();
+      renderBudget2UsedTable();
+      if (failMsgs.length) {
+        showToast(`Đã chuyển ${okCount}/${ids.length} dòng sang Sử dụng — ${failMsgs.length} dòng lỗi: ${failMsgs.join('; ')}`, okCount ? 'warning' : 'danger');
+      } else {
+        showToast(`Đã chuyển ${okCount} dòng sang Sử dụng.`, 'success');
       }
     }
     function onBudget2RowCheckToggle(key, id, checked) {
@@ -9123,7 +9260,7 @@ function isPerpetualSoftware(softwareId) {
           <td class="border p-2 text-center">${budget2CompanyTypeBadge(budget2CompanyType(l.companyId))}</td>
           <td class="border p-2">${budget2OrgUnitCell(l)}</td>
           <td class="border p-2">${escapeHtml(l.note || '')}</td>
-          <td class="border p-2 text-center">${budget2StatusBadge(l.status)}${budget2PeopleInfoHtml(l)}</td>
+          <td class="border p-2 text-center">${budget2StatusBadge(l.status)}${l.status === 'APPROVED' && budget2ProposalTransferred(l.id) ? '<br><span class="text-[10px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full whitespace-nowrap mt-0.5 inline-block">✅ Đã chuyển sang Phê duyệt</span>' : ''}${budget2PeopleInfoHtml(l)}</td>
           <td class="border p-2 text-center whitespace-nowrap">${actions}</td>
         </tr>`;
       }).join('');
