@@ -387,12 +387,22 @@ DROP PROCEDURE add_unique_lic_employees_code_if_safe;
 -- org_unit_id = NULL thật sự (hiển thị trống trên giao diện), và dọn sạch
 -- các đơn vị ảo + gán lại nhân viên của chúng về NULL (company_id đã có sẵn
 -- từ trước, không mất thông tin công ty).
+--
+-- QUAN TRỌNG: phải ALTER cột sang NULLABLE TRƯỚC UPDATE/DELETE dọn dẹp bên
+-- dưới. Thứ tự cũ (UPDATE trước, ALTER sau) chạy êm trên CSDL production đã
+-- nâng cấp dần theo từng bản (cột đã NULLABLE từ lần chạy trước), nhưng khi
+-- import trọn schema.sql 1 lần (server mới/khôi phục từ bản dump cũ còn đơn
+-- vị "Chưa phân đơn vị") thì cột vẫn đang NOT NULL lúc UPDATE chạy tới, làm
+-- toàn bộ phần còn lại của file (mọi CREATE TABLE/ALTER phía sau, gồm cả
+-- lic_software_catalog, budget2_lines, it_items...) không được thực thi do
+-- mysql client dừng ngay khi gặp lỗi đầu tiên — gây lỗi 500 hàng loạt khắp
+-- ứng dụng vì thiếu bảng/cột.
+ALTER TABLE lic_employees MODIFY COLUMN org_unit_id BIGINT NULL DEFAULT NULL;
 UPDATE lic_employees e
     JOIN lic_org_units u ON u.id = e.org_unit_id
     SET e.org_unit_id = NULL
     WHERE u.parent_id IS NULL AND u.name = 'Chưa phân đơn vị';
 DELETE FROM lic_org_units WHERE parent_id IS NULL AND name = 'Chưa phân đơn vị';
-ALTER TABLE lic_employees MODIFY COLUMN org_unit_id BIGINT NULL DEFAULT NULL;
 
 CREATE TABLE IF NOT EXISTS lic_software_catalog (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
