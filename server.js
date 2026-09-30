@@ -4058,7 +4058,7 @@ app.get('/api/reports/license', requireAuth, requireLicenseOrBudgetViewOrAdmin, 
             `SELECT co.name AS companyName, COUNT(*) AS cnt
              FROM lic_license_codes c JOIN lic_companies co ON co.id = c.company_id
              ${companyIdFilter ? 'WHERE co.id = ?' : ''}
-             GROUP BY co.id ORDER BY cnt DESC LIMIT 6`,
+             GROUP BY co.id, co.name ORDER BY cnt DESC LIMIT 6`,
             companyIdFilter ? [companyIdFilter] : []
         );
         const [latestRoundRows] = await pool.query('SELECT id, name FROM lic_budget_rounds ORDER BY id DESC LIMIT 1');
@@ -4121,7 +4121,7 @@ app.get('/api/reports/license', requireAuth, requireLicenseOrBudgetViewOrAdmin, 
              JOIN lic_org_units u ON u.id = r.org_unit_id
              JOIN lic_companies co ON co.id = u.company_id
              WHERE r.status = 'APPROVED' ${companyIdFilter ? 'AND co.id = ?' : ''}
-             GROUP BY co.id`,
+             GROUP BY co.id, co.name`,
             companyIdFilter ? [companyIdFilter] : []
         );
         const [actualByCompanyRows] = await pool.query(
@@ -4148,7 +4148,7 @@ app.get('/api/reports/license', requireAuth, requireLicenseOrBudgetViewOrAdmin, 
             `SELECT ro.id AS roundId, ro.name AS roundName, SUM(reg.total_amount) AS total
              FROM lic_purchase_registrations reg JOIN lic_purchase_rounds ro ON ro.id = reg.round_id
              WHERE reg.status IN ('APPROVED', 'ISSUED') ${companyIdFilter ? 'AND reg.company_id = ?' : ''}
-             GROUP BY ro.id ORDER BY ro.id DESC LIMIT 6`,
+             GROUP BY ro.id, ro.name ORDER BY ro.id DESC LIMIT 6`,
             companyIdFilter ? [companyIdFilter] : []
         );
         const [controlRows] = await pool.query(
@@ -7046,7 +7046,7 @@ app.get('/api/license/reports', requireAuth, requireLicenseViewOrAdmin, async (r
              JOIN lic_companies co ON co.id = e.company_id
              JOIN lic_license_codes c ON c.id = a.code_id
              WHERE 1=1${usageFilterSql}
-             GROUP BY co.id ORDER BY cnt DESC`,
+             GROUP BY co.id, co.name ORDER BY cnt DESC`,
             usageFilterParams
         );
         let usageByOrgUnit = [];
@@ -7061,7 +7061,7 @@ app.get('/api/license/reports', requireAuth, requireLicenseViewOrAdmin, async (r
                  LEFT JOIN lic_org_units u ON u.id = e.org_unit_id
                  JOIN lic_license_codes c ON c.id = a.code_id
                  WHERE e.company_id = ?${usageFilterSql}
-                 GROUP BY COALESCE(u.id, 0) ORDER BY cnt DESC`,
+                 GROUP BY u.id, u.name ORDER BY cnt DESC`,
                 [companyId, ...usageFilterParams]
             ))[0];
         }
@@ -7072,7 +7072,7 @@ app.get('/api/license/reports', requireAuth, requireLicenseViewOrAdmin, async (r
              JOIN lic_license_codes c ON c.id = a.code_id
              JOIN lic_software_catalog sw ON sw.id = c.software_id
              WHERE 1=1${companyId ? ' AND e.company_id = ?' : ''}
-             GROUP BY sw.id ORDER BY cnt DESC`,
+             GROUP BY sw.id, sw.name ORDER BY cnt DESC`,
             companyId ? [companyId] : []
         );
         const [[usageTotal]] = await pool.query(
@@ -7096,7 +7096,7 @@ app.get('/api/license/reports', requireAuth, requireLicenseViewOrAdmin, async (r
                         SUM(r.current_quantity) AS currentQuantity, SUM(r.requested_quantity) AS requestedQuantity, SUM(r.total_amount) AS totalAmount
                  FROM lic_purchase_registrations r JOIN lic_companies co ON co.id = r.company_id
                  WHERE r.round_id = ?${companyId ? ' AND co.id = ?' : ''}
-                 GROUP BY co.id ORDER BY totalAmount DESC`,
+                 GROUP BY co.id, co.name ORDER BY totalAmount DESC`,
                 companyId ? [purchaseRoundId, companyId] : [purchaseRoundId]
             ))[0];
         }
@@ -7115,7 +7115,7 @@ app.get('/api/license/reports', requireAuth, requireLicenseViewOrAdmin, async (r
                  JOIN lic_org_units u ON u.id = r.org_unit_id
                  JOIN lic_companies co ON co.id = u.company_id
                  WHERE r.round_id = ?${companyId ? ' AND co.id = ?' : ''}
-                 GROUP BY u.id ORDER BY totalAmount DESC`,
+                 GROUP BY u.id, u.name, co.id, co.name ORDER BY totalAmount DESC`,
                 companyId ? [budgetRoundId, companyId] : [budgetRoundId]
             ))[0];
         }
@@ -7158,7 +7158,7 @@ app.get('/api/license/reports', requireAuth, requireLicenseViewOrAdmin, async (r
              LEFT JOIN lic_license_code_assignments a ON a.code_id = c.id
              LEFT JOIN lic_employees e ON e.id = a.employee_id
              WHERE c.expiry_date IS NOT NULL AND c.expiry_date <= DATE_ADD(CURDATE(), INTERVAL ? MONTH)${companyId ? ' AND c.company_id = ?' : ''}
-             GROUP BY c.id ORDER BY c.expiry_date ASC`,
+             GROUP BY c.id, c.code, co.name, sw.name, c.expiry_date ORDER BY c.expiry_date ASC`,
             companyId ? [expiryMonths, companyId] : [expiryMonths]
         );
         const [[expirySummary]] = await pool.query(
