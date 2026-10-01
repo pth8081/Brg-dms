@@ -544,6 +544,11 @@
     // nút "+ Thêm mục con" thủ công vẫn bị chặn bình thường vì click thẳng
     // vào đó gọi openBudget2ChildModal — hàm KHÔNG có trong danh sách này.
     const BUDGET_DEPT_TRANSFER_ACTIONS = new Set(['bulkTransferBudget2ToApproved', 'transferBudget2ToUsed', 'saveBudget2Child']);
+    // (Quyền "Gửi phê duyệt...") submitBudget2Proposal/submitBudget2Line đã
+    // tách riêng theo đúng giai đoạn (Đề xuất/Phê duyệt) nên gán thẳng 1-1;
+    // bulkSubmitBudget2Lines dùng CHUNG cho cả 2 giai đoạn (tham số 'key' lúc
+    // gọi, không có ở đây để phân biệt) — mở cho cả 2 quyền, giai đoạn đúng/
+    // sai đã được chặn lại chính xác ở từng endpoint server (requireBudgetSubmit*).
     function viewerWriteBlockedModule(fnName) {
       if (!currentUser || !currentUser.perms || currentUser.perms.admin) return null;
       const p = currentUser.perms;
@@ -552,6 +557,9 @@
       if (VIEWER_BLOCKED_ACTIONS.license.has(fnName) && !p.licenseManager) return 'license';
       if (VIEWER_BLOCKED_ACTIONS.budget2.has(fnName) && !p.budgetManager) {
         if (BUDGET_DEPT_TRANSFER_ACTIONS.has(fnName) && p.budgetDeptTransfer) return null;
+        if (fnName === 'submitBudget2Proposal' && p.budgetSubmitProposal) return null;
+        if (fnName === 'submitBudget2Line' && p.budgetSubmitApproved) return null;
+        if (fnName === 'bulkSubmitBudget2Lines' && (p.budgetSubmitProposal || p.budgetSubmitApproved)) return null;
         return 'budget2';
       }
       if (VIEWER_BLOCKED_ACTIONS.itAssets.has(fnName) && !p.itAssetsManager) return 'itAssets';
@@ -1068,7 +1076,8 @@
       // dữ liệu như Viewer/Approver — chỉ đúng phạm vi + đúng nhóm sub-tab
       // của quyền đó (xem applyBudgetDeptScopeUI() bên dưới, chạy ngay sau).
       const canViewBudget2 = canManageBudget2 || !!user.perms.budgetViewer || !!user.perms.budgetApprover
-        || !!user.perms.budgetDeptTransfer || !!user.perms.budgetDeptViewer || !!user.perms.budgetDeptReportViewer;
+        || !!user.perms.budgetDeptTransfer || !!user.perms.budgetDeptViewer || !!user.perms.budgetDeptReportViewer
+        || !!user.perms.budgetSubmitProposal || !!user.perms.budgetSubmitApproved;
       const canViewItAssets = canManageItAssets || !!user.perms.itAssetsViewer;
       document.getElementById('btnAdminTab').classList.toggle('hidden', !user.perms.admin);
       document.getElementById('btnLicenseTab').classList.toggle('hidden', !canViewLicense);
@@ -1123,17 +1132,21 @@
       });
     }
 
-    // (3 quyền "...theo phòng") Ẩn/hiện đúng sub-tab Ngân sách theo quyền —
-    // KHÔNG áp dụng nếu user đã có 1 trong 4 quyền rộng hơn (Admin/
-    // budgetManager/budgetViewer/budgetApprover), vì họ vẫn thấy đủ mọi
-    // sub-tab như trước, không giới hạn gì thêm.
-    // - budgetDeptTransfer/budgetDeptViewer: thấy 3 tab dữ liệu thô (Đề xuất/
-    //   Phê duyệt/Sử dụng), KHÔNG thấy tab Báo cáo. Dữ liệu bên trong đã tự
-    //   giới hạn đúng Phạm vi Ngân sách của họ (server — getUserBudgetScope).
+    // (5 quyền "...theo phòng"/"Gửi phê duyệt...") Ẩn/hiện đúng sub-tab Ngân
+    // sách theo quyền — KHÔNG áp dụng nếu user đã có 1 trong 4 quyền rộng hơn
+    // (Admin/budgetManager/budgetViewer/budgetApprover), vì họ vẫn thấy đủ
+    // mọi sub-tab như trước, không giới hạn gì thêm.
+    // - budgetDeptTransfer/budgetDeptViewer: thấy cả 3 tab dữ liệu thô (Đề
+    //   xuất/Phê duyệt/Sử dụng), KHÔNG thấy tab Báo cáo.
     // - budgetDeptReportViewer: CHỈ thấy tab Báo cáo, ẩn hẳn 3 tab dữ liệu thô.
-    // Nút ghi (Thêm/Sửa/Xóa/Gửi/Duyệt...) trong 3 tab dữ liệu đã tự ẩn theo
+    // - budgetSubmitProposal: CHỈ thấy tab Đề xuất (để chọn dòng Nháp gửi
+    //   phê duyệt); budgetSubmitApproved: CHỈ thấy tab Phê duyệt — 2 quyền
+    //   độc lập, không kéo theo thấy tab Sử dụng/Báo cáo. Dữ liệu bên trong
+    //   đã tự giới hạn đúng Phạm vi Ngân sách của họ (server — getUserBudgetScope).
+    // Nút ghi (Thêm/Sửa/Xóa/Duyệt...) trong 3 tab dữ liệu đã tự ẩn theo
     // applyViewerButtonVisibility() (không phải budgetManager); riêng 2 nút
-    // "Chuyển sang Phê duyệt/Sử dụng" được mở lại cho budgetDeptTransfer ở
+    // "Chuyển sang Phê duyệt/Sử dụng" (budgetDeptTransfer) và "Gửi phê duyệt"
+    // (budgetSubmitProposal/budgetSubmitApproved) được mở lại ở
     // viewerWriteBlockedModule() bên dưới.
     function applyBudgetDeptScopeUI(user) {
       if (!user || !user.perms) return;
@@ -1141,20 +1154,26 @@
       if (p.admin || p.budgetManager || p.budgetViewer || p.budgetApprover) return;
       const showData = !!(p.budgetDeptTransfer || p.budgetDeptViewer);
       const showReports = !!p.budgetDeptReportViewer;
-      ['btnBudget2SubPropose', 'btnBudget2SubApproved', 'btnBudget2SubUsed'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.classList.toggle('hidden', !showData);
-      });
+      const showPropose = showData || !!p.budgetSubmitProposal;
+      const showApproved = showData || !!p.budgetSubmitApproved;
+      const toggle = (id, show) => { const el = document.getElementById(id); if (el) el.classList.toggle('hidden', !show); };
+      toggle('btnBudget2SubPropose', showPropose);
+      toggle('btnBudget2SubApproved', showApproved);
+      toggle('btnBudget2SubUsed', showData);
       const reportsBtn = document.getElementById('btnBudget2SubReports');
       if (reportsBtn) reportsBtn.classList.toggle('hidden', !showReports);
     }
-    // Tab mặc định khi vào module Ngân sách — người chỉ có
-    // budgetDeptReportViewer (không có 3 tab dữ liệu) phải mở thẳng "reports",
-    // nếu không sẽ mở "propose" đang bị ẩn, trắng màn hình.
+    // Tab mặc định khi vào module Ngân sách — chọn đúng tab đầu tiên user
+    // thực sự thấy được (xem applyBudgetDeptScopeUI), tránh mở nhầm 1 tab
+    // đang bị ẩn (trắng màn hình). VD chỉ có budgetSubmitApproved (không có
+    // budgetSubmitProposal) phải mở thẳng "approved", không phải "propose".
     function budget2DefaultSubTab(perms) {
-      const hasBroaderOrData = perms.admin || perms.budgetManager || perms.budgetViewer || perms.budgetApprover
-        || perms.budgetDeptTransfer || perms.budgetDeptViewer;
-      return hasBroaderOrData ? 'propose' : 'reports';
+      const hasBroader = perms.admin || perms.budgetManager || perms.budgetViewer || perms.budgetApprover;
+      if (hasBroader) return 'propose';
+      const showData = perms.budgetDeptTransfer || perms.budgetDeptViewer;
+      if (showData || perms.budgetSubmitProposal) return 'propose';
+      if (perms.budgetSubmitApproved) return 'approved';
+      return 'reports';
     }
 
     function showLoginScreen() {
@@ -1300,7 +1319,8 @@
       if (tabName === 'licensePortal' && !currentUser.perms.admin && currentUser.perms.licenseScopeType) { switchPortalSubTab('budget'); }
       if (tabName === 'itAssets' && (currentUser.perms.admin || currentUser.perms.itAssetsManager || currentUser.perms.itAssetsViewer)) { switchItAssetsSubTab('items'); }
       if (tabName === 'budget2' && (currentUser.perms.admin || currentUser.perms.budgetManager || currentUser.perms.budgetViewer || currentUser.perms.budgetApprover
-          || currentUser.perms.budgetDeptTransfer || currentUser.perms.budgetDeptViewer || currentUser.perms.budgetDeptReportViewer)) {
+          || currentUser.perms.budgetDeptTransfer || currentUser.perms.budgetDeptViewer || currentUser.perms.budgetDeptReportViewer
+          || currentUser.perms.budgetSubmitProposal || currentUser.perms.budgetSubmitApproved)) {
         switchBudget2SubTab(budget2DefaultSubTab(currentUser.perms));
       }
     }
@@ -3018,9 +3038,11 @@
     function onBudgetDeptPermChange() {
       const anyChecked = document.getElementById('pBudgetDeptTransfer').checked
         || document.getElementById('pBudgetDeptViewer').checked
-        || document.getElementById('pBudgetDeptReportViewer').checked;
+        || document.getElementById('pBudgetDeptReportViewer').checked
+        || document.getElementById('pBudgetSubmitProposal').checked
+        || document.getElementById('pBudgetSubmitApproved').checked;
       if (anyChecked && !getScopePayload('userBudget').scopeId) {
-        showToast('Nhớ chọn Phạm vi Ngân sách (mục 7) cho quyền "...theo phòng" vừa bật!', 'warning');
+        showToast('Nhớ chọn Phạm vi Ngân sách (mục 7) cho quyền "...theo phòng"/"Gửi phê duyệt..." vừa bật!', 'warning');
       }
     }
 
@@ -3124,16 +3146,18 @@
       const userBudgetScope = getScopePayload('userBudget');
       if (userBudgetScope.scopeType && !userBudgetScope.scopeId) return showToast('Vui lòng chọn công ty/đơn vị cho phạm vi Ngân sách!', 'warning');
 
-      // 3 quyền "...theo phòng" chỉ có ý nghĩa khi gán đúng Phạm vi Ngân sách
-      // (không gán nhóm quyền — nhóm không mang được phạm vi, xem nhánh perms
-      // bên dưới) — bắt buộc chọn phạm vi, không cho để trống.
+      // 5 quyền "...theo phòng"/"Gửi phê duyệt..." chỉ có ý nghĩa khi gán đúng
+      // Phạm vi Ngân sách (không gán nhóm quyền — nhóm không mang được phạm
+      // vi, xem nhánh perms bên dưới) — bắt buộc chọn phạm vi, không cho để trống.
       const permissionGroupIdCheck = document.getElementById('uPermissionGroupId').value;
       if (!permissionGroupIdCheck) {
         const hasDeptPerm = document.getElementById('pBudgetDeptTransfer').checked
           || document.getElementById('pBudgetDeptViewer').checked
-          || document.getElementById('pBudgetDeptReportViewer').checked;
+          || document.getElementById('pBudgetDeptReportViewer').checked
+          || document.getElementById('pBudgetSubmitProposal').checked
+          || document.getElementById('pBudgetSubmitApproved').checked;
         if (hasDeptPerm && !userBudgetScope.scopeId) {
-          return showToast('Vui lòng chọn Phạm vi Ngân sách (mục 7) khi bật 1 trong 3 quyền "...theo phòng"!', 'warning');
+          return showToast('Vui lòng chọn Phạm vi Ngân sách (mục 7) khi bật 1 trong các quyền "...theo phòng"/"Gửi phê duyệt..."!', 'warning');
         }
       }
 
@@ -3159,6 +3183,8 @@
         budgetDeptTransfer: document.getElementById('pBudgetDeptTransfer').checked,
         budgetDeptViewer: document.getElementById('pBudgetDeptViewer').checked,
         budgetDeptReportViewer: document.getElementById('pBudgetDeptReportViewer').checked,
+        budgetSubmitProposal: document.getElementById('pBudgetSubmitProposal').checked,
+        budgetSubmitApproved: document.getElementById('pBudgetSubmitApproved').checked,
         uploadAll: document.getElementById('pUploadAll').checked,
         uploadDepts: Array.from(document.querySelectorAll('.pUploadDept:checked')).map(c => c.value),
         viewDraftAll: document.getElementById('pViewDraftAll').checked,
@@ -3270,6 +3296,8 @@
       document.getElementById('pBudgetDeptTransfer').checked = !!p.budgetDeptTransfer;
       document.getElementById('pBudgetDeptViewer').checked = !!p.budgetDeptViewer;
       document.getElementById('pBudgetDeptReportViewer').checked = !!p.budgetDeptReportViewer;
+      document.getElementById('pBudgetSubmitProposal').checked = !!p.budgetSubmitProposal;
+      document.getElementById('pBudgetSubmitApproved').checked = !!p.budgetSubmitApproved;
 
       document.getElementById('pUploadAll').checked = !!p.uploadAll;
       document.querySelectorAll('.pUploadDept').forEach(cb => cb.checked = p.uploadDepts ? p.uploadDepts.includes(cb.value) : false);
@@ -3406,6 +3434,8 @@
       document.getElementById('pBudgetDeptTransfer').checked = false;
       document.getElementById('pBudgetDeptViewer').checked = false;
       document.getElementById('pBudgetDeptReportViewer').checked = false;
+      document.getElementById('pBudgetSubmitProposal').checked = false;
+      document.getElementById('pBudgetSubmitApproved').checked = false;
       document.getElementById('btnSaveUser').innerText = '+ Thêm Vào Danh Sách';
 
       ['pUploadAll', 'pViewDraftAll', 'pViewApprovedAll', 'pDownloadAll'].forEach(id => {
@@ -4182,20 +4212,31 @@
 
       const tbody = document.getElementById('licenseEmpTableBody');
       if (rows.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" class="text-center p-4 text-gray-500">Không có nhân viên nào khớp bộ lọc.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" class="text-center p-4 text-gray-500">Không có nhân viên nào khớp bộ lọc.</td></tr>`;
       } else {
         const pageOffset = (getPaginationState('licenseEmp').page - 1) * getPaginationState('licenseEmp').pageSize;
         const pageItems = paginateSlice('licenseEmp', rows);
         tbody.innerHTML = pageItems.map((e, i) => {
           const company = licenseDB.companies.find(c => c.id === e.companyId);
+          // (Trạng thái AD) adActive null = không khớp Mã NV với tài khoản AD
+          // nào — không kết luận được, không bôi màu. Khớp được (true/false)
+          // thì hiện đúng badge + bôi đỏ cả dòng khi đã bị khóa AD, giúp người
+          // quản lý License dễ nhận biết nhân viên đã nghỉ còn sót license.
+          const statusBadge = e.adActive === null
+            ? '<span class="text-[10px] text-gray-400">—</span>'
+            : (e.adActive
+              ? '<span class="text-[10px] font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-full whitespace-nowrap">🟢 Đang làm việc</span>'
+              : '<span class="text-[10px] font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded-full whitespace-nowrap">🔴 Đã khóa AD</span>');
+          const rowClass = e.adActive === false ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50';
           return `
-            <tr class="hover:bg-gray-50">
+            <tr class="${rowClass}">
               <td class="border p-2">${pageOffset + i + 1}</td>
               <td class="border p-2"><div class="font-bold">${escapeHtml(e.fullName)}</div><div class="text-[11px] text-gray-400">${escapeHtml(e.title || '')}</div></td>
               <td class="border p-2">${escapeHtml(e.employeeCode || '')}</td>
               <td class="border p-2">${escapeHtml(orgUnitPath(e.orgUnitId) || '—')}</td>
               <td class="border p-2">${escapeHtml(company ? company.name : '—')}</td>
               <td class="border p-2">${escapeHtml(e.email || '')}</td>
+              <td class="border p-2 text-center">${statusBadge}</td>
               <td class="border p-2 text-center">
                 <button ${dc('openEmployeeModal', e.id)} class="px-1.5 py-0.5 rounded hover:bg-gray-200">✏️</button>
                 <button ${dc('deleteEmployee', e.id)} class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600">🗑️</button>
@@ -4216,6 +4257,15 @@
       document.getElementById('employeeTitle').value = e ? (e.title || '') : '';
       document.getElementById('employeeCode').value = e ? (e.employeeCode || '') : '';
       document.getElementById('employeeEmail').value = e ? (e.email || '') : '';
+      // (Email tự đồng bộ từ AD) Khớp Mã NV với 1 tài khoản AD (adActive khác
+      // null) thì khóa ô Email lại — sửa tay vô ích vì sẽ bị ghi đè ở lần
+      // đồng bộ AD kế tiếp; không khớp (adActive null, VD cộng tác viên không
+      // có tài khoản AD) thì vẫn nhập tay bình thường như trước.
+      const emailSyncedFromAd = !!(e && e.adActive !== null && e.adActive !== undefined);
+      document.getElementById('employeeEmail').readOnly = emailSyncedFromAd;
+      document.getElementById('employeeEmail').classList.toggle('bg-gray-100', emailSyncedFromAd);
+      document.getElementById('employeeEmail').classList.toggle('cursor-not-allowed', emailSyncedFromAd);
+      document.getElementById('employeeEmailAdHint').classList.toggle('hidden', !emailSyncedFromAd);
       // (Trực thuộc công ty, không chọn Đơn vị) Dùng thẳng e.companyId — không
       // suy công ty qua orgUnitId nữa vì orgUnitId có thể là null (không có
       // đơn vị nào để tra).
@@ -4834,12 +4884,12 @@ function isPerpetualSoftware(softwareId) {
       });
 
       if (licenseDB.adAccounts.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" class="text-center text-gray-500 p-4">Chưa có dữ liệu tài khoản AD — bấm "Đồng bộ ngay" để tải (cần bật đồng bộ AD trong mục Hệ thống trước).</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" class="text-center text-gray-500 p-4">Chưa có dữ liệu tài khoản AD — bấm "Đồng bộ ngay" để tải (cần bật đồng bộ AD trong mục Hệ thống trước).</td></tr>`;
         renderPaginationBar('adAccountsPaginationBox', 'adAccounts', 0, 'renderAdAccountsTable', { itemLabel: 'tài khoản' });
         return;
       }
       if (rows.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" class="text-center text-gray-500 p-4">Không có tài khoản nào khớp bộ lọc.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" class="text-center text-gray-500 p-4">Không có tài khoản nào khớp bộ lọc.</td></tr>`;
         renderPaginationBar('adAccountsPaginationBox', 'adAccounts', 0, 'renderAdAccountsTable', { itemLabel: 'tài khoản' });
         return;
       }
@@ -4850,6 +4900,7 @@ function isPerpetualSoftware(softwareId) {
           <td class="border p-2">${pageOffset + i + 1}</td>
           <td class="border p-2 font-mono">${escapeHtml(a.username)}</td>
           <td class="border p-2">${escapeHtml(a.fullName || '—')}</td>
+          <td class="border p-2">${escapeHtml(a.email || '—')}</td>
           <td class="border p-2 text-center">${a.active ? '<span class="text-[10px] font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Active</span>' : '<span class="text-[10px] font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded-full">Disable</span>'}</td>
           <td class="border p-2">${escapeHtml(a.company || '—')}</td>
           <td class="border p-2">${escapeHtml(a.orgUnit || '—')}</td>
@@ -8527,7 +8578,8 @@ function isPerpetualSoftware(softwareId) {
 
     function switchBudget2SubTab(subName) {
       if (!currentUser || !(currentUser.perms.admin || currentUser.perms.budgetManager || currentUser.perms.budgetViewer || currentUser.perms.budgetApprover
-          || currentUser.perms.budgetDeptTransfer || currentUser.perms.budgetDeptViewer || currentUser.perms.budgetDeptReportViewer)) return;
+          || currentUser.perms.budgetDeptTransfer || currentUser.perms.budgetDeptViewer || currentUser.perms.budgetDeptReportViewer
+          || currentUser.perms.budgetSubmitProposal || currentUser.perms.budgetSubmitApproved)) return;
       const subs = { propose: 'budget2SubPropose', approved: 'budget2SubApproved', used: 'budget2SubUsed', reports: 'budget2SubReports' };
       const btns = { propose: 'btnBudget2SubPropose', approved: 'btnBudget2SubApproved', used: 'btnBudget2SubUsed', reports: 'btnBudget2SubReports' };
       Object.keys(subs).forEach(key => {

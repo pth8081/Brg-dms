@@ -672,6 +672,14 @@
                 <input type="checkbox" id="pBudgetDeptReportViewer" data-evt-change="onBudgetDeptPermChange" data-args='[]'> Quyền xem báo cáo theo phòng
               </label>
               <p class="text-[10px] text-gray-500 leading-tight">CHỈ xem được tab Báo cáo trong đúng Phạm vi Ngân sách (mục 7), không xem dữ liệu thô 3 tab kia. Bắt buộc chọn Phạm vi ở mục 7.</p>
+              <label class="flex items-center gap-2 text-cyan-700 font-semibold cursor-pointer border-t pt-2">
+                <input type="checkbox" id="pBudgetSubmitProposal" data-evt-change="onBudgetDeptPermChange" data-args='[]'> Quyền gửi phê duyệt Ngân sách đề xuất
+              </label>
+              <p class="text-[10px] text-gray-500 leading-tight">CHỈ bấm được "Gửi phê duyệt" (đơn + hàng loạt) cho dòng Nháp ở tab Đề xuất, trong đúng Phạm vi Ngân sách (mục 7) — không tạo/sửa/xóa được gì. Bắt buộc chọn Phạm vi ở mục 7.</p>
+              <label class="flex items-center gap-2 text-cyan-700 font-semibold cursor-pointer border-t pt-2">
+                <input type="checkbox" id="pBudgetSubmitApproved" data-evt-change="onBudgetDeptPermChange" data-args='[]'> Quyền gửi phê duyệt Ngân sách phê duyệt
+              </label>
+              <p class="text-[10px] text-gray-500 leading-tight">CHỈ bấm được "Gửi phê duyệt" (đơn + hàng loạt) cho dòng Nháp ở tab Phê duyệt, trong đúng Phạm vi Ngân sách (mục 7) — không tạo/sửa/xóa được gì. Bắt buộc chọn Phạm vi ở mục 7.</p>
             </div>
 
             <div class="bg-white p-3 rounded border space-y-2">
@@ -733,8 +741,8 @@
           </div>
 
           <div class="bg-white p-3 rounded border space-y-2 text-xs">
-            <h4 class="font-bold text-teal-800 border-b pb-1 text-xs">7. Phạm vi Ngân sách (Quản lý/Chỉ xem/3 quyền theo phòng)</h4>
-            <p class="text-[11px] text-gray-500">Với "Người quản lý Ngân sách"/"Người xem Ngân sách" ở mục 1 — để trống thì được toàn quyền quản lý/xem MỌI công ty/đơn vị như hiện tại; gán phạm vi thì chỉ quản lý/xem được đúng Công ty hoặc Khối/Phòng/Ban (và các đơn vị con) được gán. Với 3 quyền "...theo phòng" ở mục 1 — BẮT BUỘC phải chọn phạm vi ở đây, không được để trống.</p>
+            <h4 class="font-bold text-teal-800 border-b pb-1 text-xs">7. Phạm vi Ngân sách (Quản lý/Chỉ xem/5 quyền theo phòng)</h4>
+            <p class="text-[11px] text-gray-500">Với "Người quản lý Ngân sách"/"Người xem Ngân sách" ở mục 1 — để trống thì được toàn quyền quản lý/xem MỌI công ty/đơn vị như hiện tại; gán phạm vi thì chỉ quản lý/xem được đúng Công ty hoặc Khối/Phòng/Ban (và các đơn vị con) được gán. Với 5 quyền "...theo phòng"/"Gửi phê duyệt..." ở mục 1 — BẮT BUỘC phải chọn phạm vi ở đây, không được để trống.</p>
             <select id="userBudgetScopeType" data-evt-change="onScopeTypeChange" data-args='["userBudget"]' class="w-full border p-1.5 rounded text-xs bg-white mb-2">
               <option value="">-- Không giới hạn (toàn bộ công ty/đơn vị) --</option>
               <option value="COMPANY">Toàn bộ 1 Công ty</option>
@@ -1388,6 +1396,7 @@
               <th class="border p-2">Đơn vị</th>
               <th class="border p-2">Công ty</th>
               <th class="border p-2">Email</th>
+              <th class="border p-2 text-center">Trạng thái</th>
               <th class="border p-2 text-center whitespace-nowrap">Thao tác</th>
             </tr>
           </thead>
@@ -1582,6 +1591,7 @@
               <th class="border p-2 w-10">STT</th>
               <th class="border p-2">Tài khoản</th>
               <th class="border p-2">Họ và tên</th>
+              <th class="border p-2">Email</th>
               <th class="border p-2 text-center">Tình trạng</th>
               <th class="border p-2">Công ty</th>
               <th class="border p-2">Khối phòng ban</th>
@@ -2858,6 +2868,7 @@
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Email</label>
         <input id="employeeEmail" type="email" class="w-full border p-2 rounded text-sm" placeholder="vd@congty.vn">
+        <p id="employeeEmailAdHint" class="text-[10px] text-gray-500 mt-1 hidden">🔒 Tự động đồng bộ từ Tài khoản AD (khớp theo Mã nhân viên = Username AD) — không sửa tay được, sẽ bị ghi đè ở lần đồng bộ AD kế tiếp.</p>
       </div>
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" data-evt-click="closeLicenseModal" data-args='["employeeModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
