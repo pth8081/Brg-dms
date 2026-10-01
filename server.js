@@ -703,6 +703,22 @@ async function ldapSyncAccounts() {
         );
         removed = removedUsernames.length;
     }
+
+    // (Đồng bộ Email nhân viên từ AD) Mã NV (lic_employees.employee_code) quy
+    // ước trùng với Username đăng nhập Windows (ad_accounts.username, tức
+    // sAMAccountName) — khớp được thì luôn ghi đè Email nhân viên bằng đúng
+    // Email AD mới nhất (nguồn đáng tin cậy hơn nhập tay, luôn cập nhật theo
+    // thực tế). Nhân viên không khớp AD nào (VD cộng tác viên không có tài
+    // khoản AD) giữ nguyên Email đã nhập tay, không đụng tới.
+    await pool.query(`
+        UPDATE lic_employees e
+        JOIN ad_accounts ad ON LOWER(TRIM(e.employee_code)) = LOWER(ad.username)
+        SET e.email = ad.email
+        WHERE e.employee_code IS NOT NULL AND e.employee_code <> ''
+          AND ad.email IS NOT NULL AND ad.email <> ''
+          AND (e.email IS NULL OR e.email <> ad.email)
+    `);
+
     return { total: entries.length, created, updated, removed };
 }
 
@@ -3590,7 +3606,10 @@ function mapOrgUnit(u) { return { id: u.id, companyId: u.company_id, parentId: u
 // (Nhân viên trực thuộc công ty, không chọn Đơn vị) companyId gửi thẳng cho
 // client — trước đây client tự suy company qua orgUnitId (tra licenseDB.orgUnits),
 // cách này không còn dùng được khi orgUnitId là NULL (không có đơn vị nào để tra).
-function mapEmployee(e) { return { id: e.id, orgUnitId: e.org_unit_id, companyId: e.company_id, fullName: e.full_name, title: e.title, employeeCode: e.employee_code, email: e.email, active: !!e.active }; }
+// adActive: null = không khớp Mã NV với tài khoản AD nào (không kết luận được
+// tình trạng) — true/false = có khớp, đúng trạng thái active của tài khoản AD
+// đó (xem LEFT JOIN ad_accounts ở GET /api/license/bootstrap).
+function mapEmployee(e) { return { id: e.id, orgUnitId: e.org_unit_id, companyId: e.company_id, fullName: e.full_name, title: e.title, employeeCode: e.employee_code, email: e.email, active: !!e.active, adActive: e.ad_active === null || e.ad_active === undefined ? null : !!e.ad_active }; }
 const LICENSE_TYPES = ['PERPETUAL', 'TERM', 'MAINTENANCE'];
 function mapSoftware(s) {
     return {
@@ -3807,7 +3826,14 @@ app.get('/api/license/bootstrap', requireAuth, requireLicenseViewOrAdmin, async 
     try {
         const [companies] = await pool.query('SELECT * FROM lic_companies ORDER BY name');
         const [orgUnits] = await pool.query('SELECT * FROM lic_org_units ORDER BY sort_order, name');
-        const [employees] = await pool.query('SELECT * FROM lic_employees ORDER BY full_name');
+        // (Trạng thái AD) LEFT JOIN để biết nhân viên nào khớp Mã NV với 1 tài
+        // khoản AD (ad.active NULL = không khớp, xem mapEmployee).
+        const [employees] = await pool.query(`
+            SELECT e.*, ad.active AS ad_active
+            FROM lic_employees e
+            LEFT JOIN ad_accounts ad ON LOWER(TRIM(e.employee_code)) = LOWER(ad.username)
+            ORDER BY e.full_name
+        `);
         const [software] = await pool.query('SELECT * FROM lic_software_catalog ORDER BY name');
         const [batches] = await pool.query('SELECT * FROM lic_license_batches ORDER BY id DESC');
         const [codes] = await pool.query('SELECT * FROM lic_license_codes ORDER BY code');
@@ -7582,7 +7608,7 @@ function requireBudgetOrAdmin(req, res, next) {
 // phòng dù middleware này cho qua.
 function requireBudgetViewOrAdmin(req, res, next) {
     const p = req.user && req.user.perms;
-    if (!p || !(p.admin || p.budgetManager || p.budgetViewer || p.budgetApprover || p.budgetDeptTransfer || p.budgetDeptViewer || p.budgetDeptReportViewer)) {
+    if (!p || !(p.admin || p.budgetManager || p.budgetViewer || p.budgetApprover || p.budgetDeptTransfer || p.budgetDeptViewer || p.budgetDeptReportViewer || p.budgetSubmitProposal || p.budgetSubmitApproved)) {
         return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên, Người quản lý Ngân sách, Người xem Ngân sách, Người duyệt Ngân sách, hoặc 1 trong các quyền theo phòng.' });
     }
     next();
@@ -7629,6 +7655,26 @@ function requireBudgetReportViewOrAdmin(req, res, next) {
     const p = req.user && req.user.perms;
     if (!p || !(p.admin || p.budgetManager || p.budgetViewer || p.budgetApprover || p.budgetDeptReportViewer)) {
         return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên, Người quản lý Ngân sách, Người xem Ngân sách, Người duyệt Ngân sách, hoặc Quyền xem báo cáo theo phòng.' });
+    }
+    next();
+}
+
+// (Quyền "Gửi phê duyệt" tách riêng — độc lập hoàn toàn với Quản lý/budgetDeptTransfer)
+// CHỈ cho phép đổi DRAFT -> SUBMITTED (gửi phê duyệt) đúng 1 giai đoạn tương
+// ứng, KHÔNG tạo/sửa/xóa/chuyển giai đoạn được gì — tách riêng Đề xuất/Phê
+// duyệt vì 1 người có thể chỉ phụ trách gửi đúng 1 trong 2 giai đoạn. Bắt
+// buộc chọn Phạm vi Ngân sách khi bật (xem validate ở saveUser(), app.js).
+function requireBudgetSubmitProposalOrAdmin(req, res, next) {
+    const p = req.user && req.user.perms;
+    if (!p || !(p.admin || p.budgetManager || p.budgetSubmitProposal)) {
+        return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên, Người quản lý Ngân sách, hoặc Quyền gửi phê duyệt Ngân sách đề xuất.' });
+    }
+    next();
+}
+function requireBudgetSubmitApprovedOrAdmin(req, res, next) {
+    const p = req.user && req.user.perms;
+    if (!p || !(p.admin || p.budgetManager || p.budgetSubmitApproved)) {
+        return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên, Người quản lý Ngân sách, hoặc Quyền gửi phê duyệt Ngân sách phê duyệt.' });
     }
     next();
 }
@@ -7937,7 +7983,7 @@ app.post('/api/budget2/lines', requireAuth, requireBudgetOrAdmin, async (req, re
 // mới thật sự vào hàng chờ duyệt và bị khóa sửa (xem PUT .../lines/:id).
 // Trước đó, dù đã tạo/nhập Excel, đề xuất vẫn chỉ là nháp riêng của người tạo,
 // người phê duyệt không thấy và không thể duyệt/từ chối/yêu cầu bổ sung. ---
-app.post('/api/budget2/lines/:id/submit-proposal', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+app.post('/api/budget2/lines/:id/submit-proposal', requireAuth, requireBudgetSubmitProposalOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'PROPOSED\'', [id]);
@@ -8490,7 +8536,7 @@ app.post('/api/budget2/lines/approved-direct', requireAuth, requireBudgetOrAdmin
 // --- Gửi phê duyệt 1 nháp dòng Phê duyệt (DRAFT -> SUBMITTED) — xem chú
 // thích đầy đủ ở .../lines/:id/submit-proposal, logic giống hệt, chỉ khác
 // stage = 'APPROVED'. ---
-app.post('/api/budget2/lines/:id/submit', requireAuth, requireBudgetOrAdmin, async (req, res) => {
+app.post('/api/budget2/lines/:id/submit', requireAuth, requireBudgetSubmitApprovedOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'APPROVED\'', [id]);
