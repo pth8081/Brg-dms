@@ -4196,6 +4196,7 @@
     function renderLicenseEmployees() {
       const companyId = document.getElementById('empFilterCompany').value;
       const orgUnitId = document.getElementById('empFilterOrgUnit').value;
+      const status = document.getElementById('empFilterStatus').value;
       const search = document.getElementById('empFilterSearch').value.trim().toLowerCase();
 
       let rows = licenseDB.employees.filter(e => {
@@ -4203,6 +4204,11 @@
         // Dùng thẳng e.companyId — nhân viên không có đơn vị (orgUnitId null)
         // vẫn phải lọc đúng theo công ty.
         if (companyId && e.companyId !== Number(companyId)) return false;
+        // (Lọc Trạng thái) adActive null = chưa khớp AD nào (không kết luận
+        // được) — xem mapEmployee()/adActive ở server.js.
+        if (status === 'active' && e.adActive !== true) return false;
+        if (status === 'disabled' && e.adActive !== false) return false;
+        if (status === 'unknown' && e.adActive !== null) return false;
         if (search) {
           const hay = `${e.fullName} ${e.employeeCode || ''} ${e.email || ''}`.toLowerCase();
           if (!hay.includes(search)) return false;
