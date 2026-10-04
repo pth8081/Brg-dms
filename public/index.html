@@ -470,8 +470,22 @@
             <label class="block font-semibold text-gray-600 mb-1">Mật khẩu SMTP</label>
             <input id="cfgSmtpPass" type="password" placeholder="Để trống nếu không đổi" class="w-full border p-1.5 rounded" autocomplete="new-password">
           </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Xác thực chứng chỉ TLS</label>
+            <select id="cfgSmtpTlsReject" class="w-full border p-1.5 rounded bg-white">
+              <option value="true">Có (khuyên dùng)</option>
+              <option value="false">Không — chứng chỉ tự ký/nội bộ (VD Postfix nội bộ)</option>
+            </select>
+          </div>
+          <div class="md:col-span-4">
+            <label class="block font-semibold text-gray-600 mb-1">Gửi email thử tới</label>
+            <div class="flex gap-2">
+              <input id="cfgEmailTestTo" type="email" placeholder="ban@congty.vn" class="w-full border p-1.5 rounded">
+              <button type="button" data-evt-click="testEmailConfig" data-args='[]' class="shrink-0 btn-secondary px-3 py-1.5 rounded font-bold whitespace-nowrap">🔌 Gửi Email Thử</button>
+            </div>
+          </div>
           <div class="md:col-span-4 flex flex-col sm:flex-row justify-between sm:items-center gap-2 pt-1">
-            <span class="text-gray-500 italic text-[11px]">Cấu hình mail hệ thống dùng để gửi email thật (thông báo duyệt tài liệu, nhắc hết hạn module Quản lý CNTT...). Cần nhập đủ Tài khoản/Mật khẩu SMTP để gửi được.</span>
+            <span class="text-gray-500 italic text-[11px]">Cấu hình mail hệ thống dùng để gửi email thật (thông báo duyệt tài liệu, nhắc hết hạn module Quản lý CNTT...). Cần nhập đủ Tài khoản/Mật khẩu SMTP để gửi được. "Gửi Email Thử" dùng ngay giá trị đang gõ trên form (chưa cần lưu trước) để chẩn đoán lỗi kết nối.</span>
             <button type="submit" class="shrink-0 btn-primary px-4 py-1.5 rounded font-bold">Lưu Cấu Hình Email</button>
           </div>
         </form>
