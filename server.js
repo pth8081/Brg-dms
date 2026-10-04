@@ -5000,6 +5000,51 @@ app.delete('/api/license/batches/:id', requireAuth, requireLicenseOrAdmin, async
     }
 });
 
+// Gửi email thông báo CẤP LICENSE cho nhân viên — dùng chung cho cả 4 luồng
+// cấp phát trong module License (gán đơn lẻ, gán hàng loạt dạng bảng, tự
+// động cấp theo phạm vi công ty/đơn vị, và duyệt yêu cầu cấp phát hàng loạt
+// từ file Excel) — luôn gọi SAU KHI transaction đã commit thành công, để lỗi
+// gửi email (SMTP tắt/sai cấu hình...) không bao giờ ảnh hưởng tới việc cấp
+// license đã lưu thành công. Gộp email theo từng nhân viên — nếu 1 người
+// được cấp nhiều mã trong cùng 1 lượt (VD cấp phát hàng loạt) chỉ nhận đúng
+// 1 email liệt kê đủ các phần mềm, không spam nhiều email liên tiếp.
+async function notifyLicenseAssigned(pairs) {
+    if (!pairs || pairs.length === 0) return;
+    const employeeIds = [...new Set(pairs.map(p => p.employeeId))];
+    const codeIds = [...new Set(pairs.map(p => p.codeId))];
+    const [employees] = await pool.query(
+        `SELECT id, full_name, email FROM lic_employees WHERE id IN (${employeeIds.map(() => '?').join(',')})`,
+        employeeIds
+    );
+    const [codes] = await pool.query(
+        `SELECT c.id, c.code, c.expiry_date, s.name AS software_name
+         FROM lic_license_codes c JOIN lic_software_catalog s ON s.id = c.software_id
+         WHERE c.id IN (${codeIds.map(() => '?').join(',')})`,
+        codeIds
+    );
+    const employeeById = new Map(employees.map(e => [e.id, e]));
+    const codeById = new Map(codes.map(c => [c.id, c]));
+
+    const codesByEmployee = new Map();
+    for (const p of pairs) {
+        const code = codeById.get(p.codeId);
+        if (!code) continue;
+        if (!codesByEmployee.has(p.employeeId)) codesByEmployee.set(p.employeeId, []);
+        codesByEmployee.get(p.employeeId).push(code);
+    }
+
+    for (const [employeeId, empCodes] of codesByEmployee) {
+        const emp = employeeById.get(employeeId);
+        if (!emp || !emp.email) continue;
+        const rows = empCodes.map(c => `<li><b>${escapeHtmlServer(c.software_name)}</b> — mã: ${escapeHtmlServer(c.code)}${c.expiry_date ? `, hạn sử dụng: ${fmtDate(c.expiry_date)}` : ' (vĩnh viễn)'}</li>`).join('');
+        const subject = empCodes.length === 1
+            ? `[DMS] Bạn đã được cấp bản quyền phần mềm ${empCodes[0].software_name}`
+            : `[DMS] Bạn đã được cấp ${empCodes.length} bản quyền phần mềm mới`;
+        const html = `Xin chào ${escapeHtmlServer(emp.full_name)},<br><br>Bạn vừa được cấp quyền sử dụng phần mềm sau:<ul>${rows}</ul>Vui lòng liên hệ bộ phận IT nếu có bất kỳ thắc mắc nào.`;
+        await sendRealEmail(emp.email, subject, html, { module: 'LICENSE', actionPrefix: 'LICENSE_ASSIGN_NOTIFY' });
+    }
+}
+
 // --- Phân bổ (gán / thu hồi mã license cho nhân viên — nhiều-nhiều) ---
 // Zero-trust: server tự tra lại công ty của mã và công ty của nhân viên (qua
 // đơn vị) để đối chiếu — không tin companyId client gửi kèm. Số người được
@@ -5056,6 +5101,7 @@ async function assignLicenseCodeToEmployee(codeId, employeeId, issuedDate) {
 
         await conn.query('INSERT INTO lic_license_code_assignments (code_id, employee_id, assigned_at) VALUES (?, ?, ?)', [codeId, employeeId, issuedDate]);
         await conn.commit();
+        await notifyLicenseAssigned([{ employeeId, codeId }]);
         return { success: true, codeLabel: code.code, empFullName: empRows[0].full_name, assignedCount: existingAssignments.length + 1 };
     } catch (e) {
         await conn.rollback();
@@ -5383,17 +5429,20 @@ app.post('/api/license/companies/:companyId/bulk-allocate', requireAuth, require
 
             const pairCount = Math.min(targetEmployees.length, slots.length);
             const assignedAt = issuedDate;
+            const newlyAssignedPairs = [];
             for (let i = 0; i < pairCount; i++) {
                 await conn.query(
                     'INSERT INTO lic_license_code_assignments (code_id, employee_id, assigned_at) VALUES (?, ?, ?)',
                     [slots[i], targetEmployees[i].id, assignedAt]
                 );
+                newlyAssignedPairs.push({ employeeId: targetEmployees[i].id, codeId: slots[i] });
             }
 
             const shortage = targetEmployees.slice(pairCount).map(e => ({ employeeId: e.id, fullName: e.full_name }));
             const leftoverSlots = slots.length - pairCount;
 
             await conn.commit();
+            await notifyLicenseAssigned(newlyAssignedPairs);
             result = { assignedCount: pairCount, shortage, leftoverSlots };
         } catch (e) {
             await conn.rollback();
@@ -5735,11 +5784,13 @@ app.post('/api/license/bulk-allocation-requests/:id/approve', requireAuth, requi
 
             let assignedCount = 0;
             const assignedAt = preRows[0].issued_date;
+            const newlyAssignedPairs = [];
             for (const item of toAllocate) {
                 if (slots.length === 0) break;
                 const codeId = slots.shift();
                 const empId = employeeIdByItemId.get(item.id);
                 await conn.query('INSERT INTO lic_license_code_assignments (code_id, employee_id, assigned_at) VALUES (?, ?, ?)', [codeId, empId, assignedAt]);
+                newlyAssignedPairs.push({ employeeId: empId, codeId });
                 assignedCount++;
             }
 
@@ -5749,6 +5800,7 @@ app.post('/api/license/bulk-allocation-requests/:id/approve', requireAuth, requi
             );
 
             await conn.commit();
+            await notifyLicenseAssigned(newlyAssignedPairs);
             outcome = { assignedCount, skippedCount: items.length - assignedCount, codesGenerated };
         } catch (e) {
             await conn.rollback();
