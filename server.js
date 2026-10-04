@@ -771,6 +771,14 @@ function buildMailTransporter(emailConfig) {
         port: Number(emailConfig.smtpPort) || 587,
         secure: !!emailConfig.smtpSecure,
         auth: (emailConfig.smtpUser && emailConfig.smtpPass) ? { user: emailConfig.smtpUser, pass: emailConfig.smtpPass } : undefined,
+        // (Gateway nội bộ dùng chứng chỉ tự ký/CA nội bộ — VD Postfix công ty)
+        // Mặc định vẫn xác thực chứng chỉ TLS như Node.js thường làm
+        // (rejectUnauthorized: true) — chỉ tắt khi Admin chủ động chọn "Không"
+        // ở mục Xác thực chứng chỉ TLS, giống hệt cơ chế tlsRejectUnauthorized
+        // đã có sẵn cho LDAPS. Áp dụng cho cả 2 kiểu kết nối (secure=true tức
+        // TLS ngay từ đầu kết nối — cổng 465/SMTPS, lẫn secure=false nhưng
+        // server nâng cấp lên TLS giữa chừng qua STARTTLS — cổng 587/25).
+        tls: { rejectUnauthorized: emailConfig.smtpTlsRejectUnauthorized !== false },
         // Không để 1 SMTP không phản hồi (sai host/mạng chặn) làm treo request
         // lâu — báo lỗi sớm để Admin biết cấu hình sai thay vì chờ vô thời hạn.
         connectionTimeout: 10000,
@@ -804,6 +812,64 @@ async function sendRealEmail(to, subject, html, { module = 'IT_ASSETS', actionPr
         return { success: false, error: err.message };
     }
 }
+
+// Gửi thử 1 email bằng CHÍNH cấu hình đang gõ trên form (chưa bắt buộc phải
+// lưu trước) — giúp Admin tự chẩn đoán lỗi kết nối SMTP (VD gateway Postfix
+// nội bộ dùng cổng 465/SSL với chứng chỉ tự ký) ngay trên giao diện, thay vì
+// phải đoán qua 1 dòng SEND_EMAIL_FAILED ẩn trong System Logs ở lần gửi thật
+// kế tiếp. KHÔNG dùng sendRealEmail() ở trên vì hàm đó luôn đọc cấu hình đã
+// LƯU trong CSDL — ở đây cần test với giá trị đang gõ dở, có thể khác hẳn.
+app.post('/api/system/email-config/test', requireAuth, requireAdmin, async (req, res) => {
+    const body = req.body || {};
+    const to = String(body.to || '').trim();
+    if (!to || !EMAIL_RE.test(to)) {
+        return res.status(400).json({ error: 'Vui lòng nhập đúng 1 địa chỉ email để gửi thử.' });
+    }
+    if (!body.smtpHost || !String(body.smtpHost).trim()) {
+        return res.status(400).json({ error: 'Thiếu địa chỉ máy chủ SMTP.' });
+    }
+    const port = Number(body.smtpPort);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        return res.status(400).json({ error: 'Cổng SMTP không hợp lệ (phải từ 1 đến 65535).' });
+    }
+    // Mật khẩu để trống hoặc gửi lại chuỗi che '••••••••' (form chưa đổi) ->
+    // test với mật khẩu THẬT đã lưu, giống hệt quy ước ở PUT lưu cấu hình.
+    let smtpPass = body.smtpPass;
+    if (!smtpPass || !String(smtpPass).trim() || smtpPass === '••••••••') {
+        const existing = await getEmailConfig();
+        smtpPass = (existing && existing.smtpPass) || '';
+    }
+    const testConfig = {
+        smtpHost: String(body.smtpHost).trim(),
+        smtpPort: port,
+        smtpSecure: !!body.smtpSecure,
+        smtpUser: body.smtpUser ? String(body.smtpUser).trim() : '',
+        smtpPass,
+        smtpTlsRejectUnauthorized: body.smtpTlsRejectUnauthorized !== false,
+        senderEmail: body.senderEmail ? String(body.senderEmail).trim() : 'dms-noreply@company.com'
+    };
+    try {
+        const transporter = buildMailTransporter(testConfig);
+        await transporter.verify();
+        await transporter.sendMail({
+            from: testConfig.senderEmail,
+            to,
+            subject: '[DMS] Email thử nghiệm cấu hình SMTP',
+            html: `Đây là email thử nghiệm xác nhận cấu hình SMTP (${escapeHtmlServer(testConfig.smtpHost)}:${testConfig.smtpPort}${testConfig.smtpSecure ? ', SSL' : ''}) hoạt động đúng — gửi lúc ${new Date().toLocaleString('vi-VN')} bởi ${escapeHtmlServer(req.user.username)}.`
+        });
+        await writeAuditLog({ module: 'SYSTEM_CONFIG', actionType: 'TEST_EMAIL_CONFIG', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: to, description: `Gửi email thử thành công qua ${testConfig.smtpHost}:${testConfig.smtpPort} tới ${to}.` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi gửi email thử:', err.message);
+        await writeAuditLog({ module: 'SYSTEM_CONFIG', actionType: 'TEST_EMAIL_CONFIG', status: 'FAILED', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: to, description: `Gửi email thử thất bại qua ${testConfig.smtpHost}:${testConfig.smtpPort}: ${err.message}` });
+        // Trả thẳng err.message (nodemailer) cho Admin — các lỗi thường gặp với
+        // gateway nội bộ: "self signed certificate"/"unable to verify the first
+        // certificate" (chứng chỉ tự ký, tắt Xác thực chứng chỉ TLS để qua),
+        // "ECONNREFUSED"/"ETIMEDOUT" (sai host/port hoặc firewall chặn),
+        // "Invalid login"/"535" (sai tài khoản/mật khẩu SMTP).
+        res.status(400).json({ error: err.message, code: err.code || null });
+    }
+});
 
 // (L4 - whole-app) Trước đây chỉ bắt buộc tối thiểu 6 ký tự, không yêu cầu độ
 // phức tạp nào — nâng lên 8 ký tự + ít nhất 2 trong 3 nhóm (chữ/số/ký tự đặc
@@ -1922,6 +1988,7 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
                     smtpHost: raw.smtpHost || 'smtp.gmail.com',
                     smtpPort: raw.smtpPort || 587,
                     smtpSecure: raw.smtpSecure || false,
+                    smtpTlsRejectUnauthorized: raw.smtpTlsRejectUnauthorized !== false,
                     senderEmail: raw.senderEmail || 'dms-noreply@company.com',
                     smtpUser: raw.smtpUser || '',
                     // Bảo mật: mật khẩu SMTP thật không bao giờ trả về cho client, chỉ

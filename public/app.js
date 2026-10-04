@@ -3548,6 +3548,7 @@
         smtpHost: document.getElementById('cfgSmtpHost').value.trim(),
         smtpPort: parseInt(document.getElementById('cfgSmtpPort').value, 10) || 587,
         smtpSecure: document.getElementById('cfgSmtpSecure').value === 'true',
+        smtpTlsRejectUnauthorized: document.getElementById('cfgSmtpTlsReject').value === 'true',
         senderEmail: document.getElementById('cfgSenderEmail').value.trim(),
         smtpUser: document.getElementById('cfgSmtpUser').value.trim(),
         // Để trống = giữ nguyên mật khẩu cũ đã lưu (server tự xử lý) — không
@@ -3566,6 +3567,7 @@
       document.getElementById('cfgSmtpHost').value = DB.emailConfig.smtpHost || 'smtp.gmail.com';
       document.getElementById('cfgSmtpPort').value = DB.emailConfig.smtpPort || 587;
       document.getElementById('cfgSmtpSecure').value = DB.emailConfig.smtpSecure ? 'true' : 'false';
+      document.getElementById('cfgSmtpTlsReject').value = DB.emailConfig.smtpTlsRejectUnauthorized !== false ? 'true' : 'false';
       document.getElementById('cfgSenderEmail').value = DB.emailConfig.senderEmail || 'dms-noreply@company.com';
       document.getElementById('cfgSmtpUser').value = DB.emailConfig.smtpUser || '';
       // Mật khẩu thật không bao giờ được server trả về — chỉ để trống ô nhập,
@@ -3573,6 +3575,38 @@
       // khẩu tài khoản dịch vụ AD).
       document.getElementById('cfgSmtpPass').value = '';
       document.getElementById('cfgSmtpPass').placeholder = DB.emailConfig.smtpPass ? 'Đã có mật khẩu (để trống nếu không đổi)' : 'Để trống nếu không đổi';
+    }
+
+    // Gửi thử bằng CHÍNH giá trị đang gõ trên form (không bắt buộc đã Lưu) —
+    // trả thẳng lỗi SMTP thật (nodemailer) để Admin tự chẩn đoán, VD gateway
+    // Postfix nội bộ dùng chứng chỉ tự ký sẽ báo rõ "self signed certificate"
+    // thay vì phải đoán qua System Logs.
+    async function testEmailConfig() {
+      const to = document.getElementById('cfgEmailTestTo').value.trim();
+      if (!to) return showToast('Vui lòng nhập email để gửi thử!', 'warning');
+      const btn = document.querySelector('[data-evt-click="testEmailConfig"]');
+      const originalText = btn ? btn.innerText : '';
+      if (btn) { btn.disabled = true; btn.innerText = '⏳ Đang gửi...'; }
+      try {
+        await apiFetch('/api/system/email-config/test', {
+          method: 'POST',
+          body: JSON.stringify({
+            to,
+            smtpHost: document.getElementById('cfgSmtpHost').value.trim(),
+            smtpPort: parseInt(document.getElementById('cfgSmtpPort').value, 10) || 587,
+            smtpSecure: document.getElementById('cfgSmtpSecure').value === 'true',
+            smtpTlsRejectUnauthorized: document.getElementById('cfgSmtpTlsReject').value === 'true',
+            senderEmail: document.getElementById('cfgSenderEmail').value.trim(),
+            smtpUser: document.getElementById('cfgSmtpUser').value.trim(),
+            smtpPass: document.getElementById('cfgSmtpPass').value
+          })
+        });
+        showToast(`Đã gửi email thử tới ${to} thành công! Kiểm tra hộp thư để xác nhận.`, 'success');
+      } catch (err) {
+        showToast(`Gửi email thử thất bại: ${err.message}`, 'danger');
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerText = originalText; }
+      }
     }
 
     async function saveLdapConfig(e) {
