@@ -4227,6 +4227,7 @@
         units.map(u => `<option value="${u.id}">${escapeHtml(orgUnitPath(u.id))}</option>`).join('');
     }
 
+    let selectedEmpIds = new Set();
     function renderLicenseEmployees() {
       const companyId = document.getElementById('empFilterCompany').value;
       const orgUnitId = document.getElementById('empFilterOrgUnit').value;
@@ -4251,11 +4252,12 @@
       });
 
       const tbody = document.getElementById('licenseEmpTableBody');
+      let pageItems = [];
       if (rows.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" class="text-center p-4 text-gray-500">Không có nhân viên nào khớp bộ lọc.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center p-4 text-gray-500">Không có nhân viên nào khớp bộ lọc.</td></tr>`;
       } else {
         const pageOffset = (getPaginationState('licenseEmp').page - 1) * getPaginationState('licenseEmp').pageSize;
-        const pageItems = paginateSlice('licenseEmp', rows);
+        pageItems = paginateSlice('licenseEmp', rows);
         tbody.innerHTML = pageItems.map((e, i) => {
           const company = licenseDB.companies.find(c => c.id === e.companyId);
           // (Trạng thái AD) adActive null = không khớp Mã NV với tài khoản AD
@@ -4268,14 +4270,16 @@
               ? '<span class="text-[10px] font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-full whitespace-nowrap">🟢 Đang làm việc</span>'
               : '<span class="text-[10px] font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded-full whitespace-nowrap">🔴 Đã khóa AD</span>');
           const rowClass = e.adActive === false ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50';
+          const emailLockBadge = e.emailLocked ? ' <span title="Đã chặn đồng bộ từ AD, chỉ sửa tay" class="text-[10px]">🔒</span>' : '';
           return `
             <tr class="${rowClass}">
+              <td class="border p-2 text-center"><input type="checkbox" class="empSelectCheckbox" value="${e.id}" ${selectedEmpIds.has(e.id) ? 'checked' : ''} ${dchg('onEmpSelectChange')}></td>
               <td class="border p-2">${pageOffset + i + 1}</td>
               <td class="border p-2"><div class="font-bold">${escapeHtml(e.fullName)}</div><div class="text-[11px] text-gray-400">${escapeHtml(e.title || '')}</div></td>
               <td class="border p-2">${escapeHtml(e.employeeCode || '')}</td>
               <td class="border p-2">${escapeHtml(orgUnitPath(e.orgUnitId) || '—')}</td>
               <td class="border p-2">${escapeHtml(company ? company.name : '—')}</td>
-              <td class="border p-2">${escapeHtml(e.email || '')}</td>
+              <td class="border p-2">${escapeHtml(e.email || '')}${emailLockBadge}</td>
               <td class="border p-2 text-center">${statusBadge}</td>
               <td class="border p-2 text-center">
                 <button ${dc('openEmployeeModal', e.id)} class="px-1.5 py-0.5 rounded hover:bg-gray-200">✏️</button>
@@ -4287,8 +4291,108 @@
       }
       renderPaginationBar('licenseEmpPaginationBox', 'licenseEmp', rows.length, 'renderLicenseEmployees', { itemLabel: 'nhân viên' });
       document.getElementById('empCountHint').textContent = `${rows.length} / ${licenseDB.employees.length} nhân viên`;
+
+      // Chỉ giữ lại lựa chọn của các dòng vẫn còn hiển thị (đổi trang/lọc thì
+      // bỏ chọn dòng không còn thấy) — giống hệt cơ chế ở bảng Phân bổ.
+      const visibleIds = new Set(pageItems.map(e => e.id));
+      selectedEmpIds.forEach(id => { if (!visibleIds.has(id)) selectedEmpIds.delete(id); });
+      const allChecked = pageItems.length > 0 && pageItems.every(e => selectedEmpIds.has(e.id));
+      const selectAllTh = document.getElementById('thEmpSelectAll');
+      if (selectAllTh) { const box = selectAllTh.querySelector('input'); if (box) box.checked = allChecked; }
+      updateBulkEmpButtons();
     }
 
+    function onEmpSelectChange() {
+      selectedEmpIds.clear();
+      const boxes = document.querySelectorAll('.empSelectCheckbox');
+      boxes.forEach(cb => { if (cb.checked) selectedEmpIds.add(Number(cb.value)); });
+      const selectAllTh = document.getElementById('thEmpSelectAll');
+      if (selectAllTh) { const box = selectAllTh.querySelector('input'); if (box) box.checked = boxes.length > 0 && selectedEmpIds.size === boxes.length; }
+      updateBulkEmpButtons();
+    }
+
+    function toggleSelectAllEmp(checked) {
+      document.querySelectorAll('.empSelectCheckbox').forEach(cb => { cb.checked = checked; });
+      onEmpSelectChange();
+    }
+
+    function updateBulkEmpButtons() {
+      const n = selectedEmpIds.size;
+      [['btnBulkDeleteEmp', 'bulkDeleteEmpCount'], ['btnBulkLockEmailEmp', 'bulkLockEmailEmpCount'], ['btnBulkUnlockEmailEmp', 'bulkUnlockEmailEmpCount']]
+        .forEach(([btnId, countId]) => {
+          const btn = document.getElementById(btnId);
+          if (!btn) return;
+          btn.classList.toggle('hidden', n === 0);
+          const countEl = document.getElementById(countId);
+          if (countEl) countEl.innerText = n;
+        });
+    }
+
+    async function bulkDeleteSelectedEmployees() {
+      const ids = Array.from(selectedEmpIds);
+      if (ids.length === 0) return;
+      const ok = await showConfirm({
+        title: 'Xóa nhiều nhân viên',
+        message: `Xóa ${ids.length} nhân viên đã chọn khỏi module Bản quyền? Nhân viên đang còn giữ license sẽ tự động được bỏ qua (cần thu hồi license trước).`,
+        danger: true, confirmText: 'Xóa',
+        requiredText: ids.length > 10 ? 'XOA' : null
+      });
+      if (!ok) return;
+      try {
+        const result = await apiFetch('/api/license/employees/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) });
+        if (result.skipped && result.skipped.length > 0) {
+          showToast(`Đã xóa ${result.deletedCount} nhân viên. Bỏ qua ${result.skipped.length} nhân viên đang giữ license: ${result.skipped.map(s => s.fullName).join(', ')}.`, 'warning');
+        } else {
+          showToast(`Đã xóa ${result.deletedCount} nhân viên.`, 'success');
+        }
+        selectedEmpIds.clear();
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        renderLicenseEmployees();
+        renderCompanyList();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+
+    async function bulkSetEmployeeEmailLock(locked) {
+      const ids = Array.from(selectedEmpIds);
+      if (ids.length === 0) return;
+      try {
+        const result = await apiFetch('/api/license/employees/bulk-email-lock', { method: 'POST', body: JSON.stringify({ ids, locked }) });
+        showToast(locked
+          ? `Đã chặn đồng bộ Email từ AD cho ${result.updatedCount} nhân viên — có thể tự sửa tay Email.`
+          : `Đã bỏ chặn, ${result.updatedCount} nhân viên sẽ tiếp tục đồng bộ Email theo AD ở lần chạy kế tiếp.`, 'success');
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        renderLicenseEmployees();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+
+    // (Chặn đồng bộ Email từ AD) Ô Email chỉ thật sự readonly khi CẢ 3 đúng:
+    // (1) nhân viên khớp 1 tài khoản AD, (2) tài khoản AD đó CÓ email (nếu AD
+    // không có email thì đồng bộ sẽ không đụng tới, sửa tay vẫn giữ nguyên —
+    // trước đây readonly chỉ xét điều kiện (1), khóa nhầm cả trường hợp AD
+    // không có dữ liệu email khiến Admin không sửa tay được), và (3) Admin
+    // chưa tick "Chặn đồng bộ" — tick vào là mở khóa sửa tay ngay lập tức,
+    // không cần lưu trước mới thấy hiệu lực.
+    function applyEmployeeEmailReadonly(e) {
+      const emailSyncedFromAd = !!(e && e.adActive !== null && e.adActive !== undefined);
+      const adHasEmail = !!(e && e.adEmail);
+      const locked = document.getElementById('employeeEmailLocked').checked;
+      const readonly = emailSyncedFromAd && adHasEmail && !locked;
+      document.getElementById('employeeEmail').readOnly = readonly;
+      document.getElementById('employeeEmail').classList.toggle('bg-gray-100', readonly);
+      document.getElementById('employeeEmail').classList.toggle('cursor-not-allowed', readonly);
+      document.getElementById('employeeEmailAdHint').classList.toggle('hidden', !readonly);
+    }
+    function onEmployeeEmailLockedChange() {
+      const id = document.getElementById('employeeEditId').value;
+      const e = id ? licenseDB.employees.find(x => x.id === Number(id)) : null;
+      applyEmployeeEmailReadonly(e);
+    }
     function openEmployeeModal(id) {
       const e = licenseDB.employees.find(x => x.id === id);
       document.getElementById('employeeModalTitle').textContent = e ? 'Sửa nhân viên' : 'Thêm nhân viên';
@@ -4297,15 +4401,11 @@
       document.getElementById('employeeTitle').value = e ? (e.title || '') : '';
       document.getElementById('employeeCode').value = e ? (e.employeeCode || '') : '';
       document.getElementById('employeeEmail').value = e ? (e.email || '') : '';
-      // (Email tự đồng bộ từ AD) Khớp Mã NV với 1 tài khoản AD (adActive khác
-      // null) thì khóa ô Email lại — sửa tay vô ích vì sẽ bị ghi đè ở lần
-      // đồng bộ AD kế tiếp; không khớp (adActive null, VD cộng tác viên không
-      // có tài khoản AD) thì vẫn nhập tay bình thường như trước.
-      const emailSyncedFromAd = !!(e && e.adActive !== null && e.adActive !== undefined);
-      document.getElementById('employeeEmail').readOnly = emailSyncedFromAd;
-      document.getElementById('employeeEmail').classList.toggle('bg-gray-100', emailSyncedFromAd);
-      document.getElementById('employeeEmail').classList.toggle('cursor-not-allowed', emailSyncedFromAd);
-      document.getElementById('employeeEmailAdHint').classList.toggle('hidden', !emailSyncedFromAd);
+      // (Chặn đồng bộ Email từ AD) e.emailLocked: Admin đã tự tick chặn — ô
+      // Email luôn sửa được tay, bất kể có khớp AD hay không (xem
+      // email_locked, PUT .../employees/:id, ldapSyncAccounts() ở server.js).
+      document.getElementById('employeeEmailLocked').checked = !!(e && e.emailLocked);
+      applyEmployeeEmailReadonly(e);
       // (Trực thuộc công ty, không chọn Đơn vị) Dùng thẳng e.companyId — không
       // suy công ty qua orgUnitId nữa vì orgUnitId có thể là null (không có
       // đơn vị nào để tra).
@@ -4326,9 +4426,10 @@
       const orgUnitId = orgUnitIdRaw ? Number(orgUnitIdRaw) : null;
       const employeeCode = document.getElementById('employeeCode').value.trim();
       const email = document.getElementById('employeeEmail').value.trim();
+      const emailLocked = document.getElementById('employeeEmailLocked').checked;
       if (!fullName || !companyId) return showToast('Vui lòng nhập Họ tên và chọn Công ty.', 'warning');
       try {
-        const payload = JSON.stringify({ orgUnitId, companyId, fullName, title, employeeCode, email });
+        const payload = JSON.stringify({ orgUnitId, companyId, fullName, title, employeeCode, email, emailLocked });
         if (id) {
           await apiFetch(`/api/license/employees/${id}`, { method: 'PUT', body: payload });
           showToast(`Đã cập nhật nhân viên "${fullName}".`, 'success');

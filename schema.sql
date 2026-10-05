@@ -353,6 +353,11 @@ CALL create_index_if_not_exists('lic_employees', 'idx_lic_employees_email', 'ema
 CALL add_column_if_not_exists('lic_employees', 'company_id', 'BIGINT NULL DEFAULT NULL');
 UPDATE lic_employees e JOIN lic_org_units u ON u.id = e.org_unit_id
     SET e.company_id = u.company_id WHERE e.company_id IS NULL;
+-- (Chặn đồng bộ Email từ AD) Admin bật cờ này cho 1 nhân viên để tự nhập tay
+-- Email và lần đồng bộ AD kế tiếp (ldapSyncAccounts(), server.js) sẽ KHÔNG
+-- ghi đè nữa — trước đây hễ khớp Mã NV với 1 tài khoản AD là Email luôn bị
+-- ghi đè theo AD, không có cách nào giữ giá trị nhập tay nếu email AD sai/cũ.
+CALL add_column_if_not_exists('lic_employees', 'email_locked', 'TINYINT(1) NOT NULL DEFAULT 0');
 -- UNIQUE trên (company_id, employee_code) — MySQL coi mỗi NULL là khác biệt
 -- trong unique index nên không ảnh hưởng gì tới các nhân viên chưa có mã. Chỉ
 -- tạo ràng buộc này nếu dữ liệu HIỆN TẠI chưa có xung đột — tránh làm gãy quá

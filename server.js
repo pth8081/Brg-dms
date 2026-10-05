@@ -709,7 +709,10 @@ async function ldapSyncAccounts() {
     // sAMAccountName) — khớp được thì luôn ghi đè Email nhân viên bằng đúng
     // Email AD mới nhất (nguồn đáng tin cậy hơn nhập tay, luôn cập nhật theo
     // thực tế). Nhân viên không khớp AD nào (VD cộng tác viên không có tài
-    // khoản AD) giữ nguyên Email đã nhập tay, không đụng tới.
+    // khoản AD) giữ nguyên Email đã nhập tay, không đụng tới. Nhân viên đã bật
+    // cờ email_locked (Admin chủ động chặn, xem PUT .../employees/:id và bulk
+    // .../employees/bulk-email-lock) cũng được bỏ qua — cho phép giữ 1 Email
+    // nhập tay khác hẳn AD mà không bị đồng bộ ghi đè lại ở lần chạy kế tiếp.
     await pool.query(`
         UPDATE lic_employees e
         JOIN ad_accounts ad ON LOWER(TRIM(e.employee_code)) = LOWER(ad.username)
@@ -717,6 +720,7 @@ async function ldapSyncAccounts() {
         WHERE e.employee_code IS NOT NULL AND e.employee_code <> ''
           AND ad.email IS NOT NULL AND ad.email <> ''
           AND (e.email IS NULL OR e.email <> ad.email)
+          AND e.email_locked = 0
     `);
 
     return { total: entries.length, created, updated, removed };
@@ -3676,7 +3680,7 @@ function mapOrgUnit(u) { return { id: u.id, companyId: u.company_id, parentId: u
 // adActive: null = không khớp Mã NV với tài khoản AD nào (không kết luận được
 // tình trạng) — true/false = có khớp, đúng trạng thái active của tài khoản AD
 // đó (xem LEFT JOIN ad_accounts ở GET /api/license/bootstrap).
-function mapEmployee(e) { return { id: e.id, orgUnitId: e.org_unit_id, companyId: e.company_id, fullName: e.full_name, title: e.title, employeeCode: e.employee_code, email: e.email, active: !!e.active, adActive: e.ad_active === null || e.ad_active === undefined ? null : !!e.ad_active }; }
+function mapEmployee(e) { return { id: e.id, orgUnitId: e.org_unit_id, companyId: e.company_id, fullName: e.full_name, title: e.title, employeeCode: e.employee_code, email: e.email, emailLocked: !!e.email_locked, active: !!e.active, adActive: e.ad_active === null || e.ad_active === undefined ? null : !!e.ad_active, adEmail: e.ad_email || null }; }
 const LICENSE_TYPES = ['PERPETUAL', 'TERM', 'MAINTENANCE'];
 function mapSoftware(s) {
     return {
@@ -3896,7 +3900,7 @@ app.get('/api/license/bootstrap', requireAuth, requireLicenseViewOrAdmin, async 
         // (Trạng thái AD) LEFT JOIN để biết nhân viên nào khớp Mã NV với 1 tài
         // khoản AD (ad.active NULL = không khớp, xem mapEmployee).
         const [employees] = await pool.query(`
-            SELECT e.*, ad.active AS ad_active
+            SELECT e.*, ad.active AS ad_active, ad.email AS ad_email
             FROM lic_employees e
             LEFT JOIN ad_accounts ad ON LOWER(TRIM(e.employee_code)) = LOWER(ad.username)
             ORDER BY e.full_name
@@ -4447,6 +4451,7 @@ app.post('/api/license/employees', requireAuth, requireLicenseOrAdmin, async (re
         const title = String((req.body && req.body.title) || '').trim();
         const employeeCode = String((req.body && req.body.employeeCode) || '').trim();
         const email = String((req.body && req.body.email) || '').trim();
+        const emailLocked = !!(req.body && req.body.emailLocked);
         if (!orgUnitId && !companyIdInput) return res.status(400).json({ error: 'Vui lòng chọn Công ty hoặc Đơn vị.' });
         if (!fullName) return res.status(400).json({ error: 'Họ và tên không được để trống.' });
         if (fullName.length > 255) return res.status(400).json({ error: 'Họ và tên quá dài (tối đa 255 ký tự).' });
@@ -4482,8 +4487,8 @@ app.post('/api/license/employees', requireAuth, requireLicenseOrAdmin, async (re
         // SELECT-rồi-INSERT phía trên vẫn giữ lại để báo lỗi rõ ràng ngay, ràng
         // buộc CSDL chỉ là lưới an toàn cuối cùng cho race condition.
         const [result] = await pool.query(
-            'INSERT INTO lic_employees (org_unit_id, company_id, full_name, title, employee_code, email, active) VALUES (?, ?, ?, ?, ?, ?, TRUE)',
-            [orgUnitId, companyId, fullName, title || null, employeeCode || null, email || null]
+            'INSERT INTO lic_employees (org_unit_id, company_id, full_name, title, employee_code, email, email_locked, active) VALUES (?, ?, ?, ?, ?, ?, ?, TRUE)',
+            [orgUnitId, companyId, fullName, title || null, employeeCode || null, email || null, emailLocked ? 1 : 0]
         );
         await writeAuditLog({ module: 'LICENSE', actionType: 'CREATE_EMPLOYEE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: fullName, description: `Thêm nhân viên [${fullName}] vào module Bản quyền.` });
         res.json({ success: true, id: result.insertId });
@@ -4503,6 +4508,7 @@ app.put('/api/license/employees/:id', requireAuth, requireLicenseOrAdmin, async 
         const title = String((req.body && req.body.title) || '').trim();
         const employeeCode = String((req.body && req.body.employeeCode) || '').trim();
         const email = String((req.body && req.body.email) || '').trim();
+        const emailLocked = !!(req.body && req.body.emailLocked);
         if (!orgUnitId && !companyIdInput) return res.status(400).json({ error: 'Vui lòng chọn Công ty hoặc Đơn vị.' });
         if (!fullName) return res.status(400).json({ error: 'Họ và tên không được để trống.' });
         if (fullName.length > 255) return res.status(400).json({ error: 'Họ và tên quá dài (tối đa 255 ký tự).' });
@@ -4526,8 +4532,8 @@ app.put('/api/license/employees/:id', requireAuth, requireLicenseOrAdmin, async 
             if (dupRows.length > 0) return res.status(400).json({ error: `Mã nhân viên [${employeeCode}] đã tồn tại trong công ty này.` });
         }
         const [result] = await pool.query(
-            'UPDATE lic_employees SET org_unit_id = ?, company_id = ?, full_name = ?, title = ?, employee_code = ?, email = ? WHERE id = ?',
-            [orgUnitId, companyId, fullName, title || null, employeeCode || null, email || null, id]
+            'UPDATE lic_employees SET org_unit_id = ?, company_id = ?, full_name = ?, title = ?, employee_code = ?, email = ?, email_locked = ? WHERE id = ?',
+            [orgUnitId, companyId, fullName, title || null, employeeCode || null, email || null, emailLocked ? 1 : 0, id]
         );
         if (result.affectedRows === 0) return res.status(404).json({ error: 'Không tìm thấy nhân viên.' });
         await writeAuditLog({ module: 'LICENSE', actionType: 'UPDATE_EMPLOYEE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: fullName, description: `Cập nhật nhân viên [${fullName}].` });
@@ -4555,6 +4561,73 @@ app.delete('/api/license/employees/:id', requireAuth, requireLicenseOrAdmin, asy
         res.json({ success: true });
     } catch (err) {
         console.error('❌ Lỗi xóa nhân viên:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// Xóa nhiều nhân viên cùng lúc (chọn nhiều ở tab Nhân viên). Giống hệt logic
+// chặn của DELETE đơn lẻ ở trên (không xóa nếu còn đang giữ license) — nhưng
+// áp dụng riêng cho từng dòng thay vì chặn cả lượt: dòng nào xóa được thì xóa
+// ngay, dòng nào đang giữ license thì bỏ qua và báo lại rõ ràng, để Admin
+// không phải tự dò lại từng người trong danh sách chọn.
+app.post('/api/license/employees/bulk-delete', requireAuth, requireLicenseOrAdmin, async (req, res) => {
+    try {
+        const ids = Array.isArray(req.body && req.body.ids) ? [...new Set(req.body.ids.map(Number).filter(Number.isInteger))] : [];
+        if (ids.length === 0) return res.status(400).json({ error: 'Vui lòng chọn ít nhất 1 nhân viên.' });
+
+        const [rows] = await pool.query(`SELECT id, full_name FROM lic_employees WHERE id IN (${ids.map(() => '?').join(',')})`, ids);
+        const nameById = new Map(rows.map(r => [r.id, r.full_name]));
+
+        const [assignRows] = await pool.query(
+            `SELECT DISTINCT employee_id FROM lic_license_code_assignments WHERE employee_id IN (${ids.map(() => '?').join(',')})`,
+            ids
+        );
+        const blockedSet = new Set(assignRows.map(r => r.employee_id));
+
+        const toDelete = ids.filter(id => nameById.has(id) && !blockedSet.has(id));
+        const skipped = ids
+            .filter(id => blockedSet.has(id))
+            .map(id => ({ id, fullName: nameById.get(id) || null, reason: 'Đang giữ license' }));
+        const notFound = ids.filter(id => !nameById.has(id));
+
+        if (toDelete.length > 0) {
+            await pool.query(`DELETE FROM lic_employees WHERE id IN (${toDelete.map(() => '?').join(',')})`, toDelete);
+        }
+        const deletedNames = toDelete.map(id => nameById.get(id));
+        await writeAuditLog({
+            module: 'LICENSE', actionType: 'DELETE_EMPLOYEE_BULK', status: 'SUCCESS',
+            username: req.user.username, fullName: req.user.name, ip: req.ip,
+            targetObject: `${toDelete.length} nhân viên`,
+            description: `Xóa hàng loạt ${toDelete.length} nhân viên khỏi module Bản quyền: ${deletedNames.join(', ') || '(không có)'}. Bỏ qua ${skipped.length} nhân viên đang giữ license.`
+        });
+        res.json({ success: true, deletedCount: toDelete.length, skipped, notFoundCount: notFound.length });
+    } catch (err) {
+        console.error('❌ Lỗi xóa hàng loạt nhân viên:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// Bật/tắt hàng loạt cờ "Chặn đồng bộ Email từ AD" cho nhiều nhân viên cùng
+// lúc — xem chú thích email_locked ở schema.sql và ldapSyncAccounts().
+app.post('/api/license/employees/bulk-email-lock', requireAuth, requireLicenseOrAdmin, async (req, res) => {
+    try {
+        const ids = Array.isArray(req.body && req.body.ids) ? [...new Set(req.body.ids.map(Number).filter(Number.isInteger))] : [];
+        const locked = !!(req.body && req.body.locked);
+        if (ids.length === 0) return res.status(400).json({ error: 'Vui lòng chọn ít nhất 1 nhân viên.' });
+
+        const [result] = await pool.query(
+            `UPDATE lic_employees SET email_locked = ? WHERE id IN (${ids.map(() => '?').join(',')})`,
+            [locked ? 1 : 0, ...ids]
+        );
+        await writeAuditLog({
+            module: 'LICENSE', actionType: 'BULK_SET_EMAIL_LOCK', status: 'SUCCESS',
+            username: req.user.username, fullName: req.user.name, ip: req.ip,
+            targetObject: `${result.affectedRows} nhân viên`,
+            description: `${locked ? 'Bật' : 'Tắt'} chặn đồng bộ Email từ AD cho ${result.affectedRows} nhân viên.`
+        });
+        res.json({ success: true, updatedCount: result.affectedRows });
+    } catch (err) {
+        console.error('❌ Lỗi cập nhật hàng loạt cờ chặn Email:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
