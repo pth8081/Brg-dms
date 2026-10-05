@@ -1405,6 +1405,9 @@
           <label class="btn-secondary px-2.5 py-1.5 rounded font-semibold cursor-pointer transition">
             📥 Nhập Excel <input type="file" accept=".xlsx" data-evt-change="importEmployeesXlsx" data-args='[{"__live__":"event"}]' class="hidden">
           </label>
+          <button id="btnBulkDeleteEmp" data-evt-click="bulkDeleteSelectedEmployees" data-args='[]' class="hidden text-xs bg-red-600 text-white px-3 py-1.5 rounded font-bold hover:bg-red-700">🗑️ Xóa đã chọn (<span id="bulkDeleteEmpCount">0</span>)</button>
+          <button id="btnBulkLockEmailEmp" data-evt-click="bulkSetEmployeeEmailLock" data-args='[true]' class="hidden text-xs bg-amber-600 text-white px-3 py-1.5 rounded font-bold hover:bg-amber-700">🔒 Chặn cập nhật Email (<span id="bulkLockEmailEmpCount">0</span>)</button>
+          <button id="btnBulkUnlockEmailEmp" data-evt-click="bulkSetEmployeeEmailLock" data-args='[false]' class="hidden text-xs bg-gray-500 text-white px-3 py-1.5 rounded font-bold hover:bg-gray-600">🔓 Bỏ chặn Email (<span id="bulkUnlockEmailEmpCount">0</span>)</button>
         </div>
         <span id="empCountHint" class="text-[11px] text-gray-500"></span>
       </div>
@@ -1413,6 +1416,7 @@
         <table class="w-full border-collapse border bg-white text-xs">
           <thead>
             <tr class="bg-gray-100 text-left">
+              <th id="thEmpSelectAll" class="border p-2 text-center"><input type="checkbox" data-evt-change="toggleSelectAllEmp" data-args='[{"__live__":"checked"}]'></th>
               <th class="border p-2 w-10">STT</th>
               <th class="border p-2">Họ và tên</th>
               <th class="border p-2">Mã NV</th>
@@ -2891,7 +2895,11 @@
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Email</label>
         <input id="employeeEmail" type="email" class="w-full border p-2 rounded text-sm" placeholder="vd@congty.vn">
-        <p id="employeeEmailAdHint" class="text-[10px] text-gray-500 mt-1 hidden">🔒 Tự động đồng bộ từ Tài khoản AD (khớp theo Mã nhân viên = Username AD) — không sửa tay được, sẽ bị ghi đè ở lần đồng bộ AD kế tiếp.</p>
+        <p id="employeeEmailAdHint" class="text-[10px] text-gray-500 mt-1 hidden">🔒 Tự động đồng bộ từ Tài khoản AD (khớp theo Mã nhân viên = Username AD) — không sửa tay được, sẽ bị ghi đè ở lần đồng bộ AD kế tiếp. Tick "Chặn đồng bộ Email từ AD" bên dưới nếu muốn tự nhập tay.</p>
+        <label class="flex items-center gap-1.5 mt-2 text-xs text-gray-700">
+          <input id="employeeEmailLocked" type="checkbox" data-evt-change="onEmployeeEmailLockedChange" data-args='[]'>
+          Chặn đồng bộ Email từ AD (cho phép tự sửa tay)
+        </label>
       </div>
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" data-evt-click="closeLicenseModal" data-args='["employeeModal"]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
