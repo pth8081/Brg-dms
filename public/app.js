@@ -4624,9 +4624,20 @@
     function currentCodeCount(companyId, softwareId) {
       return licenseDB.licenseCodes.filter(c => c.companyId === companyId && c.softwareId === softwareId).length;
     }
+    // (Hiển thị ngày kiểu Việt Nam) Toàn hệ thống lưu/truyền ngày tháng dạng
+    // ISO (YYYY-MM-DD) để <input type="date"> và so sánh chuỗi (sắp xếp, lọc
+    // hạn dùng) hoạt động đúng — hàm này CHỈ dùng khi HIỂN THỊ cho người đọc,
+    // đổi sang dd/mm/yyyy quen thuộc. KHÔNG áp dụng cho value của
+    // input type="date" (phải giữ nguyên ISO để trình duyệt hiểu được) hay
+    // bất kỳ chỗ nào còn so sánh/sắp xếp theo chuỗi ngày.
+    function fmtDateVN(iso) {
+      if (!iso) return '';
+      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso));
+      return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
+    }
     // Hiển thị Ngày hết hạn — license Vĩnh viễn không có ngày hết hạn (null).
     function expiryLabel(expiryDate) {
-      return expiryDate || '<span class="text-green-700 font-semibold">Vĩnh viễn</span>';
+      return expiryDate ? fmtDateVN(expiryDate) : '<span class="text-green-700 font-semibold">Vĩnh viễn</span>';
     }
     // --- Gán mã license nhiều-nhiều (1 mã có thể gán cho nhiều nhân viên) ---
     function codeAssignments(codeId) {
@@ -4723,7 +4734,7 @@ function isPerpetualSoftware(softwareId) {
             <td class="border p-2">${escapeHtml(software ? software.name : '—')}</td>
             <td class="border p-2 text-center">${b.totalQuantity}</td>
             <td class="border p-2 text-center">${b.codesGenerated > 0 ? '+' + b.codesGenerated : '0'}</td>
-            <td class="border p-2">${b.issuedDate}</td>
+            <td class="border p-2">${fmtDateVN(b.issuedDate)}</td>
             <td class="border p-2">${expiryLabel(b.expiryDate)}</td>
             <td class="border p-2 text-center"><button ${dc('deleteBatch', b.id)} class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600">🗑️</button></td>
           </tr>
@@ -4806,7 +4817,7 @@ function isPerpetualSoftware(softwareId) {
             <td class="border p-2">${escapeHtml(r.emp.title || '—')}</td>
             <td class="border p-2">${escapeHtml(r.software ? r.software.name : '—')}</td>
             <td class="border p-2 font-mono text-[11px] whitespace-nowrap">${escapeHtml(r.code.code)} <span class="text-gray-400">(${usedCount}/${maxAssignees})</span>${codeShareBadge(r.code.id)}</td>
-            <td class="border p-2 whitespace-nowrap">${r.assignment.assignedAt}</td>
+            <td class="border p-2 whitespace-nowrap">${fmtDateVN(r.assignment.assignedAt)}</td>
             <td class="border p-2 whitespace-nowrap">${expiryLabel(r.code.expiryDate)}</td>
             <td class="border p-2 text-center">${statusHtml}</td>
             <td class="border p-2 text-center"><button ${dc('revokeAllocation', r.code.id, r.emp.id)} class="btn-danger-ghost px-1.5 py-0.5 rounded text-[11px] font-semibold whitespace-nowrap">Thu hồi</button></td>
@@ -4951,7 +4962,7 @@ function isPerpetualSoftware(softwareId) {
             <td class="border p-2 text-center">${i + 1}</td>
             <td class="border p-2">${escapeHtml(r.software ? r.software.name : '(không rõ)')}</td>
             <td class="border p-2 whitespace-nowrap">${escapeHtml(r.code.code)}</td>
-            <td class="border p-2 whitespace-nowrap">${r.assignment.assignedAt}</td>
+            <td class="border p-2 whitespace-nowrap">${fmtDateVN(r.assignment.assignedAt)}</td>
             <td class="border p-2 whitespace-nowrap">${expiryLabel(r.code.expiryDate)}</td>
           </tr>`;
         }).join('');
@@ -5056,7 +5067,7 @@ function isPerpetualSoftware(softwareId) {
           <td class="border p-2 text-center">${a.active ? '<span class="text-[10px] font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Active</span>' : '<span class="text-[10px] font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded-full">Disable</span>'}</td>
           <td class="border p-2">${escapeHtml(a.company || '—')}</td>
           <td class="border p-2">${escapeHtml(a.orgUnit || '—')}</td>
-          <td class="border p-2">${a.disabledAt || '—'}</td>
+          <td class="border p-2">${a.disabledAt ? fmtDateVN(a.disabledAt) : '—'}</td>
         </tr>
       `).join('');
       renderPaginationBar('adAccountsPaginationBox', 'adAccounts', rows.length, 'renderAdAccountsTable', { itemLabel: 'tài khoản' });
@@ -5114,8 +5125,8 @@ function isPerpetualSoftware(softwareId) {
             <td class="border p-1.5 font-semibold">${escapeHtml(r.emp.fullName)}</td>
             <td class="border p-1.5">${escapeHtml(r.software.name)}</td>
             <td class="border p-1.5 font-mono text-[11px]">${escapeHtml(r.code.code)}</td>
-            <td class="border p-1.5 text-red-700 font-semibold">${r.code.expiryDate}</td>
-            <td class="border p-1.5 text-green-700">${newExpiry || '— (chưa có lô mới)'}</td>
+            <td class="border p-1.5 text-red-700 font-semibold">${fmtDateVN(r.code.expiryDate)}</td>
+            <td class="border p-1.5 text-green-700">${newExpiry ? fmtDateVN(newExpiry) : '— (chưa có lô mới)'}</td>
             <td class="border p-1.5 text-center">
               <input type="checkbox" data-code-id="${r.code.id}" data-employee-id="${r.emp.id}" class="autoAllocRevokeCheck w-4 h-4">
             </td>
@@ -5619,7 +5630,7 @@ function isPerpetualSoftware(softwareId) {
               <td class="border p-2 font-semibold">${escapeHtml(r.emp.fullName)}</td>
               <td class="border p-2">${escapeHtml(r.emp.email)}</td>
               <td class="border p-2 font-mono">${escapeHtml(r.adAccount.username)}</td>
-              <td class="border p-2">${r.adAccount.disabledAt || '—'}</td>
+              <td class="border p-2">${r.adAccount.disabledAt ? fmtDateVN(r.adAccount.disabledAt) : '—'}</td>
               <td class="border p-2 text-center">${r.count}</td>
             </tr>
           `).join('')
@@ -7089,7 +7100,7 @@ function isPerpetualSoftware(softwareId) {
             const company = a.companyId ? licenseDB.companies.find(c => c.id === a.companyId) : null;
             return `
             <tr>
-              <td class="border p-1.5">${a.purchaseDate}</td>
+              <td class="border p-1.5">${fmtDateVN(a.purchaseDate)}</td>
               <td class="border p-1.5">${escapeHtml(a.vendor || '—')}</td>
               <td class="border p-1.5">${company ? escapeHtml(company.name) : '<span class="text-gray-400">Chưa phân bổ</span>'}</td>
               <td class="border p-1.5 text-right">${a.quantity}</td>
@@ -8349,7 +8360,7 @@ function isPerpetualSoftware(softwareId) {
     function renderLicenseRecentReport(recent) {
       reportBarChart('licRepRecentChart', recent.trend.map(t => ({ label: t.date.slice(5), value: t.cnt })), { color: REPORT_COLORS.license, unit: ' mã' });
       document.getElementById('licRepRecentTableBody').innerHTML = recent.assignments.length
-        ? recent.assignments.map(r => `<tr><td class="border p-2 text-center">${escapeHtml(r.assignedAt)}</td><td class="border p-2">${escapeHtml(r.employeeName)}</td><td class="border p-2">${escapeHtml(r.companyName)}</td><td class="border p-2">${escapeHtml(r.softwareName)}</td><td class="border p-2 font-mono">${escapeHtml(r.licenseCode)}</td></tr>`).join('')
+        ? recent.assignments.map(r => `<tr><td class="border p-2 text-center">${escapeHtml(fmtDateVN(r.assignedAt))}</td><td class="border p-2">${escapeHtml(r.employeeName)}</td><td class="border p-2">${escapeHtml(r.companyName)}</td><td class="border p-2">${escapeHtml(r.softwareName)}</td><td class="border p-2 font-mono">${escapeHtml(r.licenseCode)}</td></tr>`).join('')
         : '<tr><td colspan="5" class="text-center p-3 text-gray-400 italic">Không có bản quyền nào được cấp trong khoảng thời gian này.</td></tr>';
     }
     function exportLicenseRecentReportXlsx() {
@@ -8370,7 +8381,7 @@ function isPerpetualSoftware(softwareId) {
         { label: 'Vĩnh viễn', value: Number(s.perpetualCnt) || 0, color: REPORT_COLORS.neutral }
       ]);
       document.getElementById('licRepExpiryTableBody').innerHTML = expiry.rows.length
-        ? expiry.rows.map(r => `<tr><td class="border p-2 font-mono">${escapeHtml(r.licenseCode)}</td><td class="border p-2">${escapeHtml(r.companyName)}</td><td class="border p-2">${escapeHtml(r.softwareName)}</td><td class="border p-2 text-center">${escapeHtml(r.expiryDate)}</td><td class="border p-2">${escapeHtml(r.assignedTo || '—')}</td></tr>`).join('')
+        ? expiry.rows.map(r => `<tr><td class="border p-2 font-mono">${escapeHtml(r.licenseCode)}</td><td class="border p-2">${escapeHtml(r.companyName)}</td><td class="border p-2">${escapeHtml(r.softwareName)}</td><td class="border p-2 text-center">${escapeHtml(fmtDateVN(r.expiryDate))}</td><td class="border p-2">${escapeHtml(r.assignedTo || '—')}</td></tr>`).join('')
         : '<tr><td colspan="5" class="text-center p-3 text-gray-400 italic">Không có mã nào sắp hết hạn trong khoảng đã chọn.</td></tr>';
     }
     function exportLicenseExpiryReportXlsx() {
@@ -8488,7 +8499,7 @@ function isPerpetualSoftware(softwareId) {
           <td class="border p-2 font-semibold">${escapeHtml(i.name)}</td>
           <td class="border p-2">${escapeHtml(cat ? cat.name : '—')}</td>
           <td class="border p-2">${escapeHtml(i.provider || '—')}</td>
-          <td class="border p-2 whitespace-nowrap">${i.expiryDate}</td>
+          <td class="border p-2 whitespace-nowrap">${fmtDateVN(i.expiryDate)}</td>
           <td class="border p-2">${itItemStatusBadge(i)}</td>
           <td class="border p-2">${itOwnerLabel(i)}</td>
           <td class="border p-2 text-right whitespace-nowrap">${i.cost === null ? '—' : formatMoney(i.cost)}</td>
