@@ -248,6 +248,7 @@ async function ensureColumnExists(table, column, definition) {
 }
 async function ensureSchemaMigrations() {
     await ensureColumnExists('lic_employees', 'email_locked', 'TINYINT(1) NOT NULL DEFAULT 0');
+    await ensureColumnExists('lic_license_batches', 'registration_quantity_applied', 'INT NULL DEFAULT NULL');
 }
 
 let pool;
@@ -4904,6 +4905,32 @@ class IssueBatchError extends Error {
     constructor(status, message) { super(message); this.status = status; }
 }
 
+// (Phát hành nhiều đợt cho 1 đăng ký) Tính lại TRẠNG THÁI "đã phát hành bao
+// nhiêu" của 1 đăng ký mua bằng cách CỘNG DỒN registration_quantity_applied
+// của MỌI lô phát hành đang gắn với registration_id này — không dùng biến
+// đếm lưu sẵn (dễ lệch nếu xóa/sửa lô giữa chừng). Gọi lại hàm này sau MỌI
+// lần thêm/xóa 1 lô có registration_id — luôn phản ánh đúng thực tế hiện có,
+// không cần biết trước là đang thêm hay xóa. status chỉ khóa thành ISSUED
+// khi đã phát hành ĐỦ hoặc VƯỢT số lượng đã đăng ký (requested_quantity);
+// còn thiếu thì giữ nguyên APPROVED để còn phát hành tiếp đợt sau (có thể
+// với Ngày hết hạn khác đợt trước).
+async function recomputeRegistrationIssuedState(conn, registrationId) {
+    const [regRows] = await conn.query('SELECT requested_quantity FROM lic_purchase_registrations WHERE id = ?', [registrationId]);
+    if (!regRows[0]) return;
+    const [sumRows] = await conn.query(
+        `SELECT COALESCE(SUM(registration_quantity_applied), 0) AS total, MAX(id) AS latest_batch_id
+         FROM lic_license_batches WHERE registration_id = ? AND registration_quantity_applied IS NOT NULL`,
+        [registrationId]
+    );
+    const issuedSoFar = Number(sumRows[0].total) || 0;
+    const latestBatchId = sumRows[0].latest_batch_id || null;
+    const newStatus = issuedSoFar > 0 && issuedSoFar >= regRows[0].requested_quantity ? 'ISSUED' : 'APPROVED';
+    await conn.query(
+        'UPDATE lic_purchase_registrations SET status = ?, issued_batch_id = ?, issued_quantity = ?, issued_at = ? WHERE id = ?',
+        [newStatus, latestBatchId, issuedSoFar > 0 ? issuedSoFar : null, latestBatchId ? new Date().toISOString() : null, registrationId]
+    );
+}
+
 app.post('/api/license/batches', requireAuth, requireLicenseOrAdmin, async (req, res) => {
     try {
         const registrationId = Number(req.body && req.body.registrationId);
@@ -4929,7 +4956,23 @@ app.post('/api/license/batches', requireAuth, requireLicenseOrAdmin, async (req,
             if (!regRows[0]) throw new IssueBatchError(404, 'Không tìm thấy đăng ký mua.');
             const registration = regRows[0];
             if (registration.status !== 'APPROVED') throw new IssueBatchError(400, 'Chỉ phát hành được cho đăng ký đã duyệt.');
-            if (registration.issued_batch_id) throw new IssueBatchError(400, 'Đăng ký này đã được phát hành trước đó.');
+
+            // (Phát hành nhiều đợt) Không còn khóa cứng "đã phát hành 1 lần là
+            // xong vĩnh viễn" — cho phép phát hành NHIỀU LÔ cho tới khi đủ số
+            // lượng đã đăng ký (VD đăng ký 10, lần này chỉ phát hành 4 vì mới
+            // nhận được 4 mã từ nhà cung cấp — 6 mã còn lại vẫn phát hành tiếp
+            // được sau, có thể với Ngày hết hạn khác đợt này).
+            const [issuedSumRows] = await conn.query(
+                `SELECT COALESCE(SUM(registration_quantity_applied), 0) AS total
+                 FROM lic_license_batches WHERE registration_id = ? AND registration_quantity_applied IS NOT NULL`,
+                [registrationId]
+            );
+            const alreadyIssued = Number(issuedSumRows[0].total) || 0;
+            const remaining = registration.requested_quantity - alreadyIssued;
+            if (remaining <= 0) throw new IssueBatchError(400, 'Đăng ký này đã phát hành đủ số lượng đã đăng ký.');
+            if (quantity > remaining) {
+                throw new IssueBatchError(400, `Chỉ còn ${remaining} license chưa phát hành cho đăng ký này (đã phát hành ${alreadyIssued}/${registration.requested_quantity}).`);
+            }
 
             const [roundRows] = await conn.query('SELECT id, round_type FROM lic_purchase_rounds WHERE id = ?', [registration.round_id]);
             if (!roundRows[0]) throw new IssueBatchError(400, 'Kỳ mua của đăng ký này không còn tồn tại.');
@@ -4983,8 +5026,8 @@ app.post('/api/license/batches', requireAuth, requireLicenseOrAdmin, async (req,
             const totalQuantityForRecord = roundType === 'NEW' ? existingCount + quantity : quantity;
 
             const [batchResult] = await conn.query(
-                'INSERT INTO lic_license_batches (company_id, software_id, total_quantity, codes_generated, issued_date, expiry_date, note, created_at, registration_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                [companyId, softwareId, totalQuantityForRecord, toGenerate, issuedDate, expiryDate, note || null, new Date().toISOString(), registrationId]
+                'INSERT INTO lic_license_batches (company_id, software_id, total_quantity, codes_generated, issued_date, expiry_date, note, created_at, registration_id, registration_quantity_applied) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [companyId, softwareId, totalQuantityForRecord, toGenerate, issuedDate, expiryDate, note || null, new Date().toISOString(), registrationId, quantity]
             );
             const batchId = batchResult.insertId;
 
@@ -5012,10 +5055,7 @@ app.post('/api/license/batches', requireAuth, requireLicenseOrAdmin, async (req,
             const keptOldExpiryCount = roundType === 'RENEWAL' ? existingCount - (quantity - toGenerate) : 0;
 
             const issuedAt = new Date().toISOString();
-            await conn.query(
-                'UPDATE lic_purchase_registrations SET status = ?, issued_batch_id = ?, issued_quantity = ?, issued_at = ? WHERE id = ?',
-                ['ISSUED', batchId, quantity, issuedAt, registrationId]
-            );
+            await recomputeRegistrationIssuedState(conn, registrationId);
 
             // "Chốt thực tế" — đồng bộ sang Ngân sách sử dụng (module Ngân sách
             // thật, budget2_lines): tạo 1 dòng USED độc lập (parent_id NULL, không
@@ -5088,14 +5128,12 @@ app.delete('/api/license/batches/:id', requireAuth, requireLicenseOrAdmin, async
             await conn.query('DELETE FROM lic_license_codes WHERE batch_id = ?', [id]);
             await conn.query('DELETE FROM lic_license_batches WHERE id = ?', [id]);
             // Nếu lượt phát hành này gắn với 1 đăng ký mua (luồng mới bắt buộc theo
-            // registrationId), đưa đăng ký về lại APPROVED để Admin có thể phát hành
-            // lại (VD lỡ nhập sai số lượng/hạn) — không để đăng ký kẹt ở ISSUED mà
-            // lô phát hành tương ứng đã bị xóa.
+            // registrationId), tính lại trạng thái đăng ký từ CÁC LÔ CÒN LẠI (nếu
+            // đăng ký đã phát hành nhiều đợt, các đợt khác vẫn còn nguyên) — không
+            // còn giả định "chỉ có đúng 1 lô" nên không đặt cứng về APPROVED nữa,
+            // dùng chung recomputeRegistrationIssuedState() như lúc phát hành.
             if (rows[0].registration_id) {
-                await conn.query(
-                    'UPDATE lic_purchase_registrations SET status = ?, issued_batch_id = NULL, issued_quantity = NULL, issued_at = NULL WHERE id = ? AND issued_batch_id = ?',
-                    ['APPROVED', rows[0].registration_id, id]
-                );
+                await recomputeRegistrationIssuedState(conn, rows[0].registration_id);
             }
             await conn.commit();
         } catch (e) {
@@ -6161,7 +6199,15 @@ app.post('/api/license/rounds/:roundId/items/:itemId/request-supplement', requir
         if (!roundRows[0]) return res.status(404).json({ error: 'Không tìm thấy kỳ mua.' });
         if (roundRows[0].status !== 'OPEN') return res.status(400).json({ error: 'Kỳ mua đã đóng, không thể sửa hạng mục.' });
 
-        const [issuedRows] = await pool.query("SELECT COUNT(*) AS cnt FROM lic_purchase_registrations WHERE round_item_id = ? AND status = 'ISSUED'", [itemId]);
+        // (Phát hành nhiều đợt) Khóa ngay khi đã phát hành BẤT KỲ số lượng nào
+        // (issued_quantity > 0) — không chỉ khi status đã chuyển hẳn ISSUED
+        // (đủ 100%) — nếu không, 1 đăng ký đang phát hành dở (VD duyệt 10, đã
+        // phát hành 4/10, còn 6 chưa phát hành) vẫn bị coi là "chưa phát hành
+        // gì" và cho sửa giá, trong khi 4 cái đã lỡ tính theo giá cũ.
+        const [issuedRows] = await pool.query(
+            "SELECT COUNT(*) AS cnt FROM lic_purchase_registrations WHERE round_item_id = ? AND (status = 'ISSUED' OR issued_quantity > 0)",
+            [itemId]
+        );
         if (issuedRows[0].cnt > 0) return res.status(400).json({ error: 'Không thể sửa — đã có đăng ký được phát hành license theo giá cũ trong hạng mục này.' });
 
         const [softwareRows] = await pool.query('SELECT license_type FROM lic_software_catalog WHERE id = ?', [itemRows[0].software_id]);

@@ -4563,10 +4563,17 @@
     }
 
     // --- Phát hành license (lô mã license) ---
-    // Đăng ký đã duyệt, chưa phát hành — nguồn duy nhất để chọn phát hành license
-    // (Phát hành BẮT BUỘC gắn với 1 đăng ký, không còn phát hành tự do).
+    // Đăng ký đã duyệt và CHƯA PHÁT HÀNH ĐỦ — nguồn duy nhất để chọn phát
+    // hành license (Phát hành BẮT BUỘC gắn với 1 đăng ký, không còn phát hành
+    // tự do). Một đăng ký có thể phát hành NHIỀU ĐỢT (VD đăng ký 10, đợt 1
+    // phát hành 4, đợt 2 phát hành 6 còn lại — mỗi đợt tự chọn Ngày hết hạn
+    // riêng) — server chỉ khóa (status chuyển ISSUED, biến mất khỏi đây) khi
+    // đã phát hành ĐỦ/VƯỢT số lượng đã duyệt, nên ở đây chỉ cần lọc status.
+    function registrationRemaining(r) {
+      return r.requestedQuantity - (r.issuedQuantity || 0);
+    }
     function issuableRegistrations() {
-      return licenseDB.purchaseRegistrations.filter(r => r.status === 'APPROVED' && !r.issuedBatchId);
+      return licenseDB.purchaseRegistrations.filter(r => r.status === 'APPROVED');
     }
     function batchRegistrationLabel(r) {
       const round = licenseDB.purchaseRounds.find(x => x.id === r.roundId);
@@ -4574,13 +4581,14 @@
       const company = licenseDB.companies.find(x => x.id === r.companyId);
       const software = item ? licenseDB.softwareCatalog.find(x => x.id === item.softwareId) : null;
       const typeLabel = round && round.roundType === 'NEW' ? 'Mua mới' : 'Gia hạn';
-      return `${round ? round.name : '—'} [${typeLabel}] — ${company ? company.name : '—'} — ${software ? software.name : '—'} (đã duyệt ${r.requestedQuantity})`;
+      const progress = r.issuedQuantity > 0 ? `, đã phát hành ${r.issuedQuantity}, còn lại ${registrationRemaining(r)}` : '';
+      return `${round ? round.name : '—'} [${typeLabel}] — ${company ? company.name : '—'} — ${software ? software.name : '—'} (đã duyệt ${r.requestedQuantity}${progress})`;
     }
     function populateBatchSelects() {
       const rows = issuableRegistrations();
       document.getElementById('batchRegistration').innerHTML = rows.length
         ? rows.map(r => `<option value="${r.id}">${escapeHtml(batchRegistrationLabel(r))}</option>`).join('')
-        : '<option value="">-- Không có đăng ký nào đã duyệt và chưa phát hành --</option>';
+        : '<option value="">-- Không có đăng ký nào đã duyệt và chưa phát hành đủ --</option>';
     }
     function onBatchRegistrationChange() {
       const regId = Number(document.getElementById('batchRegistration').value) || null;
@@ -4589,6 +4597,7 @@
       if (!reg) {
         infoBox.classList.add('hidden');
         document.getElementById('batchQuantity').value = '';
+        document.getElementById('batchQuantity').max = 5000;
         document.getElementById('batchExpiryDate').value = '';
         return;
       }
@@ -4605,11 +4614,25 @@
       const currentCount = (company && software) ? currentCodeCount(company.id, software.id) : 0;
       document.getElementById('batchInfoCurrentCount').textContent = currentCount;
 
+      // (Phát hành nhiều đợt) Nếu đăng ký này đã phát hành 1 phần (VD duyệt
+      // 10, đợt trước phát hành 4), mặc định điền sẵn đúng số CÒN LẠI (6) —
+      // không điền lại full requestedQuantity (10) vì sẽ vượt quá số còn
+      // được phép, server sẽ từ chối.
+      const remaining = registrationRemaining(reg);
+      const progressRow = document.getElementById('batchInfoIssuedProgressRow');
+      if (reg.issuedQuantity > 0) {
+        progressRow.classList.remove('hidden');
+        document.getElementById('batchInfoIssuedProgress').textContent = `${reg.issuedQuantity}/${reg.requestedQuantity} — còn lại ${remaining}`;
+      } else {
+        progressRow.classList.add('hidden');
+      }
+
       document.getElementById('batchQuantityLabel').textContent = isNew ? 'Số lượng mua thêm' : 'Tổng số lượng mong muốn';
       document.getElementById('batchQuantityHint').textContent = isNew
-        ? 'Sinh thẳng đúng số lượng này vào kho — không đụng tới mã cũ.'
-        : 'Nếu số này lớn hơn số đang có, hệ thống chỉ sinh thêm đúng phần chênh lệch — mã cũ đã cấp cho ai vẫn giữ nguyên.';
-      document.getElementById('batchQuantity').value = reg.requestedQuantity;
+        ? `Sinh thẳng đúng số lượng này vào kho — không đụng tới mã cũ. Tối đa ${remaining} (số còn chưa phát hành của đăng ký này).`
+        : `Nếu số này lớn hơn số đang có, hệ thống chỉ sinh thêm đúng phần chênh lệch — mã cũ đã cấp cho ai vẫn giữ nguyên. Tối đa ${remaining}.`;
+      document.getElementById('batchQuantity').value = remaining;
+      document.getElementById('batchQuantity').max = remaining;
 
       const perpetual = !!(software && software.licenseType === 'PERPETUAL');
       document.getElementById('batchExpiryWrap').classList.toggle('hidden', perpetual);
@@ -5995,7 +6018,12 @@ function isPerpetualSoftware(softwareId) {
                     ${items.map(i => {
                       const sw = licenseDB.softwareCatalog.find(s => s.id === i.softwareId);
                       const itemRegs = licenseDB.purchaseRegistrations.filter(reg => reg.roundItemId === i.id);
-                      const hasIssued = itemRegs.some(reg => reg.status === 'ISSUED');
+                      // (Phát hành nhiều đợt) Khóa sửa giá ngay khi đã phát hành BẤT KỲ
+                      // số lượng nào — không chỉ khi status đã chuyển hẳn ISSUED (đủ
+                      // 100%) — tránh đổi giá giữa 2 đợt phát hành của cùng 1 đăng ký
+                      // (đợt 1 đã phát hành theo giá cũ, đợt 2 sau đó lại tính theo giá
+                      // vừa sửa, gây lệch giá giữa 2 đợt của cùng 1 lần mua).
+                      const hasIssued = itemRegs.some(reg => reg.status === 'ISSUED' || reg.issuedQuantity > 0);
                       const hasAnyReg = itemRegs.length > 0;
                       // Đã có đăng ký ISSUED (đã phát hành license theo giá cũ) — khóa
                       // hẳn, không cho sửa nữa (kể cả qua Gửi bổ sung). Có đăng ký
@@ -6380,7 +6408,7 @@ function isPerpetualSoftware(softwareId) {
             <td class="border p-2 text-center">${r.currentQuantity}</td>
             <td class="border p-2 text-center font-semibold">${r.requestedQuantity}</td>
             <td class="border p-2 text-right font-semibold">${formatMoney(r.totalAmount)}</td>
-            <td class="border p-2 text-center">${purchaseStatusBadge(r.status)}${r.status === 'PENDING' && isRequester ? '<br><span class="text-[10px] text-gray-400">Chờ người khác duyệt</span>' : ''}${r.status === 'PENDING' && r.editRequested ? '<br><span class="text-[10px] font-bold text-blue-600">Đã yêu cầu bổ sung</span>' : ''}</td>
+            <td class="border p-2 text-center">${purchaseStatusBadge(r.status)}${r.status === 'APPROVED' && r.issuedQuantity > 0 ? `<br><span class="text-[10px] font-bold text-teal-700">Đã phát hành ${r.issuedQuantity}/${r.requestedQuantity}</span>` : ''}${r.status === 'PENDING' && isRequester ? '<br><span class="text-[10px] text-gray-400">Chờ người khác duyệt</span>' : ''}${r.status === 'PENDING' && r.editRequested ? '<br><span class="text-[10px] font-bold text-blue-600">Đã yêu cầu bổ sung</span>' : ''}</td>
             <td class="border p-2 text-center whitespace-nowrap">
               ${canDecide ? `
                 <button ${dc('approveRegistration', r.id)} class="px-1.5 py-0.5 rounded hover:bg-success-50 text-success-700 text-[11px] font-semibold whitespace-nowrap">Duyệt</button>
@@ -6518,7 +6546,7 @@ function isPerpetualSoftware(softwareId) {
                  (chỉ chốt khi Phát hành) — tạm hiển thị Loại license khai báo
                  ở tab Phần mềm thay vì mặc định "Vĩnh viễn". -->
             <td class="border p-2">${r.expiryDate ? expiryLabel(r.expiryDate) : (software ? licenseTypeBadge(software.licenseType) : '—')}</td>
-            <td class="border p-2 text-center">${purchaseStatusBadge(r.status)}${r.status === 'PENDING' && r.editRequested ? '<br><span class="text-[10px] font-bold text-blue-600">Đã yêu cầu bổ sung</span>' : ''}</td>
+            <td class="border p-2 text-center">${purchaseStatusBadge(r.status)}${r.status === 'APPROVED' && r.issuedQuantity > 0 ? `<br><span class="text-[10px] font-bold text-teal-700">Đã phát hành ${r.issuedQuantity}/${r.requestedQuantity}</span>` : ''}${r.status === 'PENDING' && r.editRequested ? '<br><span class="text-[10px] font-bold text-blue-600">Đã yêu cầu bổ sung</span>' : ''}</td>
             <td class="border p-2 text-center whitespace-nowrap">
               ${r.status === 'PENDING' && r.editRequested ? `<button ${dc('openRegistrationEditModal', r.id)} class="px-1.5 py-0.5 rounded hover:bg-brand-100 text-brand-700 text-[11px] font-semibold whitespace-nowrap">✏️ Sửa</button>` : '—'}
             </td>
