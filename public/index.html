@@ -3026,9 +3026,7 @@
       <p class="text-xs text-gray-500">Chọn 1 nhân viên rồi thêm từng dòng Phần mềm/Mã license bên dưới — dùng khi 1 người cần cấp nhiều phần mềm cùng lúc. 1 dòng lỗi (VD phần mềm đã có) không làm mất các dòng khác.</p>
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Nhân viên</label>
-        <select id="allocByEmpEmployee" data-evt-change="onAllocByEmpEmployeeChange" data-args='[{"__live__":"valueNum"}]' class="w-full border p-2 rounded text-sm bg-white">
-          <option value="">-- Chọn nhân viên --</option>
-        </select>
+        <input id="allocByEmpEmployee" type="text" list="licenseEmpDatalist" placeholder="Gõ tên, mã NV hoặc đơn vị để tìm..." data-evt-input="onAllocByEmpEmployeeInput" data-args='[{"__live__":"value"}]' class="w-full border p-2 rounded text-sm">
       </div>
       <div class="overflow-x-auto">
         <table class="w-full text-xs border-collapse">
@@ -3050,6 +3048,12 @@
       </div>
     </div>
   </div>
+
+  <!-- Datalist dùng chung cho mọi ô "tìm nhân viên" dạng gõ-để-tìm (thay cho
+       <select> liệt kê hết hàng trăm nhân viên, rất khó kéo chọn trên di
+       động) — JS tự đổ lại nội dung mỗi khi mở modal liên quan, xem
+       renderEmployeeDatalist() trong app.js. -->
+  <datalist id="licenseEmpDatalist"></datalist>
 
   <!-- MODAL: Phân bổ tự động (xử lý hàng loạt nhân viên đang giữ mã đã hết hạn) -->
   <div id="autoAllocateModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">

@@ -5177,11 +5177,19 @@ function isPerpetualSoftware(softwareId) {
       const scopeOrgUnitIds = new Set(
         orgUnitId ? orgSubtreeIds(orgUnitId) : licenseDB.orgUnits.filter(u => u.companyId === companyId).map(u => u.id)
       );
+      // (Trực thuộc công ty, không chọn Đơn vị) Scope toàn công ty (không thu
+      // hẹp về 1 đơn vị) phải tính cả nhân viên orgUnitId=null — khớp đúng
+      // logic server (POST .../bulk-allocate), nếu không bản xem trước này sẽ
+      // báo sai "0 nhân viên" dù server thực ra cấp được.
+      const includeNullOrgUnit = !orgUnitId;
       const softwareCodeIds = new Set(licenseDB.licenseCodes.filter(c => c.softwareId === softwareId).map(c => c.id));
       const employeesWithLicense = new Set(
         licenseDB.licenseCodeAssignments.filter(a => softwareCodeIds.has(a.codeId)).map(a => a.employeeId)
       );
-      const targetEmployees = licenseDB.employees.filter(e => scopeOrgUnitIds.has(e.orgUnitId) && !employeesWithLicense.has(e.id));
+      const targetEmployees = licenseDB.employees.filter(e => {
+        const inScope = scopeOrgUnitIds.has(e.orgUnitId) || (includeNullOrgUnit && e.orgUnitId === null && e.companyId === companyId);
+        return inScope && !employeesWithLicense.has(e.id);
+      });
 
       const maxAssignees = codeMaxAssignees(softwareId);
       let availableSlots = 0;
@@ -5629,6 +5637,18 @@ function isPerpetualSoftware(softwareId) {
       const unitPath = orgUnitPath(e.orgUnitId);
       return `${e.fullName}${e.employeeCode ? ' (' + e.employeeCode + ')' : ''}${unitPath ? ' — ' + unitPath : ''}`;
     }
+    // (Ô tìm nhân viên gõ-để-tìm) Thay cho <select> liệt kê hết hàng trăm
+    // nhân viên (rất khó kéo chọn, nhất là trên di động) — dùng 1
+    // <input list="licenseEmpDatalist"> dùng chung, trình duyệt tự lọc gợi ý
+    // theo ký tự gõ vào. employeeIdByLabel tra ngược nhãn hiển thị -> id khi
+    // người dùng gõ/chọn đúng 1 gợi ý; gõ dở dang không khớp nhãn nào thì coi
+    // như chưa chọn (id = null), chặn ở bước lưu như select cũ.
+    let employeeIdByLabel = new Map();
+    function renderEmployeeDatalist() {
+      employeeIdByLabel = new Map(licenseDB.employees.map(e => [employeeLabel(e), e.id]));
+      const dl = document.getElementById('licenseEmpDatalist');
+      if (dl) dl.innerHTML = licenseDB.employees.map(e => `<option value="${escapeHtml(employeeLabel(e))}">`).join('');
+    }
     function renderAllocCreateRows() {
       const tbody = document.getElementById('allocCreateRowsBody');
       if (allocCreateRows.length === 0) {
@@ -5658,10 +5678,7 @@ function isPerpetualSoftware(softwareId) {
               </select>
             </td>
             <td class="border p-1.5">
-              <select ${dchg('updateAllocCreateRow', row.id, 'employeeId', LIVE_VALUE_NUM)} class="w-full border p-1 rounded text-xs bg-white">
-                <option value="">-- Chọn nhân viên --</option>
-                ${licenseDB.employees.map(e => `<option value="${e.id}" ${e.id === row.employeeId ? 'selected' : ''}>${escapeHtml(employeeLabel(e))}</option>`).join('')}
-              </select>
+              <input type="text" list="licenseEmpDatalist" value="${row.employeeId ? escapeHtml(employeeLabel(licenseDB.employees.find(e => e.id === row.employeeId) || {})) : ''}" placeholder="Gõ tên/mã NV để tìm..." ${din('onAllocRowEmployeeInput', row.id, LIVE_VALUE)} class="w-full border p-1 rounded text-xs">
             </td>
             <td class="border p-1.5">
               <input type="date" value="${row.issuedDate}" ${dchg('updateAllocCreateRow', row.id, 'issuedDate', LIVE_VALUE)} class="w-full border p-1 rounded text-xs">
@@ -5680,6 +5697,14 @@ function isPerpetualSoftware(softwareId) {
       if (field === 'softwareId') row.codeId = null;
       renderAllocCreateRows();
     }
+    // (Ô tìm nhân viên gõ-để-tìm) Gọi riêng, KHÔNG dùng updateAllocCreateRow —
+    // hàm đó render lại cả bảng mỗi lần gọi, mà ô này bắn sự kiện 'input' trên
+    // từng phím gõ nên render lại cả bảng mỗi phím sẽ xóa mất focus/con trỏ.
+    function onAllocRowEmployeeInput(rowId, text) {
+      const row = allocCreateRows.find(r => r.id === rowId);
+      if (!row) return;
+      row.employeeId = employeeIdByLabel.get(text.trim()) || null;
+    }
     function removeAllocCreateRow(id) {
       allocCreateRows = allocCreateRows.filter(r => r.id !== id);
       renderAllocCreateRows();
@@ -5691,6 +5716,7 @@ function isPerpetualSoftware(softwareId) {
     function openAllocModal() {
       allocCreateRows = [];
       allocCreateRowSeq = 1;
+      renderEmployeeDatalist();
       addAllocCreateRow();
       openLicenseModal('allocModal');
     }
@@ -5782,12 +5808,19 @@ function isPerpetualSoftware(softwareId) {
     function onAllocByEmpEmployeeChange(employeeId) {
       allocByEmpEmployeeId = employeeId || null;
     }
+    // (Ô tìm nhân viên gõ-để-tìm) Tra ngược nhãn gõ vào -> id qua
+    // employeeIdByLabel (đổ lại mỗi lần mở modal, xem renderEmployeeDatalist()) —
+    // gõ dở dang/không khớp nhãn nào trong danh sách gợi ý thì coi như chưa
+    // chọn (null), chặn ở saveAllocByEmp() như <select> cũ.
+    function onAllocByEmpEmployeeInput(text) {
+      onAllocByEmpEmployeeChange(employeeIdByLabel.get(text.trim()) || null);
+    }
     function openAllocByEmpModal() {
       allocByEmpRows = [];
       allocByEmpRowSeq = 1;
       allocByEmpEmployeeId = null;
-      const sel = document.getElementById('allocByEmpEmployee');
-      sel.innerHTML = '<option value="">-- Chọn nhân viên --</option>' + licenseDB.employees.map(e => `<option value="${e.id}">${escapeHtml(employeeLabel(e))}</option>`).join('');
+      renderEmployeeDatalist();
+      document.getElementById('allocByEmpEmployee').value = '';
       addAllocByEmpRow();
       openLicenseModal('allocByEmpModal');
     }
