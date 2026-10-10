@@ -225,12 +225,38 @@ const dbConfig = {
     queueLimit: 0
 };
 
+// (Tự chữa lệch schema) schema.sql chỉ được CHẠY THỦ CÔNG lúc deploy (không
+// có bước CI/CD nào tự áp dụng) — nếu quên chạy lại sau khi merge 1 PR có
+// thêm cột mới, mọi request ghi liên quan tới cột đó lập tức lỗi 500 "Unknown
+// column" mà không có dấu hiệu rõ ràng nào khác cho người dùng cuối (chỉ thấy
+// "báo lỗi, không ghi được"). Tự kiểm tra + thêm các cột quan trọng thêm gần
+// đây ngay khi khởi động, độc lập với việc deploy có nhớ chạy schema.sql hay
+// không — mỗi cột chỉ tốn đúng 1 câu SELECT information_schema nếu đã có sẵn.
+async function ensureColumnExists(table, column, definition) {
+    try {
+        const [rows] = await pool.query(
+            'SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?',
+            [table, column]
+        );
+        if (rows[0].cnt === 0) {
+            await pool.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+            console.log(`✅ Tự động thêm cột còn thiếu: ${table}.${column} (schema.sql chưa được chạy thủ công trên CSDL này).`);
+        }
+    } catch (err) {
+        console.error(`❌ Lỗi tự kiểm tra/thêm cột ${table}.${column}:`, err.message);
+    }
+}
+async function ensureSchemaMigrations() {
+    await ensureColumnExists('lic_employees', 'email_locked', 'TINYINT(1) NOT NULL DEFAULT 0');
+}
+
 let pool;
 async function initPool() {
     try {
         pool = mysql.createPool(dbConfig);
         await pool.query('SELECT 1');
         console.log('✅ Kết nối CSDL MySQL Production thành công!');
+        await ensureSchemaMigrations();
     } catch (err) {
         console.error('❌ Lỗi kết nối CSDL MySQL:', err.message);
     }
@@ -783,6 +809,17 @@ function buildMailTransporter(emailConfig) {
         // TLS ngay từ đầu kết nối — cổng 465/SMTPS, lẫn secure=false nhưng
         // server nâng cấp lên TLS giữa chừng qua STARTTLS — cổng 587/25).
         tls: { rejectUnauthorized: emailConfig.smtpTlsRejectUnauthorized !== false },
+        // (Bỏ qua STARTTLS hoàn toàn) Mặc định khi secure:false, nodemailer vẫn
+        // tự ý nâng cấp lên TLS giữa chừng (STARTTLS) nếu server quảng cáo hỗ
+        // trợ trong phản hồi EHLO — đúng/cần thiết cho đa số máy chủ chuẩn
+        // (Gmail, Office365, SMTP công ty qua port 587 thường BẮT BUỘC
+        // STARTTLS). Nhưng 1 số máy chủ SMTP nội bộ hoàn toàn không mã hoá (VD
+        // Postfix LAN) có thể quảng cáo STARTTLS dù cấu hình/chứng chỉ TLS
+        // phía đó bị lỗi, khiến nâng cấp ngầm thất bại dù Admin đã chọn
+        // "Không" cho SSL — từ ngoài nhìn vào giống hệt "SSL vẫn bị ép bật".
+        // Chỉ bật cờ này khi Admin CHỦ ĐỘNG tick "Bỏ qua STARTTLS" (mặc định
+        // tắt, không ảnh hưởng mọi cấu hình STARTTLS chuẩn đang chạy tốt).
+        ignoreTLS: !!emailConfig.smtpIgnoreStartTls,
         // Không để 1 SMTP không phản hồi (sai host/mạng chặn) làm treo request
         // lâu — báo lỗi sớm để Admin biết cấu hình sai thay vì chờ vô thời hạn.
         connectionTimeout: 10000,
@@ -850,6 +887,7 @@ app.post('/api/system/email-config/test', requireAuth, requireAdmin, async (req,
         smtpUser: body.smtpUser ? String(body.smtpUser).trim() : '',
         smtpPass,
         smtpTlsRejectUnauthorized: body.smtpTlsRejectUnauthorized !== false,
+        smtpIgnoreStartTls: !!body.smtpIgnoreStartTls,
         senderEmail: body.senderEmail ? String(body.senderEmail).trim() : 'dms-noreply@company.com'
     };
     try {
@@ -1993,6 +2031,7 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
                     smtpPort: raw.smtpPort || 587,
                     smtpSecure: raw.smtpSecure || false,
                     smtpTlsRejectUnauthorized: raw.smtpTlsRejectUnauthorized !== false,
+                    smtpIgnoreStartTls: !!raw.smtpIgnoreStartTls,
                     senderEmail: raw.senderEmail || 'dms-noreply@company.com',
                     smtpUser: raw.smtpUser || '',
                     // Bảo mật: mật khẩu SMTP thật không bao giờ trả về cho client, chỉ
@@ -5449,6 +5488,15 @@ app.post('/api/license/companies/:companyId/bulk-allocate', requireAuth, require
         // 1 đơn vị (kèm mọi đơn vị con bên dưới) nếu Admin chọn orgUnitId.
         const [allOrgUnits] = await pool.query('SELECT id, parent_id, company_id FROM lic_org_units');
         let scopeOrgUnitIds = allOrgUnits.filter(u => u.company_id === Number(companyId)).map(u => u.id);
+        // (Trực thuộc công ty, không chọn Đơn vị) Khi KHÔNG thu hẹp về 1 đơn vị
+        // cụ thể (scope = toàn công ty), phải tính cả nhân viên org_unit_id =
+        // NULL ("Trực thuộc công ty") — trước đây câu SELECT bên dưới chỉ lọc
+        // `org_unit_id IN (...)`, mà SQL không bao giờ coi NULL khớp IN(), nên
+        // các nhân viên này VĨNH VIỄN không được cấp phát hàng loạt theo phạm
+        // vi, kể cả sau khi công ty đã có thêm đơn vị con (các nhân viên CŨ đó
+        // vẫn còn org_unit_id NULL, không tự nhảy vào đơn vị mới). Khi ĐÃ thu
+        // hẹp về 1 đơn vị cụ thể thì không tính NULL (họ không thuộc đơn vị đó).
+        const includeNullOrgUnit = !orgUnitId;
         if (orgUnitId) {
             const targetUnit = allOrgUnits.find(u => u.id === orgUnitId);
             if (!targetUnit || targetUnit.company_id !== Number(companyId)) {
@@ -5456,8 +5504,12 @@ app.post('/api/license/companies/:companyId/bulk-allocate', requireAuth, require
             }
             const subtreeIds = new Set(orgUnitSubtreeIds(allOrgUnits, orgUnitId));
             scopeOrgUnitIds = scopeOrgUnitIds.filter(id => subtreeIds.has(id));
+            // Chỉ chặn "không có dữ liệu" khi ĐÃ thu hẹp về 1 đơn vị cụ thể mà
+            // đơn vị/cây con đó rỗng — KHÔNG áp dụng cho scope toàn công ty,
+            // vì công ty chưa chia đơn vị con nào vẫn hợp lệ (toàn bộ nhân
+            // viên trực thuộc công ty, org_unit_id NULL).
+            if (scopeOrgUnitIds.length === 0) return res.status(400).json({ error: 'Phạm vi đơn vị không có dữ liệu.' });
         }
-        if (scopeOrgUnitIds.length === 0) return res.status(400).json({ error: 'Phạm vi đơn vị không có dữ liệu.' });
 
         const conn = await pool.getConnection();
         let result;
@@ -5467,16 +5519,29 @@ app.post('/api/license/companies/:companyId/bulk-allocate', requireAuth, require
             // Nhân viên trong phạm vi CHƯA giữ license phần mềm này (tính cả mã
             // được chia sẻ khác công ty nếu phần mềm cho phép — họ đã có quyền
             // dùng rồi thì không cần cấp thêm).
+            const orgUnitConditions = [];
+            const orgUnitParams = [];
+            if (scopeOrgUnitIds.length > 0) {
+                orgUnitConditions.push(`e.org_unit_id IN (${scopeOrgUnitIds.map(() => '?').join(',')})`);
+                orgUnitParams.push(...scopeOrgUnitIds);
+            }
+            if (includeNullOrgUnit) {
+                orgUnitConditions.push('(e.org_unit_id IS NULL AND e.company_id = ?)');
+                orgUnitParams.push(Number(companyId));
+            }
+            // Luôn có ít nhất 1 điều kiện: scope hẹp theo đơn vị đã chặn rỗng ở
+            // trên (báo lỗi, không tới được đây), scope toàn công ty luôn bật
+            // includeNullOrgUnit nên chắc chắn có vế thứ 2.
             const [targetEmployees] = await conn.query(
                 `SELECT e.id, e.full_name FROM lic_employees e
-                 WHERE e.org_unit_id IN (${scopeOrgUnitIds.map(() => '?').join(',')})
+                 WHERE (${orgUnitConditions.join(' OR ')})
                    AND e.id NOT IN (
                      SELECT a.employee_id FROM lic_license_code_assignments a
                      JOIN lic_license_codes c ON c.id = a.code_id
                      WHERE c.software_id = ?
                    )
                  ORDER BY e.id`,
-                [...scopeOrgUnitIds, softwareId]
+                [...orgUnitParams, softwareId]
             );
 
             // Mã còn slot trống của đúng công ty này (khóa dòng để tránh 2 lượt

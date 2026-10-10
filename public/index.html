@@ -457,10 +457,15 @@
           </div>
           <div>
             <label class="block font-semibold text-gray-600 mb-1">Kết nối bảo mật (SSL)</label>
-            <select id="cfgSmtpSecure" class="w-full border p-1.5 rounded bg-white">
-              <option value="false">Không (STARTTLS, cổng 587)</option>
-              <option value="true">Có (SSL, cổng 465)</option>
+            <select id="cfgSmtpSecure" data-evt-change="onCfgSmtpSecureChange" data-args='[]' class="w-full border p-1.5 rounded bg-white">
+              <option value="false">Không — kết nối thường, có thể nâng cấp qua STARTTLS nếu máy chủ hỗ trợ</option>
+              <option value="true">Có — mã hoá SSL/TLS ngay từ đầu kết nối</option>
             </select>
+            <p class="text-[10px] text-gray-500 mt-1">⚠️ Mục này <b>độc lập hoàn toàn với SMTP Port</b> ở trên — không bắt buộc phải khớp 587/465. Máy chủ SMTP nội bộ (VD Postfix trong mạng LAN) dùng port 465 nhưng KHÔNG mã hoá thì vẫn chọn "Không" ở đây bình thường.</p>
+            <label id="cfgSmtpIgnoreStartTlsWrap" class="hidden flex items-center gap-1.5 mt-2 text-xs text-gray-700">
+              <input id="cfgSmtpIgnoreStartTls" type="checkbox">
+              Bỏ qua STARTTLS hoàn toàn — dùng khi máy chủ SMTP nội bộ không mã hoá nhưng vẫn quảng cáo STARTTLS bị lỗi (nâng cấp ngầm thất bại khiến kết nối treo/bị reset dù đã chọn "Không" ở trên)
+            </label>
           </div>
           <div>
             <label class="block font-semibold text-gray-600 mb-1">Tài khoản SMTP</label>
@@ -3026,9 +3031,7 @@
       <p class="text-xs text-gray-500">Chọn 1 nhân viên rồi thêm từng dòng Phần mềm/Mã license bên dưới — dùng khi 1 người cần cấp nhiều phần mềm cùng lúc. 1 dòng lỗi (VD phần mềm đã có) không làm mất các dòng khác.</p>
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Nhân viên</label>
-        <select id="allocByEmpEmployee" data-evt-change="onAllocByEmpEmployeeChange" data-args='[{"__live__":"valueNum"}]' class="w-full border p-2 rounded text-sm bg-white">
-          <option value="">-- Chọn nhân viên --</option>
-        </select>
+        <input id="allocByEmpEmployee" type="text" list="licenseEmpDatalist" placeholder="Gõ tên, mã NV hoặc đơn vị để tìm..." data-evt-input="onAllocByEmpEmployeeInput" data-args='[{"__live__":"value"}]' class="w-full border p-2 rounded text-sm">
       </div>
       <div class="overflow-x-auto">
         <table class="w-full text-xs border-collapse">
@@ -3050,6 +3053,12 @@
       </div>
     </div>
   </div>
+
+  <!-- Datalist dùng chung cho mọi ô "tìm nhân viên" dạng gõ-để-tìm (thay cho
+       <select> liệt kê hết hàng trăm nhân viên, rất khó kéo chọn trên di
+       động) — JS tự đổ lại nội dung mỗi khi mở modal liên quan, xem
+       renderEmployeeDatalist() trong app.js. -->
+  <datalist id="licenseEmpDatalist"></datalist>
 
   <!-- MODAL: Phân bổ tự động (xử lý hàng loạt nhân viên đang giữ mã đã hết hạn) -->
   <div id="autoAllocateModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">
