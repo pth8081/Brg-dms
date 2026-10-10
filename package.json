@@ -1,6 +1,6 @@
 {
   "name": "dms-system-production",
-  "version": "7.77.0",
+  "version": "7.78.0",
   "description": "Hệ thống Quản lý Tài liệu DMS Production (Express & MySQL)",
   "main": "server.js",
   "scripts": {
