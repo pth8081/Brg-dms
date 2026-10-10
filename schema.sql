@@ -756,6 +756,18 @@ CALL add_column_if_not_exists('lic_purchase_registrations', 'issued_at', 'VARCHA
 CALL add_column_if_not_exists('lic_license_batches', 'registration_id', 'BIGINT NULL DEFAULT NULL');
 CALL create_index_if_not_exists('lic_purchase_registrations', 'idx_lic_reg_issued_batch', 'issued_batch_id');
 CALL create_index_if_not_exists('lic_license_batches', 'idx_lic_license_batches_registration', 'registration_id');
+-- (Phát hành NHIỀU ĐỢT cho 1 đăng ký) Trước đây 1 đăng ký chỉ phát hành được
+-- ĐÚNG 1 LẦN DUY NHẤT (issued_batch_id khác NULL là khóa cứng vĩnh viễn) —
+-- đăng ký mua 10 license nhưng Admin chỉ phát hành 4 (VD vì mới nhận được 4
+-- mã từ nhà cung cấp, 6 mã còn lại nhận sau — có thể với hạn sử dụng KHÁC
+-- nhau) thì 6 license còn lại coi như MẤT VĨNH VIỄN, không còn cách nào phát
+-- hành tiếp. Cột này lưu đúng số lượng mỗi LẦN phát hành áp vào đăng ký liên
+-- quan — tổng các lần phát hành (SUM) được đối chiếu với requested_quantity
+-- của đăng ký để biết còn lại bao nhiêu, cho phép phát hành nhiều lô (mỗi lô
+-- tự chọn Ngày cấp/Ngày hết hạn riêng) cho tới khi đủ số đã đăng ký mới khóa
+-- lại (status chuyển ISSUED). NULL ở các lô lịch sử trước khi có tính năng
+-- này (không hồi tố, không tính vào tổng).
+CALL add_column_if_not_exists('lic_license_batches', 'registration_quantity_applied', 'INT NULL DEFAULT NULL');
 
 -- 14. Kỳ ngân sách mở rộng: hạng mục không còn giới hạn chỉ Phần mềm — thêm
 -- item_type ('SOFTWARE' giữ nguyên hành vi cũ liên kết lic_software_catalog,

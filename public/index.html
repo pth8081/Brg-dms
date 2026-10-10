@@ -2962,13 +2962,14 @@
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Đăng ký mua đã duyệt</label>
         <select id="batchRegistration" data-evt-change="onBatchRegistrationChange" data-args='[]' class="w-full border p-2 rounded text-sm bg-white"></select>
-        <p class="text-[11px] text-gray-500 mt-1">Chỉ hiện các đăng ký đã duyệt và chưa phát hành. Phải có Kỳ mua + đăng ký được duyệt trước mới phát hành được.</p>
+        <p class="text-[11px] text-gray-500 mt-1">Chỉ hiện các đăng ký đã duyệt và chưa phát hành đủ số lượng — có thể phát hành nhiều đợt cho 1 đăng ký (mỗi đợt tự chọn Ngày hết hạn riêng) tới khi đủ số đã duyệt. Phải có Kỳ mua + đăng ký được duyệt trước mới phát hành được.</p>
       </div>
       <div id="batchRegistrationInfo" class="bg-teal-50 border border-teal-200 rounded p-2 text-[11px] text-teal-900 space-y-0.5 hidden">
         <div><strong>Công ty:</strong> <span id="batchInfoCompany"></span></div>
         <div><strong>Phần mềm:</strong> <span id="batchInfoSoftware"></span> <span id="batchLicenseTypeBadge"></span></div>
         <div><strong>Loại kỳ:</strong> <span id="batchInfoRoundType"></span></div>
         <div><strong>Đang có:</strong> <span id="batchInfoCurrentCount"></span> mã</div>
+        <div id="batchInfoIssuedProgressRow" class="hidden"><strong>Đã phát hành:</strong> <span id="batchInfoIssuedProgress"></span></div>
       </div>
       <div>
         <label id="batchQuantityLabel" class="block text-xs font-semibold text-gray-600 mb-1">Số lượng</label>

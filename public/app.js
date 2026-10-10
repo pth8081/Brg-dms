@@ -4563,10 +4563,17 @@
     }
 
     // --- Phát hành license (lô mã license) ---
-    // Đăng ký đã duyệt, chưa phát hành — nguồn duy nhất để chọn phát hành license
-    // (Phát hành BẮT BUỘC gắn với 1 đăng ký, không còn phát hành tự do).
+    // Đăng ký đã duyệt và CHƯA PHÁT HÀNH ĐỦ — nguồn duy nhất để chọn phát
+    // hành license (Phát hành BẮT BUỘC gắn với 1 đăng ký, không còn phát hành
+    // tự do). Một đăng ký có thể phát hành NHIỀU ĐỢT (VD đăng ký 10, đợt 1
+    // phát hành 4, đợt 2 phát hành 6 còn lại — mỗi đợt tự chọn Ngày hết hạn
+    // riêng) — server chỉ khóa (status chuyển ISSUED, biến mất khỏi đây) khi
+    // đã phát hành ĐỦ/VƯỢT số lượng đã duyệt, nên ở đây chỉ cần lọc status.
+    function registrationRemaining(r) {
+      return r.requestedQuantity - (r.issuedQuantity || 0);
+    }
     function issuableRegistrations() {
-      return licenseDB.purchaseRegistrations.filter(r => r.status === 'APPROVED' && !r.issuedBatchId);
+      return licenseDB.purchaseRegistrations.filter(r => r.status === 'APPROVED');
     }
     function batchRegistrationLabel(r) {
       const round = licenseDB.purchaseRounds.find(x => x.id === r.roundId);
@@ -4574,13 +4581,14 @@
       const company = licenseDB.companies.find(x => x.id === r.companyId);
       const software = item ? licenseDB.softwareCatalog.find(x => x.id === item.softwareId) : null;
       const typeLabel = round && round.roundType === 'NEW' ? 'Mua mới' : 'Gia hạn';
-      return `${round ? round.name : '—'} [${typeLabel}] — ${company ? company.name : '—'} — ${software ? software.name : '—'} (đã duyệt ${r.requestedQuantity})`;
+      const progress = r.issuedQuantity > 0 ? `, đã phát hành ${r.issuedQuantity}, còn lại ${registrationRemaining(r)}` : '';
+      return `${round ? round.name : '—'} [${typeLabel}] — ${company ? company.name : '—'} — ${software ? software.name : '—'} (đã duyệt ${r.requestedQuantity}${progress})`;
     }
     function populateBatchSelects() {
       const rows = issuableRegistrations();
       document.getElementById('batchRegistration').innerHTML = rows.length
         ? rows.map(r => `<option value="${r.id}">${escapeHtml(batchRegistrationLabel(r))}</option>`).join('')
-        : '<option value="">-- Không có đăng ký nào đã duyệt và chưa phát hành --</option>';
+        : '<option value="">-- Không có đăng ký nào đã duyệt và chưa phát hành đủ --</option>';
     }
     function onBatchRegistrationChange() {
       const regId = Number(document.getElementById('batchRegistration').value) || null;
@@ -4589,6 +4597,7 @@
       if (!reg) {
         infoBox.classList.add('hidden');
         document.getElementById('batchQuantity').value = '';
+        document.getElementById('batchQuantity').max = 5000;
         document.getElementById('batchExpiryDate').value = '';
         return;
       }
@@ -4605,11 +4614,25 @@
       const currentCount = (company && software) ? currentCodeCount(company.id, software.id) : 0;
       document.getElementById('batchInfoCurrentCount').textContent = currentCount;
 
+      // (Phát hành nhiều đợt) Nếu đăng ký này đã phát hành 1 phần (VD duyệt
+      // 10, đợt trước phát hành 4), mặc định điền sẵn đúng số CÒN LẠI (6) —
+      // không điền lại full requestedQuantity (10) vì sẽ vượt quá số còn
+      // được phép, server sẽ từ chối.
+      const remaining = registrationRemaining(reg);
+      const progressRow = document.getElementById('batchInfoIssuedProgressRow');
+      if (reg.issuedQuantity > 0) {
+        progressRow.classList.remove('hidden');
+        document.getElementById('batchInfoIssuedProgress').textContent = `${reg.issuedQuantity}/${reg.requestedQuantity} — còn lại ${remaining}`;
+      } else {
+        progressRow.classList.add('hidden');
+      }
+
       document.getElementById('batchQuantityLabel').textContent = isNew ? 'Số lượng mua thêm' : 'Tổng số lượng mong muốn';
       document.getElementById('batchQuantityHint').textContent = isNew
-        ? 'Sinh thẳng đúng số lượng này vào kho — không đụng tới mã cũ.'
-        : 'Nếu số này lớn hơn số đang có, hệ thống chỉ sinh thêm đúng phần chênh lệch — mã cũ đã cấp cho ai vẫn giữ nguyên.';
-      document.getElementById('batchQuantity').value = reg.requestedQuantity;
+        ? `Sinh thẳng đúng số lượng này vào kho — không đụng tới mã cũ. Tối đa ${remaining} (số còn chưa phát hành của đăng ký này).`
+        : `Nếu số này lớn hơn số đang có, hệ thống chỉ sinh thêm đúng phần chênh lệch — mã cũ đã cấp cho ai vẫn giữ nguyên. Tối đa ${remaining}.`;
+      document.getElementById('batchQuantity').value = remaining;
+      document.getElementById('batchQuantity').max = remaining;
 
       const perpetual = !!(software && software.licenseType === 'PERPETUAL');
       document.getElementById('batchExpiryWrap').classList.toggle('hidden', perpetual);
@@ -4624,9 +4647,20 @@
     function currentCodeCount(companyId, softwareId) {
       return licenseDB.licenseCodes.filter(c => c.companyId === companyId && c.softwareId === softwareId).length;
     }
+    // (Hiển thị ngày kiểu Việt Nam) Toàn hệ thống lưu/truyền ngày tháng dạng
+    // ISO (YYYY-MM-DD) để <input type="date"> và so sánh chuỗi (sắp xếp, lọc
+    // hạn dùng) hoạt động đúng — hàm này CHỈ dùng khi HIỂN THỊ cho người đọc,
+    // đổi sang dd/mm/yyyy quen thuộc. KHÔNG áp dụng cho value của
+    // input type="date" (phải giữ nguyên ISO để trình duyệt hiểu được) hay
+    // bất kỳ chỗ nào còn so sánh/sắp xếp theo chuỗi ngày.
+    function fmtDateVN(iso) {
+      if (!iso) return '';
+      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso));
+      return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
+    }
     // Hiển thị Ngày hết hạn — license Vĩnh viễn không có ngày hết hạn (null).
     function expiryLabel(expiryDate) {
-      return expiryDate || '<span class="text-green-700 font-semibold">Vĩnh viễn</span>';
+      return expiryDate ? fmtDateVN(expiryDate) : '<span class="text-green-700 font-semibold">Vĩnh viễn</span>';
     }
     // --- Gán mã license nhiều-nhiều (1 mã có thể gán cho nhiều nhân viên) ---
     function codeAssignments(codeId) {
@@ -4723,7 +4757,7 @@ function isPerpetualSoftware(softwareId) {
             <td class="border p-2">${escapeHtml(software ? software.name : '—')}</td>
             <td class="border p-2 text-center">${b.totalQuantity}</td>
             <td class="border p-2 text-center">${b.codesGenerated > 0 ? '+' + b.codesGenerated : '0'}</td>
-            <td class="border p-2">${b.issuedDate}</td>
+            <td class="border p-2">${fmtDateVN(b.issuedDate)}</td>
             <td class="border p-2">${expiryLabel(b.expiryDate)}</td>
             <td class="border p-2 text-center"><button ${dc('deleteBatch', b.id)} class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600">🗑️</button></td>
           </tr>
@@ -4806,7 +4840,7 @@ function isPerpetualSoftware(softwareId) {
             <td class="border p-2">${escapeHtml(r.emp.title || '—')}</td>
             <td class="border p-2">${escapeHtml(r.software ? r.software.name : '—')}</td>
             <td class="border p-2 font-mono text-[11px] whitespace-nowrap">${escapeHtml(r.code.code)} <span class="text-gray-400">(${usedCount}/${maxAssignees})</span>${codeShareBadge(r.code.id)}</td>
-            <td class="border p-2 whitespace-nowrap">${r.assignment.assignedAt}</td>
+            <td class="border p-2 whitespace-nowrap">${fmtDateVN(r.assignment.assignedAt)}</td>
             <td class="border p-2 whitespace-nowrap">${expiryLabel(r.code.expiryDate)}</td>
             <td class="border p-2 text-center">${statusHtml}</td>
             <td class="border p-2 text-center"><button ${dc('revokeAllocation', r.code.id, r.emp.id)} class="btn-danger-ghost px-1.5 py-0.5 rounded text-[11px] font-semibold whitespace-nowrap">Thu hồi</button></td>
@@ -4951,7 +4985,7 @@ function isPerpetualSoftware(softwareId) {
             <td class="border p-2 text-center">${i + 1}</td>
             <td class="border p-2">${escapeHtml(r.software ? r.software.name : '(không rõ)')}</td>
             <td class="border p-2 whitespace-nowrap">${escapeHtml(r.code.code)}</td>
-            <td class="border p-2 whitespace-nowrap">${r.assignment.assignedAt}</td>
+            <td class="border p-2 whitespace-nowrap">${fmtDateVN(r.assignment.assignedAt)}</td>
             <td class="border p-2 whitespace-nowrap">${expiryLabel(r.code.expiryDate)}</td>
           </tr>`;
         }).join('');
@@ -5056,7 +5090,7 @@ function isPerpetualSoftware(softwareId) {
           <td class="border p-2 text-center">${a.active ? '<span class="text-[10px] font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Active</span>' : '<span class="text-[10px] font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded-full">Disable</span>'}</td>
           <td class="border p-2">${escapeHtml(a.company || '—')}</td>
           <td class="border p-2">${escapeHtml(a.orgUnit || '—')}</td>
-          <td class="border p-2">${a.disabledAt || '—'}</td>
+          <td class="border p-2">${a.disabledAt ? fmtDateVN(a.disabledAt) : '—'}</td>
         </tr>
       `).join('');
       renderPaginationBar('adAccountsPaginationBox', 'adAccounts', rows.length, 'renderAdAccountsTable', { itemLabel: 'tài khoản' });
@@ -5114,8 +5148,8 @@ function isPerpetualSoftware(softwareId) {
             <td class="border p-1.5 font-semibold">${escapeHtml(r.emp.fullName)}</td>
             <td class="border p-1.5">${escapeHtml(r.software.name)}</td>
             <td class="border p-1.5 font-mono text-[11px]">${escapeHtml(r.code.code)}</td>
-            <td class="border p-1.5 text-red-700 font-semibold">${r.code.expiryDate}</td>
-            <td class="border p-1.5 text-green-700">${newExpiry || '— (chưa có lô mới)'}</td>
+            <td class="border p-1.5 text-red-700 font-semibold">${fmtDateVN(r.code.expiryDate)}</td>
+            <td class="border p-1.5 text-green-700">${newExpiry ? fmtDateVN(newExpiry) : '— (chưa có lô mới)'}</td>
             <td class="border p-1.5 text-center">
               <input type="checkbox" data-code-id="${r.code.id}" data-employee-id="${r.emp.id}" class="autoAllocRevokeCheck w-4 h-4">
             </td>
@@ -5619,7 +5653,7 @@ function isPerpetualSoftware(softwareId) {
               <td class="border p-2 font-semibold">${escapeHtml(r.emp.fullName)}</td>
               <td class="border p-2">${escapeHtml(r.emp.email)}</td>
               <td class="border p-2 font-mono">${escapeHtml(r.adAccount.username)}</td>
-              <td class="border p-2">${r.adAccount.disabledAt || '—'}</td>
+              <td class="border p-2">${r.adAccount.disabledAt ? fmtDateVN(r.adAccount.disabledAt) : '—'}</td>
               <td class="border p-2 text-center">${r.count}</td>
             </tr>
           `).join('')
@@ -5984,7 +6018,12 @@ function isPerpetualSoftware(softwareId) {
                     ${items.map(i => {
                       const sw = licenseDB.softwareCatalog.find(s => s.id === i.softwareId);
                       const itemRegs = licenseDB.purchaseRegistrations.filter(reg => reg.roundItemId === i.id);
-                      const hasIssued = itemRegs.some(reg => reg.status === 'ISSUED');
+                      // (Phát hành nhiều đợt) Khóa sửa giá ngay khi đã phát hành BẤT KỲ
+                      // số lượng nào — không chỉ khi status đã chuyển hẳn ISSUED (đủ
+                      // 100%) — tránh đổi giá giữa 2 đợt phát hành của cùng 1 đăng ký
+                      // (đợt 1 đã phát hành theo giá cũ, đợt 2 sau đó lại tính theo giá
+                      // vừa sửa, gây lệch giá giữa 2 đợt của cùng 1 lần mua).
+                      const hasIssued = itemRegs.some(reg => reg.status === 'ISSUED' || reg.issuedQuantity > 0);
                       const hasAnyReg = itemRegs.length > 0;
                       // Đã có đăng ký ISSUED (đã phát hành license theo giá cũ) — khóa
                       // hẳn, không cho sửa nữa (kể cả qua Gửi bổ sung). Có đăng ký
@@ -6369,7 +6408,7 @@ function isPerpetualSoftware(softwareId) {
             <td class="border p-2 text-center">${r.currentQuantity}</td>
             <td class="border p-2 text-center font-semibold">${r.requestedQuantity}</td>
             <td class="border p-2 text-right font-semibold">${formatMoney(r.totalAmount)}</td>
-            <td class="border p-2 text-center">${purchaseStatusBadge(r.status)}${r.status === 'PENDING' && isRequester ? '<br><span class="text-[10px] text-gray-400">Chờ người khác duyệt</span>' : ''}${r.status === 'PENDING' && r.editRequested ? '<br><span class="text-[10px] font-bold text-blue-600">Đã yêu cầu bổ sung</span>' : ''}</td>
+            <td class="border p-2 text-center">${purchaseStatusBadge(r.status)}${r.status === 'APPROVED' && r.issuedQuantity > 0 ? `<br><span class="text-[10px] font-bold text-teal-700">Đã phát hành ${r.issuedQuantity}/${r.requestedQuantity}</span>` : ''}${r.status === 'PENDING' && isRequester ? '<br><span class="text-[10px] text-gray-400">Chờ người khác duyệt</span>' : ''}${r.status === 'PENDING' && r.editRequested ? '<br><span class="text-[10px] font-bold text-blue-600">Đã yêu cầu bổ sung</span>' : ''}</td>
             <td class="border p-2 text-center whitespace-nowrap">
               ${canDecide ? `
                 <button ${dc('approveRegistration', r.id)} class="px-1.5 py-0.5 rounded hover:bg-success-50 text-success-700 text-[11px] font-semibold whitespace-nowrap">Duyệt</button>
@@ -6507,7 +6546,7 @@ function isPerpetualSoftware(softwareId) {
                  (chỉ chốt khi Phát hành) — tạm hiển thị Loại license khai báo
                  ở tab Phần mềm thay vì mặc định "Vĩnh viễn". -->
             <td class="border p-2">${r.expiryDate ? expiryLabel(r.expiryDate) : (software ? licenseTypeBadge(software.licenseType) : '—')}</td>
-            <td class="border p-2 text-center">${purchaseStatusBadge(r.status)}${r.status === 'PENDING' && r.editRequested ? '<br><span class="text-[10px] font-bold text-blue-600">Đã yêu cầu bổ sung</span>' : ''}</td>
+            <td class="border p-2 text-center">${purchaseStatusBadge(r.status)}${r.status === 'APPROVED' && r.issuedQuantity > 0 ? `<br><span class="text-[10px] font-bold text-teal-700">Đã phát hành ${r.issuedQuantity}/${r.requestedQuantity}</span>` : ''}${r.status === 'PENDING' && r.editRequested ? '<br><span class="text-[10px] font-bold text-blue-600">Đã yêu cầu bổ sung</span>' : ''}</td>
             <td class="border p-2 text-center whitespace-nowrap">
               ${r.status === 'PENDING' && r.editRequested ? `<button ${dc('openRegistrationEditModal', r.id)} class="px-1.5 py-0.5 rounded hover:bg-brand-100 text-brand-700 text-[11px] font-semibold whitespace-nowrap">✏️ Sửa</button>` : '—'}
             </td>
@@ -7089,7 +7128,7 @@ function isPerpetualSoftware(softwareId) {
             const company = a.companyId ? licenseDB.companies.find(c => c.id === a.companyId) : null;
             return `
             <tr>
-              <td class="border p-1.5">${a.purchaseDate}</td>
+              <td class="border p-1.5">${fmtDateVN(a.purchaseDate)}</td>
               <td class="border p-1.5">${escapeHtml(a.vendor || '—')}</td>
               <td class="border p-1.5">${company ? escapeHtml(company.name) : '<span class="text-gray-400">Chưa phân bổ</span>'}</td>
               <td class="border p-1.5 text-right">${a.quantity}</td>
@@ -8349,7 +8388,7 @@ function isPerpetualSoftware(softwareId) {
     function renderLicenseRecentReport(recent) {
       reportBarChart('licRepRecentChart', recent.trend.map(t => ({ label: t.date.slice(5), value: t.cnt })), { color: REPORT_COLORS.license, unit: ' mã' });
       document.getElementById('licRepRecentTableBody').innerHTML = recent.assignments.length
-        ? recent.assignments.map(r => `<tr><td class="border p-2 text-center">${escapeHtml(r.assignedAt)}</td><td class="border p-2">${escapeHtml(r.employeeName)}</td><td class="border p-2">${escapeHtml(r.companyName)}</td><td class="border p-2">${escapeHtml(r.softwareName)}</td><td class="border p-2 font-mono">${escapeHtml(r.licenseCode)}</td></tr>`).join('')
+        ? recent.assignments.map(r => `<tr><td class="border p-2 text-center">${escapeHtml(fmtDateVN(r.assignedAt))}</td><td class="border p-2">${escapeHtml(r.employeeName)}</td><td class="border p-2">${escapeHtml(r.companyName)}</td><td class="border p-2">${escapeHtml(r.softwareName)}</td><td class="border p-2 font-mono">${escapeHtml(r.licenseCode)}</td></tr>`).join('')
         : '<tr><td colspan="5" class="text-center p-3 text-gray-400 italic">Không có bản quyền nào được cấp trong khoảng thời gian này.</td></tr>';
     }
     function exportLicenseRecentReportXlsx() {
@@ -8370,7 +8409,7 @@ function isPerpetualSoftware(softwareId) {
         { label: 'Vĩnh viễn', value: Number(s.perpetualCnt) || 0, color: REPORT_COLORS.neutral }
       ]);
       document.getElementById('licRepExpiryTableBody').innerHTML = expiry.rows.length
-        ? expiry.rows.map(r => `<tr><td class="border p-2 font-mono">${escapeHtml(r.licenseCode)}</td><td class="border p-2">${escapeHtml(r.companyName)}</td><td class="border p-2">${escapeHtml(r.softwareName)}</td><td class="border p-2 text-center">${escapeHtml(r.expiryDate)}</td><td class="border p-2">${escapeHtml(r.assignedTo || '—')}</td></tr>`).join('')
+        ? expiry.rows.map(r => `<tr><td class="border p-2 font-mono">${escapeHtml(r.licenseCode)}</td><td class="border p-2">${escapeHtml(r.companyName)}</td><td class="border p-2">${escapeHtml(r.softwareName)}</td><td class="border p-2 text-center">${escapeHtml(fmtDateVN(r.expiryDate))}</td><td class="border p-2">${escapeHtml(r.assignedTo || '—')}</td></tr>`).join('')
         : '<tr><td colspan="5" class="text-center p-3 text-gray-400 italic">Không có mã nào sắp hết hạn trong khoảng đã chọn.</td></tr>';
     }
     function exportLicenseExpiryReportXlsx() {
@@ -8488,7 +8527,7 @@ function isPerpetualSoftware(softwareId) {
           <td class="border p-2 font-semibold">${escapeHtml(i.name)}</td>
           <td class="border p-2">${escapeHtml(cat ? cat.name : '—')}</td>
           <td class="border p-2">${escapeHtml(i.provider || '—')}</td>
-          <td class="border p-2 whitespace-nowrap">${i.expiryDate}</td>
+          <td class="border p-2 whitespace-nowrap">${fmtDateVN(i.expiryDate)}</td>
           <td class="border p-2">${itItemStatusBadge(i)}</td>
           <td class="border p-2">${itOwnerLabel(i)}</td>
           <td class="border p-2 text-right whitespace-nowrap">${i.cost === null ? '—' : formatMoney(i.cost)}</td>
