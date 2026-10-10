@@ -809,6 +809,17 @@ function buildMailTransporter(emailConfig) {
         // TLS ngay từ đầu kết nối — cổng 465/SMTPS, lẫn secure=false nhưng
         // server nâng cấp lên TLS giữa chừng qua STARTTLS — cổng 587/25).
         tls: { rejectUnauthorized: emailConfig.smtpTlsRejectUnauthorized !== false },
+        // (Bỏ qua STARTTLS hoàn toàn) Mặc định khi secure:false, nodemailer vẫn
+        // tự ý nâng cấp lên TLS giữa chừng (STARTTLS) nếu server quảng cáo hỗ
+        // trợ trong phản hồi EHLO — đúng/cần thiết cho đa số máy chủ chuẩn
+        // (Gmail, Office365, SMTP công ty qua port 587 thường BẮT BUỘC
+        // STARTTLS). Nhưng 1 số máy chủ SMTP nội bộ hoàn toàn không mã hoá (VD
+        // Postfix LAN) có thể quảng cáo STARTTLS dù cấu hình/chứng chỉ TLS
+        // phía đó bị lỗi, khiến nâng cấp ngầm thất bại dù Admin đã chọn
+        // "Không" cho SSL — từ ngoài nhìn vào giống hệt "SSL vẫn bị ép bật".
+        // Chỉ bật cờ này khi Admin CHỦ ĐỘNG tick "Bỏ qua STARTTLS" (mặc định
+        // tắt, không ảnh hưởng mọi cấu hình STARTTLS chuẩn đang chạy tốt).
+        ignoreTLS: !!emailConfig.smtpIgnoreStartTls,
         // Không để 1 SMTP không phản hồi (sai host/mạng chặn) làm treo request
         // lâu — báo lỗi sớm để Admin biết cấu hình sai thay vì chờ vô thời hạn.
         connectionTimeout: 10000,
@@ -876,6 +887,7 @@ app.post('/api/system/email-config/test', requireAuth, requireAdmin, async (req,
         smtpUser: body.smtpUser ? String(body.smtpUser).trim() : '',
         smtpPass,
         smtpTlsRejectUnauthorized: body.smtpTlsRejectUnauthorized !== false,
+        smtpIgnoreStartTls: !!body.smtpIgnoreStartTls,
         senderEmail: body.senderEmail ? String(body.senderEmail).trim() : 'dms-noreply@company.com'
     };
     try {
@@ -2019,6 +2031,7 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
                     smtpPort: raw.smtpPort || 587,
                     smtpSecure: raw.smtpSecure || false,
                     smtpTlsRejectUnauthorized: raw.smtpTlsRejectUnauthorized !== false,
+                    smtpIgnoreStartTls: !!raw.smtpIgnoreStartTls,
                     senderEmail: raw.senderEmail || 'dms-noreply@company.com',
                     smtpUser: raw.smtpUser || '',
                     // Bảo mật: mật khẩu SMTP thật không bao giờ trả về cho client, chỉ

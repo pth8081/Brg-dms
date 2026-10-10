@@ -3549,6 +3549,7 @@
         smtpPort: parseInt(document.getElementById('cfgSmtpPort').value, 10) || 587,
         smtpSecure: document.getElementById('cfgSmtpSecure').value === 'true',
         smtpTlsRejectUnauthorized: document.getElementById('cfgSmtpTlsReject').value === 'true',
+        smtpIgnoreStartTls: document.getElementById('cfgSmtpIgnoreStartTls').checked,
         senderEmail: document.getElementById('cfgSenderEmail').value.trim(),
         smtpUser: document.getElementById('cfgSmtpUser').value.trim(),
         // Để trống = giữ nguyên mật khẩu cũ đã lưu (server tự xử lý) — không
@@ -3561,6 +3562,13 @@
       showToast('Đã lưu cấu hình Email thành công!', 'success');
     }
 
+    // (Bỏ qua STARTTLS) Chỉ có ý nghĩa khi đã chọn "Không" ở Kết nối bảo mật —
+    // chọn "Có" (SSL ngay từ đầu) thì không còn STARTTLS nào để bỏ qua, ẩn đi
+    // tránh Admin tưởng 2 lựa chọn này liên quan/phụ thuộc nhau.
+    function onCfgSmtpSecureChange() {
+      const isSecure = document.getElementById('cfgSmtpSecure').value === 'true';
+      document.getElementById('cfgSmtpIgnoreStartTlsWrap').classList.toggle('hidden', isSecure);
+    }
     function loadEmailConfigToForm() {
       if (!DB.emailConfig) return;
       document.getElementById('cfgEmailEnabled').value = DB.emailConfig.enabled !== false ? 'true' : 'false';
@@ -3568,6 +3576,8 @@
       document.getElementById('cfgSmtpPort').value = DB.emailConfig.smtpPort || 587;
       document.getElementById('cfgSmtpSecure').value = DB.emailConfig.smtpSecure ? 'true' : 'false';
       document.getElementById('cfgSmtpTlsReject').value = DB.emailConfig.smtpTlsRejectUnauthorized !== false ? 'true' : 'false';
+      document.getElementById('cfgSmtpIgnoreStartTls').checked = !!DB.emailConfig.smtpIgnoreStartTls;
+      onCfgSmtpSecureChange();
       document.getElementById('cfgSenderEmail').value = DB.emailConfig.senderEmail || 'dms-noreply@company.com';
       document.getElementById('cfgSmtpUser').value = DB.emailConfig.smtpUser || '';
       // Mật khẩu thật không bao giờ được server trả về — chỉ để trống ô nhập,
@@ -3596,6 +3606,7 @@
             smtpPort: parseInt(document.getElementById('cfgSmtpPort').value, 10) || 587,
             smtpSecure: document.getElementById('cfgSmtpSecure').value === 'true',
             smtpTlsRejectUnauthorized: document.getElementById('cfgSmtpTlsReject').value === 'true',
+            smtpIgnoreStartTls: document.getElementById('cfgSmtpIgnoreStartTls').checked,
             senderEmail: document.getElementById('cfgSenderEmail').value.trim(),
             smtpUser: document.getElementById('cfgSmtpUser').value.trim(),
             smtpPass: document.getElementById('cfgSmtpPass').value

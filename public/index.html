@@ -457,10 +457,15 @@
           </div>
           <div>
             <label class="block font-semibold text-gray-600 mb-1">Kết nối bảo mật (SSL)</label>
-            <select id="cfgSmtpSecure" class="w-full border p-1.5 rounded bg-white">
-              <option value="false">Không (STARTTLS, cổng 587)</option>
-              <option value="true">Có (SSL, cổng 465)</option>
+            <select id="cfgSmtpSecure" data-evt-change="onCfgSmtpSecureChange" data-args='[]' class="w-full border p-1.5 rounded bg-white">
+              <option value="false">Không — kết nối thường, có thể nâng cấp qua STARTTLS nếu máy chủ hỗ trợ</option>
+              <option value="true">Có — mã hoá SSL/TLS ngay từ đầu kết nối</option>
             </select>
+            <p class="text-[10px] text-gray-500 mt-1">⚠️ Mục này <b>độc lập hoàn toàn với SMTP Port</b> ở trên — không bắt buộc phải khớp 587/465. Máy chủ SMTP nội bộ (VD Postfix trong mạng LAN) dùng port 465 nhưng KHÔNG mã hoá thì vẫn chọn "Không" ở đây bình thường.</p>
+            <label id="cfgSmtpIgnoreStartTlsWrap" class="hidden flex items-center gap-1.5 mt-2 text-xs text-gray-700">
+              <input id="cfgSmtpIgnoreStartTls" type="checkbox">
+              Bỏ qua STARTTLS hoàn toàn — dùng khi máy chủ SMTP nội bộ không mã hoá nhưng vẫn quảng cáo STARTTLS bị lỗi (nâng cấp ngầm thất bại khiến kết nối treo/bị reset dù đã chọn "Không" ở trên)
+            </label>
           </div>
           <div>
             <label class="block font-semibold text-gray-600 mb-1">Tài khoản SMTP</label>
