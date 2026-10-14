@@ -61,119 +61,135 @@
        #appShell bên dưới (khung đó chỉ dành cho giao diện nghiệp vụ sau khi
        đăng nhập). Mặc định HIỆN (không có class hidden) vì đây là màn hình
        đầu tiên người dùng thấy trước khi restoreSession() xác định được có
-       phiên đăng nhập cũ hay không. -->
-  <div id="loginSection" class="fixed inset-0 z-[100] overflow-y-auto bg-paper-50 font-vietnam">
-    <div class="min-h-full grid grid-cols-1 lg:grid-cols-[7fr_6fr]">
+       phiên đăng nhập cũ hay không. BẢN THU GỌN: thay vì chiếm hết màn hình
+       (panel thương hiệu kéo dài hết chiều cao), toàn bộ co lại thành 1 thẻ
+       (card) nhỏ nổi giữa nền trung tính — khối minh hoạ bên trái cũng đổi
+       từ danh sách chữ sang 1 hình tượng trưng duy nhất (không chữ). -->
+  <div id="loginSection" class="fixed inset-0 z-[100] overflow-y-auto bg-paper-100 font-vietnam">
+    <div class="min-h-full flex items-center justify-center p-4 sm:p-6">
+    <div class="w-full max-w-[900px] my-6 bg-white rounded-2xl shadow-[0_30px_80px_-20px_rgba(18,33,58,0.35)] overflow-hidden grid grid-cols-1 md:grid-cols-[0.85fr_1fr]">
 
       <!-- Panel thương hiệu -->
-      <section class="relative bg-ink-900 text-white px-6 py-10 lg:px-16 lg:py-12 flex flex-col justify-between overflow-hidden">
+      <section class="relative bg-ink-900 text-white p-8 flex flex-col justify-between overflow-hidden">
         <div class="login-grain absolute inset-0 pointer-events-none"></div>
-        <svg class="hidden lg:block absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[46vw] h-[46vw] max-w-[620px] max-h-[620px] opacity-[0.07] pointer-events-none" viewBox="0 0 200 200" aria-hidden="true">
-          <circle cx="100" cy="100" r="94" fill="none" stroke="#eef1f6" stroke-width="1.2"/>
-          <circle cx="100" cy="100" r="80" fill="none" stroke="#eef1f6" stroke-width="1.2"/>
-          <rect x="70" y="66" width="60" height="76" rx="2" fill="none" stroke="#eef1f6" stroke-width="1.4"/>
-          <line x1="80" y1="84" x2="120" y2="84" stroke="#eef1f6" stroke-width="1.4"/>
-          <line x1="80" y1="98" x2="120" y2="98" stroke="#eef1f6" stroke-width="1.4"/>
-          <line x1="80" y1="112" x2="120" y2="112" stroke="#eef1f6" stroke-width="1.4"/>
-          <line x1="80" y1="126" x2="106" y2="126" stroke="#eef1f6" stroke-width="1.4"/>
-        </svg>
 
-        <div class="relative z-10">
-          <div class="flex items-center gap-3">
-            <svg class="w-12 h-12 flex-none" viewBox="0 0 48 48" aria-hidden="true">
-              <rect x="6" y="4" width="30" height="40" rx="2" fill="none" stroke="#eef1f6" stroke-width="2"/>
-              <path d="M26 4 L36 14 L26 14 Z" fill="#eef1f6"/>
-              <line x1="12" y1="22" x2="30" y2="22" stroke="#eef1f6" stroke-width="1.6"/>
-              <line x1="12" y1="28" x2="30" y2="28" stroke="#eef1f6" stroke-width="1.6"/>
-              <line x1="12" y1="34" x2="24" y2="34" stroke="#eef1f6" stroke-width="1.6"/>
-              <circle cx="34" cy="36" r="9" fill="#12213a" stroke="#b6893f" stroke-width="1.6"/>
-              <path d="M30.5 36 L33 38.5 L38 33" fill="none" stroke="#b6893f" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-            <div class="font-brand font-semibold text-2xl leading-tight" style="text-wrap: balance;">
-              Trung Tâm CNTT
-              <small class="block font-vietnam font-medium text-[11px] tracking-[0.16em] uppercase text-gold-500 mt-1">Phần mềm · Dịch vụ · Tài liệu</small>
-            </div>
+        <div class="relative z-10 flex items-center gap-2.5">
+          <svg class="w-9 h-9 flex-none" viewBox="0 0 48 48" aria-hidden="true">
+            <rect x="6" y="4" width="30" height="40" rx="2" fill="none" stroke="#eef1f6" stroke-width="2"/>
+            <path d="M26 4 L36 14 L26 14 Z" fill="#eef1f6"/>
+            <line x1="12" y1="22" x2="30" y2="22" stroke="#eef1f6" stroke-width="1.6"/>
+            <line x1="12" y1="28" x2="30" y2="28" stroke="#eef1f6" stroke-width="1.6"/>
+            <line x1="12" y1="34" x2="24" y2="34" stroke="#eef1f6" stroke-width="1.6"/>
+            <circle cx="34" cy="36" r="9" fill="#12213a" stroke="#b6893f" stroke-width="1.6"/>
+            <path d="M30.5 36 L33 38.5 L38 33" fill="none" stroke="#b6893f" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <div class="font-brand font-semibold text-base leading-tight">
+            Trung Tâm CNTT
+            <small class="block font-vietnam font-medium text-[9.5px] tracking-[0.14em] uppercase text-gold-500 mt-0.5">Phần mềm · Dịch vụ · Tài liệu</small>
           </div>
-
-          <h1 class="font-brand font-semibold text-2xl lg:text-[clamp(1.7rem,2.6vw,2.3rem)] leading-tight max-w-[24ch] mt-6 lg:mt-10" style="text-wrap: balance;">
-            Quản lý <span class="text-gold-500">phần mềm, dịch vụ</span> và tài liệu CNTT — một cổng duy nhất.
-          </h1>
-          <p class="hidden lg:block mt-3 text-white/60 text-[14px] leading-relaxed max-w-[40ch]">Cổng nội bộ của Trung Tâm CNTT — dành riêng cho cán bộ, nhân viên được cấp tài khoản trong hệ thống.</p>
-
-          <ul class="hidden lg:block mt-7 space-y-3">
-            <li class="flex items-start gap-3 text-sm text-white/60 border-t border-white/10 pt-3 first:border-0 first:pt-0">
-              <span class="font-brand font-semibold text-gold-500 w-6 flex-none">01</span>
-              <span><strong class="text-white font-semibold">Tài liệu</strong> — soạn thảo, phê duyệt, lưu vết mọi phiên bản.</span>
-            </li>
-            <li class="flex items-start gap-3 text-sm text-white/60 border-t border-white/10 pt-3">
-              <span class="font-brand font-semibold text-gold-500 w-6 flex-none">02</span>
-              <span><strong class="text-white font-semibold">Bản quyền phần mềm</strong> — theo dõi license, hạn dùng, cấp phát.</span>
-            </li>
-            <li class="flex items-start gap-3 text-sm text-white/60 border-t border-white/10 pt-3">
-              <span class="font-brand font-semibold text-gold-500 w-6 flex-none">03</span>
-              <span><strong class="text-white font-semibold">Dịch vụ CNTT</strong> — giám sát hạn hợp đồng, nhắc hạn tự động.</span>
-            </li>
-          </ul>
         </div>
 
-        <div class="relative z-10 mt-8 pt-5 border-t border-white/10 flex justify-between items-baseline gap-4 text-xs text-white/60">
-          <span>DMS v7.79</span>
-          <span>© 2026 Trung Tâm CNTT</span>
+        <!-- Khối minh hoạ thuần hình ảnh (không chữ) — 1 "trung tâm" (hệ
+             thống) nối tới 4 nút biểu tượng cho 4 phân hệ thật: Tài liệu /
+             Bản quyền / Ngân sách / Dịch vụ CNTT — thay cho vòng tròn SVG mờ
+             và danh sách 01/02/03 trước đây. -->
+        <div class="relative z-10 rounded-xl border border-white/10 bg-white/[0.04] shadow-[0_16px_40px_-16px_rgba(0,0,0,0.5)] flex items-center justify-center py-5">
+          <svg class="w-44 h-44" viewBox="0 0 240 240" aria-hidden="true">
+            <circle cx="120" cy="120" r="92" fill="none" stroke="#ffffff" stroke-opacity="0.15" stroke-width="1.2" stroke-dasharray="2 7"/>
+            <line x1="120" y1="96" x2="120" y2="50" stroke="#ffffff" stroke-opacity="0.22" stroke-width="1.4" stroke-dasharray="3 4"/>
+            <line x1="120" y1="144" x2="120" y2="190" stroke="#ffffff" stroke-opacity="0.22" stroke-width="1.4" stroke-dasharray="3 4"/>
+            <line x1="96" y1="120" x2="50" y2="120" stroke="#ffffff" stroke-opacity="0.22" stroke-width="1.4" stroke-dasharray="3 4"/>
+            <line x1="144" y1="120" x2="190" y2="120" stroke="#ffffff" stroke-opacity="0.22" stroke-width="1.4" stroke-dasharray="3 4"/>
+
+            <!-- Nút: Tài liệu (trên) -->
+            <circle cx="120" cy="28" r="22" fill="#1c3151" stroke="#b6893f" stroke-width="1.6"/>
+            <g transform="translate(120,28)" stroke="#eef1f6" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M-5,-7 H2 L5,-4 V7 H-5 Z"/>
+              <path d="M2,-7 V-4 H5"/>
+              <path d="M-3,-1 H3 M-3,2 H1"/>
+            </g>
+
+            <!-- Nút: Bản quyền (phải) -->
+            <circle cx="212" cy="120" r="22" fill="#1c3151" stroke="#b6893f" stroke-width="1.6"/>
+            <g transform="translate(212,120)" stroke="#eef1f6" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="-5" cy="0" r="3" stroke="#eef1f6"/>
+              <path d="M-2,0 H6 M2,0 V3 M5,0 V3"/>
+            </g>
+
+            <!-- Nút: Ngân sách (dưới) -->
+            <circle cx="120" cy="212" r="22" fill="#1c3151" stroke="#b6893f" stroke-width="1.6"/>
+            <g transform="translate(120,212)" stroke="#eef1f6" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M-6,6 H6"/>
+              <path d="M-5,6 V-1 M0,6 V-5 M5,6 V2"/>
+            </g>
+
+            <!-- Nút: Dịch vụ CNTT (trái) -->
+            <circle cx="28" cy="120" r="22" fill="#1c3151" stroke="#b6893f" stroke-width="1.6"/>
+            <g transform="translate(28,120)" stroke="#eef1f6" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="-6" y="-5" width="12" height="7" rx="1"/>
+              <path d="M0,2 V4.5 M-3,4.5 H3"/>
+            </g>
+
+            <!-- Trung tâm: biểu tượng hệ thống (tái dùng dấu check của logo) -->
+            <rect x="96" y="96" width="48" height="48" rx="11" fill="#12213a" stroke="#b6893f" stroke-width="1.8"/>
+            <path d="M110,121 L117,128 L132,112" fill="none" stroke="#b6893f" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
         </div>
+
+        <div class="relative z-10 text-[11px] text-white/45">DMS v7.79 · © 2026 Trung Tâm CNTT</div>
       </section>
 
       <!-- Panel form đăng nhập -->
-      <section class="flex items-center justify-center px-6 py-10 lg:px-12 bg-paper-50">
-        <div class="w-full max-w-sm">
+      <section class="flex items-center justify-center px-8 py-9 bg-white">
+        <div class="w-full max-w-[320px]">
         <div id="loginFormView">
-          <p class="text-xs font-semibold tracking-[0.14em] uppercase text-gold-600 mb-2">Cổng nội bộ</p>
-          <h2 class="font-brand font-semibold text-2xl md:text-3xl text-gray-900 mb-2">Đăng nhập hệ thống</h2>
-          <p class="text-[15px] text-gray-500 leading-relaxed mb-8">Nhập tên đăng nhập và mật khẩu được Quản trị viên cấp cho bạn.</p>
+          <h2 class="font-brand font-semibold text-2xl text-gray-900 mb-1.5">Đăng nhập hệ thống</h2>
+          <p class="text-[13.5px] text-gray-500 leading-relaxed mb-6">Nhập tên đăng nhập và mật khẩu được Quản trị viên cấp cho bạn.</p>
 
           <form data-evt-submit="login" data-args='[{"__live__":"event"}]' novalidate>
-            <div id="rememberedAccountChip" class="hidden mb-4 flex items-center justify-between gap-3 bg-paper-100 border-[1.5px] border-paper-200 rounded-lg px-3.5 py-2.5">
-              <div class="flex items-center gap-2.5 min-w-0">
-                <span id="rememberedAccountAvatar" class="w-8 h-8 rounded-full bg-brand-600 text-white flex items-center justify-center font-bold text-sm flex-none">A</span>
-                <span id="rememberedAccountName" class="font-semibold text-gray-900 text-[15px] truncate"></span>
+            <div id="rememberedAccountChip" class="hidden mb-3.5 flex items-center justify-between gap-3 bg-paper-100 border-[1.5px] border-paper-200 rounded-lg px-3 py-2">
+              <div class="flex items-center gap-2 min-w-0">
+                <span id="rememberedAccountAvatar" class="w-7 h-7 rounded-full bg-brand-600 text-white flex items-center justify-center font-bold text-xs flex-none">A</span>
+                <span id="rememberedAccountName" class="font-semibold text-gray-900 text-[13.5px] truncate"></span>
               </div>
-              <button type="button" data-evt-click="switchRememberedAccount" data-args='[]' class="text-brand-600 text-xs font-semibold hover:underline flex-none">Tài khoản khác</button>
+              <button type="button" data-evt-click="switchRememberedAccount" data-args='[]' class="text-brand-600 text-[11px] font-semibold hover:underline flex-none">Tài khoản khác</button>
             </div>
-            <div id="usernameFieldWrap" class="mb-4">
-              <label for="txtUser" class="block text-[13px] font-semibold text-gray-800 mb-1.5">Tên đăng nhập</label>
-              <input id="txtUser" type="text" placeholder="vd: nguyen.van.a" autocomplete="username" class="w-full text-[15px] text-gray-900 bg-paper-100 border-[1.5px] border-paper-200 rounded-lg px-3.5 py-3 transition-colors focus:outline-none focus:border-brand-600 focus:ring-4 focus:ring-brand-600/20 focus:bg-paper-50">
+            <div id="usernameFieldWrap" class="mb-3.5">
+              <label for="txtUser" class="block text-[12.5px] font-semibold text-gray-800 mb-1">Tên đăng nhập</label>
+              <input id="txtUser" type="text" placeholder="vd: nguyen.van.a" autocomplete="username" class="w-full text-[14px] text-gray-900 bg-paper-100 border-[1.5px] border-paper-200 rounded-lg px-3 py-2.5 transition-colors focus:outline-none focus:border-brand-600 focus:ring-4 focus:ring-brand-600/20 focus:bg-paper-50">
             </div>
-            <div class="mb-4">
-              <label for="txtPass" class="block text-[13px] font-semibold text-gray-800 mb-1.5">Mật khẩu</label>
+            <div class="mb-3.5">
+              <label for="txtPass" class="block text-[12.5px] font-semibold text-gray-800 mb-1">Mật khẩu</label>
               <div class="relative">
-                <input id="txtPass" type="password" placeholder="Nhập mật khẩu..." autocomplete="current-password" class="w-full text-[15px] text-gray-900 bg-paper-100 border-[1.5px] border-paper-200 rounded-lg px-3.5 py-3 pr-16 transition-colors focus:outline-none focus:border-brand-600 focus:ring-4 focus:ring-brand-600/20 focus:bg-paper-50">
-                <button type="button" data-evt-click="toggleLoginPasswordVisibility" data-args='[]' id="btnTogglePass" class="absolute right-1.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-gray-500 px-2.5 py-1.5 rounded-md hover:text-brand-600 hover:bg-paper-200">Hiện</button>
+                <input id="txtPass" type="password" placeholder="Nhập mật khẩu..." autocomplete="current-password" class="w-full text-[14px] text-gray-900 bg-paper-100 border-[1.5px] border-paper-200 rounded-lg px-3 py-2.5 pr-14 transition-colors focus:outline-none focus:border-brand-600 focus:ring-4 focus:ring-brand-600/20 focus:bg-paper-50">
+                <button type="button" data-evt-click="toggleLoginPasswordVisibility" data-args='[]' id="btnTogglePass" class="absolute right-1.5 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-gray-500 px-2 py-1 rounded-md hover:text-brand-600 hover:bg-paper-200">Hiện</button>
               </div>
             </div>
 
-            <div class="mb-4">
-              <label for="txtCaptcha" class="block text-[13px] font-semibold text-gray-800 mb-1.5">Mã xác nhận</label>
-              <div class="flex items-center gap-2">
-                <input id="txtCaptcha" type="text" inputmode="numeric" maxlength="4" placeholder="Nhập 4 số" autocomplete="off" class="w-28 text-[15px] text-gray-900 bg-paper-100 border-[1.5px] border-paper-200 rounded-lg px-3.5 py-3 transition-colors focus:outline-none focus:border-brand-600 focus:ring-4 focus:ring-brand-600/20 focus:bg-paper-50">
-                <img id="captchaImg" src="/api/auth/captcha" alt="Mã xác nhận" class="h-[46px] rounded-lg border-[1.5px] border-paper-200 cursor-pointer" data-evt-click="refreshCaptcha" data-args='[]' title="Bấm để đổi mã khác">
-                <button type="button" data-evt-click="refreshCaptcha" data-args='[]' class="text-xs font-semibold text-gray-500 px-2 py-1.5 rounded-md hover:text-brand-600 hover:bg-paper-200" title="Đổi mã khác">↻</button>
+            <div class="mb-3.5">
+              <label for="txtCaptcha" class="block text-[12.5px] font-semibold text-gray-800 mb-1">Mã xác nhận</label>
+              <div class="flex items-center gap-1.5">
+                <input id="txtCaptcha" type="text" inputmode="numeric" maxlength="4" placeholder="Nhập 4 số" autocomplete="off" class="w-24 text-[14px] text-gray-900 bg-paper-100 border-[1.5px] border-paper-200 rounded-lg px-3 py-2.5 transition-colors focus:outline-none focus:border-brand-600 focus:ring-4 focus:ring-brand-600/20 focus:bg-paper-50">
+                <img id="captchaImg" src="/api/auth/captcha" alt="Mã xác nhận" class="h-[42px] rounded-lg border-[1.5px] border-paper-200 cursor-pointer" data-evt-click="refreshCaptcha" data-args='[]' title="Bấm để đổi mã khác">
+                <button type="button" data-evt-click="refreshCaptcha" data-args='[]' class="text-[11px] font-semibold text-gray-500 px-1.5 py-1 rounded-md hover:text-brand-600 hover:bg-paper-200" title="Đổi mã khác">↻</button>
               </div>
             </div>
 
-            <div class="flex justify-end mb-6 text-[13px]">
+            <div class="flex justify-end mb-5 text-[12px]">
               <button type="button" data-evt-click="showForgotPasswordNotice" data-args='[]' class="text-brand-600 font-semibold hover:underline">Quên mật khẩu?</button>
             </div>
 
-            <button type="submit" id="btnLoginSubmit" class="w-full flex items-center justify-center gap-2 bg-brand-600 text-white font-bold text-[15px] rounded-lg py-3.5 hover:bg-brand-700 transition-colors">
+            <button type="submit" id="btnLoginSubmit" class="w-full flex items-center justify-center gap-2 bg-brand-600 text-white font-bold text-[14px] rounded-lg py-3 hover:bg-brand-700 transition-colors">
               <span id="loginSpinner" class="hidden w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin"></span>
               <span id="loginSubmitText">Đăng nhập</span>
             </button>
           </form>
 
-          <button type="button" id="btnWebauthnLogin" data-evt-click="loginWithWebauthn" data-args='[]' class="hidden mt-3 w-full flex items-center justify-center gap-2 border-[1.5px] border-paper-200 text-gray-800 font-bold text-[15px] rounded-lg py-3.5 hover:bg-paper-100 transition-colors">
+          <button type="button" id="btnWebauthnLogin" data-evt-click="loginWithWebauthn" data-args='[]' class="hidden mt-2.5 w-full flex items-center justify-center gap-2 border-[1.5px] border-paper-200 text-gray-800 font-bold text-[14px] rounded-lg py-3 hover:bg-paper-100 transition-colors">
             👆 <span id="webauthnLoginLabel">Đăng nhập Vân tay/Face ID</span>
           </button>
 
-          <div class="mt-7 pt-6 border-t border-paper-200 text-xs text-gray-500">
+          <div class="mt-5 pt-4 border-t border-paper-200 text-[11px] text-gray-500">
             Gặp sự cố khi đăng nhập? Liên hệ Quản trị viên hệ thống để được hỗ trợ.
           </div>
         </div>
@@ -221,6 +237,7 @@
           </div>
         </div>
       </section>
+    </div>
     </div>
   </div>
 
