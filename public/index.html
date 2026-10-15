@@ -2312,6 +2312,11 @@
         <h2 class="text-lg font-bold text-gray-800">Báo cáo ngân sách</h2>
       </div>
 
+      <!-- (Minh bạch Phạm vi) Hiện rõ khi báo cáo đang bị thu hẹp theo Phạm vi
+           Ngân sách của tài khoản — xem budget2ReportScopeBannerHtml() trong
+           app.js + scopeInfo trả về từ GET /api/budget2/reports. -->
+      <div id="budget2ReportScopeBanner"></div>
+
       <!-- Bộ chọn Năm báo cáo — áp dụng cho CẢ "Bốn lát cắt nhanh" lẫn "Báo
            cáo đa chiều" bên dưới (KHÔNG áp dụng cho "Tra cứu chi tiết" ở cuối
            trang — mục đó có bộ lọc Tháng/Năm riêng). "Năm ngân sách" chọn
@@ -2332,20 +2337,61 @@
         <button data-evt-click="exportBudget2OverviewReportXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs whitespace-nowrap">📤 Xuất Excel toàn bộ báo cáo</button>
       </div>
 
-      <!-- 4 lát cắt nhanh: (a) Sử dụng vs Phê duyệt theo Công ty, (b)(c)(d) so
-           sánh Sử dụng/Phê duyệt/Đề xuất theo năm — dựng từ cùng dữ liệu
-           /api/budget2/reports, không cần chỉnh bộ lọc "Tra cứu chi tiết" bên
-           dưới. -->
-      <div>
-        <h3 class="text-sm font-bold text-gray-700 mb-2">Bốn lát cắt nhanh</h3>
-        <div id="budget2QuickReports" class="space-y-3"></div>
+      <!-- (Báo cáo tách riêng theo giai đoạn) Tổng hợp = 4 lát cắt + báo cáo
+           đa chiều gộp cũ (Phê duyệt vs Sử dụng); Đề xuất/Phê duyệt/Sử dụng =
+           3 tab mới, MỖI tab chỉ 1 chỉ tiêu riêng, đủ 4 lát cắt: So sánh theo
+           năm, Theo tháng, Theo Loại công ty (OPEX/CAPEX), Theo Loại công ty
+           × Danh mục (dịch vụ sử dụng) — xem renderBudget2StageReport() +
+           switchBudget2ReportStage() trong app.js. -->
+      <div class="flex gap-1 border-b overflow-x-auto">
+        <button id="btnBudget2ReportStage_overview" data-evt-click="switchBudget2ReportStage" data-args='["overview"]' class="px-3 py-1.5 text-xs font-bold border-b-2 whitespace-nowrap border-teal-600 text-teal-700">📊 Tổng hợp</button>
+        <button id="btnBudget2ReportStage_propose" data-evt-click="switchBudget2ReportStage" data-args='["propose"]' class="px-3 py-1.5 text-xs font-bold border-b-2 whitespace-nowrap border-transparent text-gray-500">📝 Đề xuất</button>
+        <button id="btnBudget2ReportStage_approved" data-evt-click="switchBudget2ReportStage" data-args='["approved"]' class="px-3 py-1.5 text-xs font-bold border-b-2 whitespace-nowrap border-transparent text-gray-500">✅ Phê duyệt</button>
+        <button id="btnBudget2ReportStage_used" data-evt-click="switchBudget2ReportStage" data-args='["used"]' class="px-3 py-1.5 text-xs font-bold border-b-2 whitespace-nowrap border-transparent text-gray-500">🏷️ Sử dụng</button>
       </div>
 
-      <!-- Báo cáo đa chiều: Loại công ty x Tháng x OPEX/CAPEX — xem chú thích
-           chi tiết tại renderBudget2CompanyTypeAndMonthReports() trong app.js. -->
-      <div class="pt-3 border-t">
-        <h3 class="text-sm font-bold text-gray-700 mb-2">Báo cáo đa chiều (Loại công ty / Tháng / OPEX-CAPEX)</h3>
-        <div id="budget2CompanyTypeMonthReports" class="space-y-4"></div>
+      <!-- Tab: Tổng hợp (nội dung gốc, không đổi) -->
+      <div id="budget2ReportStage_overview" class="space-y-3">
+        <!-- 4 lát cắt nhanh: (a) Sử dụng vs Phê duyệt theo Công ty, (b)(c)(d) so
+             sánh Sử dụng/Phê duyệt/Đề xuất theo năm — dựng từ cùng dữ liệu
+             /api/budget2/reports, không cần chỉnh bộ lọc "Tra cứu chi tiết" bên
+             dưới. -->
+        <div>
+          <h3 class="text-sm font-bold text-gray-700 mb-2">Bốn lát cắt nhanh</h3>
+          <div id="budget2QuickReports" class="space-y-3"></div>
+        </div>
+
+        <!-- Báo cáo đa chiều: Loại công ty x Tháng x OPEX/CAPEX — xem chú thích
+             chi tiết tại renderBudget2CompanyTypeAndMonthReports() trong app.js. -->
+        <div class="pt-3 border-t">
+          <h3 class="text-sm font-bold text-gray-700 mb-2">Báo cáo đa chiều (Loại công ty / Tháng / OPEX-CAPEX)</h3>
+          <div id="budget2CompanyTypeMonthReports" class="space-y-4"></div>
+        </div>
+      </div>
+
+      <!-- Tab: Đề xuất/Phê duyệt/Sử dụng — mỗi tab 1 khối nội dung do
+           renderBudget2StageReport(stage) tự sinh (4 lát cắt + nút xuất Excel
+           riêng từng lát cắt + 1 nút xuất gộp cả tab). -->
+      <div id="budget2ReportStage_propose" class="hidden space-y-3">
+        <div class="flex justify-between items-center">
+          <h3 class="text-sm font-bold text-gray-700">Báo cáo Ngân sách đề xuất</h3>
+          <button data-evt-click="exportBudget2StageReportXlsx" data-args='["propose"]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs whitespace-nowrap">📤 Xuất Excel tổng hợp tab</button>
+        </div>
+        <div id="budget2ReportStageBody_propose"></div>
+      </div>
+      <div id="budget2ReportStage_approved" class="hidden space-y-3">
+        <div class="flex justify-between items-center">
+          <h3 class="text-sm font-bold text-gray-700">Báo cáo Ngân sách phê duyệt</h3>
+          <button data-evt-click="exportBudget2StageReportXlsx" data-args='["approved"]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs whitespace-nowrap">📤 Xuất Excel tổng hợp tab</button>
+        </div>
+        <div id="budget2ReportStageBody_approved"></div>
+      </div>
+      <div id="budget2ReportStage_used" class="hidden space-y-3">
+        <div class="flex justify-between items-center">
+          <h3 class="text-sm font-bold text-gray-700">Báo cáo Ngân sách sử dụng</h3>
+          <button data-evt-click="exportBudget2StageReportXlsx" data-args='["used"]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs whitespace-nowrap">📤 Xuất Excel tổng hợp tab</button>
+        </div>
+        <div id="budget2ReportStageBody_used"></div>
       </div>
 
       <div class="flex flex-wrap justify-between items-center gap-2 pt-2 border-t">

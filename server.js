@@ -9145,11 +9145,17 @@ app.get('/api/budget2/reports', requireAuth, requireBudgetReportViewOrAdmin, asy
         // Loại công ty (BRGGROUP/CTTV/KHAC) không nằm trên budget2_lines mà
         // trên lic_companies (1 thuộc tính cố định của công ty, xem
         // schema.sql) — JOIN sang để nhóm theo đó thay vì group cột thường.
-        const [byCompany, byOrgUnit, byCategory, byCompanyType, total] = await Promise.all([
+        // byCompanyTypeCategory gộp CHUNG 2 chiều "Loại công ty" + "Danh mục"
+        // vào 1 groupKey duy nhất (phân tách bằng "::") — phục vụ báo cáo so
+        // sánh Công ty thành viên/BRG Group theo từng loại dịch vụ sử dụng
+        // (mục "Báo cáo đề xuất/phê duyệt/sử dụng" tách riêng) mà không cần
+        // thêm round-trip API riêng — client tự split lại groupKey.
+        const [byCompany, byOrgUnit, byCategory, byCompanyType, byCompanyTypeCategory, total] = await Promise.all([
             buildDimension('company_id'),
             buildDimension('org_unit_id'),
             buildDimension('item_category'),
             buildDimension('COALESCE(co.company_type, \'KHAC\')', 'LEFT JOIN lic_companies co ON co.id = budget2_lines.company_id'),
+            buildDimension('CONCAT(COALESCE(co.company_type, \'KHAC\'), \'::\', COALESCE(budget2_lines.item_category, \'KHAC\'))', 'LEFT JOIN lic_companies co ON co.id = budget2_lines.company_id'),
             buildDimension('1')
         ]);
 
@@ -9170,12 +9176,31 @@ app.get('/api/budget2/reports', requireAuth, requireBudgetReportViewOrAdmin, asy
             ORDER BY a.id DESC
         `, varianceScopeParams);
 
+        // (Minh bạch Phạm vi) Trả kèm thông tin phạm vi ĐANG áp dụng (nếu có)
+        // để client tự hiện rõ ràng lý do báo cáo trống/hẹp hơn danh sách đầy
+        // đủ — trước đây 1 user có gán Phạm vi Ngân sách coi báo cáo trống sẽ
+        // không biết là do lọc theo phạm vi hay do thật sự chưa có số liệu.
+        let scopeInfo = null;
+        if (budgetScope) {
+            let scopeLabel = null;
+            if (budgetScope.type === 'COMPANY') {
+                const [coRows] = await pool.query('SELECT name FROM lic_companies WHERE id = ?', [budgetScope.id]);
+                scopeLabel = coRows[0] ? coRows[0].name : null;
+            } else {
+                const [unitRows] = await pool.query('SELECT name FROM lic_org_units WHERE id = ?', [budgetScope.id]);
+                scopeLabel = unitRows[0] ? unitRows[0].name : null;
+            }
+            scopeInfo = { type: budgetScope.type, id: budgetScope.id, label: scopeLabel };
+        }
+
         res.json({
             byCompany,
             byOrgUnit,
             byCategory,
             byCompanyType,
+            byCompanyTypeCategory,
             total,
+            scopeInfo,
             variance: variance.map(v => ({
                 approvedId: v.approvedId,
                 content: v.content,
