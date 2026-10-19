@@ -2334,7 +2334,14 @@
             <div id="budget2CompareYearChips" class="flex flex-wrap gap-1"></div>
           </div>
         </div>
-        <button data-evt-click="exportBudget2OverviewReportXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs whitespace-nowrap">📤 Xuất Excel toàn bộ báo cáo</button>
+        <div class="flex flex-wrap gap-2">
+          <button data-evt-click="exportBudget2OverviewReportXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs whitespace-nowrap">📤 Xuất Excel toàn bộ báo cáo</button>
+          <!-- Báo cáo "kiểu mẫu CNTT" (Dự trù chi phí CNTT) — 3 sheet phỏng
+               theo mẫu Excel cũ: Chi tiết theo hạng mục / Chi phí theo đơn
+               vị / Tổng hợp — xem exportBudget2TemplateStyleXlsx() trong
+               app.js để biết đầy đủ quyết định phạm vi đã thống nhất. -->
+          <button data-evt-click="exportBudget2TemplateStyleXlsx" data-args='[]' class="bg-amber-50 text-amber-800 border border-amber-300 px-2.5 py-1.5 rounded font-semibold transition text-xs whitespace-nowrap hover:bg-amber-100">📑 Xuất báo cáo kiểu mẫu CNTT (3 sheet)</button>
+        </div>
       </div>
 
       <!-- (Báo cáo tách riêng theo giai đoạn) Tổng hợp = 4 lát cắt + báo cáo
@@ -2614,8 +2621,20 @@
         </div>
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Danh mục</label>
-          <select id="budget2LineCategory" class="w-full border p-2 rounded text-sm bg-white"></select>
+          <select id="budget2LineCategory" data-evt-change="onBudget2LineCategoryChange" data-args='[]' class="w-full border p-2 rounded text-sm bg-white"></select>
         </div>
+      </div>
+      <!-- Chỉ hiện khi Danh mục = Phần mềm — liên kết (tùy chọn) dòng Ngân
+           sách này tới đúng 1 phần mềm trong danh mục Bản quyền, để báo cáo
+           xuất Excel tự lấy ra "Loại license" (Theo năm/Vĩnh viễn) có sẵn ở
+           đó, không cần nhập tay lại. Để trống nếu phần mềm chưa có trong
+           danh mục Bản quyền hoặc dòng này không ứng với 1 phần mềm cụ thể. -->
+      <div id="budget2LineSoftwareWrap" class="hidden">
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Phần mềm liên kết (danh mục Bản quyền, tùy chọn)</label>
+        <select id="budget2LineSoftware" class="w-full border p-2 rounded text-sm bg-white">
+          <option value="">-- Không liên kết --</option>
+        </select>
+        <p class="text-[11px] text-gray-400 mt-1">Chọn để báo cáo tự lấy đúng "Loại license" (Theo năm/Vĩnh viễn) của phần mềm này.</p>
       </div>
       <div class="grid grid-cols-2 gap-3">
         <div>
