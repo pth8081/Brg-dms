@@ -249,6 +249,7 @@ async function ensureColumnExists(table, column, definition) {
 async function ensureSchemaMigrations() {
     await ensureColumnExists('lic_employees', 'email_locked', 'TINYINT(1) NOT NULL DEFAULT 0');
     await ensureColumnExists('lic_license_batches', 'registration_quantity_applied', 'INT NULL DEFAULT NULL');
+    await ensureColumnExists('budget2_lines', 'software_id', 'BIGINT NULL DEFAULT NULL');
 }
 
 let pool;
@@ -5073,9 +5074,9 @@ app.post('/api/license/batches', requireAuth, requireLicenseOrAdmin, async (req,
                 const budgetMonth = issuedDateObj.getMonth() + 1;
                 await conn.query(
                     `INSERT INTO budget2_lines
-                        (stage, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, item_category, usage_status, status, note, created_by, created_at, budget_year, budget_month, purchase_month)
-                     VALUES ('USED', ?, NULL, ?, ?, ?, ?, 0, ?, 'OPEX', 'SOFTWARE', 'USED', 'APPROVED', ?, ?, ?, ?, ?, ?)`,
-                    [companyId, `[License] ${softwareRows[0].name}`, `Phát hành license theo đăng ký mua #${registrationId}, kỳ mua #${registration.round_id}.`, quantity, finalUnitPrice, budgetTotal, note || null, req.user.username, issuedAt, budgetYear, budgetMonth, budgetMonth]
+                        (stage, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, item_category, software_id, usage_status, status, note, created_by, created_at, budget_year, budget_month, purchase_month)
+                     VALUES ('USED', ?, NULL, ?, ?, ?, ?, 0, ?, 'OPEX', 'SOFTWARE', ?, 'USED', 'APPROVED', ?, ?, ?, ?, ?, ?)`,
+                    [companyId, `[License] ${softwareRows[0].name}`, `Phát hành license theo đăng ký mua #${registrationId}, kỳ mua #${registration.round_id}.`, quantity, finalUnitPrice, budgetTotal, softwareId, note || null, req.user.username, issuedAt, budgetYear, budgetMonth, budgetMonth]
                 );
             }
 
@@ -8038,6 +8039,7 @@ function mapBudget2Line(l) {
         totalAmount: Number(l.total_amount),
         budgetType: l.budget_type,
         itemCategory: l.item_category,
+        softwareId: l.software_id,
         usageStatus: l.usage_status,
         reallocationReason: l.reallocation_reason,
         status: l.status,
@@ -8134,6 +8136,12 @@ function validateBudget2LineInput(body, opts = {}, categoryCatalog = [], orgScop
     if (!budgetType) return { error: 'Loại ngân sách phải là OPEX hoặc CAPEX.' };
     const itemCategory = categoryCatalog.some(c => c.code === body.itemCategory) ? body.itemCategory : null;
     if (requireYear && !itemCategory) return { error: 'Vui lòng chọn Danh mục.' };
+    // (Liên kết tùy chọn tới danh mục Bản quyền) Chỉ để lấy "Loại license"
+    // cho báo cáo xuất Excel — không bắt buộc, không validate tồn tại ở đây
+    // (nếu phần mềm bị xóa khỏi danh mục Bản quyền sau này, báo cáo chỉ đơn
+    // giản không join ra được tên/loại license, không phải lỗi nghiêm trọng
+    // cần chặn lưu dòng ngân sách).
+    const softwareId = body.softwareId ? Number(body.softwareId) : null;
     const companyId = body.companyId ? Number(body.companyId) : null;
     const orgUnitId = body.orgUnitId ? Number(body.orgUnitId) : null;
     if (orgScopeCatalog) {
@@ -8153,7 +8161,7 @@ function validateBudget2LineInput(body, opts = {}, categoryCatalog = [], orgScop
         budgetMonth = Number(body.budgetMonth);
         if (!Number.isInteger(budgetMonth) || budgetMonth < 1 || budgetMonth > 12) return { error: 'Tháng ngân sách không hợp lệ (1-12).' };
     }
-    return { content, quantity, unitPrice, vatPercent, budgetType, itemCategory, companyId, orgUnitId, description, note, budgetYear, budgetMonth };
+    return { content, quantity, unitPrice, vatPercent, budgetType, itemCategory, softwareId, companyId, orgUnitId, description, note, budgetYear, budgetMonth };
 }
 
 // --- Bootstrap: toàn bộ dòng ngân sách + danh mục Công ty/Đơn vị (chỉ đọc, tái
@@ -8164,6 +8172,10 @@ app.get('/api/budget2/bootstrap', requireAuth, requireBudgetViewOrAdmin, async (
         const [companies] = await pool.query('SELECT id, name, code, company_type AS companyType FROM lic_companies WHERE active = 1 ORDER BY name');
         const [orgUnits] = await pool.query('SELECT id, company_id AS companyId, parent_id AS parentId, name, level_label AS levelLabel FROM lic_org_units ORDER BY name');
         const categories = await getBudget2CategoryCatalog();
+        // (Liên kết Phần mềm — Loại license cho báo cáo) Danh mục Bản quyền chỉ
+        // đọc, dùng cho dropdown "Phần mềm liên kết" khi Danh mục = Phần mềm —
+        // xem software_id ở budget2_lines/schema.sql.
+        const [software] = await pool.query('SELECT id, name, license_type AS licenseType FROM lic_software_catalog ORDER BY name');
         // (Phạm vi Ngân sách) Nếu user được gán phạm vi Công ty/Đơn vị, chỉ trả
         // về đúng các dòng thuộc phạm vi đó — Admin và người KHÔNG có phạm vi
         // (mặc định) vẫn thấy toàn bộ như trước, không đổi gì. Danh mục Công
@@ -8177,7 +8189,8 @@ app.get('/api/budget2/bootstrap', requireAuth, requireBudgetViewOrAdmin, async (
             lines: scopedLines.map(mapBudget2Line),
             companies,
             orgUnits,
-            categories: categories.map(c => ({ code: c.code, name: c.name }))
+            categories: categories.map(c => ({ code: c.code, name: c.name })),
+            software
         });
     } catch (err) {
         console.error('❌ Lỗi tải dữ liệu module Quản lý Ngân sách:', err.message);
@@ -8270,9 +8283,9 @@ app.post('/api/budget2/lines', requireAuth, requireBudgetOrAdmin, async (req, re
         const now = new Date().toISOString();
         const [result] = await pool.query(
             `INSERT INTO budget2_lines
-                (stage, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, item_category, status, note, created_by, created_at, budget_year, budget_month)
-             VALUES ('PROPOSED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?)`,
-            [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, req.user.username, now, v.budgetYear, v.budgetMonth]
+                (stage, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, item_category, software_id, status, note, created_by, created_at, budget_year, budget_month)
+             VALUES ('PROPOSED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?)`,
+            [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.softwareId, v.note, req.user.username, now, v.budgetYear, v.budgetMonth]
         );
         await writeAuditLog({ module: 'BUDGET2', actionType: 'CREATE_PROPOSAL', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Lưu nháp đề xuất ngân sách [${v.content}] tháng ${v.budgetMonth}/${v.budgetYear}, thành tiền ${totalAmount.toLocaleString('vi-VN')}.` });
         res.json({ success: true, id: result.insertId });
@@ -8350,8 +8363,8 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
             if (!await budgetTargetInUserScope(req.user, v.companyId, v.orgUnitId)) return res.status(403).json({ error: BUDGET_SCOPE_FORBIDDEN_MSG });
             const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
             await pool.query(
-                `UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, note = ?, budget_year = ?, budget_month = ?, edit_requested = 0, updated_by = ?, updated_at = ? WHERE id = ?`,
-                [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, v.budgetYear, v.budgetMonth, req.user.username, updNow, id]
+                `UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, software_id = ?, note = ?, budget_year = ?, budget_month = ?, edit_requested = 0, updated_by = ?, updated_at = ? WHERE id = ?`,
+                [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.softwareId, v.note, v.budgetYear, v.budgetMonth, req.user.username, updNow, id]
             );
             await writeAuditLog({ module: 'BUDGET2', actionType: 'UPDATE_PROPOSAL', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Cập nhật đề xuất ngân sách [${v.content}]${line.status === 'DRAFT' ? ' (nháp)' : (line.status !== 'SUBMITTED' ? ' (đã quyết định — Admin sửa lại)' : '')}.` });
             return res.json({ success: true });
@@ -8389,14 +8402,14 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
                 try {
                     await conn.beginTransaction();
                     await conn.query(
-                        `UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, note = ?, budget_year = ?, budget_month = ?, edit_requested = 0, updated_by = ?, updated_at = ? WHERE id = ?`,
-                        [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, v.budgetYear, v.budgetMonth, req.user.username, updNow, id]
+                        `UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, software_id = ?, note = ?, budget_year = ?, budget_month = ?, edit_requested = 0, updated_by = ?, updated_at = ? WHERE id = ?`,
+                        [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.softwareId, v.note, v.budgetYear, v.budgetMonth, req.user.username, updNow, id]
                     );
                     const [usedRows] = await conn.query('SELECT id FROM budget2_lines WHERE source_line_id = ?', [id]);
                     if (usedRows[0]) {
                         await conn.query(
-                            `UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, note = ?, budget_year = ?, budget_month = ?, updated_by = ?, updated_at = ? WHERE id = ?`,
-                            [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, v.budgetYear, v.budgetMonth, req.user.username, updNow, usedRows[0].id]
+                            `UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, software_id = ?, note = ?, budget_year = ?, budget_month = ?, updated_by = ?, updated_at = ? WHERE id = ?`,
+                            [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.softwareId, v.note, v.budgetYear, v.budgetMonth, req.user.username, updNow, usedRows[0].id]
                         );
                     }
                     await conn.commit();
@@ -8409,8 +8422,8 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
                 }
             } else {
                 await pool.query(
-                    `UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, note = ?, budget_year = ?, budget_month = ?, edit_requested = 0, updated_by = ?, updated_at = ? WHERE id = ?`,
-                    [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, v.budgetYear, v.budgetMonth, req.user.username, updNow, id]
+                    `UPDATE budget2_lines SET company_id = ?, org_unit_id = ?, content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, software_id = ?, note = ?, budget_year = ?, budget_month = ?, edit_requested = 0, updated_by = ?, updated_at = ? WHERE id = ?`,
+                    [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.softwareId, v.note, v.budgetYear, v.budgetMonth, req.user.username, updNow, id]
                 );
             }
             await writeAuditLog({ module: 'BUDGET2', actionType: 'UPDATE_APPROVED_PENDING', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Cập nhật dòng ngân sách phê duyệt [${v.content}]${line.status === 'DRAFT' ? ' (nháp)' : (line.status !== 'SUBMITTED' ? ` (đã ${line.status === 'APPROVED' ? 'duyệt — Admin sửa lại, đồng bộ dòng Sử dụng' : 'từ chối — Admin sửa lại'})` : ' (chờ duyệt)')}.` });
@@ -8442,7 +8455,7 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
             // kế thừa nguyên văn nên đối chiếu với TOÀN BỘ danh mục (kể cả đã ẩn)
             // — 1 danh mục cũ bị Admin ẩn đi vẫn phải giữ nguyên trên các dòng
             // lịch sử đã dùng nó, không được tự ý null hóa.
-            const v = validateBudget2LineInput({ ...req.body, content: parent.content, description: parent.description, itemCategory: parent.item_category }, { requireYear: false }, await getBudget2CategoryCatalog(true), await getBudget2OrgScopeCatalog());
+            const v = validateBudget2LineInput({ ...req.body, content: parent.content, description: parent.description, itemCategory: parent.item_category, softwareId: parent.software_id }, { requireYear: false }, await getBudget2CategoryCatalog(true), await getBudget2OrgScopeCatalog());
             if (v.error) return res.status(400).json({ error: v.error });
             const pm = validateBudget2PurchaseMonth(req.body || {});
             if (pm.error) return res.status(400).json({ error: pm.error });
@@ -8452,8 +8465,8 @@ app.put('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (req,
             }
             const totalAmount = computeBudget2Total(v.quantity, v.unitPrice, v.vatPercent);
             await pool.query(
-                `UPDATE budget2_lines SET content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, note = ?, reallocation_reason = ?, purchase_month = ?, updated_by = ?, updated_at = ? WHERE id = ?`,
-                [v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, reallocationReason, pm.purchaseMonth, req.user.username, updNow, id]
+                `UPDATE budget2_lines SET content = ?, description = ?, quantity = ?, unit_price = ?, vat_percent = ?, total_amount = ?, budget_type = ?, item_category = ?, software_id = ?, note = ?, reallocation_reason = ?, purchase_month = ?, updated_by = ?, updated_at = ? WHERE id = ?`,
+                [v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.softwareId, v.note, reallocationReason, pm.purchaseMonth, req.user.username, updNow, id]
             );
             await recomputeBudget2ParentUsage(line.parent_id);
             await writeAuditLog({ module: 'BUDGET2', actionType: 'UPDATE_USAGE_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Cập nhật mục sử dụng con [${v.content}].` });
@@ -8705,9 +8718,9 @@ app.post('/api/budget2/lines/:id/transfer-to-approved', requireAuth, requireBudg
         const now = new Date().toISOString();
         const [result] = await pool.query(
             `INSERT INTO budget2_lines
-                (stage, source_line_id, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, item_category, status, note, created_by, created_at, budget_year, budget_month)
-             VALUES ('APPROVED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', ?, ?, ?, ?, ?)`,
-            [line.id, line.company_id, line.org_unit_id, line.content, line.description, line.quantity, line.unit_price, line.vat_percent, line.total_amount, line.budget_type, line.item_category, line.note, req.user.username, now, line.budget_year, line.budget_month]
+                (stage, source_line_id, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, item_category, software_id, status, note, created_by, created_at, budget_year, budget_month)
+             VALUES ('APPROVED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', ?, ?, ?, ?, ?)`,
+            [line.id, line.company_id, line.org_unit_id, line.content, line.description, line.quantity, line.unit_price, line.vat_percent, line.total_amount, line.budget_type, line.item_category, line.software_id, line.note, req.user.username, now, line.budget_year, line.budget_month]
         );
         await writeAuditLog({ module: 'BUDGET2', actionType: 'TRANSFER_TO_APPROVED', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: line.content, description: `Chuyển đề xuất ngân sách [${line.content}] (đã duyệt) sang Phê duyệt, vào hàng chờ duyệt.` });
         res.json({ success: true, id: result.insertId });
@@ -8742,9 +8755,9 @@ app.post('/api/budget2/lines/:id/approve', requireAuth, requireBudgetApproveOrAd
 
         await conn.query(
             `INSERT INTO budget2_lines
-                (stage, source_line_id, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, item_category, usage_status, status, note, created_by, created_at, budget_year, budget_month)
-             VALUES ('USED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NOT_USED', 'APPROVED', ?, ?, ?, ?, ?)`,
-            [line.id, line.company_id, line.org_unit_id, line.content, line.description, line.quantity, line.unit_price, line.vat_percent, line.total_amount, line.budget_type, line.item_category, line.note, req.user.username, now, line.budget_year, line.budget_month]
+                (stage, source_line_id, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, item_category, software_id, usage_status, status, note, created_by, created_at, budget_year, budget_month)
+             VALUES ('USED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NOT_USED', 'APPROVED', ?, ?, ?, ?, ?)`,
+            [line.id, line.company_id, line.org_unit_id, line.content, line.description, line.quantity, line.unit_price, line.vat_percent, line.total_amount, line.budget_type, line.item_category, line.software_id, line.note, req.user.username, now, line.budget_year, line.budget_month]
         );
 
         await conn.commit();
@@ -8824,9 +8837,9 @@ app.post('/api/budget2/lines/approved-direct', requireAuth, requireBudgetOrAdmin
         const now = new Date().toISOString();
         const [result] = await pool.query(
             `INSERT INTO budget2_lines
-                (stage, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, item_category, status, note, created_by, created_at, budget_year, budget_month)
-             VALUES ('APPROVED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?)`,
-            [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, req.user.username, now, v.budgetYear, v.budgetMonth]
+                (stage, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, item_category, software_id, status, note, created_by, created_at, budget_year, budget_month)
+             VALUES ('APPROVED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?)`,
+            [v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.softwareId, v.note, req.user.username, now, v.budgetYear, v.budgetMonth]
         );
         await writeAuditLog({ module: 'BUDGET2', actionType: 'CREATE_APPROVED_DIRECT', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Lưu nháp dòng ngân sách phê duyệt [${v.content}] (không qua đề xuất).` });
         res.json({ success: true, id: result.insertId });
@@ -8991,9 +9004,9 @@ app.post('/api/budget2/import', requireAuth, requireBudgetOrAdmin, async (req, r
         for (const { v, totalAmount } of plannedCreates) {
             await conn.query(
                 `INSERT INTO budget2_lines
-                    (stage, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, item_category, status, note, created_by, created_at, budget_year, budget_month)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?)`,
-                [stage, v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, req.user.username, now, v.budgetYear, v.budgetMonth]
+                    (stage, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, item_category, software_id, status, note, created_by, created_at, budget_year, budget_month)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?)`,
+                [stage, v.companyId, v.orgUnitId, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.softwareId, v.note, req.user.username, now, v.budgetYear, v.budgetMonth]
             );
         }
         for (const { id, v, totalAmount } of plannedUpdates) {
@@ -9042,7 +9055,7 @@ app.post('/api/budget2/lines/:id/children', requireAuth, requireBudgetTransferOr
         // client gửi lên cho 2 trường này, đảm bảo tính đúng đắn dữ liệu dù
         // client có cố tình gửi khác đi. itemCategory đối chiếu TOÀN BỘ danh
         // mục kể cả đã ẩn — xem chú thích ở nhánh sửa mục con phía trên.
-        const v = validateBudget2LineInput({ ...req.body, content: parent.content, description: parent.description, itemCategory: parent.item_category }, { requireYear: false }, await getBudget2CategoryCatalog(true), await getBudget2OrgScopeCatalog());
+        const v = validateBudget2LineInput({ ...req.body, content: parent.content, description: parent.description, itemCategory: parent.item_category, softwareId: parent.software_id }, { requireYear: false }, await getBudget2CategoryCatalog(true), await getBudget2OrgScopeCatalog());
         if (v.error) return res.status(400).json({ error: v.error });
         const pm = validateBudget2PurchaseMonth(req.body || {});
         if (pm.error) return res.status(400).json({ error: pm.error });
@@ -9054,9 +9067,9 @@ app.post('/api/budget2/lines/:id/children', requireAuth, requireBudgetTransferOr
         const now = new Date().toISOString();
         await pool.query(
             `INSERT INTO budget2_lines
-                (stage, parent_id, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, item_category, usage_status, status, note, reallocation_reason, created_by, created_at, budget_year, budget_month, purchase_month)
-             VALUES ('USED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USED', 'APPROVED', ?, ?, ?, ?, ?, ?, ?)`,
-            [id, parent.company_id, parent.org_unit_id, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.note, reallocationReason, req.user.username, now, parent.budget_year, parent.budget_month, pm.purchaseMonth]
+                (stage, parent_id, company_id, org_unit_id, content, description, quantity, unit_price, vat_percent, total_amount, budget_type, item_category, software_id, usage_status, status, note, reallocation_reason, created_by, created_at, budget_year, budget_month, purchase_month)
+             VALUES ('USED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USED', 'APPROVED', ?, ?, ?, ?, ?, ?, ?)`,
+            [id, parent.company_id, parent.org_unit_id, v.content, v.description, v.quantity, v.unitPrice, v.vatPercent, totalAmount, v.budgetType, v.itemCategory, v.softwareId, v.note, reallocationReason, req.user.username, now, parent.budget_year, parent.budget_month, pm.purchaseMonth]
         );
         await recomputeBudget2ParentUsage(id);
         await writeAuditLog({ module: 'BUDGET2', actionType: 'CREATE_USAGE_ITEM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: v.content, description: `Thêm mục sử dụng con [${v.content}] dưới mục cha [${parent.content}], tháng mua ${pm.purchaseMonth}.` });

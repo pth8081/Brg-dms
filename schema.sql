@@ -1022,6 +1022,20 @@ ALTER TABLE budget2_lines MODIFY COLUMN item_category VARCHAR(30) NULL DEFAULT N
 CALL add_column_if_not_exists('budget2_lines', 'updated_by', 'VARCHAR(100) NULL DEFAULT NULL');
 CALL add_column_if_not_exists('budget2_lines', 'updated_at', 'VARCHAR(100) NULL DEFAULT NULL');
 
+-- (Báo cáo kiểu "Dự trù chi phí CNTT" theo mẫu cũ) Liên kết TÙY CHỌN 1 dòng
+-- Ngân sách (thường thuộc Danh mục Phần mềm) tới đúng 1 phần mềm trong danh
+-- mục Bản quyền (lic_software_catalog) — mục đích DUY NHẤT là lấy ra "Loại
+-- license" (Theo năm/Vĩnh viễn, cột license_type) có sẵn ở đó cho báo cáo
+-- xuất Excel, thay vì phải nhập tay lại 1 lần nữa (dễ gõ sai/không khớp
+-- danh mục Bản quyền thật). NULL = dòng không liên kết (VD dòng không phải
+-- Phần mềm, hoặc người nhập không chọn) — báo cáo hiện "—" cho Loại license.
+-- Cố ý KHÔNG đặt FOREIGN KEY (toàn bộ budget2_lines không dùng FK ở đâu cả,
+-- xem các cột company_id/org_unit_id phía trên) để không vướng lỗi khi xóa
+-- phần mềm khỏi danh mục Bản quyền trong khi vẫn còn dòng Ngân sách cũ
+-- tham chiếu tới nó.
+CALL add_column_if_not_exists('budget2_lines', 'software_id', 'BIGINT NULL DEFAULT NULL');
+CALL create_index_if_not_exists('budget2_lines', 'idx_budget2_software', 'software_id');
+
 -- Dọn dẹp: xóa các thủ tục tạm sau khi dùng xong, không để lại trong CSDL thật.
 DROP PROCEDURE IF EXISTS create_index_if_not_exists;
 DROP PROCEDURE IF EXISTS create_unique_index_if_not_exists;
