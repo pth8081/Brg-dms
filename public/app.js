@@ -11001,20 +11001,74 @@ function isPerpetualSoftware(softwareId) {
     //     budget_month/budget_year đã có sẵn — không cần thêm trường mới.
 
     // 2 năm đối chiếu: luôn lấy budget2PrimaryYear làm 1 mốc, mốc còn lại là
-    // năm so sánh ĐẦU TIÊN đang chọn (nếu có) — nếu người dùng chưa chọn năm
-    // so sánh nào, mặc định lấy năm kế tiếp (primaryYear + 1), đúng tinh thần
-    // "năm nay đối chiếu năm sau" của file mẫu gốc. Luôn trả về [năm nhỏ, năm
-    // lớn] (sắp theo thời gian) để cột trong báo cáo luôn đi từ trái sang phải
-    // theo đúng thứ tự thời gian, bất kể người dùng chọn năm nào làm "năm chính".
+    // năm so sánh ĐẦU TIÊN đang chọn (nếu có — người dùng đã chủ động bấm chip
+    // "Năm so sánh"). BUG ĐÃ SỬA: trước đây khi chưa bấm chip nào, mặc định
+    // suy diễn "primaryYear + 1" — 1 năm TƯƠNG LAI thường KHÔNG có dữ liệu
+    // thật (toàn số 0, gây hiểu lầm là lỗi báo cáo — đúng phản ánh của người
+    // dùng: chọn Năm ngân sách 2027, báo cáo tự so sánh với 2028 dù chưa từng
+    // chọn và 2028 chưa có số liệu gì). Nay mặc định chọn năm KHÁC gần
+    // primaryYear nhất trong số các năm THỰC SỰ CÓ dữ liệu
+    // (budget2AllYearsPresent()) — đúng ý "so với năm thực tế gần nhất", chỉ
+    // lùi về primaryYear-1 (năm trước liền kề) khi không còn năm nào khác có
+    // dữ liệu. Luôn trả về [năm nhỏ, năm lớn] (sắp theo thời gian) để cột
+    // trong báo cáo luôn đi từ trái sang phải theo đúng thứ tự thời gian, bất
+    // kể người dùng chọn năm nào làm "năm chính".
     function budget2TemplateReportYears() {
-      const other = budget2CompareYears.length ? budget2CompareYears[0] : budget2PrimaryYear + 1;
+      if (budget2CompareYears.length) {
+        return [budget2PrimaryYear, budget2CompareYears[0]].sort((a, b) => a - b);
+      }
+      const otherDataYears = (budget2AllYearsPresent() || []).filter(y => y !== budget2PrimaryYear);
+      const other = otherDataYears.length
+        ? otherDataYears.reduce((best, y) => Math.abs(y - budget2PrimaryYear) < Math.abs(best - budget2PrimaryYear) ? y : best)
+        : budget2PrimaryYear - 1;
       return [budget2PrimaryYear, other].sort((a, b) => a - b);
     }
-    function budget2SoftwareLicenseLabel(softwareId) {
+    // (Tự nhận diện Phần mềm liên kết cho dòng CHƯA từng gán tay) Phần lớn dữ
+    // liệu Ngân sách CŨ (nhập trước khi có ô "Phần mềm liên kết") không có
+    // software_id — trước đây báo cáo luôn hiện "—" cho mọi dòng này dù Nội
+    // dung TRÙNG Y HỆT tên 1 phần mềm đã có sẵn trong danh mục Bản quyền (VD
+    // "Adobe Photoshop", "Axure RP") — người dùng phản ánh đúng: hệ thống
+    // phải tự ghép được những trường hợp rõ ràng này, không bắt gán tay lại
+    // toàn bộ dữ liệu cũ. Chỉ nhận diện khi CHẮC CHẮN (khớp nguyên văn, hoặc
+    // Nội dung/tên phần mềm là TIỀN TỐ trọn vẹn của nhau — có ranh giới từ rõ
+    // ràng, không khớp giữa chừng 1 từ) — KHÔNG đoán mò qua từ khóa chung
+    // chung, tránh gán nhầm sang phần mềm khác rồi hiện sai Loại license.
+    // Trường hợp mơ hồ (VD "AutoCAD QHTK 3" vs danh mục "Autodesk AutoCAD" —
+    // thiếu hẳn chữ "Autodesk") vẫn hiện "—", người dùng tự gán tay qua ô
+    // "Phần mềm liên kết" nếu muốn.
+    function budget2NormalizeForMatch(s) {
+      return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    }
+    function budget2GuessSoftwareId(content) {
+      const norm = budget2NormalizeForMatch(content);
+      if (!norm) return null;
+      let best = null, bestLen = 0;
+      (budget2DB.software || []).forEach(s => {
+        const sName = budget2NormalizeForMatch(s.name);
+        if (sName.length < 3) return;
+        const matches = norm === sName
+          || norm.startsWith(sName + ' ')
+          || sName.startsWith(norm + ' ');
+        if (matches && sName.length > bestLen) { best = s; bestLen = sName.length; }
+      });
+      return best ? best.id : null;
+    }
+    // explicitOnly=true (mặc định) chỉ trả Loại license khi dòng ĐÃ gán tay
+    // software_id — dùng cho UI/form, nơi cần phân biệt rõ "chưa gán" (—) với
+    // "đã gán nhưng không rõ loại". Khi softwareId KHÔNG được truyền thẳng,
+    // hàm gọi ở báo cáo tự thử budget2GuessSoftwareId(content) trước, có kèm
+    // dấu * đánh dấu "tự nhận diện" để không lẫn với dòng đã xác nhận tay.
+    function budget2SoftwareLicenseLabel(softwareId, content) {
+      let guessed = false;
+      if (!softwareId && content) {
+        softwareId = budget2GuessSoftwareId(content);
+        guessed = !!softwareId;
+      }
       if (!softwareId) return '—';
       const s = budget2DB.software.find(x => x.id === Number(softwareId));
       if (!s) return '—';
-      return s.licenseType === 'PERPETUAL' ? 'Vĩnh viễn' : 'Theo năm';
+      const label = s.licenseType === 'PERPETUAL' ? 'Vĩnh viễn' : 'Theo năm';
+      return guessed ? `${label} *` : label;
     }
     // Dòng NGUỒN theo đúng 1 giai đoạn + 1 năm — dùng chung cho cả 3 sheet,
     // tránh mỗi sheet tự lọc lại 1 kiểu rồi lệch số với nhau.
@@ -11106,7 +11160,7 @@ function isPerpetualSoftware(softwareId) {
         let stt = 1;
         let catTotal = { a: { budget: 0, used: 0 }, b: { budget: 0, used: 0 } };
         rowsOfCat.forEach(r => {
-          ws.addRow([stt++, r.label, cat.name, budget2SoftwareLicenseLabel(r.softwareId),
+          ws.addRow([stt++, r.label, cat.name, budget2SoftwareLicenseLabel(r.softwareId, r.label),
             r.a.qtyBudget || r.b.qtyBudget || '', r.a.totalBudget, r.a.totalUsed, r.b.totalBudget, r.b.totalUsed, ''
           ].map(sanitizeXlsxCellValue));
           catTotal.a.budget += r.a.totalBudget; catTotal.a.used += r.a.totalUsed;
@@ -11120,6 +11174,9 @@ function isPerpetualSoftware(softwareId) {
       budget2TplAddSectionRow(ws, 'Tổng chi phí dự kiến', COLS);
       const grandRow = ws.addRow(['', 'Tổng cộng', '', '', '', grandTotal.a.budget, grandTotal.a.used, grandTotal.b.budget, grandTotal.b.used, '']);
       grandRow.font = { bold: true };
+      ws.addRow([]);
+      const noteRow = ws.addRow(['', '* Loại license hệ thống TỰ NHẬN DIỆN theo tên trùng/gần đúng với danh mục Bản quyền (dòng chưa gán tay "Phần mềm liên kết") — không có dấu * là đã được gán tay, xác nhận chắc chắn.', '', '', '', '', '', '', '', '']);
+      noteRow.font = { italic: true, size: 9, color: { argb: 'FF6B7280' } };
       ws.getColumn(2).width = 40;
       [6, 7, 8, 9].forEach(c => { ws.getColumn(c).numFmt = '#,##0'; });
       budget2TplAutoWidth(ws);
@@ -11245,6 +11302,112 @@ function isPerpetualSoftware(softwareId) {
       return ws;
     }
 
+    // Dòng NGUỒN cho sheet 4 — gộp theo "hạng mục" (Danh mục + Nội dung, cùng
+    // khóa với budget2TemplateBuildCategoryRows) nhưng trải trên 3 mốc năm
+    // KHÁC NHAU: NĂM actual (Thực hiện/USED — năm đã khép sổ), ƯTH năm estimate
+    // (Phê duyệt/APPROVED — năm chưa khép sổ, dùng số đã duyệt làm số ước tính),
+    // Kế hoạch chi tiết năm plan (Đề xuất/PROPOSED — năm đang lập ngân sách,
+    // tách theo budget_month để ra 12 cột tháng).
+    function budget2TplBuildMonthlyDetailRows(yearActual, yearEstimate, yearPlan) {
+      const actualLines = budget2TemplateRawLines('USED', yearActual);
+      const estimateLines = budget2DB.lines.filter(l => l.stage === 'APPROVED' && l.status !== 'DRAFT' && l.budgetYear === yearEstimate);
+      const planLines = budget2TemplateRawLines('PROPOSED', yearPlan);
+      const keyOf = l => `${l.itemCategory || ''}||${String(l.content || '').trim().toLowerCase()}`;
+      const rowsMap = new Map();
+      function ensureRow(l) {
+        const key = keyOf(l);
+        if (!rowsMap.has(key)) {
+          rowsMap.set(key, {
+            category: l.itemCategory || '', label: l.content, description: l.description || '',
+            companyId: l.companyId || null,
+            actual: 0, estimate: 0, planTotal: 0, planMonths: Array(12).fill(0)
+          });
+        }
+        return rowsMap.get(key);
+      }
+      actualLines.forEach(l => { const r = ensureRow(l); r.actual += l.totalAmount; });
+      estimateLines.forEach(l => {
+        const r = ensureRow(l);
+        r.estimate += l.totalAmount;
+        if (!r.companyId && l.companyId) r.companyId = l.companyId;
+      });
+      planLines.forEach(l => {
+        const r = ensureRow(l);
+        if (!r.companyId && l.companyId) r.companyId = l.companyId;
+        if (!r.description && l.description) r.description = l.description;
+        const m = Number(l.budgetMonth) || 0;
+        if (m >= 1 && m <= 12) r.planMonths[m - 1] += l.totalAmount;
+        r.planTotal += l.totalAmount;
+      });
+      return [...rowsMap.values()];
+    }
+
+    // --- Sheet 4: Chi tiết hạng mục CNTT (~ sheet "Chi tiết hạng mục CNTT" file
+    // mẫu) — Năm actual (Thực hiện) + Ước TH năm estimate (Phê duyệt) + Kế
+    // hoạch chi tiết theo Tháng năm plan (Đề xuất), cùng Chênh lệch so với
+    // Ước TH, nhóm theo Danh mục (I, II, III...). ---
+    function budget2TplBuildMonthlyDetailSheet(wb, yearActual, yearEstimate, yearPlan) {
+      const ws = wb.addWorksheet('Chi tiết hạng mục CNTT'.slice(0, 31));
+      const COLS = 22;
+      budget2TplAddTitle(ws, `CHI TIẾT HẠNG MỤC CÔNG NGHỆ THÔNG TIN — KẾ HOẠCH NĂM ${yearPlan}`, COLS);
+
+      // Tiêu đề 2 tầng: tầng trên gộp theo nhóm cột (Kế hoạch chi tiết / Chênh
+      // lệch), tầng dưới ghi rõ Tổng cộng/T1..T12/Giá trị/Tỷ lệ — các cột còn
+      // lại (Stt..Ghi chú) gộp dọc xuyên cả 2 tầng vì chỉ có 1 tiêu đề.
+      const topLabels = ['Stt', 'Hạng mục ngân sách chi phí/ Sự kiện', 'Mô tả chi tiết',
+        'Đơn vị thụ hưởng ngân sách (Tập đoàn/CTTV)', `NĂM ${yearActual}`, `ƯTH NĂM ${yearEstimate}`,
+        `KẾ HOẠCH CHI TIẾT NĂM ${yearPlan}`, '', '', '', '', '', '', '', '', '', '', '', '',
+        `Chênh lệch so với Ước TH ${yearEstimate}`, '', 'Ghi chú'];
+      const topRow = ws.addRow(topLabels.map(sanitizeXlsxCellValue));
+      const subLabels = ['', '', '', '', '', '', 'Tổng cộng',
+        ...Array.from({ length: 12 }, (_, i) => `T${i + 1}`), 'Giá trị', 'Tỷ lệ', ''];
+      const subRow = ws.addRow(subLabels.map(sanitizeXlsxCellValue));
+      ws.mergeCells(topRow.number, 7, topRow.number, 19);
+      ws.mergeCells(topRow.number, 20, topRow.number, 21);
+      [1, 2, 3, 4, 5, 6, 22].forEach(c => ws.mergeCells(topRow.number, c, subRow.number, c));
+      [topRow, subRow].forEach(r => {
+        r.font = { bold: true };
+        r.eachCell({ includeEmpty: true }, c => { c.border = { bottom: { style: 'thin' } }; c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; });
+      });
+
+      const rows = budget2TplBuildMonthlyDetailRows(yearActual, yearEstimate, yearPlan);
+      const pctOf = (diff, base) => base > 0 ? Math.round(diff / base * 1000) / 10 : '';
+
+      const grand = { actual: 0, estimate: 0, planTotal: 0, planMonths: Array(12).fill(0) };
+      rows.forEach(r => {
+        grand.actual += r.actual; grand.estimate += r.estimate; grand.planTotal += r.planTotal;
+        r.planMonths.forEach((v, i) => { grand.planMonths[i] += v; });
+      });
+      const grandDiff = grand.planTotal - grand.estimate;
+      const grandRow = ws.addRow(['', 'TỔNG CỘNG', '', '', grand.actual, grand.estimate, grand.planTotal,
+        ...grand.planMonths, grandDiff, pctOf(grandDiff, grand.estimate), ''
+      ].map(sanitizeXlsxCellValue));
+      grandRow.font = { bold: true };
+
+      const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+      let groupIdx = 0;
+      budget2DB.categories.forEach(cat => {
+        const rowsOfCat = rows.filter(r => r.category === cat.code);
+        if (!rowsOfCat.length) return;
+        budget2TplAddSectionRow(ws, `${ROMAN[groupIdx] || (groupIdx + 1)}. ${cat.name}`, COLS);
+        groupIdx++;
+        let stt = 1;
+        rowsOfCat.forEach(r => {
+          const diff = r.planTotal - r.estimate;
+          ws.addRow([stt++, r.label, r.description || '',
+            r.companyId ? budget2CompanyName(r.companyId) : '—',
+            r.actual, r.estimate, r.planTotal, ...r.planMonths, diff, pctOf(diff, r.estimate), ''
+          ].map(sanitizeXlsxCellValue));
+        });
+      });
+
+      ws.getColumn(2).width = 34; ws.getColumn(3).width = 28; ws.getColumn(4).width = 24;
+      for (let c = 5; c <= 20; c++) ws.getColumn(c).numFmt = '#,##0';
+      ws.getColumn(21).numFmt = '0.0"%"';
+      budget2TplAutoWidth(ws);
+      return ws;
+    }
+
     async function exportBudget2TemplateStyleXlsx() {
       if (!budget2DB.loaded || !budget2DB.lines.length) return showToast('Chưa có dữ liệu Ngân sách để xuất.', 'warning');
       const [yearA, yearB] = budget2TemplateReportYears();
@@ -11252,6 +11415,7 @@ function isPerpetualSoftware(softwareId) {
       budget2TplBuildDetailSheet(wb, yearA, yearB);
       budget2TplBuildByUnitSheet(wb, budget2PrimaryYear);
       budget2TplBuildSummarySheet(wb, yearA, yearB);
+      budget2TplBuildMonthlyDetailSheet(wb, budget2PrimaryYear - 2, budget2PrimaryYear - 1, budget2PrimaryYear);
       const buf = await wb.xlsx.writeBuffer();
       const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const link = document.createElement('a');
