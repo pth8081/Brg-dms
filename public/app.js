@@ -8899,6 +8899,22 @@ function isPerpetualSoftware(softwareId) {
       const color = BUDGET2_CATEGORY_BADGE_COLORS[cat] || 'text-slate-700 bg-slate-100';
       return `<span class="text-[10px] font-bold ${color} px-2 py-0.5 rounded-full whitespace-nowrap">${escapeHtml(label)}</span>`;
     }
+    // (Trạng thái "Phần mềm liên kết") Chỉ Danh mục = Phần mềm mới có ô
+    // "Phần mềm liên kết" (xem onBudget2LineCategoryChange) — dòng thuộc danh
+    // mục khác (Phần cứng/Dịch vụ/Hệ thống) không hề có khái niệm này nên
+    // KHÔNG được tính là "Chưa liên kết" (gây hiểu lầm là thiếu sót cần bổ
+    // sung) mà phải hiện rõ "Không phải liên kết".
+    const BUDGET2_LINK_STATUS_LABEL = { LINKED: 'Đã liên kết', UNLINKED: 'Chưa liên kết', NA: 'Không phải liên kết' };
+    function budget2LinkStatus(l) {
+      if (l.itemCategory !== 'SOFTWARE') return 'NA';
+      return l.softwareId ? 'LINKED' : 'UNLINKED';
+    }
+    function budget2LinkStatusBadge(l) {
+      const st = budget2LinkStatus(l);
+      if (st === 'LINKED') return `<span class="text-[10px] font-bold text-success-700 bg-success-100 px-2 py-0.5 rounded-full whitespace-nowrap">Đã liên kết</span>`;
+      if (st === 'UNLINKED') return `<span class="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full whitespace-nowrap">Chưa liên kết</span>`;
+      return `<span class="text-[10px] font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full whitespace-nowrap">Không phải liên kết</span>`;
+    }
     // --- Hệ thống > Quản lý danh mục > Danh mục hệ thống (Ngân sách) — CRUD
     // cho budget2_item_categories, dùng chung logic tải dữ liệu với module
     // Ngân sách (budget2DB) vì cùng 1 nguồn dữ liệu, chỉ khác nơi hiển thị. ---
@@ -9090,9 +9106,9 @@ function isPerpetualSoftware(softwareId) {
     const BUDGET2_PAGE_SIZE_OPTIONS = [10, 50, 100, 150, 200];
     const budget2PageSizeState = { propose: 10, approved: 10, used: 10 };
     const budget2FilterState = {
-      propose: { year: '', type: '', category: '', orgUnit: '', q: '', status: '' },
-      approved: { year: '', type: '', category: '', orgUnit: '', q: '', status: '' },
-      used: { year: '', type: '', category: '', orgUnit: '', q: '', status: '' }
+      propose: { year: '', type: '', category: '', orgUnit: '', q: '', status: '', link: '' },
+      approved: { year: '', type: '', category: '', orgUnit: '', q: '', status: '', link: '' },
+      used: { year: '', type: '', category: '', orgUnit: '', q: '', status: '', link: '' }
     };
     const budget2PageState = { propose: {}, approved: {}, used: {} };
     const budget2SelectedIds = { propose: new Set(), approved: new Set(), used: new Set() };
@@ -9110,6 +9126,7 @@ function isPerpetualSoftware(softwareId) {
         (!f.category || l.itemCategory === f.category) &&
         (!f.orgUnit || String(l.orgUnitId) === f.orgUnit) &&
         (!f.status || l[statusField] === f.status) &&
+        (!f.link || budget2LinkStatus(l) === f.link) &&
         (!q || l.content.toLowerCase().includes(q))
       );
     }
@@ -9180,7 +9197,7 @@ function isPerpetualSoftware(softwareId) {
       budget2RerenderTable(key);
     }
     function clearBudget2Filters(key) {
-      budget2FilterState[key] = { year: '', type: '', category: '', orgUnit: '', q: '', status: '' };
+      budget2FilterState[key] = { year: '', type: '', category: '', orgUnit: '', q: '', status: '', link: '' };
       budget2PageState[key] = {};
       budget2RerenderTable(key);
     }
@@ -9229,6 +9246,13 @@ function isPerpetualSoftware(softwareId) {
               <option value="REJECTED" ${f.status === 'REJECTED' ? 'selected' : ''}>Từ chối</option>
             `}
           </select></div>
+        ${key !== 'used' ? `<div><label class="block text-[10px] font-bold text-gray-500 uppercase mb-0.5">Liên kết</label>
+          <select ${dchg('onBudget2FilterFieldChange', key, 'link', LIVE_VALUE)} class="border p-1.5 rounded text-xs bg-white">
+            <option value="">Tất cả</option>
+            <option value="LINKED" ${f.link === 'LINKED' ? 'selected' : ''}>Đã liên kết</option>
+            <option value="UNLINKED" ${f.link === 'UNLINKED' ? 'selected' : ''}>Chưa liên kết</option>
+            <option value="NA" ${f.link === 'NA' ? 'selected' : ''}>Không phải liên kết</option>
+          </select></div>` : ''}
         <div class="flex-1 min-w-[160px]"><label class="block text-[10px] font-bold text-gray-500 uppercase mb-0.5">Nội dung</label>
           <input ${din('onBudget2FilterFieldChange', key, 'q', LIVE_VALUE)} data-budget2-search="${key}" type="search" value="${escapeHtml(f.q)}" placeholder="Tìm theo nội dung…" class="w-full border p-1.5 rounded text-xs bg-white"></div>
         <div><label class="block text-[10px] font-bold text-gray-500 uppercase mb-0.5">Dòng/trang</label>
@@ -9585,6 +9609,7 @@ function isPerpetualSoftware(softwareId) {
         <th class="border p-2 text-right">Thành tiền</th>
         <th class="border p-2 text-center">Loại</th>
         <th class="border p-2 text-center">Danh mục</th>
+        <th class="border p-2 text-center">Liên kết</th>
         <th class="border p-2 text-center">Tháng</th>
         <th class="border p-2 text-center">Năm</th>
         <th class="border p-2">Công ty</th>
@@ -9651,6 +9676,7 @@ function isPerpetualSoftware(softwareId) {
           <td class="border p-2 text-right font-bold">${formatMoney(l.totalAmount)}</td>
           <td class="border p-2 text-center">${budget2TypeBadge(l.budgetType)}</td>
           <td class="border p-2 text-center">${budget2CategoryBadge(l.itemCategory)}</td>
+          <td class="border p-2 text-center">${budget2LinkStatusBadge(l)}</td>
           <td class="border p-2 text-center">${l.budgetMonth || '—'}</td>
           <td class="border p-2 text-center">${l.budgetYear || '—'}</td>
           <td class="border p-2">${budget2CompanyCell(l)}</td>
@@ -9662,7 +9688,7 @@ function isPerpetualSoftware(softwareId) {
         </tr>`;
       }).join('');
       container.innerHTML = budget2RenderFilterBar('propose')
-        + (allRows.length ? budget2RenderYearGroups('propose', grouped, 18, rowsHtmlFn, thead) : '<div class="text-xs text-gray-400 italic p-4 border rounded">Chưa có đề xuất ngân sách nào.</div>');
+        + (allRows.length ? budget2RenderYearGroups('propose', grouped, 19, rowsHtmlFn, thead) : '<div class="text-xs text-gray-400 italic p-4 border rounded">Chưa có đề xuất ngân sách nào.</div>');
       budget2RenderBulkBar('propose');
     }
 
@@ -10004,7 +10030,7 @@ function isPerpetualSoftware(softwareId) {
         <th class="border p-2 w-8"><input type="checkbox" ${dchg('onBudget2SelectAllToggle', 'approved', LIVE_CHECKED, LIVE_EL)}></th>
         <th class="border p-2 w-10">#</th><th class="border p-2">Nội dung</th><th class="border p-2">Mô tả</th>
         <th class="border p-2 text-right">SL</th><th class="border p-2 text-right">Đơn giá</th><th class="border p-2 text-right">VAT</th>
-        <th class="border p-2 text-right">Thành tiền</th><th class="border p-2 text-center">Loại</th><th class="border p-2 text-center">Danh mục</th><th class="border p-2 text-center">Tháng</th><th class="border p-2 text-center">Năm</th>
+        <th class="border p-2 text-right">Thành tiền</th><th class="border p-2 text-center">Loại</th><th class="border p-2 text-center">Danh mục</th><th class="border p-2 text-center">Liên kết</th><th class="border p-2 text-center">Tháng</th><th class="border p-2 text-center">Năm</th>
         <th class="border p-2">Công ty</th><th class="border p-2 text-center">Loại công ty</th><th class="border p-2">Khối/Ban/Phòng</th><th class="border p-2">Ghi chú</th>
         <th class="border p-2 text-center">Trạng thái</th><th class="border p-2 text-center w-24">Thao tác</th>
       </tr></thead>`;
@@ -10063,6 +10089,7 @@ function isPerpetualSoftware(softwareId) {
           <td class="border p-2 text-right font-bold">${formatMoney(l.totalAmount)}</td>
           <td class="border p-2 text-center">${budget2TypeBadge(l.budgetType)}</td>
           <td class="border p-2 text-center">${budget2CategoryBadge(l.itemCategory)}</td>
+          <td class="border p-2 text-center">${budget2LinkStatusBadge(l)}</td>
           <td class="border p-2 text-center">${l.budgetMonth || '—'}</td>
           <td class="border p-2 text-center">${l.budgetYear || '—'}</td>
           <td class="border p-2">${budget2CompanyCell(l)}</td>
@@ -10075,13 +10102,13 @@ function isPerpetualSoftware(softwareId) {
       }).join('');
       const footerHtmlFn = (rows) => {
         const subtotal = rows.filter(l => l.status === 'APPROVED').reduce((s, l) => s + l.totalAmount, 0);
-        return `<tr class="bg-gray-50 font-bold"><td colspan="8" class="border p-2 text-right">Tổng đã duyệt (năm này)</td><td class="border p-2 text-right">${formatMoney(subtotal)}</td><td class="border p-2" colspan="9"></td></tr>`;
+        return `<tr class="bg-gray-50 font-bold"><td colspan="8" class="border p-2 text-right">Tổng đã duyệt (năm này)</td><td class="border p-2 text-right">${formatMoney(subtotal)}</td><td class="border p-2" colspan="10"></td></tr>`;
       };
       container.innerHTML = `<div class="flex justify-end mb-2">
           <button ${dc('openBudget2LineModal', 'APPROVED', null)} class="btn-primary px-3 py-1.5 rounded text-xs font-bold">+ Thêm dòng phê duyệt (lưu nháp)</button>
         </div>`
         + budget2RenderFilterBar('approved')
-        + (allRows.length ? budget2RenderYearGroups('approved', grouped, 18, rowsHtmlFn, thead, footerHtmlFn) : '<div class="text-xs text-gray-400 italic p-4 border rounded">Chưa có dòng ngân sách phê duyệt nào.</div>');
+        + (allRows.length ? budget2RenderYearGroups('approved', grouped, 19, rowsHtmlFn, thead, footerHtmlFn) : '<div class="text-xs text-gray-400 italic p-4 border rounded">Chưa có dòng ngân sách phê duyệt nào.</div>');
       budget2RenderBulkBar('approved');
     }
 
@@ -10347,7 +10374,11 @@ function isPerpetualSoftware(softwareId) {
     // suy ra đúng giá trị stage viết hoa của budget2_lines).
     let budget2PrimaryStage = 'approved';
     let budget2CompareStage = 'used';
-    function budget2SelectedYears() { return [budget2PrimaryYear, ...budget2CompareYears]; }
+    // Khử trùng lặp vì năm so sánh nay có thể TRÙNG năm chính (xem
+    // renderBudget2OverviewYearChips()) — nếu không khử, "Bốn lát cắt nhanh"/
+    // "Báo cáo đa chiều" (dùng hàm này để lặp 1 khối/năm) sẽ vẽ 2 khối giống
+    // hệt nhau cho cùng 1 năm.
+    function budget2SelectedYears() { return [...new Set([budget2PrimaryYear, ...budget2CompareYears])]; }
     function renderBudget2OverviewYearChips() {
       const yearSelect = document.getElementById('budget2PrimaryYearSelect');
       const chipsBox = document.getElementById('budget2CompareYearChips');
@@ -10362,7 +10393,13 @@ function isPerpetualSoftware(softwareId) {
       const years = new Set([...dataYears, budget2PrimaryYear, ...budget2CompareYears]);
       const sorted = [...years].sort((a, b) => a - b);
       yearSelect.innerHTML = sorted.map(y => `<option value="${y}" ${y === budget2PrimaryYear ? 'selected' : ''}>${y}</option>`).join('');
-      const compareOptions = sorted.filter(y => y !== budget2PrimaryYear);
+      // (Cho phép so sánh CÙNG 1 năm) KHÔNG loại bỏ budget2PrimaryYear khỏi
+      // danh sách chip nữa — người dùng cần so sánh CHÍNH năm đó giữa 2 Loại
+      // báo cáo khác nhau (VD Phê duyệt 2027 vs Sử dụng 2027), không chỉ so
+      // sánh giữa 2 năm khác nhau. Xem budget2FlexSide()/
+      // budget2TemplateYearStagePairs() — cả 2 đều xử lý đúng khi năm chính
+      // và năm so sánh trùng nhau (mỗi vế vẫn mang đúng Loại báo cáo riêng).
+      const compareOptions = sorted;
       chipsBox.innerHTML = compareOptions.length
         ? compareOptions.map(y => {
             const active = budget2CompareYears.includes(y);
@@ -10372,9 +10409,8 @@ function isPerpetualSoftware(softwareId) {
     }
     function onBudget2PrimaryYearChange() {
       budget2PrimaryYear = Number(document.getElementById('budget2PrimaryYearSelect').value);
-      // Đổi năm chính trùng với 1 năm đang chọn so sánh thì bỏ khỏi danh
-      // sách so sánh luôn — 1 năm không thể vừa là năm chính vừa là năm so sánh.
-      budget2CompareYears = budget2CompareYears.filter(y => y !== budget2PrimaryYear);
+      // (Cho phép so sánh CÙNG 1 năm) Không còn tự động bỏ năm chính khỏi
+      // danh sách so sánh nữa — xem chú thích ở renderBudget2OverviewYearChips().
       renderBudget2OverviewYearChips();
       renderBudget2QuickReports();
       renderBudget2CompanyTypeAndMonthReports();
@@ -10545,7 +10581,12 @@ function isPerpetualSoftware(softwareId) {
       const usedByYear = budget2SumByYear('used');
       const approvedByYear = budget2SumByYear('approved');
       const proposedByYear = budget2SumByYear('proposed');
-      const yearsLabel = compareYears.length ? `Năm ${primaryYear} (so với ${compareYears.join(', ')})` : `Năm ${primaryYear}`;
+      // Lọc năm so sánh TRÙNG năm chính khỏi nhãn hiển thị (chỉ còn ý nghĩa
+      // trong khối "Chi tiết theo Loại báo cáo đã chọn" bên dưới, nơi 2 vế có
+      // thể cùng năm nhưng khác Loại báo cáo) — tránh hiện thừa "so với 2027"
+      // ngay cạnh "Năm 2027".
+      const otherCompareYears = compareYears.filter(y => y !== primaryYear);
+      const yearsLabel = otherCompareYears.length ? `Năm ${primaryYear} (so với ${otherCompareYears.join(', ')})` : `Năm ${primaryYear}`;
       const legendFor = (color, compareColor) => `<span>${dot(color)}Năm ${primaryYear}</span>`
         + (compareYears.length ? `<span>${dot(compareColor)}Năm so sánh</span>` : '')
         + `<span>${dot('#c7ccd4')}Năm khác</span>`;
@@ -11106,24 +11147,36 @@ function isPerpetualSoftware(softwareId) {
     // dữ liệu. Luôn trả về [năm nhỏ, năm lớn] (sắp theo thời gian) để cột
     // trong báo cáo luôn đi từ trái sang phải theo đúng thứ tự thời gian, bất
     // kể người dùng chọn năm nào làm "năm chính".
+    // Trả về [primaryYear, otherYear] theo ĐÚNG thứ tự này (năm chính LUÔN
+    // đứng trước) — KHÔNG sắp xếp tăng dần như trước nữa. Lý do: năm so sánh
+    // nay có thể TRÙNG năm chính (so sánh 2 Loại báo cáo cùng 1 năm, xem
+    // renderBudget2OverviewYearChips()) — nếu sort theo giá trị, khi 2 năm
+    // bằng nhau sẽ không còn cách nào phân biệt đâu là "vế chính"/"vế so
+    // sánh" để gắn đúng Loại báo cáo (budget2TemplateYearStagePairs() bên
+    // dưới dựa vào ĐÚNG VỊ TRÍ trong mảng này, không dựa vào so sánh giá trị).
     function budget2TemplateReportYears() {
       if (budget2CompareYears.length) {
-        return [budget2PrimaryYear, budget2CompareYears[0]].sort((a, b) => a - b);
+        return [budget2PrimaryYear, budget2CompareYears[0]];
       }
       const otherDataYears = (budget2AllYearsPresent() || []).filter(y => y !== budget2PrimaryYear);
       const other = otherDataYears.length
         ? otherDataYears.reduce((best, y) => Math.abs(y - budget2PrimaryYear) < Math.abs(best - budget2PrimaryYear) ? y : best)
         : budget2PrimaryYear - 1;
-      return [budget2PrimaryYear, other].sort((a, b) => a - b);
+      return [budget2PrimaryYear, other];
     }
-    // (Đổi tên cột theo đúng Loại báo cáo đã chọn) yearA/yearB luôn gồm ĐÚNG 1
-    // năm = budget2PrimaryYear — năm còn lại là năm so sánh (chọn tay hoặc suy
-    // diễn ở budget2TemplateReportYears() khi chưa chọn) — nên chỉ cần so
-    // sánh với budget2PrimaryYear để biết năm nào mang Loại báo cáo nào.
+    // (Đổi tên cột theo đúng Loại báo cáo đã chọn) yearA = năm chính (luôn
+    // mang budget2PrimaryStage), yearB = năm so sánh (luôn mang
+    // budget2CompareStage) — theo ĐÚNG vị trí trả về từ
+    // budget2TemplateReportYears(), không suy luận qua so sánh giá trị năm
+    // (sai khi 2 năm bằng nhau — xem chú thích ở hàm đó).
     function budget2TemplateYearStagePairs() {
       const [yearA, yearB] = budget2TemplateReportYears();
-      const stageOf = y => y === budget2PrimaryYear ? budget2PrimaryStage : budget2CompareStage;
-      return { yearA, stageA: stageOf(yearA), yearB, stageB: stageOf(yearB) };
+      return { yearA, stageA: budget2PrimaryStage, yearB, stageB: budget2CompareStage };
+    }
+    // yearA/yearB nay có thể bằng nhau (so sánh 2 Loại báo cáo cùng 1 năm) —
+    // "2027-2027" trong tiêu đề/tên file sẽ gây hiểu lầm là 2 năm khác nhau.
+    function budget2TplYearRangeLabel(yearA, yearB) {
+      return yearA === yearB ? String(yearA) : `${yearA}-${yearB}`;
     }
     // (Tự nhận diện Phần mềm liên kết cho dòng CHƯA từng gán tay) Phần lớn dữ
     // liệu Ngân sách CŨ (nhập trước khi có ô "Phần mềm liên kết") không có
@@ -11251,7 +11304,7 @@ function isPerpetualSoftware(softwareId) {
       const COLS = 8; // Stt, Nội dung, Danh mục, Loại license, SL A, {Loại A} A, {Loại B} B, Ghi chú
       const labelA = `${BUDGET2_STAGE_VN[stageA]} ${yearA}`;
       const labelB = `${BUDGET2_STAGE_VN[stageB]} ${yearB}`;
-      budget2TplAddTitle(ws, `DỰ TRÙ CHI PHÍ CÔNG NGHỆ THÔNG TIN — CHI TIẾT THEO HẠNG MỤC (${yearA}-${yearB})`, COLS);
+      budget2TplAddTitle(ws, `DỰ TRÙ CHI PHÍ CÔNG NGHỆ THÔNG TIN — CHI TIẾT THEO HẠNG MỤC (${budget2TplYearRangeLabel(yearA, yearB)})`, COLS);
       budget2TplAddHeaderRow(ws, ['Stt', 'Nội dung', 'Danh mục', 'Loại license', `SL ${yearA}`, labelA, labelB, 'Ghi chú']);
       const allRows = budget2TemplateBuildCategoryRows(yearA, stageA, yearB, stageB);
       const grandTotal = { a: 0, b: 0 };
@@ -11332,7 +11385,7 @@ function isPerpetualSoftware(softwareId) {
       const COLS = 4;
       const labelA = `${BUDGET2_STAGE_VN[stageA]} ${yearA}`;
       const labelB = `${BUDGET2_STAGE_VN[stageB]} ${yearB}`;
-      budget2TplAddTitle(ws, `DỰ TOÁN TỔNG CHI PHÍ HẠ TẦNG CNTT — ${yearA}-${yearB}`, COLS);
+      budget2TplAddTitle(ws, `DỰ TOÁN TỔNG CHI PHÍ HẠ TẦNG CNTT — ${budget2TplYearRangeLabel(yearA, yearB)}`, COLS);
 
       // I. Theo Danh mục
       budget2TplAddSectionRow(ws, 'I. Theo Danh mục', COLS);
@@ -11522,7 +11575,7 @@ function isPerpetualSoftware(softwareId) {
       const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
-      link.download = `du_tru_chi_phi_cntt_${yearA}-${yearB}.xlsx`;
+      link.download = `du_tru_chi_phi_cntt_${budget2TplYearRangeLabel(yearA, yearB)}.xlsx`;
       document.body.appendChild(link);
       link.click();
       link.remove();
