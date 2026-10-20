@@ -11302,6 +11302,112 @@ function isPerpetualSoftware(softwareId) {
       return ws;
     }
 
+    // Dòng NGUỒN cho sheet 4 — gộp theo "hạng mục" (Danh mục + Nội dung, cùng
+    // khóa với budget2TemplateBuildCategoryRows) nhưng trải trên 3 mốc năm
+    // KHÁC NHAU: NĂM actual (Thực hiện/USED — năm đã khép sổ), ƯTH năm estimate
+    // (Phê duyệt/APPROVED — năm chưa khép sổ, dùng số đã duyệt làm số ước tính),
+    // Kế hoạch chi tiết năm plan (Đề xuất/PROPOSED — năm đang lập ngân sách,
+    // tách theo budget_month để ra 12 cột tháng).
+    function budget2TplBuildMonthlyDetailRows(yearActual, yearEstimate, yearPlan) {
+      const actualLines = budget2TemplateRawLines('USED', yearActual);
+      const estimateLines = budget2DB.lines.filter(l => l.stage === 'APPROVED' && l.status !== 'DRAFT' && l.budgetYear === yearEstimate);
+      const planLines = budget2TemplateRawLines('PROPOSED', yearPlan);
+      const keyOf = l => `${l.itemCategory || ''}||${String(l.content || '').trim().toLowerCase()}`;
+      const rowsMap = new Map();
+      function ensureRow(l) {
+        const key = keyOf(l);
+        if (!rowsMap.has(key)) {
+          rowsMap.set(key, {
+            category: l.itemCategory || '', label: l.content, description: l.description || '',
+            companyId: l.companyId || null,
+            actual: 0, estimate: 0, planTotal: 0, planMonths: Array(12).fill(0)
+          });
+        }
+        return rowsMap.get(key);
+      }
+      actualLines.forEach(l => { const r = ensureRow(l); r.actual += l.totalAmount; });
+      estimateLines.forEach(l => {
+        const r = ensureRow(l);
+        r.estimate += l.totalAmount;
+        if (!r.companyId && l.companyId) r.companyId = l.companyId;
+      });
+      planLines.forEach(l => {
+        const r = ensureRow(l);
+        if (!r.companyId && l.companyId) r.companyId = l.companyId;
+        if (!r.description && l.description) r.description = l.description;
+        const m = Number(l.budgetMonth) || 0;
+        if (m >= 1 && m <= 12) r.planMonths[m - 1] += l.totalAmount;
+        r.planTotal += l.totalAmount;
+      });
+      return [...rowsMap.values()];
+    }
+
+    // --- Sheet 4: Chi tiết hạng mục CNTT (~ sheet "Chi tiết hạng mục CNTT" file
+    // mẫu) — Năm actual (Thực hiện) + Ước TH năm estimate (Phê duyệt) + Kế
+    // hoạch chi tiết theo Tháng năm plan (Đề xuất), cùng Chênh lệch so với
+    // Ước TH, nhóm theo Danh mục (I, II, III...). ---
+    function budget2TplBuildMonthlyDetailSheet(wb, yearActual, yearEstimate, yearPlan) {
+      const ws = wb.addWorksheet('Chi tiết hạng mục CNTT'.slice(0, 31));
+      const COLS = 22;
+      budget2TplAddTitle(ws, `CHI TIẾT HẠNG MỤC CÔNG NGHỆ THÔNG TIN — KẾ HOẠCH NĂM ${yearPlan}`, COLS);
+
+      // Tiêu đề 2 tầng: tầng trên gộp theo nhóm cột (Kế hoạch chi tiết / Chênh
+      // lệch), tầng dưới ghi rõ Tổng cộng/T1..T12/Giá trị/Tỷ lệ — các cột còn
+      // lại (Stt..Ghi chú) gộp dọc xuyên cả 2 tầng vì chỉ có 1 tiêu đề.
+      const topLabels = ['Stt', 'Hạng mục ngân sách chi phí/ Sự kiện', 'Mô tả chi tiết',
+        'Đơn vị thụ hưởng ngân sách (Tập đoàn/CTTV)', `NĂM ${yearActual}`, `ƯTH NĂM ${yearEstimate}`,
+        `KẾ HOẠCH CHI TIẾT NĂM ${yearPlan}`, '', '', '', '', '', '', '', '', '', '', '', '',
+        `Chênh lệch so với Ước TH ${yearEstimate}`, '', 'Ghi chú'];
+      const topRow = ws.addRow(topLabels.map(sanitizeXlsxCellValue));
+      const subLabels = ['', '', '', '', '', '', 'Tổng cộng',
+        ...Array.from({ length: 12 }, (_, i) => `T${i + 1}`), 'Giá trị', 'Tỷ lệ', ''];
+      const subRow = ws.addRow(subLabels.map(sanitizeXlsxCellValue));
+      ws.mergeCells(topRow.number, 7, topRow.number, 19);
+      ws.mergeCells(topRow.number, 20, topRow.number, 21);
+      [1, 2, 3, 4, 5, 6, 22].forEach(c => ws.mergeCells(topRow.number, c, subRow.number, c));
+      [topRow, subRow].forEach(r => {
+        r.font = { bold: true };
+        r.eachCell({ includeEmpty: true }, c => { c.border = { bottom: { style: 'thin' } }; c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; });
+      });
+
+      const rows = budget2TplBuildMonthlyDetailRows(yearActual, yearEstimate, yearPlan);
+      const pctOf = (diff, base) => base > 0 ? Math.round(diff / base * 1000) / 10 : '';
+
+      const grand = { actual: 0, estimate: 0, planTotal: 0, planMonths: Array(12).fill(0) };
+      rows.forEach(r => {
+        grand.actual += r.actual; grand.estimate += r.estimate; grand.planTotal += r.planTotal;
+        r.planMonths.forEach((v, i) => { grand.planMonths[i] += v; });
+      });
+      const grandDiff = grand.planTotal - grand.estimate;
+      const grandRow = ws.addRow(['', 'TỔNG CỘNG', '', '', grand.actual, grand.estimate, grand.planTotal,
+        ...grand.planMonths, grandDiff, pctOf(grandDiff, grand.estimate), ''
+      ].map(sanitizeXlsxCellValue));
+      grandRow.font = { bold: true };
+
+      const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+      let groupIdx = 0;
+      budget2DB.categories.forEach(cat => {
+        const rowsOfCat = rows.filter(r => r.category === cat.code);
+        if (!rowsOfCat.length) return;
+        budget2TplAddSectionRow(ws, `${ROMAN[groupIdx] || (groupIdx + 1)}. ${cat.name}`, COLS);
+        groupIdx++;
+        let stt = 1;
+        rowsOfCat.forEach(r => {
+          const diff = r.planTotal - r.estimate;
+          ws.addRow([stt++, r.label, r.description || '',
+            r.companyId ? budget2CompanyName(r.companyId) : '—',
+            r.actual, r.estimate, r.planTotal, ...r.planMonths, diff, pctOf(diff, r.estimate), ''
+          ].map(sanitizeXlsxCellValue));
+        });
+      });
+
+      ws.getColumn(2).width = 34; ws.getColumn(3).width = 28; ws.getColumn(4).width = 24;
+      for (let c = 5; c <= 20; c++) ws.getColumn(c).numFmt = '#,##0';
+      ws.getColumn(21).numFmt = '0.0"%"';
+      budget2TplAutoWidth(ws);
+      return ws;
+    }
+
     async function exportBudget2TemplateStyleXlsx() {
       if (!budget2DB.loaded || !budget2DB.lines.length) return showToast('Chưa có dữ liệu Ngân sách để xuất.', 'warning');
       const [yearA, yearB] = budget2TemplateReportYears();
@@ -11309,6 +11415,7 @@ function isPerpetualSoftware(softwareId) {
       budget2TplBuildDetailSheet(wb, yearA, yearB);
       budget2TplBuildByUnitSheet(wb, budget2PrimaryYear);
       budget2TplBuildSummarySheet(wb, yearA, yearB);
+      budget2TplBuildMonthlyDetailSheet(wb, budget2PrimaryYear - 2, budget2PrimaryYear - 1, budget2PrimaryYear);
       const buf = await wb.xlsx.writeBuffer();
       const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const link = document.createElement('a');
