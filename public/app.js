@@ -11001,20 +11001,74 @@ function isPerpetualSoftware(softwareId) {
     //     budget_month/budget_year đã có sẵn — không cần thêm trường mới.
 
     // 2 năm đối chiếu: luôn lấy budget2PrimaryYear làm 1 mốc, mốc còn lại là
-    // năm so sánh ĐẦU TIÊN đang chọn (nếu có) — nếu người dùng chưa chọn năm
-    // so sánh nào, mặc định lấy năm kế tiếp (primaryYear + 1), đúng tinh thần
-    // "năm nay đối chiếu năm sau" của file mẫu gốc. Luôn trả về [năm nhỏ, năm
-    // lớn] (sắp theo thời gian) để cột trong báo cáo luôn đi từ trái sang phải
-    // theo đúng thứ tự thời gian, bất kể người dùng chọn năm nào làm "năm chính".
+    // năm so sánh ĐẦU TIÊN đang chọn (nếu có — người dùng đã chủ động bấm chip
+    // "Năm so sánh"). BUG ĐÃ SỬA: trước đây khi chưa bấm chip nào, mặc định
+    // suy diễn "primaryYear + 1" — 1 năm TƯƠNG LAI thường KHÔNG có dữ liệu
+    // thật (toàn số 0, gây hiểu lầm là lỗi báo cáo — đúng phản ánh của người
+    // dùng: chọn Năm ngân sách 2027, báo cáo tự so sánh với 2028 dù chưa từng
+    // chọn và 2028 chưa có số liệu gì). Nay mặc định chọn năm KHÁC gần
+    // primaryYear nhất trong số các năm THỰC SỰ CÓ dữ liệu
+    // (budget2AllYearsPresent()) — đúng ý "so với năm thực tế gần nhất", chỉ
+    // lùi về primaryYear-1 (năm trước liền kề) khi không còn năm nào khác có
+    // dữ liệu. Luôn trả về [năm nhỏ, năm lớn] (sắp theo thời gian) để cột
+    // trong báo cáo luôn đi từ trái sang phải theo đúng thứ tự thời gian, bất
+    // kể người dùng chọn năm nào làm "năm chính".
     function budget2TemplateReportYears() {
-      const other = budget2CompareYears.length ? budget2CompareYears[0] : budget2PrimaryYear + 1;
+      if (budget2CompareYears.length) {
+        return [budget2PrimaryYear, budget2CompareYears[0]].sort((a, b) => a - b);
+      }
+      const otherDataYears = (budget2AllYearsPresent() || []).filter(y => y !== budget2PrimaryYear);
+      const other = otherDataYears.length
+        ? otherDataYears.reduce((best, y) => Math.abs(y - budget2PrimaryYear) < Math.abs(best - budget2PrimaryYear) ? y : best)
+        : budget2PrimaryYear - 1;
       return [budget2PrimaryYear, other].sort((a, b) => a - b);
     }
-    function budget2SoftwareLicenseLabel(softwareId) {
+    // (Tự nhận diện Phần mềm liên kết cho dòng CHƯA từng gán tay) Phần lớn dữ
+    // liệu Ngân sách CŨ (nhập trước khi có ô "Phần mềm liên kết") không có
+    // software_id — trước đây báo cáo luôn hiện "—" cho mọi dòng này dù Nội
+    // dung TRÙNG Y HỆT tên 1 phần mềm đã có sẵn trong danh mục Bản quyền (VD
+    // "Adobe Photoshop", "Axure RP") — người dùng phản ánh đúng: hệ thống
+    // phải tự ghép được những trường hợp rõ ràng này, không bắt gán tay lại
+    // toàn bộ dữ liệu cũ. Chỉ nhận diện khi CHẮC CHẮN (khớp nguyên văn, hoặc
+    // Nội dung/tên phần mềm là TIỀN TỐ trọn vẹn của nhau — có ranh giới từ rõ
+    // ràng, không khớp giữa chừng 1 từ) — KHÔNG đoán mò qua từ khóa chung
+    // chung, tránh gán nhầm sang phần mềm khác rồi hiện sai Loại license.
+    // Trường hợp mơ hồ (VD "AutoCAD QHTK 3" vs danh mục "Autodesk AutoCAD" —
+    // thiếu hẳn chữ "Autodesk") vẫn hiện "—", người dùng tự gán tay qua ô
+    // "Phần mềm liên kết" nếu muốn.
+    function budget2NormalizeForMatch(s) {
+      return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    }
+    function budget2GuessSoftwareId(content) {
+      const norm = budget2NormalizeForMatch(content);
+      if (!norm) return null;
+      let best = null, bestLen = 0;
+      (budget2DB.software || []).forEach(s => {
+        const sName = budget2NormalizeForMatch(s.name);
+        if (sName.length < 3) return;
+        const matches = norm === sName
+          || norm.startsWith(sName + ' ')
+          || sName.startsWith(norm + ' ');
+        if (matches && sName.length > bestLen) { best = s; bestLen = sName.length; }
+      });
+      return best ? best.id : null;
+    }
+    // explicitOnly=true (mặc định) chỉ trả Loại license khi dòng ĐÃ gán tay
+    // software_id — dùng cho UI/form, nơi cần phân biệt rõ "chưa gán" (—) với
+    // "đã gán nhưng không rõ loại". Khi softwareId KHÔNG được truyền thẳng,
+    // hàm gọi ở báo cáo tự thử budget2GuessSoftwareId(content) trước, có kèm
+    // dấu * đánh dấu "tự nhận diện" để không lẫn với dòng đã xác nhận tay.
+    function budget2SoftwareLicenseLabel(softwareId, content) {
+      let guessed = false;
+      if (!softwareId && content) {
+        softwareId = budget2GuessSoftwareId(content);
+        guessed = !!softwareId;
+      }
       if (!softwareId) return '—';
       const s = budget2DB.software.find(x => x.id === Number(softwareId));
       if (!s) return '—';
-      return s.licenseType === 'PERPETUAL' ? 'Vĩnh viễn' : 'Theo năm';
+      const label = s.licenseType === 'PERPETUAL' ? 'Vĩnh viễn' : 'Theo năm';
+      return guessed ? `${label} *` : label;
     }
     // Dòng NGUỒN theo đúng 1 giai đoạn + 1 năm — dùng chung cho cả 3 sheet,
     // tránh mỗi sheet tự lọc lại 1 kiểu rồi lệch số với nhau.
@@ -11106,7 +11160,7 @@ function isPerpetualSoftware(softwareId) {
         let stt = 1;
         let catTotal = { a: { budget: 0, used: 0 }, b: { budget: 0, used: 0 } };
         rowsOfCat.forEach(r => {
-          ws.addRow([stt++, r.label, cat.name, budget2SoftwareLicenseLabel(r.softwareId),
+          ws.addRow([stt++, r.label, cat.name, budget2SoftwareLicenseLabel(r.softwareId, r.label),
             r.a.qtyBudget || r.b.qtyBudget || '', r.a.totalBudget, r.a.totalUsed, r.b.totalBudget, r.b.totalUsed, ''
           ].map(sanitizeXlsxCellValue));
           catTotal.a.budget += r.a.totalBudget; catTotal.a.used += r.a.totalUsed;
@@ -11120,6 +11174,9 @@ function isPerpetualSoftware(softwareId) {
       budget2TplAddSectionRow(ws, 'Tổng chi phí dự kiến', COLS);
       const grandRow = ws.addRow(['', 'Tổng cộng', '', '', '', grandTotal.a.budget, grandTotal.a.used, grandTotal.b.budget, grandTotal.b.used, '']);
       grandRow.font = { bold: true };
+      ws.addRow([]);
+      const noteRow = ws.addRow(['', '* Loại license hệ thống TỰ NHẬN DIỆN theo tên trùng/gần đúng với danh mục Bản quyền (dòng chưa gán tay "Phần mềm liên kết") — không có dấu * là đã được gán tay, xác nhận chắc chắn.', '', '', '', '', '', '', '', '']);
+      noteRow.font = { italic: true, size: 9, color: { argb: 'FF6B7280' } };
       ws.getColumn(2).width = 40;
       [6, 7, 8, 9].forEach(c => { ws.getColumn(c).numFmt = '#,##0'; });
       budget2TplAutoWidth(ws);
