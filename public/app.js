@@ -11378,6 +11378,52 @@ function isPerpetualSoftware(softwareId) {
       return ws;
     }
 
+    // --- Sheet mới: Chi tiết theo Đơn vị (~ bản "soi sâu hơn" của sheet "Chi
+    // phí theo đơn vị" ở trên — thay vì gộp mỗi Đơn vị thành 1 dòng theo
+    // Danh mục, liệt kê TỪNG dòng ngân sách (Danh mục + Nội dung cụ thể +
+    // Số lượng + Thành tiền) trong từng Công ty/Đơn vị, kèm 1 dòng "Tổng cộng"
+    // ngay dưới mỗi Đơn vị — phục vụ nhu cầu lọc/pivot chi tiết hơn ngay trên
+    // Excel theo yêu cầu người dùng. Cùng nguồn dữ liệu + cùng Năm/Loại báo
+    // cáo với sheet "Chi phí theo đơn vị" nên luôn khớp số với nhau.
+    function budget2TplBuildByUnitDetailSheet(wb, year, stage) {
+      const ws = wb.addWorksheet('Chi tiết theo Đơn vị'.slice(0, 31));
+      const COLS = 7; // Công ty, Đơn vị, Danh mục, Nội dung, Loại, Số lượng, Thành tiền
+      budget2TplAddTitle(ws, `TỔNG HỢP CHI PHÍ CHI TIẾT THEO ĐƠN VỊ — NĂM ${year} (${BUDGET2_STAGE_VN[stage]})`, COLS);
+      budget2TplAddHeaderRow(ws, ['Công ty', 'Đơn vị', 'Danh mục', 'Nội dung', 'Loại', 'Số lượng', 'Thành tiền']);
+      const lines = budget2TemplateRawLines(BUDGET2_STAGE_DB[stage], year);
+      const unitMap = new Map(); // "companyId|orgUnitId" -> { companyId, orgUnitId, lines: [] }
+      lines.forEach(l => {
+        const key = `${l.companyId || 0}|${l.orgUnitId || 0}`;
+        if (!unitMap.has(key)) unitMap.set(key, { companyId: l.companyId, orgUnitId: l.orgUnitId, lines: [] });
+        unitMap.get(key).lines.push(l);
+      });
+      const catOrder = new Map(budget2DB.categories.map((c, i) => [c.code, i]));
+      let grandQty = 0, grandTotal = 0;
+      [...unitMap.values()]
+        .sort((a, b) => (budget2CompanyName(a.companyId) || '').localeCompare(budget2CompanyName(b.companyId) || '') || (budget2OrgUnitName(a.orgUnitId) || '').localeCompare(budget2OrgUnitName(b.orgUnitId) || ''))
+        .forEach(u => {
+          const companyName = u.companyId ? budget2CompanyName(u.companyId) : '(Chưa gán công ty)';
+          const unitName = u.orgUnitId ? budget2OrgUnitName(u.orgUnitId) : '—';
+          const sortedLines = u.lines.slice().sort((x, y) =>
+            (catOrder.get(x.itemCategory) ?? 99) - (catOrder.get(y.itemCategory) ?? 99) || y.totalAmount - x.totalAmount);
+          let unitQty = 0, unitTotal = 0;
+          sortedLines.forEach(l => {
+            ws.addRow([companyName, unitName, budget2CategoryLabel(l.itemCategory) || '—', l.content, l.budgetType, l.quantity, l.totalAmount].map(sanitizeXlsxCellValue));
+            unitQty += l.quantity; unitTotal += l.totalAmount;
+          });
+          const subtotalRow = ws.addRow([companyName, unitName, '', `Tổng cộng — ${unitName}`, '', unitQty, unitTotal].map(sanitizeXlsxCellValue));
+          subtotalRow.font = { bold: true };
+          subtotalRow.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFF6FF' } }; });
+          grandQty += unitQty; grandTotal += unitTotal;
+        });
+      const grandRow = ws.addRow(['', '', '', 'TỔNG CỘNG TOÀN BỘ', '', grandQty, grandTotal]);
+      grandRow.font = { bold: true };
+      ws.getColumn(1).width = 24; ws.getColumn(2).width = 28; ws.getColumn(4).width = 34;
+      ws.getColumn(6).numFmt = '#,##0'; ws.getColumn(7).numFmt = '#,##0';
+      budget2TplAutoWidth(ws);
+      return ws;
+    }
+
     // --- Sheet 3: Tổng hợp (~ sheet "Tổng hợp") — theo Danh mục, theo Loại
     // chi phí (OPEX/CAPEX), theo Tháng, 2 năm đối chiếu Ngân sách/Thực hiện. ---
     function budget2TplBuildSummarySheet(wb, yearA, stageA, yearB, stageB) {
@@ -11569,6 +11615,7 @@ function isPerpetualSoftware(softwareId) {
       const wb = new ExcelJS.Workbook();
       budget2TplBuildDetailSheet(wb, yearA, stageA, yearB, stageB);
       budget2TplBuildByUnitSheet(wb, budget2PrimaryYear, budget2PrimaryStage);
+      budget2TplBuildByUnitDetailSheet(wb, budget2PrimaryYear, budget2PrimaryStage);
       budget2TplBuildSummarySheet(wb, yearA, stageA, yearB, stageB);
       budget2TplBuildMonthlyDetailSheet(wb, budget2PrimaryYear - 2, budget2PrimaryYear - 1, budget2PrimaryYear);
       const buf = await wb.xlsx.writeBuffer();
