@@ -696,6 +696,10 @@
                 <input type="checkbox" id="pBudgetApprover"> Người duyệt Ngân sách
               </label>
               <p class="text-[10px] text-gray-500 leading-tight">Chỉ được Duyệt/Từ chối/Yêu cầu bổ sung dòng Ngân sách của người khác — tách riêng khỏi "Người quản lý Ngân sách" (tạo/sửa/gửi). Không tự có nếu chỉ có quyền Quản lý.</p>
+              <label class="flex items-center gap-2 text-rose-700 font-semibold cursor-pointer border-t pt-2">
+                <input type="checkbox" id="pBudgetSelfApprove"> Quyền tự phê duyệt ngân sách do chính mình tạo
+              </label>
+              <p class="text-[10px] text-gray-500 leading-tight">Cho phép tự bấm "Duyệt" (KHÔNG áp dụng cho Từ chối/Yêu cầu bổ sung) đúng dòng Ngân sách do CHÍNH MÌNH tạo. Quyền RIÊNG, độc lập hoàn toàn với mọi quyền khác — kể cả Admin cũng KHÔNG tự động có, phải bật rõ ở đây mới tự duyệt được.</p>
               <label class="flex items-center gap-2 text-cyan-700 font-semibold cursor-pointer border-t pt-2">
                 <input type="checkbox" id="pBudgetDeptTransfer" data-evt-change="onBudgetDeptPermChange" data-args='[]'> Quyền chuyển ngân sách theo phòng
               </label>
@@ -3971,6 +3975,9 @@
             </label>
             <label class="flex items-center gap-2 text-indigo-700 font-semibold cursor-pointer border-t pt-2">
               <input type="checkbox" id="gBudgetApprover"> Người duyệt Ngân sách
+            </label>
+            <label class="flex items-center gap-2 text-rose-700 font-semibold cursor-pointer border-t pt-2">
+              <input type="checkbox" id="gBudgetSelfApprove"> Quyền tự phê duyệt ngân sách do chính mình tạo
             </label>
           </div>
           <div class="bg-white p-3 rounded border space-y-2">

@@ -1077,7 +1077,7 @@
       // của quyền đó (xem applyBudgetDeptScopeUI() bên dưới, chạy ngay sau).
       const canViewBudget2 = canManageBudget2 || !!user.perms.budgetViewer || !!user.perms.budgetApprover
         || !!user.perms.budgetDeptTransfer || !!user.perms.budgetDeptViewer || !!user.perms.budgetDeptReportViewer
-        || !!user.perms.budgetSubmitProposal || !!user.perms.budgetSubmitApproved;
+        || !!user.perms.budgetSubmitProposal || !!user.perms.budgetSubmitApproved || !!user.perms.budgetSelfApprove;
       const canViewItAssets = canManageItAssets || !!user.perms.itAssetsViewer;
       document.getElementById('btnAdminTab').classList.toggle('hidden', !user.perms.admin);
       document.getElementById('btnLicenseTab').classList.toggle('hidden', !canViewLicense);
@@ -1127,6 +1127,13 @@
       Object.keys(APPROVER_BLOCKED_ACTIONS).forEach(mod => {
         if (moduleCanApprove[mod]) return;
         APPROVER_BLOCKED_ACTIONS[mod].forEach(fnName => {
+          // (Quyền "Tự phê duyệt ngân sách" — budgetSelfApprove) Chỉ mở lại
+          // ĐÚNG 2 hành động Duyệt (không mở Từ chối/Yêu cầu bổ sung/thao tác
+          // hàng loạt) — nút Duyệt vẫn chỉ thực sự RENDER trên đúng dòng do
+          // chính người này tạo (xem canSelfApprove trong
+          // renderBudget2ProposedTable/renderBudget2ApprovedTable), ẩn
+          // blanket ở đây chỉ chặn các hành động còn lại.
+          if (mod === 'budget2' && p.budgetSelfApprove && (fnName === 'approveBudget2Proposal' || fnName === 'approveBudget2Line')) return;
           document.querySelectorAll(`[data-evt-click="${fnName}"], [data-evt-change="${fnName}"]`).forEach(el => el.classList.add('hidden'));
         });
       });
@@ -2902,6 +2909,10 @@
         !p.admin && !p.itAssetsManager && p.itAssetsViewer ? '<span class="bg-sky-50 text-sky-600 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔎 Xem CNTT</span>' : '',
         !p.admin && p.licenseApprover ? '<span class="bg-indigo-100 text-indigo-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">✅ Duyệt License</span>' : '',
         !p.admin && p.budgetApprover ? '<span class="bg-indigo-100 text-indigo-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">✅ Duyệt Ngân sách</span>' : '',
+        // Quyền RIÊNG, độc lập với Admin — KHÔNG ẩn khi p.admin=true như các
+        // badge khác ở trên (Admin không tự có quyền này), nên luôn hiện rõ
+        // nếu được bật, kể cả với tài khoản Admin.
+        p.budgetSelfApprove ? '<span class="bg-rose-100 text-rose-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔓 Tự duyệt Ngân sách</span>' : '',
         p.uploadAll ? '<span class="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">📤 Upload: Tất cả</span>' : (p.uploadDepts && p.uploadDepts.length ? `<span class="bg-blue-50 text-blue-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">📤 Upload: ${p.uploadDepts.length} PB</span>` : ''),
         p.viewDraftAll ? '<span class="bg-amber-100 text-amber-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">📝 Xem nháp: Tất cả</span>' : (p.viewDraftDepts && p.viewDraftDepts.length ? `<span class="bg-amber-50 text-amber-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">📝 Xem nháp: ${p.viewDraftDepts.length} PB</span>` : ''),
         p.viewApprovedAll ? '<span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">✅ Xem duyệt: Tất cả</span>' : (p.viewApprovedDepts && p.viewApprovedDepts.length ? `<span class="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">✅ Xem duyệt: ${p.viewApprovedDepts.length} PB</span>` : ''),
@@ -2955,6 +2966,7 @@
       document.getElementById('gItAssetsViewer').checked = !!p.itAssetsViewer;
       document.getElementById('gLicenseApprover').checked = !!p.licenseApprover;
       document.getElementById('gBudgetApprover').checked = !!p.budgetApprover;
+      document.getElementById('gBudgetSelfApprove').checked = !!p.budgetSelfApprove;
 
       document.getElementById('gUploadAll').checked = !!p.uploadAll;
       document.querySelectorAll('.gUploadDept').forEach(cb => cb.checked = p.uploadDepts ? p.uploadDepts.includes(cb.value) : false);
@@ -2989,6 +3001,7 @@
         itAssetsViewer: document.getElementById('gItAssetsViewer').checked,
         licenseApprover: document.getElementById('gLicenseApprover').checked,
         budgetApprover: document.getElementById('gBudgetApprover').checked,
+        budgetSelfApprove: document.getElementById('gBudgetSelfApprove').checked,
         uploadAll: document.getElementById('gUploadAll').checked,
         uploadDepts: Array.from(document.querySelectorAll('.gUploadDept:checked')).map(c => c.value),
         viewDraftAll: document.getElementById('gViewDraftAll').checked,
@@ -3180,6 +3193,7 @@
         itAssetsViewer: document.getElementById('pItAssetsViewer').checked,
         licenseApprover: document.getElementById('pLicenseApprover').checked,
         budgetApprover: document.getElementById('pBudgetApprover').checked,
+        budgetSelfApprove: document.getElementById('pBudgetSelfApprove').checked,
         budgetDeptTransfer: document.getElementById('pBudgetDeptTransfer').checked,
         budgetDeptViewer: document.getElementById('pBudgetDeptViewer').checked,
         budgetDeptReportViewer: document.getElementById('pBudgetDeptReportViewer').checked,
@@ -3293,6 +3307,7 @@
       document.getElementById('pItAssetsViewer').checked = !!p.itAssetsViewer;
       document.getElementById('pLicenseApprover').checked = !!p.licenseApprover;
       document.getElementById('pBudgetApprover').checked = !!p.budgetApprover;
+      document.getElementById('pBudgetSelfApprove').checked = !!p.budgetSelfApprove;
       document.getElementById('pBudgetDeptTransfer').checked = !!p.budgetDeptTransfer;
       document.getElementById('pBudgetDeptViewer').checked = !!p.budgetDeptViewer;
       document.getElementById('pBudgetDeptReportViewer').checked = !!p.budgetDeptReportViewer;
@@ -3431,6 +3446,7 @@
       document.getElementById('pItAssetsViewer').checked = false;
       document.getElementById('pLicenseApprover').checked = false;
       document.getElementById('pBudgetApprover').checked = false;
+      document.getElementById('pBudgetSelfApprove').checked = false;
       document.getElementById('pBudgetDeptTransfer').checked = false;
       document.getElementById('pBudgetDeptViewer').checked = false;
       document.getElementById('pBudgetDeptReportViewer').checked = false;
@@ -3491,6 +3507,7 @@
           !p.admin && !p.itAssetsManager && p.itAssetsViewer ? '<span class="bg-sky-50 text-sky-600 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔎 Xem CNTT</span>' : '',
           !p.admin && p.licenseApprover ? '<span class="bg-indigo-100 text-indigo-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">✅ Duyệt License</span>' : '',
           !p.admin && p.budgetApprover ? '<span class="bg-indigo-100 text-indigo-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">✅ Duyệt Ngân sách</span>' : '',
+          p.budgetSelfApprove ? '<span class="bg-rose-100 text-rose-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔓 Tự duyệt Ngân sách</span>' : '',
           p.uploadAll ? '<span class="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">Upload:ALL</span>' : '',
           p.downloadAll ? '<span class="bg-rose-100 text-rose-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">Tải:ALL</span>' : '',
           scopeLabel ? `<span class="bg-teal-100 text-teal-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔑 ${scopeLabel}</span>` : '',
@@ -8804,7 +8821,7 @@ function isPerpetualSoftware(softwareId) {
     function switchBudget2SubTab(subName) {
       if (!currentUser || !(currentUser.perms.admin || currentUser.perms.budgetManager || currentUser.perms.budgetViewer || currentUser.perms.budgetApprover
           || currentUser.perms.budgetDeptTransfer || currentUser.perms.budgetDeptViewer || currentUser.perms.budgetDeptReportViewer
-          || currentUser.perms.budgetSubmitProposal || currentUser.perms.budgetSubmitApproved)) return;
+          || currentUser.perms.budgetSubmitProposal || currentUser.perms.budgetSubmitApproved || currentUser.perms.budgetSelfApprove)) return;
       const subs = { propose: 'budget2SubPropose', approved: 'budget2SubApproved', used: 'budget2SubUsed', reports: 'budget2SubReports' };
       const btns = { propose: 'btnBudget2SubPropose', approved: 'btnBudget2SubApproved', used: 'btnBudget2SubUsed', reports: 'btnBudget2SubReports' };
       Object.keys(subs).forEach(key => {
@@ -9630,6 +9647,13 @@ function isPerpetualSoftware(softwareId) {
         // budgetManager không tự động có quyền này nữa. Xem server.js
         // requireBudgetApproveOrAdmin.
         const canDecideNow = isAdmin || !!(currentUser && currentUser.perms && currentUser.perms.budgetApprover);
+        // (Quyền "Tự phê duyệt ngân sách" — budgetSelfApprove) Quyền RIÊNG,
+        // độc lập hoàn toàn với Admin/budgetApprover — PHẢI được cấp rõ ràng
+        // mới tự Duyệt được ĐÚNG dòng do CHÍNH MÌNH tạo, kể cả Admin (xem
+        // check tương ứng ở server.js, route approve-proposal). CHỈ áp dụng
+        // cho hành động Duyệt — Từ chối/Yêu cầu bổ sung dòng của chính mình
+        // vẫn luôn bị chặn như trước, không đổi.
+        const canSelfApprove = !!(currentUser && currentUser.perms && currentUser.perms.budgetSelfApprove) && l.createdBy === (currentUser && currentUser.username);
         // Gọn lại: chỉ giữ Duyệt/Từ chối (tần suất cao nhất) hiện thẳng trên
         // dòng; Sửa/Bổ sung/Xóa gộp vào menu "⋮" — dùng chung cơ chế đã có
         // sẵn cho bảng Tài liệu (renderRowActionsMenu/toggleRowMenu).
@@ -9651,11 +9675,12 @@ function isPerpetualSoftware(softwareId) {
             <button ${dc('submitBudget2Proposal', l.id)} class="text-xs bg-blue-600 text-white px-2 h-7 rounded font-semibold shadow-sm hover:bg-blue-700 whitespace-nowrap" title="Gửi phê duyệt">🚀 Gửi phê duyệt</button>
             ${renderRowActionsMenu(menuId, menuItems)}
           </div>`;
-        } else if (l.status === 'SUBMITTED' && canDecideNow) {
+        } else if (l.status === 'SUBMITTED' && (canDecideNow || canSelfApprove)) {
           actions = `<div class="inline-flex items-center gap-1">
             <button ${dc('approveBudget2Proposal', l.id)} class="text-xs bg-emerald-600 text-white px-2 h-7 rounded font-semibold shadow-sm hover:bg-emerald-700 whitespace-nowrap" title="Duyệt">✓ Duyệt</button>
+            ${canDecideNow ? `
             <button ${dc('rejectBudget2Proposal', l.id)} class="text-xs bg-danger-600 text-white px-2 h-7 rounded font-semibold shadow-sm hover:bg-danger-700 whitespace-nowrap" title="Từ chối">✕ Từ chối</button>
-            <button ${dc('requestBudget2ProposalSupplement', l.id)} class="text-xs bg-amber-500 text-white px-2 h-7 rounded font-semibold shadow-sm hover:bg-amber-600 whitespace-nowrap" title="Yêu cầu người tạo bổ sung/sửa lại">📋 Y/c bổ sung</button>
+            <button ${dc('requestBudget2ProposalSupplement', l.id)} class="text-xs bg-amber-500 text-white px-2 h-7 rounded font-semibold shadow-sm hover:bg-amber-600 whitespace-nowrap" title="Yêu cầu người tạo bổ sung/sửa lại">📋 Y/c bổ sung</button>` : ''}
             ${renderRowActionsMenu(menuId, menuItems)}
           </div>`;
         } else if (l.status === 'SUBMITTED') {
@@ -10041,6 +10066,9 @@ function isPerpetualSoftware(softwareId) {
         // (Quyền Người duyệt — tách riêng khỏi Quản lý) Xem chú thích tương
         // ứng ở renderBudget2ProposedTable() — logic giống hệt.
         const canDecideNow = isAdmin || !!(currentUser && currentUser.perms && currentUser.perms.budgetApprover);
+        // (Quyền "Tự phê duyệt ngân sách") Xem chú thích đầy đủ ở
+        // renderBudget2ProposedTable() — logic giống hệt.
+        const canSelfApprove = !!(currentUser && currentUser.perms && currentUser.perms.budgetSelfApprove) && l.createdBy === (currentUser && currentUser.username);
         // Gọn lại: chỉ giữ Duyệt/Từ chối hiện thẳng trên dòng; Sửa/Bổ sung/
         // Xóa gộp vào menu "⋮" (renderRowActionsMenu, dùng chung cơ chế đã
         // có sẵn cho bảng Tài liệu).
@@ -10058,13 +10086,14 @@ function isPerpetualSoftware(softwareId) {
             <button ${dc('submitBudget2Line', l.id)} class="text-xs bg-blue-600 text-white px-2 h-7 rounded font-semibold shadow-sm hover:bg-blue-700 whitespace-nowrap" title="Gửi phê duyệt">🚀 Gửi</button>
             ${renderRowActionsMenu(menuId, menuItems)}
           </div>`;
-        } else if (l.status === 'SUBMITTED' && canDecideNow) {
+        } else if (l.status === 'SUBMITTED' && (canDecideNow || canSelfApprove)) {
           // Chờ duyệt: chỉ Admin mới thấy nút Xóa (server cũng chặn xóa với
           // người không phải Admin).
           actions = `<div class="inline-flex items-center gap-1">
             <button ${dc('approveBudget2Line', l.id)} class="text-xs bg-success-600 text-white w-7 h-7 rounded font-semibold shadow-sm hover:bg-success-700" title="Duyệt">✔️</button>
+            ${canDecideNow ? `
             <button ${dc('rejectBudget2Line', l.id)} class="text-xs bg-danger-600 text-white w-7 h-7 rounded font-semibold shadow-sm hover:bg-danger-700" title="Từ chối">✖️</button>
-            <button ${dc('requestBudget2LineSupplement', l.id)} class="text-xs bg-amber-500 text-white w-7 h-7 rounded font-semibold shadow-sm hover:bg-amber-600" title="Yêu cầu người tạo bổ sung/sửa lại">📋</button>
+            <button ${dc('requestBudget2LineSupplement', l.id)} class="text-xs bg-amber-500 text-white w-7 h-7 rounded font-semibold shadow-sm hover:bg-amber-600" title="Yêu cầu người tạo bổ sung/sửa lại">📋</button>` : ''}
             ${renderRowActionsMenu(menuId, menuItems)}
           </div>`;
         } else if (l.status === 'SUBMITTED') {
