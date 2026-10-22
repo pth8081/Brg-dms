@@ -7912,7 +7912,7 @@ function requireBudgetOrAdmin(req, res, next) {
 // phòng dù middleware này cho qua.
 function requireBudgetViewOrAdmin(req, res, next) {
     const p = req.user && req.user.perms;
-    if (!p || !(p.admin || p.budgetManager || p.budgetViewer || p.budgetApprover || p.budgetDeptTransfer || p.budgetDeptViewer || p.budgetDeptReportViewer || p.budgetSubmitProposal || p.budgetSubmitApproved)) {
+    if (!p || !(p.admin || p.budgetManager || p.budgetViewer || p.budgetApprover || p.budgetDeptTransfer || p.budgetDeptViewer || p.budgetDeptReportViewer || p.budgetSubmitProposal || p.budgetSubmitApproved || p.budgetSelfApprove)) {
         return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên, Người quản lý Ngân sách, Người xem Ngân sách, Người duyệt Ngân sách, hoặc 1 trong các quyền theo phòng.' });
     }
     next();
@@ -7926,6 +7926,22 @@ function requireBudgetViewOrAdmin(req, res, next) {
 function requireBudgetApproveOrAdmin(req, res, next) {
     if (!req.user || !req.user.perms || (!req.user.perms.admin && !req.user.perms.budgetApprover)) {
         return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên hoặc Người duyệt Ngân sách.' });
+    }
+    next();
+}
+
+// (Quyền "Tự phê duyệt ngân sách" — budgetSelfApprove) Dùng RIÊNG cho 2 route
+// Duyệt (approve-proposal/approve) — KHÔNG áp dụng cho Từ chối/Yêu cầu bổ
+// sung, vẫn giữ nguyên requireBudgetApproveOrAdmin như trước. Quyền này hoàn
+// toàn ĐỘC LẬP với Admin/budgetApprover: chỉ mở cổng vào route (để người CHỈ
+// có budgetSelfApprove, không có Admin/budgetApprover, còn gọi được route);
+// bên trong handler còn 1 lớp kiểm tra nữa (xem 2 route bên dưới) để đảm bảo
+// quyền này CHỈ duyệt được đúng dòng do chính mình tạo, không mở thêm quyền
+// duyệt dòng của người khác.
+function requireBudgetApproveOrSelfOrAdmin(req, res, next) {
+    const p = req.user && req.user.perms;
+    if (!p || !(p.admin || p.budgetApprover || p.budgetSelfApprove)) {
+        return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên, Người duyệt Ngân sách, hoặc Quyền tự phê duyệt ngân sách.' });
     }
     next();
 }
@@ -8617,7 +8633,7 @@ app.delete('/api/budget2/lines/:id', requireAuth, requireBudgetOrAdmin, async (r
 // độc lập (xem /api/budget2/lines/approved-direct, /api/budget2/import ở
 // dưới), không còn đọc dữ liệu từ Đề xuất nữa. Áp dụng đúng quy tắc chặn tự
 // duyệt như mọi luồng duyệt khác trong hệ thống. ---
-app.post('/api/budget2/lines/:id/approve-proposal', requireAuth, requireBudgetApproveOrAdmin, async (req, res) => {
+app.post('/api/budget2/lines/:id/approve-proposal', requireAuth, requireBudgetApproveOrSelfOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const [rows] = await pool.query('SELECT * FROM budget2_lines WHERE id = ? AND stage = \'PROPOSED\'', [id]);
@@ -8626,7 +8642,17 @@ app.post('/api/budget2/lines/:id/approve-proposal', requireAuth, requireBudgetAp
         if (!await budgetTargetInUserScope(req.user, line.company_id, line.org_unit_id)) return res.status(403).json({ error: BUDGET_SCOPE_FORBIDDEN_MSG });
         if (line.status === 'DRAFT') return res.status(400).json({ error: 'Đề xuất này vẫn đang ở dạng nháp — người tạo cần bấm "Gửi phê duyệt" trước.' });
         if (line.status !== 'SUBMITTED') return res.status(400).json({ error: 'Đề xuất này đã được xử lý trước đó.' });
-        if (line.created_by === req.user.username) return res.status(403).json({ error: 'Không thể tự duyệt đề xuất do chính mình tạo.' });
+        // (Quyền "Tự phê duyệt ngân sách" — budgetSelfApprove) Quyền RIÊNG,
+        // ĐỘC LẬP hoàn toàn với Admin/budgetApprover — PHẢI có đúng cờ này
+        // (không xét req.user.perms.admin) mới tự duyệt được dòng do chính
+        // mình tạo. Dòng của NGƯỜI KHÁC thì vẫn theo quy tắc cũ (Admin hoặc
+        // budgetApprover) — người chỉ có budgetSelfApprove không duyệt được
+        // dòng của người khác.
+        if (line.created_by === req.user.username) {
+            if (!req.user.perms.budgetSelfApprove) return res.status(403).json({ error: 'Không thể tự duyệt đề xuất do chính mình tạo — cần được cấp quyền "Tự phê duyệt ngân sách".' });
+        } else if (!req.user.perms.admin && !req.user.perms.budgetApprover) {
+            return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên hoặc Người duyệt Ngân sách để duyệt đề xuất của người khác.' });
+        }
         const now = new Date().toISOString();
         const [upd] = await pool.query("UPDATE budget2_lines SET status = 'APPROVED', decided_by = ?, decided_at = ? WHERE id = ? AND status = 'SUBMITTED'", [req.user.username, now, id]);
         if (upd.affectedRows === 0) return res.status(409).json({ error: 'Đề xuất này vừa được xử lý bởi người khác, vui lòng tải lại trang.' });
@@ -8732,7 +8758,7 @@ app.post('/api/budget2/lines/:id/transfer-to-approved', requireAuth, requireBudg
 
 // --- Duyệt 1 dòng ngân sách phê duyệt (đang chờ) — CHỈ giai đoạn Phê duyệt
 // mới có bước duyệt này; tự động sinh dòng Sử dụng (mục cha) tương ứng. ---
-app.post('/api/budget2/lines/:id/approve', requireAuth, requireBudgetApproveOrAdmin, async (req, res) => {
+app.post('/api/budget2/lines/:id/approve', requireAuth, requireBudgetApproveOrSelfOrAdmin, async (req, res) => {
     const conn = await pool.getConnection();
     try {
         const { id } = req.params;
@@ -8742,12 +8768,14 @@ app.post('/api/budget2/lines/:id/approve', requireAuth, requireBudgetApproveOrAd
         if (!await budgetTargetInUserScope(req.user, line.company_id, line.org_unit_id)) { conn.release(); return res.status(403).json({ error: BUDGET_SCOPE_FORBIDDEN_MSG }); }
         if (line.status === 'DRAFT') { conn.release(); return res.status(400).json({ error: 'Dòng này vẫn đang ở dạng nháp — người tạo cần bấm "Gửi phê duyệt" trước.' }); }
         if (line.status !== 'SUBMITTED') { conn.release(); return res.status(400).json({ error: 'Dòng này đã được xử lý trước đó.' }); }
-        // (Chuẩn hóa mã lỗi) Chặn tự duyệt là quy tắc PHÂN QUYỀN (ai được phép
-        // thực hiện hành động), không phải lỗi dữ liệu đầu vào — đổi từ 400
-        // sang 403 cho nhất quán với 3 nơi chặn tự duyệt khác trong module
-        // License (bulk-allocation-requests, purchase registrations, budget
-        // registrations), vốn đều dùng 403.
-        if (line.created_by === req.user.username) { conn.release(); return res.status(403).json({ error: 'Không thể tự duyệt dòng ngân sách do chính mình tạo.' }); }
+        // (Quyền "Tự phê duyệt ngân sách" — budgetSelfApprove) Xem chú thích
+        // đầy đủ ở route approve-proposal phía trên, logic giống hệt.
+        if (line.created_by === req.user.username) {
+            if (!req.user.perms.budgetSelfApprove) { conn.release(); return res.status(403).json({ error: 'Không thể tự duyệt dòng ngân sách do chính mình tạo — cần được cấp quyền "Tự phê duyệt ngân sách".' }); }
+        } else if (!req.user.perms.admin && !req.user.perms.budgetApprover) {
+            conn.release();
+            return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên hoặc Người duyệt Ngân sách để duyệt dòng của người khác.' });
+        }
 
         await conn.beginTransaction();
         const now = new Date().toISOString();
