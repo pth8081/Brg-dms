@@ -492,10 +492,10 @@
         'openAllocByEmpModal', 'openAllocModal', 'openAutoAllocateModal', 'openBulkAllocFileModal', 'openBulkAllocateModal',
         'openBudgetRegistrationModal', 'openBudgetRoundModal', 'openRegistrationModal', 'openRoundModal',
         'openBudgetItemCatalogModal', 'openBudgetActualsModal', 'openRoundItemModal', 'openBudgetRoundItemModal',
-        'openRegistrationEditModal', 'openBudgetRegistrationEditModal', 'openRoundItemSupplementModal',
+        'openRegistrationEditModal', 'openBudgetRegistrationEditModal', 'openRoundItemSupplementModal', 'openRegistrationCorrectionModal',
         'saveBatch', 'saveCompany', 'saveEmployee', 'saveSoftware', 'saveOrgUnit', 'saveAllocByEmp', 'saveAllocation',
         'saveAutoAllocate', 'saveBulkAllocate', 'saveBudgetItemCatalog', 'saveBudgetRegistration', 'saveBudgetRound',
-        'saveBudgetRoundItem', 'saveRegistration', 'saveRound', 'saveRoundItem', 'saveRegistrationEdit', 'saveRoundItemSupplement',
+        'saveBudgetRoundItem', 'saveRegistration', 'saveRound', 'saveRoundItem', 'saveRegistrationEdit', 'saveRoundItemSupplement', 'saveRegistrationCorrection',
         'deleteBatch', 'deleteCompany', 'deleteOrgUnit', 'deleteEmployee', 'deleteSoftware', 'deleteRound', 'deleteRoundItem',
         'deleteBudgetRound', 'deleteBudgetRoundItem', 'deleteBudgetActual', 'deleteBudgetItemCatalog', 'addBudgetActual',
         'revokeAllocation', 'revokeSelectedForEmployee', 'bulkRevokeSelectedAllocations',
@@ -526,7 +526,8 @@
         'approveBudgetRegistration', 'approveBulkAllocRequest', 'approveRegistration',
         'rejectBudgetRegistration', 'rejectBulkAllocRequest', 'rejectRegistration',
         'requestRegistrationSupplement', 'requestBudgetRegistrationSupplement',
-        'bulkDecideLicenseRegs', 'bulkRequestLicenseRegSupplement'
+        'bulkDecideLicenseRegs', 'bulkRequestLicenseRegSupplement',
+        'approveRegistrationCorrection', 'rejectRegistrationCorrection'
       ]),
       budget2: new Set([
         'approveBudget2Line', 'approveBudget2Proposal', 'rejectBudget2Line', 'rejectBudget2Proposal',
@@ -552,8 +553,21 @@
     function viewerWriteBlockedModule(fnName) {
       if (!currentUser || !currentUser.perms || currentUser.perms.admin) return null;
       const p = currentUser.perms;
-      if (APPROVER_BLOCKED_ACTIONS.license.has(fnName)) return p.licenseApprover ? null : 'license';
-      if (APPROVER_BLOCKED_ACTIONS.budget2.has(fnName)) return p.budgetApprover ? null : 'budget2';
+      // (Quyền "Tự phê duyệt...") budgetSelfApprove/licenseSelfApprove chỉ mở
+      // lại ĐÚNG hành động Duyệt tương ứng (không mở Từ chối/Yêu cầu bổ sung/
+      // thao tác hàng loạt) — khớp đúng ngoại lệ đã làm ở
+      // applyViewerButtonVisibility() bên dưới. THIẾU đoạn này thì nút Duyệt
+      // vẫn HIỆN ra (applyViewerButtonVisibility không ẩn nó) nhưng bấm vào
+      // lại bị chặn ngay ở đây (toast "chỉ có quyền xem"), vô hiệu hóa hoàn
+      // toàn quyền Tự phê duyệt dù nút vẫn hiện — đã xác nhận qua kiểm thử lại.
+      if (APPROVER_BLOCKED_ACTIONS.license.has(fnName)) {
+        if (fnName === 'approveRegistrationCorrection' && p.licenseSelfApprove) return null;
+        return p.licenseApprover ? null : 'license';
+      }
+      if (APPROVER_BLOCKED_ACTIONS.budget2.has(fnName)) {
+        if ((fnName === 'approveBudget2Proposal' || fnName === 'approveBudget2Line') && p.budgetSelfApprove) return null;
+        return p.budgetApprover ? null : 'budget2';
+      }
       if (VIEWER_BLOCKED_ACTIONS.license.has(fnName) && !p.licenseManager) return 'license';
       if (VIEWER_BLOCKED_ACTIONS.budget2.has(fnName) && !p.budgetManager) {
         if (BUDGET_DEPT_TRANSFER_ACTIONS.has(fnName) && p.budgetDeptTransfer) return null;
@@ -1070,7 +1084,7 @@
       // Quản lý — cũng mở được tab để xem hồ sơ cần duyệt, nhưng chỉ có nút
       // Duyệt/Từ chối/Bổ sung, KHÔNG có nút tạo/sửa/gửi/nhập (canWriteXxx
       // vẫn kiểm theo Manager riêng, xem canDecideLicense/canDecideBudget2).
-      const canViewLicense = canManageLicense || !!user.perms.licenseViewer || !!user.perms.licenseApprover;
+      const canViewLicense = canManageLicense || !!user.perms.licenseViewer || !!user.perms.licenseApprover || !!user.perms.licenseSelfApprove;
       // (3 quyền "...theo phòng") budgetDeptTransfer/budgetDeptViewer/
       // budgetDeptReportViewer mở được tab Ngân sách nhưng KHÔNG xem được mọi
       // dữ liệu như Viewer/Approver — chỉ đúng phạm vi + đúng nhóm sub-tab
@@ -1134,6 +1148,11 @@
           // renderBudget2ProposedTable/renderBudget2ApprovedTable), ẩn
           // blanket ở đây chỉ chặn các hành động còn lại.
           if (mod === 'budget2' && p.budgetSelfApprove && (fnName === 'approveBudget2Proposal' || fnName === 'approveBudget2Line')) return;
+          // (Quyền "Tự phê duyệt đính chính License" — licenseSelfApprove) Mirror
+          // y hệt budgetSelfApprove ở trên — chỉ mở lại đúng hành động Duyệt
+          // đính chính, nút vẫn chỉ render trên đúng đính chính do chính người
+          // này đề xuất (xem canSelfApproveCorrection trong renderAdminRegistrationsTable).
+          if (mod === 'license' && p.licenseSelfApprove && fnName === 'approveRegistrationCorrection') return;
           document.querySelectorAll(`[data-evt-click="${fnName}"], [data-evt-change="${fnName}"]`).forEach(el => el.classList.add('hidden'));
         });
       });
@@ -2912,6 +2931,7 @@
         // Quyền RIÊNG, độc lập với Admin — KHÔNG ẩn khi p.admin=true như các
         // badge khác ở trên (Admin không tự có quyền này), nên luôn hiện rõ
         // nếu được bật, kể cả với tài khoản Admin.
+        p.licenseSelfApprove ? '<span class="bg-rose-100 text-rose-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔓 Tự duyệt đính chính License</span>' : '',
         p.budgetSelfApprove ? '<span class="bg-rose-100 text-rose-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔓 Tự duyệt Ngân sách</span>' : '',
         p.uploadAll ? '<span class="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">📤 Upload: Tất cả</span>' : (p.uploadDepts && p.uploadDepts.length ? `<span class="bg-blue-50 text-blue-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">📤 Upload: ${p.uploadDepts.length} PB</span>` : ''),
         p.viewDraftAll ? '<span class="bg-amber-100 text-amber-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">📝 Xem nháp: Tất cả</span>' : (p.viewDraftDepts && p.viewDraftDepts.length ? `<span class="bg-amber-50 text-amber-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">📝 Xem nháp: ${p.viewDraftDepts.length} PB</span>` : ''),
@@ -2965,6 +2985,7 @@
       document.getElementById('gBudgetViewer').checked = !!p.budgetViewer;
       document.getElementById('gItAssetsViewer').checked = !!p.itAssetsViewer;
       document.getElementById('gLicenseApprover').checked = !!p.licenseApprover;
+      document.getElementById('gLicenseSelfApprove').checked = !!p.licenseSelfApprove;
       document.getElementById('gBudgetApprover').checked = !!p.budgetApprover;
       document.getElementById('gBudgetSelfApprove').checked = !!p.budgetSelfApprove;
 
@@ -3000,6 +3021,7 @@
         budgetViewer: document.getElementById('gBudgetViewer').checked,
         itAssetsViewer: document.getElementById('gItAssetsViewer').checked,
         licenseApprover: document.getElementById('gLicenseApprover').checked,
+        licenseSelfApprove: document.getElementById('gLicenseSelfApprove').checked,
         budgetApprover: document.getElementById('gBudgetApprover').checked,
         budgetSelfApprove: document.getElementById('gBudgetSelfApprove').checked,
         uploadAll: document.getElementById('gUploadAll').checked,
@@ -3192,6 +3214,7 @@
         budgetViewer: document.getElementById('pBudgetViewer').checked,
         itAssetsViewer: document.getElementById('pItAssetsViewer').checked,
         licenseApprover: document.getElementById('pLicenseApprover').checked,
+        licenseSelfApprove: document.getElementById('pLicenseSelfApprove').checked,
         budgetApprover: document.getElementById('pBudgetApprover').checked,
         budgetSelfApprove: document.getElementById('pBudgetSelfApprove').checked,
         budgetDeptTransfer: document.getElementById('pBudgetDeptTransfer').checked,
@@ -3306,6 +3329,7 @@
       document.getElementById('pBudgetViewer').checked = !!p.budgetViewer;
       document.getElementById('pItAssetsViewer').checked = !!p.itAssetsViewer;
       document.getElementById('pLicenseApprover').checked = !!p.licenseApprover;
+      document.getElementById('pLicenseSelfApprove').checked = !!p.licenseSelfApprove;
       document.getElementById('pBudgetApprover').checked = !!p.budgetApprover;
       document.getElementById('pBudgetSelfApprove').checked = !!p.budgetSelfApprove;
       document.getElementById('pBudgetDeptTransfer').checked = !!p.budgetDeptTransfer;
@@ -3445,6 +3469,7 @@
       document.getElementById('pBudgetViewer').checked = false;
       document.getElementById('pItAssetsViewer').checked = false;
       document.getElementById('pLicenseApprover').checked = false;
+      document.getElementById('pLicenseSelfApprove').checked = false;
       document.getElementById('pBudgetApprover').checked = false;
       document.getElementById('pBudgetSelfApprove').checked = false;
       document.getElementById('pBudgetDeptTransfer').checked = false;
@@ -3507,6 +3532,7 @@
           !p.admin && !p.itAssetsManager && p.itAssetsViewer ? '<span class="bg-sky-50 text-sky-600 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔎 Xem CNTT</span>' : '',
           !p.admin && p.licenseApprover ? '<span class="bg-indigo-100 text-indigo-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">✅ Duyệt License</span>' : '',
           !p.admin && p.budgetApprover ? '<span class="bg-indigo-100 text-indigo-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">✅ Duyệt Ngân sách</span>' : '',
+          p.licenseSelfApprove ? '<span class="bg-rose-100 text-rose-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔓 Tự duyệt đính chính License</span>' : '',
           p.budgetSelfApprove ? '<span class="bg-rose-100 text-rose-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔓 Tự duyệt Ngân sách</span>' : '',
           p.uploadAll ? '<span class="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">Upload:ALL</span>' : '',
           p.downloadAll ? '<span class="bg-rose-100 text-rose-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">Tải:ALL</span>' : '',
@@ -6416,6 +6442,18 @@ function isPerpetualSoftware(softwareId) {
         const isRequester = currentUser && r.createdBy && r.createdBy === currentUser.username;
         const isApprover = !!(currentUser && currentUser.perms && (currentUser.perms.admin || currentUser.perms.licenseApprover));
         const canDecide = r.status === 'PENDING' && !isRequester && isApprover;
+        // (Đính chính) Duyệt đính chính do CHÍNH MÌNH đề xuất cần
+        // licenseSelfApprove riêng (độc lập Admin/licenseApprover) — đính
+        // chính của người khác vẫn theo đúng quy tắc cũ (Admin/licenseApprover).
+        // Từ chối đính chính không chặn tự thao tác (giống hệt rejectRegistration
+        // ở trên vốn cũng không chặn) — chỉ cần có quyền duyệt chung.
+        const isSelfCorrection = !!(currentUser && r.correctionRequestedBy === currentUser.username);
+        const canApproveCorrection = !!r.correctionRequestedBy && (isSelfCorrection ? !!(currentUser.perms && currentUser.perms.licenseSelfApprove) : isApprover);
+        const canRejectCorrection = !!r.correctionRequestedBy && isApprover;
+        const correctionButtonsHtml = (canApproveCorrection || canRejectCorrection) ? `
+                ${canApproveCorrection ? `<button ${dc('approveRegistrationCorrection', r.id)} class="px-1.5 py-0.5 rounded hover:bg-success-50 text-success-700 text-[11px] font-semibold whitespace-nowrap">Duyệt đính chính</button>` : ''}
+                ${canRejectCorrection ? `<button ${dc('rejectRegistrationCorrection', r.id)} class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600 text-[11px] font-semibold whitespace-nowrap">Từ chối đính chính</button>` : ''}
+              ` : '';
         return `
           <tr class="hover:bg-gray-50">
             <td class="border p-2 text-center">${canDecide ? `<input type="checkbox" data-license-reg-check="adminReg" data-id="${r.id}" ${licenseRegSelectedIds.adminReg.has(r.id) ? 'checked' : ''} ${dchg('onLicenseRegRowCheckToggle', 'adminReg', r.id, LIVE_CHECKED)}>` : ''}</td>
@@ -6425,13 +6463,15 @@ function isPerpetualSoftware(softwareId) {
             <td class="border p-2 text-center">${r.currentQuantity}</td>
             <td class="border p-2 text-center font-semibold">${r.requestedQuantity}</td>
             <td class="border p-2 text-right font-semibold">${formatMoney(r.totalAmount)}</td>
-            <td class="border p-2 text-center">${purchaseStatusBadge(r.status)}${r.status === 'APPROVED' && r.issuedQuantity > 0 ? `<br><span class="text-[10px] font-bold text-teal-700">Đã phát hành ${r.issuedQuantity}/${r.requestedQuantity}</span>` : ''}${r.status === 'PENDING' && isRequester ? '<br><span class="text-[10px] text-gray-400">Chờ người khác duyệt</span>' : ''}${r.status === 'PENDING' && r.editRequested ? '<br><span class="text-[10px] font-bold text-blue-600">Đã yêu cầu bổ sung</span>' : ''}</td>
+            <td class="border p-2 text-center">${purchaseStatusBadge(r.status)}${r.status === 'APPROVED' && r.issuedQuantity > 0 ? `<br><span class="text-[10px] font-bold text-teal-700">Đã phát hành ${r.issuedQuantity}/${r.requestedQuantity}</span>` : ''}${r.status === 'PENDING' && isRequester ? '<br><span class="text-[10px] text-gray-400">Chờ người khác duyệt</span>' : ''}${r.status === 'PENDING' && r.editRequested ? '<br><span class="text-[10px] font-bold text-blue-600">Đã yêu cầu bổ sung</span>' : ''}${registrationCorrectionPendingHtml(r)}</td>
             <td class="border p-2 text-center whitespace-nowrap">
               ${canDecide ? `
                 <button ${dc('approveRegistration', r.id)} class="px-1.5 py-0.5 rounded hover:bg-success-50 text-success-700 text-[11px] font-semibold whitespace-nowrap">Duyệt</button>
                 <button ${dc('rejectRegistration', r.id)} class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600 text-[11px] font-semibold whitespace-nowrap">Từ chối</button>
                 ${!r.editRequested ? `<button ${dc('requestRegistrationSupplement', r.id)} class="px-1.5 py-0.5 rounded hover:bg-blue-50 text-blue-700 text-[11px] font-semibold whitespace-nowrap">Y/c bổ sung</button>` : ''}
-              ` : '—'}
+              ` : ''}
+              ${correctionButtonsHtml}
+              ${!canDecide && !correctionButtonsHtml ? '—' : ''}
             </td>
           </tr>
         `;
@@ -6519,6 +6559,95 @@ function isPerpetualSoftware(softwareId) {
         showToast(err.message, 'danger');
       }
     }
+    // --- Đính chính đăng ký mua (sửa Đơn giá/Số lượng SAU khi đã phát hành —
+    // xem chú thích đầy đủ ở POST /api/license/registrations/:id/request-
+    // correction, server.js). Số lượng chỉ sửa được khi CHƯA phát hành đủ
+    // (issuedQuantity < requestedQuantity) — ẩn hẳn ô Số lượng mới nếu đã
+    // phát hành đủ, tránh người dùng nhập vào rồi bị server từ chối.
+    function openRegistrationCorrectionModal(id) {
+      const r = licenseDB.purchaseRegistrations.find(x => x.id === id);
+      if (!r) return;
+      document.getElementById('regCorrId').value = id;
+      const issuedQty = r.issuedQuantity || 0;
+      const fullyIssued = issuedQty >= r.requestedQuantity;
+      document.getElementById('regCorrInfoBox').innerHTML = `
+        <div>Đơn giá hiện tại: <strong>${formatMoney(r.unitPrice)}</strong></div>
+        <div>Số lượng hiện tại: <strong>${r.requestedQuantity}</strong>${issuedQty > 0 ? ` (đã phát hành ${issuedQty})` : ''}</div>
+        ${r.correctionRequestedBy ? `<div class="text-amber-700 font-semibold pt-1 border-t mt-1">⚠️ Đang có 1 đính chính khác chờ duyệt (đề xuất bởi ${escapeHtml(r.correctionRequestedBy)}) — gửi lại sẽ THAY THẾ đề xuất đó.</div>` : ''}
+      `;
+      document.getElementById('regCorrUnitPrice').value = r.unitPrice;
+      document.getElementById('regCorrQuantity').value = r.requestedQuantity;
+      document.getElementById('regCorrQuantity').min = issuedQty || 1;
+      document.getElementById('regCorrQuantityWrap').classList.toggle('hidden', fullyIssued);
+      document.getElementById('regCorrQuantityLockedBox').classList.toggle('hidden', !fullyIssued);
+      document.getElementById('regCorrReason').value = '';
+      openLicenseModal('registrationCorrectionModal');
+    }
+    async function saveRegistrationCorrection() {
+      const id = Number(document.getElementById('regCorrId').value);
+      const r = licenseDB.purchaseRegistrations.find(x => x.id === id);
+      if (!r) return;
+      const unitPrice = Number(document.getElementById('regCorrUnitPrice').value);
+      const fullyIssued = (r.issuedQuantity || 0) >= r.requestedQuantity;
+      const requestedQuantity = fullyIssued ? null : Number(document.getElementById('regCorrQuantity').value);
+      const reason = document.getElementById('regCorrReason').value.trim();
+      if (!reason) return showToast('Vui lòng nhập lý do đính chính.', 'warning');
+      if (!Number.isFinite(unitPrice) || unitPrice < 0) return showToast('Đơn giá không hợp lệ.', 'warning');
+      const body = { reason };
+      // Chỉ gửi trường nào THỰC SỰ đổi so với giá trị hiện tại — tránh gửi
+      // "đính chính" không có gì thay đổi (server bắt buộc có ít nhất 1 trong
+      // 2 trường, và việc này giúp log/lịch sử rõ ràng, không lẫn trường
+      // không đổi vào mô tả đính chính).
+      if (unitPrice !== r.unitPrice) body.unitPrice = unitPrice;
+      if (!fullyIssued && requestedQuantity !== r.requestedQuantity) body.requestedQuantity = requestedQuantity;
+      if (body.unitPrice === undefined && body.requestedQuantity === undefined) return showToast('Chưa có thay đổi nào so với giá trị hiện tại.', 'warning');
+      try {
+        await apiFetch(`/api/license/registrations/${id}/request-correction`, { method: 'POST', body: JSON.stringify(body) });
+        showToast('Đã gửi đề xuất đính chính, chờ duyệt.', 'success');
+        closeLicenseModal('registrationCorrectionModal');
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        renderRegistrationsTable();
+        renderAdminRegistrationsTable();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+    async function approveRegistrationCorrection(id) {
+      if (!confirm('Duyệt đính chính này? Giá/số lượng mới sẽ được áp dụng ngay.')) return;
+      try {
+        await apiFetch(`/api/license/registrations/${id}/approve-correction`, { method: 'POST' });
+        showToast('Đã duyệt đính chính.', 'success');
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        renderRegistrationsTable();
+        renderAdminRegistrationsTable();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+    async function rejectRegistrationCorrection(id) {
+      if (!confirm('Từ chối đính chính này?')) return;
+      try {
+        await apiFetch(`/api/license/registrations/${id}/reject-correction`, { method: 'POST' });
+        showToast('Đã từ chối đính chính.', 'success');
+        licenseDB.loaded = false;
+        await loadLicenseBootstrapData();
+        renderRegistrationsTable();
+        renderAdminRegistrationsTable();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
+    }
+    // HTML hiển thị tóm tắt đính chính đang chờ duyệt (dùng chung cho cả 2
+    // bảng Đăng ký mua) — hiện ngay dưới badge trạng thái.
+    function registrationCorrectionPendingHtml(r) {
+      if (!r.correctionRequestedBy) return '';
+      const parts = [];
+      if (r.correctionUnitPrice !== null && r.correctionUnitPrice !== undefined) parts.push(`Giá → ${formatMoney(r.correctionUnitPrice)}`);
+      if (r.correctionRequestedQuantity !== null && r.correctionRequestedQuantity !== undefined) parts.push(`SL → ${r.correctionRequestedQuantity}`);
+      return `<br><span class="text-[10px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full whitespace-nowrap inline-block mt-0.5">📝 Chờ duyệt đính chính: ${parts.join(', ')}</span>`;
+    }
 
     // --- Đăng ký mua bản quyền (Công ty đăng ký nhu cầu) ---
     function populateRegistrationFilterSelects() {
@@ -6563,9 +6692,11 @@ function isPerpetualSoftware(softwareId) {
                  (chỉ chốt khi Phát hành) — tạm hiển thị Loại license khai báo
                  ở tab Phần mềm thay vì mặc định "Vĩnh viễn". -->
             <td class="border p-2">${r.expiryDate ? expiryLabel(r.expiryDate) : (software ? licenseTypeBadge(software.licenseType) : '—')}</td>
-            <td class="border p-2 text-center">${purchaseStatusBadge(r.status)}${r.status === 'APPROVED' && r.issuedQuantity > 0 ? `<br><span class="text-[10px] font-bold text-teal-700">Đã phát hành ${r.issuedQuantity}/${r.requestedQuantity}</span>` : ''}${r.status === 'PENDING' && r.editRequested ? '<br><span class="text-[10px] font-bold text-blue-600">Đã yêu cầu bổ sung</span>' : ''}</td>
+            <td class="border p-2 text-center">${purchaseStatusBadge(r.status)}${r.status === 'APPROVED' && r.issuedQuantity > 0 ? `<br><span class="text-[10px] font-bold text-teal-700">Đã phát hành ${r.issuedQuantity}/${r.requestedQuantity}</span>` : ''}${r.status === 'PENDING' && r.editRequested ? '<br><span class="text-[10px] font-bold text-blue-600">Đã yêu cầu bổ sung</span>' : ''}${registrationCorrectionPendingHtml(r)}</td>
             <td class="border p-2 text-center whitespace-nowrap">
-              ${r.status === 'PENDING' && r.editRequested ? `<button ${dc('openRegistrationEditModal', r.id)} class="px-1.5 py-0.5 rounded hover:bg-brand-100 text-brand-700 text-[11px] font-semibold whitespace-nowrap">✏️ Sửa</button>` : '—'}
+              ${r.status === 'PENDING' && r.editRequested ? `<button ${dc('openRegistrationEditModal', r.id)} class="px-1.5 py-0.5 rounded hover:bg-brand-100 text-brand-700 text-[11px] font-semibold whitespace-nowrap">✏️ Sửa</button>` : ''}
+              ${r.status !== 'REJECTED' ? `<button ${dc('openRegistrationCorrectionModal', r.id)} class="px-1.5 py-0.5 rounded hover:bg-amber-100 text-amber-700 text-[11px] font-semibold whitespace-nowrap">📝 Đính chính</button>` : ''}
+              ${r.status === 'REJECTED' && !r.editRequested ? '—' : ''}
             </td>
           </tr>
         `;
