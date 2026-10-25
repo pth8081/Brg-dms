@@ -2061,22 +2061,32 @@
       <p class="text-xs text-gray-500 mb-3">Số liệu tổng hợp năm <span id="repBudget2YearLabel" class="font-semibold text-gray-700"></span> (năm mới nhất có dữ liệu). Xem đầy đủ nhiều năm + lọc chi tiết tại
         <button type="button" data-evt-click="goToBudget2FullReport" data-args='[]' class="text-teal-700 font-semibold hover:underline">Quản lý Ngân sách → Báo cáo</button>.
       </p>
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div class="bg-white border rounded-xl p-4 shadow-sm">
-          <div class="text-xs font-semibold text-gray-500 mb-1">Tổng đề xuất</div>
-          <div id="repBudget2Proposed" class="text-2xl font-bold text-purple-700">—</div>
+      <!-- (Chống tràn số tiền lớn trên di động) Số VNĐ thực tế có thể lên tới
+           hàng chục/trăm tỷ (15+ ký tự) — ở lưới 2 cột trên điện thoại, cỡ chữ
+           cố định text-2xl (24px) khiến số dài tràn ra khỏi thẻ, bị thẻ bên
+           cạnh đè lên trông như bị cắt/vỡ chữ. Cỡ chữ co giãn theo bề ngang
+           màn hình (clamp — chạy mượt qua mọi cỡ điện thoại 5"-6.8", không chỉ
+           nhảy bậc ở vài breakpoint cố định), min-w-0 cho phép ô lưới co nhỏ
+           hơn nội dung, whitespace-nowrap + overflow-x-auto đảm bảo số KHÔNG
+           BAO GIỜ bị ngắt dòng giữa chừng — trường hợp cực hiếm (số siêu dài ở
+           màn hình siêu nhỏ) chỉ cuộn ngang trong đúng khung thẻ, không tràn
+           ra ngoài hay bị thẻ khác đè lên. -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
+        <div class="bg-white border rounded-xl p-3 sm:p-4 shadow-sm min-w-0">
+          <div class="text-[11px] sm:text-xs font-semibold text-gray-500 mb-1 truncate">Tổng đề xuất</div>
+          <div id="repBudget2Proposed" class="text-[clamp(0.7rem,3.2vw,1.5rem)] font-bold text-purple-700 tabular-nums whitespace-nowrap overflow-x-auto">—</div>
         </div>
-        <div class="bg-white border rounded-xl p-4 shadow-sm">
-          <div class="text-xs font-semibold text-gray-500 mb-1">Đã duyệt</div>
-          <div id="repBudget2Approved" class="text-2xl font-bold text-sky-700">—</div>
+        <div class="bg-white border rounded-xl p-3 sm:p-4 shadow-sm min-w-0">
+          <div class="text-[11px] sm:text-xs font-semibold text-gray-500 mb-1 truncate">Đã duyệt</div>
+          <div id="repBudget2Approved" class="text-[clamp(0.7rem,3.2vw,1.5rem)] font-bold text-sky-700 tabular-nums whitespace-nowrap overflow-x-auto">—</div>
         </div>
-        <div class="bg-white border rounded-xl p-4 shadow-sm">
-          <div class="text-xs font-semibold text-gray-500 mb-1">Đã sử dụng</div>
-          <div id="repBudget2Used" class="text-2xl font-bold text-teal-700">—</div>
+        <div class="bg-white border rounded-xl p-3 sm:p-4 shadow-sm min-w-0">
+          <div class="text-[11px] sm:text-xs font-semibold text-gray-500 mb-1 truncate">Đã sử dụng</div>
+          <div id="repBudget2Used" class="text-[clamp(0.7rem,3.2vw,1.5rem)] font-bold text-teal-700 tabular-nums whitespace-nowrap overflow-x-auto">—</div>
         </div>
-        <div class="bg-white border rounded-xl p-4 shadow-sm">
-          <div class="text-xs font-semibold text-gray-500 mb-1">Còn lại (đã duyệt)</div>
-          <div id="repBudget2Remaining" class="text-2xl font-bold text-gray-900">—</div>
+        <div class="bg-white border rounded-xl p-3 sm:p-4 shadow-sm min-w-0">
+          <div class="text-[11px] sm:text-xs font-semibold text-gray-500 mb-1 truncate">Còn lại (đã duyệt)</div>
+          <div id="repBudget2Remaining" class="text-[clamp(0.7rem,3.2vw,1.5rem)] font-bold text-gray-900 tabular-nums whitespace-nowrap overflow-x-auto">—</div>
         </div>
       </div>
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
