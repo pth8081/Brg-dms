@@ -250,6 +250,11 @@ async function ensureSchemaMigrations() {
     await ensureColumnExists('lic_employees', 'email_locked', 'TINYINT(1) NOT NULL DEFAULT 0');
     await ensureColumnExists('lic_license_batches', 'registration_quantity_applied', 'INT NULL DEFAULT NULL');
     await ensureColumnExists('budget2_lines', 'software_id', 'BIGINT NULL DEFAULT NULL');
+    await ensureColumnExists('lic_purchase_registrations', 'correction_unit_price', 'DECIMAL(18,2) NULL DEFAULT NULL');
+    await ensureColumnExists('lic_purchase_registrations', 'correction_requested_quantity', 'INT NULL DEFAULT NULL');
+    await ensureColumnExists('lic_purchase_registrations', 'correction_reason', 'VARCHAR(500) NULL DEFAULT NULL');
+    await ensureColumnExists('lic_purchase_registrations', 'correction_requested_by', 'VARCHAR(100) NULL DEFAULT NULL');
+    await ensureColumnExists('lic_purchase_registrations', 'correction_requested_at', 'VARCHAR(100) NULL DEFAULT NULL');
 }
 
 let pool;
@@ -495,7 +500,7 @@ function requireLicenseOrAdmin(req, res, next) {
 // không có quyền tạo/sửa/xóa/duyệt gì) — mọi route GHI vẫn giữ nguyên
 // requireLicenseOrAdmin ở trên, KHÔNG thêm licenseViewer vào đó.
 function requireLicenseViewOrAdmin(req, res, next) {
-    if (!req.user || !req.user.perms || (!req.user.perms.admin && !req.user.perms.licenseManager && !req.user.perms.licenseViewer && !req.user.perms.licenseApprover)) {
+    if (!req.user || !req.user.perms || (!req.user.perms.admin && !req.user.perms.licenseManager && !req.user.perms.licenseViewer && !req.user.perms.licenseApprover && !req.user.perms.licenseSelfApprove)) {
         return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên, Người quản lý License, Người xem License, hoặc Người duyệt License.' });
     }
     next();
@@ -508,6 +513,21 @@ function requireLicenseViewOrAdmin(req, res, next) {
 function requireLicenseApproveOrAdmin(req, res, next) {
     if (!req.user || !req.user.perms || (!req.user.perms.admin && !req.user.perms.licenseApprover)) {
         return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên hoặc Người duyệt License.' });
+    }
+    next();
+}
+
+// (Quyền "Tự phê duyệt đính chính License" — licenseSelfApprove) Dùng RIÊNG
+// cho route duyệt đính chính đăng ký mua (approve-correction) — mirror y hệt
+// requireBudgetApproveOrSelfOrAdmin (budget2_lines). Chỉ mở cổng vào route
+// (để người CHỈ có licenseSelfApprove, không có Admin/licenseApprover, còn
+// gọi được route); bên trong handler còn 1 lớp kiểm tra nữa đảm bảo quyền
+// này CHỈ tự duyệt được đính chính do chính mình đề xuất, không mở rộng ra
+// duyệt đính chính của người khác.
+function requireLicenseApproveOrSelfOrAdmin(req, res, next) {
+    const p = req.user && req.user.perms;
+    if (!p || !(p.admin || p.licenseApprover || p.licenseSelfApprove)) {
+        return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên, Người duyệt License, hoặc Quyền tự phê duyệt đính chính License.' });
     }
     next();
 }
@@ -3784,7 +3804,7 @@ function mapCodeAssignment(a) { return { id: a.id, codeId: a.code_id, employeeId
 function mapAdAccount(a) { return { id: a.id, username: a.username, fullName: a.full_name, email: a.email, active: !!a.active, company: a.company, orgUnit: a.org_unit, disabledAt: fmtDate(a.disabled_at), lastSyncedAt: a.last_synced_at }; }
 function mapRound(r) { return { id: r.id, name: r.name, note: r.note, status: r.status, createdAt: r.created_at, budgetRoundId: r.budget_round_id, scopeType: r.scope_type, scopeId: r.scope_id, roundType: r.round_type }; }
 function mapRoundItem(i) { return { id: i.id, roundId: i.round_id, softwareId: i.software_id, unitPrice: Number(i.unit_price), expiryDate: fmtDate(i.expiry_date) }; }
-function mapRegistration(r) { return { id: r.id, roundId: r.round_id, roundItemId: r.round_item_id, companyId: r.company_id, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity, budgetQuantity: r.budget_quantity === null || r.budget_quantity === undefined ? null : Number(r.budget_quantity), unitPrice: Number(r.unit_price), totalAmount: Number(r.total_amount), expiryDate: fmtDate(r.expiry_date), status: r.status, note: r.note, createdAt: r.created_at, createdBy: r.created_by, decidedBy: r.decided_by, decidedAt: r.decided_at, issuedBatchId: r.issued_batch_id, issuedQuantity: r.issued_quantity, issuedAt: r.issued_at, editRequested: !!r.edit_requested }; }
+function mapRegistration(r) { return { id: r.id, roundId: r.round_id, roundItemId: r.round_item_id, companyId: r.company_id, currentQuantity: r.current_quantity, requestedQuantity: r.requested_quantity, budgetQuantity: r.budget_quantity === null || r.budget_quantity === undefined ? null : Number(r.budget_quantity), unitPrice: Number(r.unit_price), totalAmount: Number(r.total_amount), expiryDate: fmtDate(r.expiry_date), status: r.status, note: r.note, createdAt: r.created_at, createdBy: r.created_by, decidedBy: r.decided_by, decidedAt: r.decided_at, issuedBatchId: r.issued_batch_id, issuedQuantity: r.issued_quantity, issuedAt: r.issued_at, editRequested: !!r.edit_requested, correctionUnitPrice: r.correction_unit_price === null || r.correction_unit_price === undefined ? null : Number(r.correction_unit_price), correctionRequestedQuantity: r.correction_requested_quantity, correctionReason: r.correction_reason, correctionRequestedBy: r.correction_requested_by, correctionRequestedAt: r.correction_requested_at }; }
 function mapBudgetRound(r) { return { id: r.id, name: r.name, note: r.note, status: r.status, createdAt: r.created_at, scopeType: r.scope_type, scopeId: r.scope_id }; }
 function mapBudgetRoundItem(i) { return { id: i.id, roundId: i.round_id, softwareId: i.software_id, itemType: i.item_type || 'SOFTWARE', itemName: i.item_name, catalogItemId: i.catalog_item_id, capexOpex: i.capex_opex || 'OPEX', unitPrice: Number(i.unit_price), description: i.description }; }
 function mapBudgetItemCatalog(c) { return { id: c.id, itemType: c.item_type, name: c.name, unit: c.unit, active: !!c.active, systemCategoryCode: c.system_category_code || null }; }
@@ -6538,6 +6558,134 @@ app.post('/api/license/registrations/:id/request-supplement', requireAuth, requi
         res.json({ success: true });
     } catch (err) {
         console.error('❌ Lỗi yêu cầu bổ sung đăng ký:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Đính chính đăng ký mua SAU KHI đã phát hành — khác hẳn "Yêu cầu bổ
+// sung" ở trên (chỉ áp dụng khi PENDING): áp dụng được ở BẤT KỲ trạng thái
+// nào (PENDING/APPROVED/ISSUED), vì giá hóa đơn thực tế có thể khác giá đã
+// đăng ký, kể cả sau khi đã phát hành license thật. Luồng 2 bước RIÊNG: ai
+// có quyền License đề xuất giá/số lượng mới (set correction_*), rồi 1 người
+// khác duyệt (.../approve-correction) hoặc từ chối (.../reject-correction)
+// mới thực sự áp dụng vào unit_price/requested_quantity — KHÔNG sửa trực
+// tiếp ngay như PUT ở dưới (đây là sửa dữ liệu TÀI CHÍNH ĐÃ CHỐT, luôn cần
+// duyệt lại, không có khái niệm "tự sửa xong là xong" như edit_requested).
+app.post('/api/license/registrations/:id/request-correction', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const reason = String((req.body && req.body.reason) || '').trim();
+        if (!reason) return res.status(400).json({ error: 'Vui lòng nhập lý do đính chính.' });
+        if (reason.length > 500) return res.status(400).json({ error: 'Lý do quá dài (tối đa 500 ký tự).' });
+
+        const hasUnitPrice = req.body && req.body.unitPrice !== undefined && req.body.unitPrice !== null && req.body.unitPrice !== '';
+        const hasQuantity = req.body && req.body.requestedQuantity !== undefined && req.body.requestedQuantity !== null && req.body.requestedQuantity !== '';
+        if (!hasUnitPrice && !hasQuantity) return res.status(400).json({ error: 'Vui lòng nhập ít nhất 1 trong 2: Đơn giá mới hoặc Số lượng mới.' });
+
+        let unitPrice = null, requestedQuantity = null;
+        if (hasUnitPrice) {
+            unitPrice = Number(req.body.unitPrice);
+            if (!Number.isFinite(unitPrice) || unitPrice < 0) return res.status(400).json({ error: 'Đơn giá không hợp lệ.' });
+            if (unitPrice > 1e12) return res.status(400).json({ error: 'Đơn giá vượt quá giới hạn cho phép.' });
+        }
+
+        const [rows] = await pool.query('SELECT * FROM lic_purchase_registrations WHERE id = ?', [id]);
+        if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy đăng ký.' });
+        const reg = rows[0];
+        if (reg.status === 'REJECTED') return res.status(400).json({ error: 'Đăng ký đã bị từ chối, không đính chính được.' });
+
+        if (hasQuantity) {
+            const issuedQty = reg.issued_quantity || 0;
+            if (issuedQty >= reg.requested_quantity) return res.status(400).json({ error: 'Đã phát hành đủ số lượng đăng ký — không thể sửa số lượng, vui lòng tạo đăng ký mua mới nếu cần thêm.' });
+            requestedQuantity = Number(req.body.requestedQuantity);
+            if (!Number.isInteger(requestedQuantity) || requestedQuantity < 1 || requestedQuantity > 5000) return res.status(400).json({ error: 'Số lượng phải là số nguyên từ 1 đến 5000.' });
+            if (requestedQuantity < issuedQty) return res.status(400).json({ error: `Số lượng mới không được nhỏ hơn số đã phát hành thật (${issuedQty}).` });
+        }
+
+        // Phạm vi: cùng kiểm tra như sửa đăng ký (PUT .../registrations/:id ở dưới).
+        const isAdmin = !!(req.user.perms && (req.user.perms.admin || req.user.perms.licenseManager));
+        if (!isAdmin) {
+            const [roundRows] = await pool.query('SELECT scope_type, scope_id FROM lic_purchase_rounds WHERE id = ?', [reg.round_id]);
+            const userScope = getUserLicenseScope(req.user);
+            const [allOrgUnitsRows] = await pool.query('SELECT id, parent_id, company_id FROM lic_org_units');
+            const roundScope = roundRows[0] && roundRows[0].scope_type ? { type: roundRows[0].scope_type, id: roundRows[0].scope_id } : null;
+            const allowed = userCanActOnTarget({ isAdmin, userScope, roundScope, allOrgUnits: allOrgUnitsRows, targetCompanyId: reg.company_id, targetOrgUnitId: null });
+            if (!allowed) return res.status(403).json({ error: 'Bạn không có quyền đính chính đăng ký của công ty này.' });
+        }
+
+        await pool.query(
+            'UPDATE lic_purchase_registrations SET correction_unit_price = ?, correction_requested_quantity = ?, correction_reason = ?, correction_requested_by = ?, correction_requested_at = ? WHERE id = ?',
+            [unitPrice, requestedQuantity, reason, req.user.username, new Date().toISOString(), id]
+        );
+        await writeAuditLog({ module: 'LICENSE', actionType: 'REQUEST_CORRECTION_REGISTRATION', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `Đăng ký #${id}`, description: `Đề xuất đính chính đăng ký mua bản quyền #${id}: ${hasUnitPrice ? `đơn giá ${reg.unit_price} → ${unitPrice}` : ''}${hasUnitPrice && hasQuantity ? ', ' : ''}${hasQuantity ? `số lượng ${reg.requested_quantity} → ${requestedQuantity}` : ''}. Lý do: ${reason}` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi đề xuất đính chính đăng ký:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.post('/api/license/registrations/:id/approve-correction', requireAuth, requireLicenseApproveOrSelfOrAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query('SELECT * FROM lic_purchase_registrations WHERE id = ?', [id]);
+        if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy đăng ký.' });
+        const reg = rows[0];
+        if (!reg.correction_requested_by) return res.status(400).json({ error: 'Đăng ký này không có đính chính nào đang chờ duyệt.' });
+
+        // (Quyền "Tự phê duyệt đính chính License" — licenseSelfApprove) Quyền
+        // RIÊNG, ĐỘC LẬP hoàn toàn với Admin/licenseApprover — PHẢI có đúng cờ
+        // này (không xét req.user.perms.admin) mới tự duyệt được đính chính do
+        // chính mình đề xuất. Đính chính của NGƯỜI KHÁC vẫn theo quy tắc cũ
+        // (Admin hoặc licenseApprover).
+        if (reg.correction_requested_by === req.user.username) {
+            if (!req.user.perms.licenseSelfApprove) return res.status(403).json({ error: 'Không thể tự duyệt đính chính do chính mình đề xuất — cần được cấp quyền "Tự phê duyệt đính chính License".' });
+        } else if (!req.user.perms.admin && !req.user.perms.licenseApprover) {
+            return res.status(403).json({ error: 'Yêu cầu quyền Quản trị viên hoặc Người duyệt License để duyệt đính chính của người khác.' });
+        }
+
+        const newUnitPrice = reg.correction_unit_price !== null ? Number(reg.correction_unit_price) : Number(reg.unit_price);
+        const newQuantity = reg.correction_requested_quantity !== null ? reg.correction_requested_quantity : reg.requested_quantity;
+        // Kiểm tra lại mốc "đã phát hành đủ" ngay trước khi áp dụng (phòng khi
+        // đã phát hành thêm từ lúc đề xuất tới lúc duyệt) — không áp dụng số
+        // lượng mới nếu lúc này đã phát hành đủ rồi.
+        if (reg.correction_requested_quantity !== null && (reg.issued_quantity || 0) >= reg.requested_quantity) {
+            return res.status(400).json({ error: 'Đăng ký đã phát hành đủ số lượng từ lúc đề xuất đính chính tới nay — không áp dụng được phần đính chính số lượng. Vui lòng từ chối đính chính này và đề xuất lại nếu chỉ cần sửa giá.' });
+        }
+        const newTotalAmount = newUnitPrice * newQuantity;
+
+        const [upd] = await pool.query(
+            `UPDATE lic_purchase_registrations SET unit_price = ?, requested_quantity = ?, total_amount = ?,
+                correction_unit_price = NULL, correction_requested_quantity = NULL, correction_reason = NULL, correction_requested_by = NULL, correction_requested_at = NULL
+             WHERE id = ? AND correction_requested_by = ?`,
+            [newUnitPrice, newQuantity, newTotalAmount, id, reg.correction_requested_by]
+        );
+        if (upd.affectedRows === 0) return res.status(409).json({ error: 'Đính chính này vừa được xử lý bởi người khác, vui lòng tải lại trang.' });
+        await writeAuditLog({ module: 'LICENSE', actionType: 'APPROVE_CORRECTION_REGISTRATION', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `Đăng ký #${id}`, description: `Duyệt đính chính đăng ký mua bản quyền #${id}: đơn giá ${reg.unit_price} → ${newUnitPrice}, số lượng ${reg.requested_quantity} → ${newQuantity}.` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi duyệt đính chính đăng ký:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.post('/api/license/registrations/:id/reject-correction', requireAuth, requireLicenseApproveOrAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query('SELECT * FROM lic_purchase_registrations WHERE id = ?', [id]);
+        if (!rows[0]) return res.status(404).json({ error: 'Không tìm thấy đăng ký.' });
+        const reg = rows[0];
+        if (!reg.correction_requested_by) return res.status(400).json({ error: 'Đăng ký này không có đính chính nào đang chờ duyệt.' });
+        const [upd] = await pool.query(
+            `UPDATE lic_purchase_registrations SET correction_unit_price = NULL, correction_requested_quantity = NULL, correction_reason = NULL, correction_requested_by = NULL, correction_requested_at = NULL
+             WHERE id = ? AND correction_requested_by = ?`,
+            [id, reg.correction_requested_by]
+        );
+        if (upd.affectedRows === 0) return res.status(409).json({ error: 'Đính chính này vừa được xử lý bởi người khác, vui lòng tải lại trang.' });
+        await writeAuditLog({ module: 'LICENSE', actionType: 'REJECT_CORRECTION_REGISTRATION', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `Đăng ký #${id}`, description: `Từ chối đính chính đăng ký mua bản quyền #${id} (đề xuất bởi ${reg.correction_requested_by}).` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi từ chối đính chính đăng ký:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });

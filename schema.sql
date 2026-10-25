@@ -1036,6 +1036,26 @@ CALL add_column_if_not_exists('budget2_lines', 'updated_at', 'VARCHAR(100) NULL 
 CALL add_column_if_not_exists('budget2_lines', 'software_id', 'BIGINT NULL DEFAULT NULL');
 CALL create_index_if_not_exists('budget2_lines', 'idx_budget2_software', 'software_id');
 
+-- (Đính chính đăng ký mua sau khi đã phát hành) Giá đăng ký ban đầu lấy từ
+-- giá catalog của kỳ mua tại thời điểm đăng ký — có thể khác giá hóa đơn
+-- thực tế lúc mua. Trước đây đăng ký CHỈ sửa được khi còn PENDING (qua cơ chế
+-- edit_requested) — không có cách nào sửa lại giá/số lượng sau khi đã
+-- APPROVED/ISSUED. "Đính chính" là luồng 2 bước RIÊNG (khác "Yêu cầu bổ
+-- sung"): ai đó đề xuất giá trị mới + lý do (set các cột correction_*), rồi
+-- 1 người khác duyệt (POST .../approve-correction, áp dụng giá trị mới vào
+-- unit_price/requested_quantity/total_amount rồi xóa các cột correction_*) —
+-- dùng BẤT KỂ status hiện tại là gì (PENDING/APPROVED/ISSUED), khác hẳn
+-- edit_requested (chỉ áp dụng khi PENDING). correction_requested_by IS NOT
+-- NULL nghĩa là đang có 1 đính chính chờ duyệt. Ràng buộc "số lượng mới
+-- không được nhỏ hơn số đã phát hành thật, và không sửa được số lượng nếu đã
+-- phát hành đủ" được kiểm tra ở server (POST .../request-correction), không
+-- ràng buộc được bằng CSDL đơn thuần.
+CALL add_column_if_not_exists('lic_purchase_registrations', 'correction_unit_price', 'DECIMAL(18,2) NULL DEFAULT NULL');
+CALL add_column_if_not_exists('lic_purchase_registrations', 'correction_requested_quantity', 'INT NULL DEFAULT NULL');
+CALL add_column_if_not_exists('lic_purchase_registrations', 'correction_reason', 'VARCHAR(500) NULL DEFAULT NULL');
+CALL add_column_if_not_exists('lic_purchase_registrations', 'correction_requested_by', 'VARCHAR(100) NULL DEFAULT NULL');
+CALL add_column_if_not_exists('lic_purchase_registrations', 'correction_requested_at', 'VARCHAR(100) NULL DEFAULT NULL');
+
 -- Dọn dẹp: xóa các thủ tục tạm sau khi dùng xong, không để lại trong CSDL thật.
 DROP PROCEDURE IF EXISTS create_index_if_not_exists;
 DROP PROCEDURE IF EXISTS create_unique_index_if_not_exists;
