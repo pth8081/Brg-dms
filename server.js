@@ -7649,11 +7649,65 @@ app.get('/api/license/reports', requireAuth, requireLicenseViewOrAdmin, async (r
             companyId ? [expiryMonths, expiryMonths, companyId] : [expiryMonths, expiryMonths]
         );
 
+        // --- 5) Tình trạng cấp phép theo Phần mềm — trả lời đúng câu hỏi
+        // "license nào đã cấp, đang dùng, chưa dùng": mỗi mã (lic_license_codes)
+        // được coi là "Đang sử dụng" nếu có ít nhất 1 dòng gán ở
+        // lic_license_code_assignments, ngược lại là "Chưa sử dụng" (còn
+        // trống, có thể gán tiếp hoặc thu hồi nếu dư thừa). Nhóm theo Phần
+        // mềm + Công ty để biết rõ công ty nào đang lãng phí license nào.
+        const statusFilterParts = [];
+        const statusFilterParams = [];
+        if (companyId) { statusFilterParts.push('c.company_id = ?'); statusFilterParams.push(companyId); }
+        if (softwareId) { statusFilterParts.push('c.software_id = ?'); statusFilterParams.push(softwareId); }
+        const statusWhereSql = statusFilterParts.length ? ` WHERE ${statusFilterParts.join(' AND ')}` : '';
+        const [usageStatusBySoftware] = await pool.query(
+            `SELECT sw.id AS softwareId, sw.name AS softwareName, co.id AS companyId, co.name AS companyName,
+                    COUNT(*) AS totalCodes,
+                    SUM(CASE WHEN asg.cnt > 0 THEN 1 ELSE 0 END) AS usedCodes,
+                    SUM(CASE WHEN asg.cnt IS NULL THEN 1 ELSE 0 END) AS unusedCodes
+             FROM lic_license_codes c
+             JOIN lic_software_catalog sw ON sw.id = c.software_id
+             JOIN lic_companies co ON co.id = c.company_id
+             LEFT JOIN (SELECT code_id, COUNT(*) AS cnt FROM lic_license_code_assignments GROUP BY code_id) asg ON asg.code_id = c.id
+             ${statusWhereSql}
+             GROUP BY sw.id, sw.name, co.id, co.name ORDER BY sw.name ASC, co.name ASC`,
+            statusFilterParams
+        );
+        const [[usageStatusTotal]] = await pool.query(
+            `SELECT COUNT(*) AS totalCodes, SUM(CASE WHEN asg.cnt > 0 THEN 1 ELSE 0 END) AS usedCodes, SUM(CASE WHEN asg.cnt IS NULL THEN 1 ELSE 0 END) AS unusedCodes
+             FROM lic_license_codes c
+             LEFT JOIN (SELECT code_id, COUNT(*) AS cnt FROM lic_license_code_assignments GROUP BY code_id) asg ON asg.code_id = c.id
+             ${statusWhereSql}`,
+            statusFilterParams
+        );
+        const unusedWhereSql = ` WHERE ${[...statusFilterParts, 'a.id IS NULL'].join(' AND ')}`;
+        const [unusedCodesRows] = await pool.query(
+            `SELECT c.code AS licenseCode, co.name AS companyName, sw.name AS softwareName,
+                    DATE_FORMAT(b.issued_date, '%Y-%m-%d') AS issuedDate, DATE_FORMAT(c.expiry_date, '%Y-%m-%d') AS expiryDate
+             FROM lic_license_codes c
+             JOIN lic_companies co ON co.id = c.company_id
+             JOIN lic_software_catalog sw ON sw.id = c.software_id
+             LEFT JOIN lic_license_batches b ON b.id = c.batch_id
+             LEFT JOIN lic_license_code_assignments a ON a.code_id = c.id
+             ${unusedWhereSql}
+             ORDER BY sw.name ASC, co.name ASC, c.code ASC`,
+            statusFilterParams
+        );
+
         res.json({
             usage: { byCompany: usageByCompany, byOrgUnit: usageByOrgUnit, bySoftware: usageBySoftware, total: { cnt: usageTotal.cnt, userCnt: usageTotal.userCnt } },
             rounds: { purchaseRounds, purchaseRoundId, purchaseByCompany, budgetRounds, budgetRoundId, budgetRegByOrgUnit },
             recent: { period: recentPeriod, assignments: recentAssignments, trend: recentTrend },
-            expiry: { months: expiryMonths, rows: expiryRows, summary: expirySummary }
+            expiry: { months: expiryMonths, rows: expiryRows, summary: expirySummary },
+            usageStatus: {
+                bySoftware: usageStatusBySoftware,
+                unusedCodes: unusedCodesRows,
+                total: {
+                    totalCodes: Number(usageStatusTotal.totalCodes) || 0,
+                    usedCodes: Number(usageStatusTotal.usedCodes) || 0,
+                    unusedCodes: Number(usageStatusTotal.unusedCodes) || 0
+                }
+            }
         });
     } catch (err) {
         console.error('❌ Lỗi tải báo cáo License:', err.message);

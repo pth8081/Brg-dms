@@ -1814,17 +1814,17 @@
       </div>
     </div>
 
-    <!-- Sub-tab: Báo cáo Bản quyền — 4 khối độc lập, mỗi khối tự có bộ lọc/biểu
+    <!-- Sub-tab: Báo cáo Bản quyền — 5 khối độc lập, mỗi khối tự có bộ lọc/biểu
          đồ/bảng/xuất Excel riêng (bộ lọc Công ty ở đầu trang áp dụng chung cho
-         cả 4 khối). -->
+         cả 5 khối). -->
     <div id="licenseSubReports" class="hidden space-y-4">
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded border text-xs">
         <div>
-          <label class="block font-semibold text-gray-600 mb-1">Lọc theo Công ty (áp dụng cho cả 4 báo cáo bên dưới)</label>
+          <label class="block font-semibold text-gray-600 mb-1">Lọc theo Công ty (áp dụng cho cả 5 báo cáo bên dưới)</label>
           <select id="licRepFilterCompany" data-evt-change="onLicenseReportFilterChange" data-args='[]' class="w-full border p-1.5 rounded bg-white"></select>
         </div>
         <div>
-          <label class="block font-semibold text-gray-600 mb-1">Lọc theo Phần mềm (chỉ áp dụng báo cáo 1 — Người dùng)</label>
+          <label class="block font-semibold text-gray-600 mb-1">Lọc theo Phần mềm (áp dụng báo cáo 1 — Người dùng và báo cáo 5 — Tình trạng cấp phép)</label>
           <select id="licRepFilterSoftware" data-evt-change="onLicenseReportFilterChange" data-args='[]' class="w-full border p-1.5 rounded bg-white"></select>
         </div>
       </div>
@@ -1935,6 +1935,52 @@
             <thead><tr class="bg-gray-100 text-left"><th class="border p-2">Mã license</th><th class="border p-2">Công ty</th><th class="border p-2">Phần mềm</th><th class="border p-2 text-center">Ngày hết hạn</th><th class="border p-2">Người giữ</th></tr></thead>
             <tbody id="licRepExpiryTableBody"></tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- Báo cáo 5: Tình trạng cấp phép theo Phần mềm — đã cấp / đang sử
+           dụng / chưa sử dụng, kèm danh sách mã cụ thể còn để trống. -->
+      <div class="bg-white border rounded-xl p-4 shadow-sm">
+        <div class="flex justify-between items-center mb-2">
+          <h3 class="font-bold text-gray-800 text-sm">5. Tình trạng cấp phép theo Phần mềm</h3>
+          <button data-evt-click="exportLicenseUsageStatusReportXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">📤 Xuất Excel</button>
+        </div>
+        <p class="text-[11px] text-gray-500 mb-2">1 mã được coi là "Đang sử dụng" nếu đã gán cho ít nhất 1 nhân viên ở tab Phân bổ; ngược lại là "Chưa sử dụng" (còn trống, có thể gán tiếp hoặc thu hồi nếu dư thừa).</p>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+          <div class="bg-gray-50 border rounded p-3">
+            <div class="text-[11px] font-semibold text-gray-500">Tổng đã cấp</div>
+            <div id="licRepUsageStatusTotalCnt" class="text-xl font-bold text-gray-900">—</div>
+          </div>
+          <div class="bg-gray-50 border rounded p-3">
+            <div class="text-[11px] font-semibold text-gray-500">Đang sử dụng</div>
+            <div id="licRepUsageStatusUsedCnt" class="text-xl font-bold text-teal-700">—</div>
+          </div>
+          <div class="bg-gray-50 border rounded p-3">
+            <div class="text-[11px] font-semibold text-gray-500">Chưa sử dụng</div>
+            <div id="licRepUsageStatusUnusedCnt" class="text-xl font-bold text-amber-600">—</div>
+          </div>
+          <div class="bg-gray-50 border rounded p-3">
+            <div class="text-[11px] font-semibold text-gray-500">Tỷ lệ sử dụng</div>
+            <div id="licRepUsageStatusPct" class="text-xl font-bold text-gray-900">—</div>
+          </div>
+        </div>
+        <div id="licRepUsageStatusBar" class="overflow-x-auto"></div>
+        <div class="overflow-x-auto mt-2">
+          <table class="w-full border-collapse border bg-white text-xs">
+            <thead><tr class="bg-gray-100 text-left">
+              <th class="border p-2">Phần mềm</th><th class="border p-2">Công ty</th><th class="border p-2 text-center">Tổng đã cấp</th><th class="border p-2 text-center">Đang sử dụng</th><th class="border p-2 text-center">Chưa sử dụng</th><th class="border p-2 text-center">Tỷ lệ sử dụng</th>
+            </tr></thead>
+            <tbody id="licRepUsageStatusTableBody"></tbody>
+          </table>
+        </div>
+        <div class="mt-3">
+          <h4 class="font-semibold text-gray-700 text-xs mb-1">Danh sách mã chưa sử dụng (còn trống)</h4>
+          <div class="overflow-x-auto">
+            <table class="w-full border-collapse border bg-white text-xs">
+              <thead><tr class="bg-gray-100 text-left"><th class="border p-2">Mã license</th><th class="border p-2">Công ty</th><th class="border p-2">Phần mềm</th><th class="border p-2 text-center">Ngày cấp</th><th class="border p-2 text-center">Ngày hết hạn</th></tr></thead>
+              <tbody id="licRepUnusedTableBody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>

@@ -8478,6 +8478,7 @@ function isPerpetualSoftware(softwareId) {
       renderLicenseRoundsReport(licRepData.rounds);
       renderLicenseRecentReport(licRepData.recent);
       renderLicenseExpiryReport(licRepData.expiry);
+      renderLicenseUsageStatusReport(licRepData.usageStatus);
       updateLicenseReportActiveButtons();
     }
 
@@ -8565,6 +8566,42 @@ function isPerpetualSoftware(softwareId) {
       downloadXlsxFile(`BaoCao_BanQuyenSapHetHan_${licRepData.expiry.months}Thang_${new Date().toISOString().slice(0, 10)}.xlsx`,
         ['Mã license', 'Công ty', 'Phần mềm', 'Ngày hết hạn', 'Người giữ'],
         licRepData.expiry.rows.map(r => [r.licenseCode, r.companyName, r.softwareName, r.expiryDate, r.assignedTo || '']));
+    }
+
+    // --- Báo cáo 5: Tình trạng cấp phép theo Phần mềm — Tổng đã cấp / Đang
+    // sử dụng (đã gán >=1 người) / Chưa sử dụng (còn trống), kèm danh sách cụ
+    // thể các mã chưa sử dụng để Admin xem xét thu hồi/gán tiếp.
+    function renderLicenseUsageStatusReport(usageStatus) {
+      const t = usageStatus.total || {};
+      reportStatusBar('licRepUsageStatusBar', [
+        { label: 'Đang sử dụng', value: Number(t.usedCodes) || 0, color: REPORT_COLORS.good },
+        { label: 'Chưa sử dụng', value: Number(t.unusedCodes) || 0, color: REPORT_COLORS.neutral }
+      ]);
+      const totalCodes = Number(t.totalCodes) || 0;
+      const usedPct = totalCodes ? Math.round((Number(t.usedCodes) || 0) * 1000 / totalCodes) / 10 : 0;
+      document.getElementById('licRepUsageStatusTotalCnt').textContent = totalCodes.toLocaleString('vi-VN');
+      document.getElementById('licRepUsageStatusUsedCnt').textContent = (Number(t.usedCodes) || 0).toLocaleString('vi-VN');
+      document.getElementById('licRepUsageStatusUnusedCnt').textContent = (Number(t.unusedCodes) || 0).toLocaleString('vi-VN');
+      document.getElementById('licRepUsageStatusPct').textContent = usedPct.toLocaleString('vi-VN') + '%';
+      document.getElementById('licRepUsageStatusTableBody').innerHTML = usageStatus.bySoftware.length
+        ? usageStatus.bySoftware.map(r => {
+            const pct = r.totalCodes ? Math.round((Number(r.usedCodes) || 0) * 1000 / r.totalCodes) / 10 : 0;
+            return `<tr><td class="border p-2">${escapeHtml(r.softwareName)}</td><td class="border p-2">${escapeHtml(r.companyName)}</td><td class="border p-2 text-center">${r.totalCodes}</td><td class="border p-2 text-center text-teal-700 font-semibold">${r.usedCodes}</td><td class="border p-2 text-center ${Number(r.unusedCodes) > 0 ? 'text-amber-600 font-semibold' : ''}">${r.unusedCodes}</td><td class="border p-2 text-center">${pct.toLocaleString('vi-VN')}%</td></tr>`;
+          }).join('')
+        : '<tr><td colspan="6" class="text-center p-3 text-gray-400 italic">Chưa có dữ liệu.</td></tr>';
+      document.getElementById('licRepUnusedTableBody').innerHTML = usageStatus.unusedCodes.length
+        ? usageStatus.unusedCodes.map(r => `<tr><td class="border p-2 font-mono">${escapeHtml(r.licenseCode)}</td><td class="border p-2">${escapeHtml(r.companyName)}</td><td class="border p-2">${escapeHtml(r.softwareName)}</td><td class="border p-2 text-center">${escapeHtml(fmtDateVN(r.issuedDate))}</td><td class="border p-2 text-center">${r.expiryDate ? escapeHtml(fmtDateVN(r.expiryDate)) : 'Vĩnh viễn'}</td></tr>`).join('')
+        : '<tr><td colspan="5" class="text-center p-3 text-gray-400 italic">Không có mã nào đang để trống — toàn bộ đã được gán sử dụng.</td></tr>';
+    }
+    function exportLicenseUsageStatusReportXlsx() {
+      if (!licRepData) return showToast('Chưa có dữ liệu để xuất.', 'warning');
+      const sheets = [
+        { name: 'Theo Phần mềm', header: ['Phần mềm', 'Công ty', 'Tổng đã cấp', 'Đang sử dụng', 'Chưa sử dụng', 'Tỷ lệ sử dụng (%)'],
+          rows: licRepData.usageStatus.bySoftware.map(r => [r.softwareName, r.companyName, r.totalCodes, r.usedCodes, r.unusedCodes, r.totalCodes ? Math.round((Number(r.usedCodes) || 0) * 1000 / r.totalCodes) / 10 : 0]) },
+        { name: 'Mã chưa sử dụng', header: ['Mã license', 'Công ty', 'Phần mềm', 'Ngày cấp', 'Ngày hết hạn'],
+          rows: licRepData.usageStatus.unusedCodes.map(r => [r.licenseCode, r.companyName, r.softwareName, r.issuedDate || '', r.expiryDate || 'Vĩnh viễn']) }
+      ];
+      downloadMultiSheetXlsxFile(`BaoCao_TinhTrangCapPhep_${new Date().toISOString().slice(0, 10)}.xlsx`, sheets);
     }
 
     // ============================================================
