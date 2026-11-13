@@ -4781,10 +4781,34 @@ function isPerpetualSoftware(softwareId) {
         showToast(err.message, 'danger');
       }
     }
+    // (Cột "Đơn vị" ở tab Phát hành license) 1 lô phát hành KHÔNG thuộc về
+    // đúng 1 đơn vị — mã sinh ra từ lô chỉ gắn Công ty + Phần mềm, còn việc
+    // gán mã cho nhân viên nào (và nhân viên đó thuộc đơn vị nào) diễn ra
+    // ĐỘC LẬP, SAU đó ở tab Phân bổ, nên 1 lô có thể rải ra nhiều đơn vị khác
+    // nhau tùy ai đang giữ mã tại thời điểm xem — không phải lỗi hiển thị.
+    // Trả về: '—' nếu chưa có mã nào trong lô được gán cho ai; tên đơn vị nếu
+    // TẤT CẢ các mã đang gán đều cùng 1 đơn vị; "N đơn vị" (hover xem đủ danh
+    // sách) nếu rải ra nhiều đơn vị khác nhau.
+    function batchOrgUnitsLabel(batchId) {
+      const codeIds = new Set(licenseDB.licenseCodes.filter(c => c.batchId === batchId).map(c => c.id));
+      if (codeIds.size === 0) return '<span class="text-gray-400">—</span>';
+      const empIds = [...new Set(licenseDB.licenseCodeAssignments.filter(a => codeIds.has(a.codeId)).map(a => a.employeeId))];
+      if (empIds.length === 0) return '<span class="text-gray-400">Chưa gán</span>';
+      const unitNames = new Set();
+      empIds.forEach(id => {
+        const emp = licenseDB.employees.find(e => e.id === id);
+        if (!emp) return;
+        unitNames.add(emp.orgUnitId ? orgUnitPath(emp.orgUnitId) : '(Chưa phân đơn vị)');
+      });
+      const names = [...unitNames].filter(Boolean);
+      if (names.length === 0) return '<span class="text-gray-400">—</span>';
+      if (names.length === 1) return escapeHtml(names[0]);
+      return `<span class="text-amber-700 font-semibold cursor-help" title="${escapeJsAttr(names.join(', '))}">${names.length} đơn vị</span>`;
+    }
     function renderBatchTable() {
       const tbody = document.getElementById('batchTableBody');
       if (licenseDB.licenseBatches.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-gray-500 p-4">Chưa có lượt phát hành nào — bấm "+ Phát hành license" để bắt đầu.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="10" class="text-center text-gray-500 p-4">Chưa có lượt phát hành nào — bấm "+ Phát hành license" để bắt đầu.</td></tr>`;
         return;
       }
       tbody.innerHTML = licenseDB.licenseBatches.map((b, i) => {
@@ -4797,6 +4821,7 @@ function isPerpetualSoftware(softwareId) {
             <td class="border p-2">${i + 1}</td>
             <td class="border p-2">${round ? escapeHtml(round.name) : '<span class="text-gray-400">— (trước khi có tính năng Kỳ mua bắt buộc)</span>'}</td>
             <td class="border p-2">${escapeHtml(company ? company.name : '—')}</td>
+            <td class="border p-2">${batchOrgUnitsLabel(b.id)}</td>
             <td class="border p-2">${escapeHtml(software ? software.name : '—')}</td>
             <td class="border p-2 text-center">${b.totalQuantity}</td>
             <td class="border p-2 text-center">${b.codesGenerated > 0 ? '+' + b.codesGenerated : '0'}</td>

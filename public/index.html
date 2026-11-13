@@ -1489,7 +1489,7 @@
     <div id="licenseSubBatch" class="hidden space-y-3">
       <div class="flex justify-between items-center gap-2">
         <button data-evt-click="openBatchModal" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Phát hành license</button>
-        <span class="text-[11px] text-gray-500">Phát hành gắn với 1 đăng ký mua đã duyệt. Kỳ Gia hạn: nhập <b>tổng số lượng mong muốn</b>, hệ thống chỉ sinh thêm phần chênh lệch và gia hạn mã cũ. Kỳ Mua mới: nhập <b>số lượng mua thêm</b>, sinh thẳng mã mới vào kho.</span>
+        <span class="text-[11px] text-gray-500">Phát hành gắn với 1 đăng ký mua đã duyệt. Kỳ Gia hạn: nhập <b>tổng số lượng mong muốn</b> (số lượng tại ĐÚNG lần phát hành này, không cộng dồn qua các lần), hệ thống chỉ sinh thêm phần chênh lệch và gia hạn mã cũ. Kỳ Mua mới: nhập <b>số lượng mua thêm</b>, sinh thẳng mã mới vào kho. Cột "Đơn vị" cho biết (các) đơn vị đang giữ mã sinh ra từ lô này — có thể là nhiều đơn vị khác nhau vì việc gán mã cho ai diễn ra độc lập, sau đó ở tab Phân bổ.</span>
       </div>
       <div class="overflow-x-auto">
         <table class="w-full border-collapse border bg-white text-xs">
@@ -1498,6 +1498,7 @@
               <th class="border p-2 w-10">STT</th>
               <th class="border p-2">Kỳ mua</th>
               <th class="border p-2">Công ty</th>
+              <th class="border p-2">Đơn vị</th>
               <th class="border p-2">Phần mềm</th>
               <th class="border p-2 text-center">Tổng số lượng</th>
               <th class="border p-2 text-center">Mã mới sinh</th>
