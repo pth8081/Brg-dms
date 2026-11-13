@@ -1844,6 +1844,7 @@
         <button id="btnLicRepTab8" data-evt-click="switchLicenseReportTab" data-args='[8]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">8. Thu hồi</button>
         <button id="btnLicRepTab9" data-evt-click="switchLicenseReportTab" data-args='[9]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">9. Đăng ký mua</button>
         <button id="btnLicRepTab10" data-evt-click="switchLicenseReportTab" data-args='[10]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">10. Phát hành ĐK mua</button>
+        <button id="btnLicRepTab11" data-evt-click="switchLicenseReportTab" data-args='[11]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">11. Phần mềm theo Đơn vị</button>
       </div>
 
       <!-- Báo cáo 1: Người dùng bản quyền -->
@@ -2169,6 +2170,38 @@
               <th class="border p-2">Kỳ mua</th><th class="border p-2 text-center">Trạng thái kỳ</th><th class="border p-2 text-center">Số công ty tham gia</th><th class="border p-2 text-center">Tổng SL đăng ký</th><th class="border p-2 text-right">Tổng thành tiền</th><th class="border p-2 text-center">Đã phát hành</th><th class="border p-2 text-center">Chờ duyệt</th>
             </tr></thead>
             <tbody id="licRepRoundsSummaryTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Báo cáo 11: Phần mềm theo Đơn vị — tính hoàn toàn từ dữ liệu đã tải
+           sẵn (licenseDB), không gọi thêm server. -->
+      <div id="licRepPanel11" class="hidden bg-white border rounded-xl p-4 shadow-sm">
+        <div class="flex justify-between items-center mb-2">
+          <h3 class="font-bold text-gray-800 text-sm">11. Phần mềm theo Đơn vị</h3>
+          <button data-evt-click="exportSoftwareDetailReportXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">📤 Xuất Excel</button>
+        </div>
+        <p class="text-[11px] text-gray-500 mb-2">Nhóm theo Công ty + Đơn vị (suy ra từ nhân viên hiện đang giữ mã, giống cột "Đơn vị" ở tab Phát hành license) + Phần mềm + Ngày mua, đếm số lượng mã mỗi nhóm. 1 Đơn vị vẫn có thể xuất hiện nhiều dòng nếu có nhiều lô mua ở các thời điểm khác nhau; mã chưa gán cho ai gộp vào dòng "(Chưa gán)" riêng theo từng Công ty. Không chọn Phần mềm: liệt kê đủ mọi phần mềm.</p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded border text-xs mb-3">
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Phần mềm</label>
+            <select id="licRepSwFilterSoftware" data-evt-change="onLicenseSoftwareDetailFilterChange" data-args='[]' class="w-full border p-1.5 rounded bg-white"></select>
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Công ty</label>
+            <select id="licRepSwFilterCompany" data-evt-change="onLicenseSoftwareDetailFilterChange" data-args='[]' class="w-full border p-1.5 rounded bg-white"></select>
+          </div>
+        </div>
+        <div class="bg-gray-50 border rounded p-3 mb-3 inline-block">
+          <div class="text-[11px] font-semibold text-gray-500">Tổng số lượng</div>
+          <div id="licRepSwTotalCnt" class="text-xl font-bold text-gray-900">—</div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse border bg-white text-xs">
+            <thead><tr class="bg-gray-100 text-left">
+              <th class="border p-2 w-10">STT</th><th class="border p-2">Công ty</th><th class="border p-2">Đơn vị</th><th class="border p-2">Phần mềm</th><th class="border p-2 text-center">Số lượng</th><th class="border p-2 text-center">Ngày mua</th><th class="border p-2 text-center">Thời hạn</th>
+            </tr></thead>
+            <tbody id="licRepSwDetailTableBody"></tbody>
           </table>
         </div>
       </div>
