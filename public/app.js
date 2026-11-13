@@ -4063,7 +4063,7 @@
         if (subName === 'purchase') { populateRegistrationFilterSelects(); renderRegistrationsTable(); }
         if (subName === 'rounds') { renderRoundsList(); populateAdminRegFilterSelects(); renderAdminRegistrationsTable(); }
         if (subName === 'budget') { renderBudgetRoundsList(); populateBudgetRegFilterSelects(); renderBudgetRegistrationsTable(); }
-        if (subName === 'reports') { populateLicenseReportFilterSelects(); loadAndRenderLicenseReports(); }
+        if (subName === 'reports') { populateLicenseReportFilterSelects(); loadAndRenderLicenseReports(); renderSoftwareDetailReport(); }
       }).catch(err => showToast(err.message || 'Không thể tải dữ liệu module Bản quyền.', 'danger'));
     }
 
@@ -8427,25 +8427,28 @@ function isPerpetualSoftware(softwareId) {
     }
 
     // ============================================================
-    // BÁO CÁO MODULE BẢN QUYỀN — 10 khối độc lập, hiển thị dạng TAB (xem
+    // BÁO CÁO MODULE BẢN QUYỀN — 11 khối độc lập, hiển thị dạng TAB (xem
     // switchLicenseReportTab) để trang không bị cuộn dài: Người dùng, Kỳ đăng
     // ký/mua, Vừa cấp, Sắp hết hạn, Tình trạng cấp phép, Danh mục Phần mềm,
     // Lịch sử phát hành, Lịch sử thu hồi, Đăng ký mua (toàn bộ kỳ), Tổng hợp
-    // theo Kỳ. 1 endpoint GET duy nhất /api/license/reports trả đủ dữ liệu
-    // cho cả 10 khối theo bộ lọc hiện tại — chỉ đọc, không thao tác ghi nào ở
-    // đây nên không cần chặn theo VIEWER_BLOCKED_ACTIONS.
+    // theo Kỳ, Phần mềm theo Đơn vị. 1 endpoint GET duy nhất /api/license/reports
+    // trả đủ dữ liệu cho 10 khối đầu theo bộ lọc hiện tại — chỉ đọc, không
+    // thao tác ghi nào ở đây nên không cần chặn theo VIEWER_BLOCKED_ACTIONS.
+    // Riêng khối 11 tính HOÀN TOÀN từ licenseDB đã tải sẵn (không gọi thêm
+    // server), xem renderSoftwareDetailReport().
     // ============================================================
     const licRepFilterState = {
       companyId: '', softwareId: '', purchaseRoundId: '', budgetRoundId: '', recentPeriod: 'week', expiryMonths: 1,
-      issuanceFromDate: '', issuanceToDate: '', revokeFromDate: '', revokeToDate: '', revokeType: '', regAllRoundId: '', regAllStatus: ''
+      issuanceFromDate: '', issuanceToDate: '', revokeFromDate: '', revokeToDate: '', revokeType: '', regAllRoundId: '', regAllStatus: '',
+      swDetailSoftwareId: '', swDetailCompanyId: ''
     };
     let licRepData = null;
-    // Tab báo cáo đang xem (1-10) — giữ nguyên qua mỗi lần tải lại dữ liệu
+    // Tab báo cáo đang xem (1-11) — giữ nguyên qua mỗi lần tải lại dữ liệu
     // (đổi bộ lọc...) để không bị nhảy về báo cáo 1 mỗi lần người dùng thao tác.
     let licRepActiveTab = 1;
     function switchLicenseReportTab(n) {
       licRepActiveTab = Number(n);
-      for (let i = 1; i <= 10; i++) {
+      for (let i = 1; i <= 11; i++) {
         document.getElementById('licRepPanel' + i).classList.toggle('hidden', i !== licRepActiveTab);
         document.getElementById('btnLicRepTab' + i).classList.toggle('active', i === licRepActiveTab);
       }
@@ -8473,6 +8476,73 @@ function isPerpetualSoftware(softwareId) {
       document.getElementById('licRepRegAllRoundSelect').innerHTML = '<option value="">-- Tất cả kỳ mua --</option>' +
         purchaseRoundsSorted.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('');
       document.getElementById('licRepRegAllRoundSelect').value = licRepFilterState.regAllRoundId;
+      document.getElementById('licRepSwFilterSoftware').innerHTML = '<option value="">-- Tất cả --</option>' +
+        licenseDB.softwareCatalog.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+      document.getElementById('licRepSwFilterSoftware').value = licRepFilterState.swDetailSoftwareId;
+      document.getElementById('licRepSwFilterCompany').innerHTML = '<option value="">-- Tất cả --</option>' +
+        licenseDB.companies.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+      document.getElementById('licRepSwFilterCompany').value = licRepFilterState.swDetailCompanyId;
+    }
+
+    function onLicenseSoftwareDetailFilterChange() {
+      licRepFilterState.swDetailSoftwareId = document.getElementById('licRepSwFilterSoftware').value;
+      licRepFilterState.swDetailCompanyId = document.getElementById('licRepSwFilterCompany').value;
+      renderSoftwareDetailReport();
+    }
+
+    // --- Báo cáo 11: Phần mềm theo Đơn vị — tính HOÀN TOÀN từ licenseDB đã
+    // tải sẵn (không gọi thêm server, giống cách tính cột "Đơn vị" ở tab Phát
+    // hành license). Đếm theo LƯỢT GÁN (1 mã dùng chung cho N người tính N
+    // lần, giống quy ước đã dùng ở Báo cáo 1 "Người dùng bản quyền"), mã chưa
+    // gán cho ai tính 1 lần vào nhóm "(Chưa gán)" của đúng công ty đó.
+    let licRepSwDetailRows = [];
+    function buildSoftwareDetailRows() {
+      const softwareFilter = licRepFilterState.swDetailSoftwareId ? Number(licRepFilterState.swDetailSoftwareId) : null;
+      const companyFilter = licRepFilterState.swDetailCompanyId ? Number(licRepFilterState.swDetailCompanyId) : null;
+      const groups = new Map();
+      const bump = (key, meta) => {
+        if (!groups.has(key)) groups.set(key, { ...meta, qty: 0 });
+        groups.get(key).qty++;
+      };
+      licenseDB.licenseCodes.forEach(code => {
+        if (softwareFilter && code.softwareId !== softwareFilter) return;
+        if (companyFilter && code.companyId !== companyFilter) return;
+        const company = licenseDB.companies.find(c => c.id === code.companyId);
+        const software = licenseDB.softwareCatalog.find(s => s.id === code.softwareId);
+        const batch = licenseDB.licenseBatches.find(b => b.id === code.batchId);
+        const companyName = company ? company.name : '—';
+        const softwareName = software ? software.name : '—';
+        const issuedDate = batch ? batch.issuedDate : null;
+        const assignments = licenseDB.licenseCodeAssignments.filter(a => a.codeId === code.id);
+        if (assignments.length === 0) {
+          const key = ['u', code.companyId, '(Chưa gán)', code.softwareId, issuedDate, code.expiryDate].join('|');
+          bump(key, { companyName, orgUnitLabel: '(Chưa gán)', orgUnitMuted: true, softwareName, issuedDate, expiryDate: code.expiryDate });
+          return;
+        }
+        assignments.forEach(a => {
+          const emp = licenseDB.employees.find(e => e.id === a.employeeId);
+          const orgUnitLabel = emp && emp.orgUnitId ? orgUnitPath(emp.orgUnitId) : '(Chưa phân đơn vị)';
+          const key = ['a', code.companyId, orgUnitLabel, code.softwareId, issuedDate, code.expiryDate].join('|');
+          bump(key, { companyName, orgUnitLabel, orgUnitMuted: false, softwareName, issuedDate, expiryDate: code.expiryDate });
+        });
+      });
+      return [...groups.values()].sort((x, y) =>
+        x.companyName.localeCompare(y.companyName) || x.orgUnitLabel.localeCompare(y.orgUnitLabel) ||
+        x.softwareName.localeCompare(y.softwareName) || String(x.issuedDate).localeCompare(String(y.issuedDate)));
+    }
+    function renderSoftwareDetailReport() {
+      licRepSwDetailRows = buildSoftwareDetailRows();
+      const total = licRepSwDetailRows.reduce((s, r) => s + r.qty, 0);
+      document.getElementById('licRepSwTotalCnt').textContent = total.toLocaleString('vi-VN');
+      document.getElementById('licRepSwDetailTableBody').innerHTML = licRepSwDetailRows.length
+        ? licRepSwDetailRows.map((r, i) => `<tr><td class="border p-2">${i + 1}</td><td class="border p-2">${escapeHtml(r.companyName)}</td><td class="border p-2${r.orgUnitMuted ? ' text-gray-400' : ''}">${escapeHtml(r.orgUnitLabel)}</td><td class="border p-2">${escapeHtml(r.softwareName)}</td><td class="border p-2 text-center font-semibold">${r.qty}</td><td class="border p-2 text-center">${r.issuedDate ? escapeHtml(fmtDateVN(r.issuedDate)) : '<span class="text-gray-400">—</span>'}</td><td class="border p-2 text-center">${expiryLabel(r.expiryDate)}</td></tr>`).join('')
+        : '<tr><td colspan="7" class="text-center p-3 text-gray-400 italic">Không có dữ liệu khớp bộ lọc.</td></tr>';
+    }
+    function exportSoftwareDetailReportXlsx() {
+      if (!licRepSwDetailRows.length) return showToast('Không có dữ liệu để xuất.', 'warning');
+      downloadXlsxFile(`BaoCao_PhanMemTheoDonVi_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        ['STT', 'Công ty', 'Đơn vị', 'Phần mềm', 'Số lượng', 'Ngày mua', 'Thời hạn'],
+        licRepSwDetailRows.map((r, i) => [i + 1, r.companyName, r.orgUnitLabel, r.softwareName, r.qty, r.issuedDate || '', r.expiryDate || 'Vĩnh viễn']));
     }
 
     function onLicenseReportFilterChange() {
