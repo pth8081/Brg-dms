@@ -7694,6 +7694,134 @@ app.get('/api/license/reports', requireAuth, requireLicenseViewOrAdmin, async (r
             statusFilterParams
         );
 
+        // --- 6) Danh mục & Tổng quan Phần mềm (tab "Phần mềm") — toàn bộ
+        // danh mục phần mềm kèm tổng số mã đã cấp/số công ty đang dùng/số
+        // nhân viên đang dùng của TỪNG phần mềm, độc lập với usageStatus ở
+        // trên (vốn nhóm theo cả Công ty, ở đây gộp theo phần mềm thuần).
+        const [softwareOverview] = await pool.query(
+            `SELECT sw.id AS softwareId, sw.name AS softwareName, sw.code, sw.license_type AS licenseType,
+                    sw.default_duration_months AS defaultDurationMonths, sw.max_assignees AS maxAssignees,
+                    COUNT(DISTINCT c.id) AS totalCodes, COUNT(DISTINCT c.company_id) AS companyCount, COUNT(DISTINCT a.employee_id) AS employeeCount
+             FROM lic_software_catalog sw
+             LEFT JOIN lic_license_codes c ON c.software_id = sw.id${companyId ? ' AND c.company_id = ?' : ''}
+             LEFT JOIN lic_license_code_assignments a ON a.code_id = c.id
+             WHERE 1=1${softwareId ? ' AND sw.id = ?' : ''}
+             GROUP BY sw.id, sw.name, sw.code, sw.license_type, sw.default_duration_months, sw.max_assignees
+             ORDER BY sw.name ASC`,
+            [...(companyId ? [companyId] : []), ...(softwareId ? [softwareId] : [])]
+        );
+
+        // --- 7) Lịch sử phát hành license (tab "Phát hành license") — lọc
+        // riêng theo khoảng Ngày cấp, dùng chung bộ lọc Công ty/Phần mềm ở
+        // đầu trang. Kỳ mua suy ra qua registration_id -> round_id (NULL cho
+        // các lô lịch sử phát hành trước khi có tính năng Kỳ mua bắt buộc).
+        const issuanceFromDate = /^\d{4}-\d{2}-\d{2}$/.test(req.query.issuanceFromDate || '') ? req.query.issuanceFromDate : null;
+        const issuanceToDate = /^\d{4}-\d{2}-\d{2}$/.test(req.query.issuanceToDate || '') ? req.query.issuanceToDate : null;
+        const issuanceFilterParts = [];
+        const issuanceFilterParams = [];
+        if (companyId) { issuanceFilterParts.push('b.company_id = ?'); issuanceFilterParams.push(companyId); }
+        if (softwareId) { issuanceFilterParts.push('b.software_id = ?'); issuanceFilterParams.push(softwareId); }
+        if (issuanceFromDate) { issuanceFilterParts.push('b.issued_date >= ?'); issuanceFilterParams.push(issuanceFromDate); }
+        if (issuanceToDate) { issuanceFilterParts.push('b.issued_date <= ?'); issuanceFilterParams.push(issuanceToDate); }
+        const issuanceWhereSql = issuanceFilterParts.length ? ` WHERE ${issuanceFilterParts.join(' AND ')}` : '';
+        const [issuanceRows] = await pool.query(
+            `SELECT b.id, DATE_FORMAT(b.issued_date, '%Y-%m-%d') AS issuedDate, co.name AS companyName, sw.name AS softwareName,
+                    pr.name AS roundName, b.total_quantity AS totalQuantity, b.codes_generated AS codesGenerated,
+                    DATE_FORMAT(b.expiry_date, '%Y-%m-%d') AS expiryDate, b.note
+             FROM lic_license_batches b
+             JOIN lic_companies co ON co.id = b.company_id
+             JOIN lic_software_catalog sw ON sw.id = b.software_id
+             LEFT JOIN lic_purchase_registrations reg ON reg.id = b.registration_id
+             LEFT JOIN lic_purchase_rounds pr ON pr.id = reg.round_id
+             ${issuanceWhereSql}
+             ORDER BY b.issued_date DESC, b.id DESC`,
+            issuanceFilterParams
+        );
+        const issuanceSummary = {
+            batchCount: issuanceRows.length,
+            totalQuantity: issuanceRows.reduce((s, r) => s + (Number(r.totalQuantity) || 0), 0),
+            codesGenerated: issuanceRows.reduce((s, r) => s + (Number(r.codesGenerated) || 0), 0)
+        };
+
+        // --- 8) Lịch sử thu hồi license (tab "Thu hồi theo nhân viên" + mọi
+        // hình thức thu hồi khác: hàng loạt ở tab Phân bổ, Gia hạn/Thu hồi
+        // hàng loạt, tự động theo AD) — KHÔNG có bảng riêng lưu lịch sử thu
+        // hồi, lấy từ Nhật ký hệ thống (system_logs) lọc riêng module LICENSE.
+        // id = Date.now()*1000 + số thứ tự (xem writeAuditLog) nên tăng dần
+        // đúng theo thời gian — lọc khoảng ngày bằng cách đổi ngày sang mốc
+        // mili-giây rồi so khoảng id, KHÔNG parse cột timestamp (lưu dạng
+        // chuỗi "HH:MM:SS DD/MM/YYYY" theo locale vi-VN, không so sánh được
+        // trực tiếp bằng SQL).
+        const REVOKE_ACTION_TYPES_MANUAL = ['UNASSIGN_CODE', 'UNASSIGN_CODE_BULK', 'BULK_RENEW_REVOKE'];
+        const REVOKE_ACTION_TYPES_AUTO = ['AUTO_REVOKE_DISABLED_AD'];
+        const revokeFromDate = /^\d{4}-\d{2}-\d{2}$/.test(req.query.revokeFromDate || '') ? req.query.revokeFromDate : null;
+        const revokeToDate = /^\d{4}-\d{2}-\d{2}$/.test(req.query.revokeToDate || '') ? req.query.revokeToDate : null;
+        const revokeType = ['manual', 'auto'].includes(req.query.revokeType) ? req.query.revokeType : null;
+        const revokeActionTypes = revokeType === 'manual' ? REVOKE_ACTION_TYPES_MANUAL : revokeType === 'auto' ? REVOKE_ACTION_TYPES_AUTO : [...REVOKE_ACTION_TYPES_MANUAL, ...REVOKE_ACTION_TYPES_AUTO];
+        const revokeFilterParts = [`module = 'LICENSE'`, `actionType IN (${revokeActionTypes.map(() => '?').join(',')})`];
+        const revokeFilterParams = [...revokeActionTypes];
+        if (revokeFromDate) { revokeFilterParts.push('id >= ?'); revokeFilterParams.push(new Date(`${revokeFromDate}T00:00:00`).getTime() * 1000); }
+        if (revokeToDate) { revokeFilterParts.push('id <= ?'); revokeFilterParams.push(new Date(`${revokeToDate}T23:59:59.999`).getTime() * 1000); }
+        const revokeWhereSql = ` WHERE ${revokeFilterParts.join(' AND ')}`;
+        const [[revokeCountRow]] = await pool.query(`SELECT COUNT(*) AS cnt FROM system_logs${revokeWhereSql}`, revokeFilterParams);
+        const [revokeRowsRaw] = await pool.query(
+            `SELECT id, timestamp, username, fullName, actionType, description FROM system_logs${revokeWhereSql} ORDER BY id DESC LIMIT 500`,
+            revokeFilterParams
+        );
+        const revokeRows = revokeRowsRaw.map(r => ({ ...r, revokeKind: REVOKE_ACTION_TYPES_AUTO.includes(r.actionType) ? 'auto' : 'manual' }));
+
+        // --- 9) Đăng ký mua bản quyền — toàn bộ các kỳ (tab "Đăng ký mua bản
+        // quyền") — tab gốc chỉ xem được đúng 1 Kỳ mua tại 1 thời điểm; báo
+        // cáo này gộp mọi kỳ, lọc riêng theo Kỳ mua/Trạng thái (dùng chung bộ
+        // lọc Công ty ở đầu trang, KHÔNG dùng bộ lọc Phần mềm vì phần mềm ở
+        // đây suy ra qua round_item, không có trên chính dòng đăng ký).
+        const regAllRoundId = req.query.regAllRoundId ? Number(req.query.regAllRoundId) : null;
+        const regAllStatus = ['PENDING', 'APPROVED', 'ISSUED', 'REJECTED'].includes(req.query.regAllStatus) ? req.query.regAllStatus : null;
+        const regAllFilterParts = [];
+        const regAllFilterParams = [];
+        if (regAllRoundId) { regAllFilterParts.push('r.round_id = ?'); regAllFilterParams.push(regAllRoundId); }
+        if (companyId) { regAllFilterParts.push('r.company_id = ?'); regAllFilterParams.push(companyId); }
+        if (regAllStatus) { regAllFilterParts.push('r.status = ?'); regAllFilterParams.push(regAllStatus); }
+        const regAllWhereSql = regAllFilterParts.length ? ` WHERE ${regAllFilterParts.join(' AND ')}` : '';
+        const [regAllRows] = await pool.query(
+            `SELECT r.id, pr.name AS roundName, co.name AS companyName, COALESCE(sw.name, '—') AS softwareName,
+                    r.current_quantity AS currentQuantity, r.requested_quantity AS requestedQuantity, r.unit_price AS unitPrice,
+                    r.total_amount AS totalAmount, DATE_FORMAT(r.expiry_date, '%Y-%m-%d') AS expiryDate, r.status, r.created_at AS createdAt
+             FROM lic_purchase_registrations r
+             JOIN lic_purchase_rounds pr ON pr.id = r.round_id
+             JOIN lic_companies co ON co.id = r.company_id
+             JOIN lic_purchase_round_items ri ON ri.id = r.round_item_id
+             LEFT JOIN lic_software_catalog sw ON sw.id = ri.software_id
+             ${regAllWhereSql}
+             ORDER BY r.id DESC`,
+            regAllFilterParams
+        );
+        const regAllSummary = {
+            total: regAllRows.length,
+            pending: regAllRows.filter(r => r.status === 'PENDING').length,
+            approved: regAllRows.filter(r => r.status === 'APPROVED').length,
+            issued: regAllRows.filter(r => r.status === 'ISSUED').length,
+            rejected: regAllRows.filter(r => r.status === 'REJECTED').length,
+            totalAmount: regAllRows.reduce((s, r) => s + (Number(r.totalAmount) || 0), 0)
+        };
+
+        // --- 10) Phát hành đăng ký mua — Tổng hợp theo Kỳ (tab "Phát hành
+        // đăng ký mua", góc nhìn Admin quản lý Kỳ mua) — mỗi Kỳ mua gộp thành
+        // 1 dòng để so sánh nhanh giữa các kỳ, không lọc theo bộ lọc đầu trang
+        // (so sánh toàn cảnh mọi công ty/phần mềm trong từng kỳ).
+        const [roundsSummaryRows] = await pool.query(
+            `SELECT pr.id AS roundId, pr.name AS roundName, pr.status AS roundStatus,
+                    COUNT(DISTINCT r.company_id) AS companyCount,
+                    COALESCE(SUM(r.requested_quantity), 0) AS totalQuantity,
+                    COALESCE(SUM(r.total_amount), 0) AS totalAmount,
+                    SUM(r.status = 'ISSUED') AS issuedCount,
+                    SUM(r.status = 'PENDING') AS pendingCount
+             FROM lic_purchase_rounds pr
+             LEFT JOIN lic_purchase_registrations r ON r.round_id = pr.id
+             GROUP BY pr.id, pr.name, pr.status
+             ORDER BY pr.id DESC`
+        );
+
         res.json({
             usage: { byCompany: usageByCompany, byOrgUnit: usageByOrgUnit, bySoftware: usageBySoftware, total: { cnt: usageTotal.cnt, userCnt: usageTotal.userCnt } },
             rounds: { purchaseRounds, purchaseRoundId, purchaseByCompany, budgetRounds, budgetRoundId, budgetRegByOrgUnit },
@@ -7707,7 +7835,12 @@ app.get('/api/license/reports', requireAuth, requireLicenseViewOrAdmin, async (r
                     usedCodes: Number(usageStatusTotal.usedCodes) || 0,
                     unusedCodes: Number(usageStatusTotal.unusedCodes) || 0
                 }
-            }
+            },
+            softwareOverview,
+            issuanceHistory: { rows: issuanceRows, summary: issuanceSummary },
+            revocationHistory: { rows: revokeRows, total: Number(revokeCountRow.cnt) || 0 },
+            purchaseRegistrationsAll: { rows: regAllRows, summary: regAllSummary },
+            roundsSummary: roundsSummaryRows
         });
     } catch (err) {
         console.error('❌ Lỗi tải báo cáo License:', err.message);
