@@ -8402,13 +8402,29 @@ function isPerpetualSoftware(softwareId) {
     }
 
     // ============================================================
-    // BÁO CÁO MODULE BẢN QUYỀN — 4 khối độc lập (Người dùng, Kỳ đăng ký/mua,
-    // Vừa cấp, Sắp hết hạn), 1 endpoint GET duy nhất /api/license/reports trả
-    // đủ dữ liệu cho cả 4 khối theo bộ lọc hiện tại — chỉ đọc, không thao tác
-    // ghi nào ở đây nên không cần chặn theo VIEWER_BLOCKED_ACTIONS.
+    // BÁO CÁO MODULE BẢN QUYỀN — 10 khối độc lập, hiển thị dạng TAB (xem
+    // switchLicenseReportTab) để trang không bị cuộn dài: Người dùng, Kỳ đăng
+    // ký/mua, Vừa cấp, Sắp hết hạn, Tình trạng cấp phép, Danh mục Phần mềm,
+    // Lịch sử phát hành, Lịch sử thu hồi, Đăng ký mua (toàn bộ kỳ), Tổng hợp
+    // theo Kỳ. 1 endpoint GET duy nhất /api/license/reports trả đủ dữ liệu
+    // cho cả 10 khối theo bộ lọc hiện tại — chỉ đọc, không thao tác ghi nào ở
+    // đây nên không cần chặn theo VIEWER_BLOCKED_ACTIONS.
     // ============================================================
-    const licRepFilterState = { companyId: '', softwareId: '', purchaseRoundId: '', budgetRoundId: '', recentPeriod: 'week', expiryMonths: 1 };
+    const licRepFilterState = {
+      companyId: '', softwareId: '', purchaseRoundId: '', budgetRoundId: '', recentPeriod: 'week', expiryMonths: 1,
+      issuanceFromDate: '', issuanceToDate: '', revokeFromDate: '', revokeToDate: '', revokeType: '', regAllRoundId: '', regAllStatus: ''
+    };
     let licRepData = null;
+    // Tab báo cáo đang xem (1-10) — giữ nguyên qua mỗi lần tải lại dữ liệu
+    // (đổi bộ lọc...) để không bị nhảy về báo cáo 1 mỗi lần người dùng thao tác.
+    let licRepActiveTab = 1;
+    function switchLicenseReportTab(n) {
+      licRepActiveTab = Number(n);
+      for (let i = 1; i <= 10; i++) {
+        document.getElementById('licRepPanel' + i).classList.toggle('hidden', i !== licRepActiveTab);
+        document.getElementById('btnLicRepTab' + i).classList.toggle('active', i === licRepActiveTab);
+      }
+    }
 
     function populateLicenseReportFilterSelects() {
       document.getElementById('licRepFilterCompany').innerHTML = '<option value="">-- Tất cả công ty --</option>' +
@@ -8429,6 +8445,9 @@ function isPerpetualSoftware(softwareId) {
       if (!licRepFilterState.budgetRoundId && budgetRoundsSorted[0]) licRepFilterState.budgetRoundId = String(budgetRoundsSorted[0].id);
       document.getElementById('licRepPurchaseRoundSelect').value = licRepFilterState.purchaseRoundId;
       document.getElementById('licRepBudgetRoundSelect').value = licRepFilterState.budgetRoundId;
+      document.getElementById('licRepRegAllRoundSelect').innerHTML = '<option value="">-- Tất cả kỳ mua --</option>' +
+        purchaseRoundsSorted.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('');
+      document.getElementById('licRepRegAllRoundSelect').value = licRepFilterState.regAllRoundId;
     }
 
     function onLicenseReportFilterChange() {
@@ -8436,6 +8455,13 @@ function isPerpetualSoftware(softwareId) {
       licRepFilterState.softwareId = document.getElementById('licRepFilterSoftware').value;
       licRepFilterState.purchaseRoundId = document.getElementById('licRepPurchaseRoundSelect').value;
       licRepFilterState.budgetRoundId = document.getElementById('licRepBudgetRoundSelect').value;
+      licRepFilterState.issuanceFromDate = document.getElementById('licRepIssuanceFromDate').value;
+      licRepFilterState.issuanceToDate = document.getElementById('licRepIssuanceToDate').value;
+      licRepFilterState.revokeFromDate = document.getElementById('licRepRevokeFromDate').value;
+      licRepFilterState.revokeToDate = document.getElementById('licRepRevokeToDate').value;
+      licRepFilterState.revokeType = document.getElementById('licRepRevokeTypeSelect').value;
+      licRepFilterState.regAllRoundId = document.getElementById('licRepRegAllRoundSelect').value;
+      licRepFilterState.regAllStatus = document.getElementById('licRepRegAllStatusSelect').value;
       loadAndRenderLicenseReports();
     }
     function onLicenseReportRecentPeriodChange(period) {
@@ -8460,6 +8486,13 @@ function isPerpetualSoftware(softwareId) {
       if (licRepFilterState.budgetRoundId) params.set('budgetRoundId', licRepFilterState.budgetRoundId);
       params.set('recentPeriod', licRepFilterState.recentPeriod);
       params.set('expiryMonths', licRepFilterState.expiryMonths);
+      if (licRepFilterState.issuanceFromDate) params.set('issuanceFromDate', licRepFilterState.issuanceFromDate);
+      if (licRepFilterState.issuanceToDate) params.set('issuanceToDate', licRepFilterState.issuanceToDate);
+      if (licRepFilterState.revokeFromDate) params.set('revokeFromDate', licRepFilterState.revokeFromDate);
+      if (licRepFilterState.revokeToDate) params.set('revokeToDate', licRepFilterState.revokeToDate);
+      if (licRepFilterState.revokeType) params.set('revokeType', licRepFilterState.revokeType);
+      if (licRepFilterState.regAllRoundId) params.set('regAllRoundId', licRepFilterState.regAllRoundId);
+      if (licRepFilterState.regAllStatus) params.set('regAllStatus', licRepFilterState.regAllStatus);
       try {
         licRepData = await apiFetch(`/api/license/reports?${params.toString()}`);
       } catch (err) {
@@ -8479,7 +8512,13 @@ function isPerpetualSoftware(softwareId) {
       renderLicenseRecentReport(licRepData.recent);
       renderLicenseExpiryReport(licRepData.expiry);
       renderLicenseUsageStatusReport(licRepData.usageStatus);
+      renderSoftwareOverviewReport(licRepData.softwareOverview);
+      renderIssuanceHistoryReport(licRepData.issuanceHistory);
+      renderRevocationHistoryReport(licRepData.revocationHistory);
+      renderPurchaseRegistrationsAllReport(licRepData.purchaseRegistrationsAll);
+      renderRoundsSummaryReport(licRepData.roundsSummary);
       updateLicenseReportActiveButtons();
+      switchLicenseReportTab(licRepActiveTab);
     }
 
     // --- Báo cáo 1: Người dùng bản quyền theo Công ty/Khối/Phòng/Ban ---
@@ -8602,6 +8641,94 @@ function isPerpetualSoftware(softwareId) {
           rows: licRepData.usageStatus.unusedCodes.map(r => [r.licenseCode, r.companyName, r.softwareName, r.issuedDate || '', r.expiryDate || 'Vĩnh viễn']) }
       ];
       downloadMultiSheetXlsxFile(`BaoCao_TinhTrangCapPhep_${new Date().toISOString().slice(0, 10)}.xlsx`, sheets);
+    }
+
+    // --- Báo cáo 6: Danh mục & Tổng quan Phần mềm (nguồn: tab "Phần mềm") ---
+    function renderSoftwareOverviewReport(rows) {
+      document.getElementById('licRepSoftwareOverviewTableBody').innerHTML = rows.length
+        ? rows.map(r => `<tr><td class="border p-2">${escapeHtml(r.softwareName)}</td><td class="border p-2 font-mono">${escapeHtml(r.code)}</td><td class="border p-2 text-center">${LICENSE_TYPE_LABELS[r.licenseType] || r.licenseType}</td><td class="border p-2 text-center">${r.licenseType === 'PERPETUAL' ? '—' : (r.defaultDurationMonths ? r.defaultDurationMonths + ' tháng' : '—')}</td><td class="border p-2 text-center">${r.maxAssignees}</td><td class="border p-2 text-center font-semibold">${r.totalCodes}</td><td class="border p-2 text-center">${r.companyCount}</td><td class="border p-2 text-center text-teal-700 font-semibold">${r.employeeCount}</td></tr>`).join('')
+        : '<tr><td colspan="8" class="text-center p-3 text-gray-400 italic">Chưa có phần mềm nào trong danh mục.</td></tr>';
+    }
+    function exportSoftwareOverviewXlsx() {
+      if (!licRepData) return showToast('Chưa có dữ liệu để xuất.', 'warning');
+      downloadXlsxFile(`BaoCao_DanhMucPhanMem_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        ['Tên phần mềm', 'Mã', 'Loại license', 'Thời hạn mặc định (tháng)', 'Số người/mã', 'Tổng đã cấp', 'Số công ty dùng', 'Số NV đang dùng'],
+        licRepData.softwareOverview.map(r => [r.softwareName, r.code, LICENSE_TYPE_LABELS[r.licenseType] || r.licenseType, r.licenseType === 'PERPETUAL' ? '' : (r.defaultDurationMonths || ''), r.maxAssignees, r.totalCodes, r.companyCount, r.employeeCount]));
+    }
+
+    // --- Báo cáo 7: Lịch sử phát hành license (nguồn: tab "Phát hành license") ---
+    function renderIssuanceHistoryReport(data) {
+      const s = data.summary || {};
+      document.getElementById('licRepIssuanceBatchCnt').textContent = (s.batchCount || 0).toLocaleString('vi-VN');
+      document.getElementById('licRepIssuanceCodesGenerated').textContent = (s.codesGenerated || 0).toLocaleString('vi-VN');
+      document.getElementById('licRepIssuanceTotalQuantity').textContent = (s.totalQuantity || 0).toLocaleString('vi-VN');
+      document.getElementById('licRepIssuanceTableBody').innerHTML = data.rows.length
+        ? data.rows.map(r => `<tr><td class="border p-2">${escapeHtml(fmtDateVN(r.issuedDate))}</td><td class="border p-2">${escapeHtml(r.companyName)}</td><td class="border p-2">${escapeHtml(r.softwareName)}</td><td class="border p-2">${r.roundName ? escapeHtml(r.roundName) : '<span class="text-gray-400">—</span>'}</td><td class="border p-2 text-center">${r.totalQuantity}</td><td class="border p-2 text-center">${r.codesGenerated > 0 ? '+' + r.codesGenerated : '0'}</td><td class="border p-2">${expiryLabel(r.expiryDate)}</td><td class="border p-2">${r.note ? escapeHtml(r.note) : '<span class="text-gray-400">—</span>'}</td></tr>`).join('')
+        : '<tr><td colspan="8" class="text-center p-3 text-gray-400 italic">Không có lượt phát hành nào trong khoảng đã lọc.</td></tr>';
+    }
+    function exportIssuanceHistoryXlsx() {
+      if (!licRepData) return showToast('Chưa có dữ liệu để xuất.', 'warning');
+      downloadXlsxFile(`BaoCao_LichSuPhatHanh_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        ['Ngày cấp', 'Công ty', 'Phần mềm', 'Kỳ mua', 'Tổng số lượng', 'Mã mới sinh', 'Ngày hết hạn', 'Ghi chú'],
+        licRepData.issuanceHistory.rows.map(r => [r.issuedDate, r.companyName, r.softwareName, r.roundName || '', r.totalQuantity, r.codesGenerated, r.expiryDate || 'Vĩnh viễn', r.note || '']));
+    }
+
+    // --- Báo cáo 8: Lịch sử thu hồi license (nguồn: Nhật ký hệ thống, lọc
+    // riêng module LICENSE — không có bảng riêng lưu lịch sử thu hồi) ---
+    function renderRevocationHistoryReport(data) {
+      document.getElementById('licRepRevokeTotalCnt').textContent = (data.total || 0).toLocaleString('vi-VN');
+      document.getElementById('licRepRevokeTableBody').innerHTML = data.rows.length
+        ? data.rows.map(r => `<tr><td class="border p-2 whitespace-nowrap">${escapeHtml(r.timestamp)}</td><td class="border p-2">${escapeHtml(r.fullName || r.username)}</td><td class="border p-2 text-center">${r.revokeKind === 'auto' ? '<span class="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full whitespace-nowrap">Tự động (AD)</span>' : '<span class="text-[10px] font-bold text-gray-700 bg-gray-200 px-2 py-0.5 rounded-full whitespace-nowrap">Thủ công</span>'}</td><td class="border p-2">${escapeHtml(r.description)}</td></tr>`).join('')
+        : '<tr><td colspan="4" class="text-center p-3 text-gray-400 italic">Không có lượt thu hồi nào trong khoảng đã lọc.</td></tr>';
+      if (data.total > data.rows.length) {
+        document.getElementById('licRepRevokeTruncatedNote').textContent = `Chỉ hiển thị ${data.rows.length}/${data.total} dòng gần nhất — thu hẹp khoảng ngày để xem đủ.`;
+        document.getElementById('licRepRevokeTruncatedNote').classList.remove('hidden');
+      } else {
+        document.getElementById('licRepRevokeTruncatedNote').classList.add('hidden');
+      }
+    }
+    function exportRevocationHistoryXlsx() {
+      if (!licRepData) return showToast('Chưa có dữ liệu để xuất.', 'warning');
+      downloadXlsxFile(`BaoCao_LichSuThuHoi_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        ['Ngày giờ', 'Người thực hiện', 'Loại', 'Nội dung'],
+        licRepData.revocationHistory.rows.map(r => [r.timestamp, r.fullName || r.username, r.revokeKind === 'auto' ? 'Tự động (AD)' : 'Thủ công', r.description]));
+    }
+
+    // --- Báo cáo 9: Đăng ký mua bản quyền — Toàn bộ các kỳ (nguồn: tab
+    // "Đăng ký mua bản quyền") ---
+    function renderPurchaseRegistrationsAllReport(data) {
+      const s = data.summary || {};
+      document.getElementById('licRepRegAllTotalCnt').textContent = (s.total || 0).toLocaleString('vi-VN');
+      document.getElementById('licRepRegAllPendingCnt').textContent = (s.pending || 0).toLocaleString('vi-VN');
+      document.getElementById('licRepRegAllApprovedCnt').textContent = (s.approved || 0).toLocaleString('vi-VN');
+      document.getElementById('licRepRegAllIssuedCnt').textContent = (s.issued || 0).toLocaleString('vi-VN');
+      document.getElementById('licRepRegAllRejectedCnt').textContent = (s.rejected || 0).toLocaleString('vi-VN');
+      document.getElementById('licRepRegAllTableBody').innerHTML = data.rows.length
+        ? data.rows.map(r => `<tr><td class="border p-2">${escapeHtml(r.roundName)}</td><td class="border p-2">${escapeHtml(r.companyName)}</td><td class="border p-2">${escapeHtml(r.softwareName)}</td><td class="border p-2 text-center">${r.currentQuantity}</td><td class="border p-2 text-center">${r.requestedQuantity}</td><td class="border p-2 text-right">${formatMoney(r.totalAmount)}</td><td class="border p-2 text-center">${purchaseStatusBadge(r.status)}</td><td class="border p-2">${escapeHtml(fmtDateVN(r.createdAt))}</td></tr>`).join('')
+        : '<tr><td colspan="8" class="text-center p-3 text-gray-400 italic">Không có đăng ký nào khớp bộ lọc.</td></tr>';
+    }
+    function exportPurchaseRegistrationsAllXlsx() {
+      if (!licRepData) return showToast('Chưa có dữ liệu để xuất.', 'warning');
+      downloadXlsxFile(`BaoCao_DangKyMuaBanQuyen_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        ['Kỳ mua', 'Công ty', 'Phần mềm', 'Đang dùng', 'Mua thực tế', 'Thành tiền', 'Trạng thái', 'Ngày đăng ký'],
+        licRepData.purchaseRegistrationsAll.rows.map(r => [r.roundName, r.companyName, r.softwareName, r.currentQuantity, r.requestedQuantity, r.totalAmount, purchaseStatusLabelPlain(r.status), r.createdAt]));
+    }
+    function purchaseStatusLabelPlain(status) {
+      return { ISSUED: 'Đã phát hành', APPROVED: 'Đã duyệt', REJECTED: 'Từ chối', PENDING: 'Chờ duyệt' }[status] || status;
+    }
+
+    // --- Báo cáo 10: Phát hành đăng ký mua — Tổng hợp theo Kỳ (nguồn: tab
+    // "Phát hành đăng ký mua", góc nhìn Admin quản lý Kỳ mua) ---
+    function renderRoundsSummaryReport(rows) {
+      document.getElementById('licRepRoundsSummaryTableBody').innerHTML = rows.length
+        ? rows.map(r => `<tr><td class="border p-2">${escapeHtml(r.roundName)}</td><td class="border p-2 text-center"><span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${r.roundStatus === 'OPEN' ? 'text-green-700 bg-green-100' : 'text-gray-600 bg-gray-200'}">${r.roundStatus === 'OPEN' ? 'Đang mở' : 'Đã đóng'}</span></td><td class="border p-2 text-center">${r.companyCount}</td><td class="border p-2 text-center">${r.totalQuantity}</td><td class="border p-2 text-right">${formatMoney(r.totalAmount)}</td><td class="border p-2 text-center text-teal-700 font-semibold">${r.issuedCount}</td><td class="border p-2 text-center text-amber-600 font-semibold">${r.pendingCount}</td></tr>`).join('')
+        : '<tr><td colspan="7" class="text-center p-3 text-gray-400 italic">Chưa có kỳ mua nào.</td></tr>';
+    }
+    function exportRoundsSummaryXlsx() {
+      if (!licRepData) return showToast('Chưa có dữ liệu để xuất.', 'warning');
+      downloadXlsxFile(`BaoCao_TongHopKyMua_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        ['Kỳ mua', 'Trạng thái kỳ', 'Số công ty tham gia', 'Tổng SL đăng ký', 'Tổng thành tiền', 'Đã phát hành', 'Chờ duyệt'],
+        licRepData.roundsSummary.map(r => [r.roundName, r.roundStatus === 'OPEN' ? 'Đang mở' : 'Đã đóng', r.companyCount, r.totalQuantity, r.totalAmount, r.issuedCount, r.pendingCount]));
     }
 
     // ============================================================

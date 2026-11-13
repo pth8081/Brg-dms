@@ -1814,23 +1814,39 @@
       </div>
     </div>
 
-    <!-- Sub-tab: Báo cáo Bản quyền — 5 khối độc lập, mỗi khối tự có bộ lọc/biểu
-         đồ/bảng/xuất Excel riêng (bộ lọc Công ty ở đầu trang áp dụng chung cho
-         cả 5 khối). -->
+    <!-- Sub-tab: Báo cáo Bản quyền — 10 khối độc lập, hiển thị dạng TAB (xem
+         switchLicenseReportTab trong app.js) để trang không bị cuộn dài: mỗi
+         lần chỉ 1 báo cáo hiển thị, các báo cáo khác ẩn đi. Mỗi khối tự có bộ
+         lọc/biểu đồ/bảng/xuất Excel riêng (bộ lọc Công ty/Phần mềm ở đầu
+         trang áp dụng cho các báo cáo có dùng tới, ghi rõ trong mô tả từng
+         báo cáo). -->
     <div id="licenseSubReports" class="hidden space-y-4">
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded border text-xs">
         <div>
-          <label class="block font-semibold text-gray-600 mb-1">Lọc theo Công ty (áp dụng cho cả 5 báo cáo bên dưới)</label>
+          <label class="block font-semibold text-gray-600 mb-1">Lọc theo Công ty</label>
           <select id="licRepFilterCompany" data-evt-change="onLicenseReportFilterChange" data-args='[]' class="w-full border p-1.5 rounded bg-white"></select>
         </div>
         <div>
-          <label class="block font-semibold text-gray-600 mb-1">Lọc theo Phần mềm (áp dụng báo cáo 1 — Người dùng và báo cáo 5 — Tình trạng cấp phép)</label>
+          <label class="block font-semibold text-gray-600 mb-1">Lọc theo Phần mềm</label>
           <select id="licRepFilterSoftware" data-evt-change="onLicenseReportFilterChange" data-args='[]' class="w-full border p-1.5 rounded bg-white"></select>
         </div>
       </div>
 
+      <div class="flex flex-wrap gap-0.5 bg-white border rounded-xl px-1 pt-1 pb-0.5">
+        <button id="btnLicRepTab1" data-evt-click="switchLicenseReportTab" data-args='[1]' class="nav-tab active text-xs px-3 py-2 font-semibold whitespace-nowrap">1. Người dùng</button>
+        <button id="btnLicRepTab2" data-evt-click="switchLicenseReportTab" data-args='[2]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">2. Kỳ mua</button>
+        <button id="btnLicRepTab3" data-evt-click="switchLicenseReportTab" data-args='[3]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">3. Vừa cấp</button>
+        <button id="btnLicRepTab4" data-evt-click="switchLicenseReportTab" data-args='[4]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">4. Sắp hết hạn</button>
+        <button id="btnLicRepTab5" data-evt-click="switchLicenseReportTab" data-args='[5]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">5. Tình trạng cấp phép</button>
+        <button id="btnLicRepTab6" data-evt-click="switchLicenseReportTab" data-args='[6]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">6. Phần mềm</button>
+        <button id="btnLicRepTab7" data-evt-click="switchLicenseReportTab" data-args='[7]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">7. Phát hành license</button>
+        <button id="btnLicRepTab8" data-evt-click="switchLicenseReportTab" data-args='[8]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">8. Thu hồi</button>
+        <button id="btnLicRepTab9" data-evt-click="switchLicenseReportTab" data-args='[9]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">9. Đăng ký mua</button>
+        <button id="btnLicRepTab10" data-evt-click="switchLicenseReportTab" data-args='[10]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">10. Phát hành ĐK mua</button>
+      </div>
+
       <!-- Báo cáo 1: Người dùng bản quyền -->
-      <div class="bg-white border rounded-xl p-4 shadow-sm">
+      <div id="licRepPanel1" class="bg-white border rounded-xl p-4 shadow-sm">
         <div class="flex justify-between items-center mb-2">
           <h3 class="font-bold text-gray-800 text-sm">1. Người dùng bản quyền theo Công ty/Khối/Phòng/Ban</h3>
           <button data-evt-click="exportLicenseUsageReportXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">📤 Xuất Excel</button>
@@ -1867,7 +1883,7 @@
       </div>
 
       <!-- Báo cáo 2: Kỳ đăng ký & Kỳ mua bản quyền -->
-      <div class="bg-white border rounded-xl p-4 shadow-sm">
+      <div id="licRepPanel2" class="hidden bg-white border rounded-xl p-4 shadow-sm">
         <div class="flex justify-between items-center mb-2">
           <h3 class="font-bold text-gray-800 text-sm">2. Kỳ đăng ký & Kỳ mua bản quyền</h3>
           <button data-evt-click="exportLicenseRoundsReportXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">📤 Xuất Excel</button>
@@ -1899,7 +1915,7 @@
       </div>
 
       <!-- Báo cáo 3: Bản quyền vừa được cấp -->
-      <div class="bg-white border rounded-xl p-4 shadow-sm">
+      <div id="licRepPanel3" class="hidden bg-white border rounded-xl p-4 shadow-sm">
         <div class="flex justify-between items-center mb-2">
           <h3 class="font-bold text-gray-800 text-sm">3. Bản quyền vừa được cấp</h3>
           <button data-evt-click="exportLicenseRecentReportXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">📤 Xuất Excel</button>
@@ -1919,7 +1935,7 @@
       </div>
 
       <!-- Báo cáo 4: Bản quyền sắp hết hạn -->
-      <div class="bg-white border rounded-xl p-4 shadow-sm">
+      <div id="licRepPanel4" class="hidden bg-white border rounded-xl p-4 shadow-sm">
         <div class="flex justify-between items-center mb-2">
           <h3 class="font-bold text-gray-800 text-sm">4. Bản quyền sắp hết hạn</h3>
           <button data-evt-click="exportLicenseExpiryReportXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">📤 Xuất Excel</button>
@@ -1940,7 +1956,7 @@
 
       <!-- Báo cáo 5: Tình trạng cấp phép theo Phần mềm — đã cấp / đang sử
            dụng / chưa sử dụng, kèm danh sách mã cụ thể còn để trống. -->
-      <div class="bg-white border rounded-xl p-4 shadow-sm">
+      <div id="licRepPanel5" class="hidden bg-white border rounded-xl p-4 shadow-sm">
         <div class="flex justify-between items-center mb-2">
           <h3 class="font-bold text-gray-800 text-sm">5. Tình trạng cấp phép theo Phần mềm</h3>
           <button data-evt-click="exportLicenseUsageStatusReportXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">📤 Xuất Excel</button>
@@ -1981,6 +1997,178 @@
               <tbody id="licRepUnusedTableBody"></tbody>
             </table>
           </div>
+        </div>
+      </div>
+
+      <!-- Báo cáo 6: Danh mục & Tổng quan Phần mềm -->
+      <div id="licRepPanel6" class="hidden bg-white border rounded-xl p-4 shadow-sm">
+        <div class="flex justify-between items-center mb-2">
+          <h3 class="font-bold text-gray-800 text-sm">6. Danh mục &amp; Tổng quan Phần mềm</h3>
+          <button data-evt-click="exportSoftwareOverviewXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">📤 Xuất Excel</button>
+        </div>
+        <p class="text-[11px] text-gray-500 mb-2">Nguồn: tab "Phần mềm" — toàn bộ danh mục phần mềm, kèm tổng số mã đã cấp / số công ty đang dùng / số nhân viên đang dùng của từng phần mềm (áp dụng bộ lọc Công ty/Phần mềm ở đầu trang).</p>
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse border bg-white text-xs">
+            <thead><tr class="bg-gray-100 text-left">
+              <th class="border p-2">Tên phần mềm</th><th class="border p-2">Mã</th><th class="border p-2 text-center">Loại license</th><th class="border p-2 text-center">Thời hạn mặc định</th><th class="border p-2 text-center">Số người/mã</th><th class="border p-2 text-center">Tổng đã cấp</th><th class="border p-2 text-center">Số công ty dùng</th><th class="border p-2 text-center">Số NV đang dùng</th>
+            </tr></thead>
+            <tbody id="licRepSoftwareOverviewTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Báo cáo 7: Lịch sử phát hành license -->
+      <div id="licRepPanel7" class="hidden bg-white border rounded-xl p-4 shadow-sm">
+        <div class="flex justify-between items-center mb-2">
+          <h3 class="font-bold text-gray-800 text-sm">7. Lịch sử phát hành license</h3>
+          <button data-evt-click="exportIssuanceHistoryXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">📤 Xuất Excel</button>
+        </div>
+        <p class="text-[11px] text-gray-500 mb-2">Nguồn: tab "Phát hành license" — toàn bộ lịch sử các lần phát hành, lọc theo Công ty/Phần mềm (đầu trang) và khoảng Ngày cấp bên dưới.</p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded border text-xs mb-3">
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Từ ngày</label>
+            <input id="licRepIssuanceFromDate" type="date" data-evt-change="onLicenseReportFilterChange" data-args='[]' class="w-full border p-1.5 rounded bg-white">
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Đến ngày</label>
+            <input id="licRepIssuanceToDate" type="date" data-evt-change="onLicenseReportFilterChange" data-args='[]' class="w-full border p-1.5 rounded bg-white">
+          </div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+          <div class="bg-gray-50 border rounded p-3">
+            <div class="text-[11px] font-semibold text-gray-500">Tổng lượt phát hành</div>
+            <div id="licRepIssuanceBatchCnt" class="text-xl font-bold text-gray-900">—</div>
+          </div>
+          <div class="bg-gray-50 border rounded p-3">
+            <div class="text-[11px] font-semibold text-gray-500">Tổng mã mới sinh</div>
+            <div id="licRepIssuanceCodesGenerated" class="text-xl font-bold text-sky-700">—</div>
+          </div>
+          <div class="bg-gray-50 border rounded p-3">
+            <div class="text-[11px] font-semibold text-gray-500">Tổng số lượng phát hành</div>
+            <div id="licRepIssuanceTotalQuantity" class="text-xl font-bold text-gray-900">—</div>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse border bg-white text-xs">
+            <thead><tr class="bg-gray-100 text-left">
+              <th class="border p-2">Ngày cấp</th><th class="border p-2">Công ty</th><th class="border p-2">Phần mềm</th><th class="border p-2">Kỳ mua</th><th class="border p-2 text-center">Tổng SL</th><th class="border p-2 text-center">Mã mới sinh</th><th class="border p-2">Ngày hết hạn</th><th class="border p-2">Ghi chú</th>
+            </tr></thead>
+            <tbody id="licRepIssuanceTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Báo cáo 8: Lịch sử thu hồi license -->
+      <div id="licRepPanel8" class="hidden bg-white border rounded-xl p-4 shadow-sm">
+        <div class="flex justify-between items-center mb-2">
+          <h3 class="font-bold text-gray-800 text-sm">8. Lịch sử thu hồi license</h3>
+          <button data-evt-click="exportRevocationHistoryXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">📤 Xuất Excel</button>
+        </div>
+        <p class="text-[11px] text-gray-500 mb-2">Nguồn: tab "Thu hồi theo nhân viên" + mọi hình thức thu hồi khác (hàng loạt ở tab Phân bổ, Gia hạn/Thu hồi hàng loạt, tự động theo AD) — lấy từ Nhật ký hệ thống, lọc riêng phần License (không áp dụng bộ lọc Công ty/Phần mềm ở đầu trang).</p>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-gray-50 p-3 rounded border text-xs mb-3">
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Từ ngày</label>
+            <input id="licRepRevokeFromDate" type="date" data-evt-change="onLicenseReportFilterChange" data-args='[]' class="w-full border p-1.5 rounded bg-white">
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Đến ngày</label>
+            <input id="licRepRevokeToDate" type="date" data-evt-change="onLicenseReportFilterChange" data-args='[]' class="w-full border p-1.5 rounded bg-white">
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Loại thu hồi</label>
+            <select id="licRepRevokeTypeSelect" data-evt-change="onLicenseReportFilterChange" data-args='[]' class="w-full border p-1.5 rounded bg-white">
+              <option value="">-- Tất cả --</option>
+              <option value="manual">Thủ công</option>
+              <option value="auto">Tự động (AD)</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3 mb-3">
+          <div class="bg-gray-50 border rounded p-3">
+            <div class="text-[11px] font-semibold text-gray-500">Tổng lượt thu hồi (trong kỳ lọc)</div>
+            <div id="licRepRevokeTotalCnt" class="text-xl font-bold text-amber-600">—</div>
+          </div>
+        </div>
+        <div id="licRepRevokeTruncatedNote" class="hidden text-[11px] text-amber-700 mb-2"></div>
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse border bg-white text-xs">
+            <thead><tr class="bg-gray-100 text-left">
+              <th class="border p-2 whitespace-nowrap">Ngày giờ</th><th class="border p-2">Người thực hiện</th><th class="border p-2 text-center">Loại</th><th class="border p-2">Nội dung</th>
+            </tr></thead>
+            <tbody id="licRepRevokeTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Báo cáo 9: Đăng ký mua bản quyền — Toàn bộ các kỳ -->
+      <div id="licRepPanel9" class="hidden bg-white border rounded-xl p-4 shadow-sm">
+        <div class="flex justify-between items-center mb-2">
+          <h3 class="font-bold text-gray-800 text-sm">9. Đăng ký mua bản quyền — Toàn bộ các kỳ</h3>
+          <button data-evt-click="exportPurchaseRegistrationsAllXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">📤 Xuất Excel</button>
+        </div>
+        <p class="text-[11px] text-gray-500 mb-2">Nguồn: tab "Đăng ký mua bản quyền" — hiện chỉ xem được từng Kỳ mua 1, chưa gộp nhiều kỳ. Báo cáo này gộp mọi kỳ, lọc theo Kỳ mua/Trạng thái bên dưới và Công ty ở đầu trang.</p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded border text-xs mb-3">
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Kỳ mua</label>
+            <select id="licRepRegAllRoundSelect" data-evt-change="onLicenseReportFilterChange" data-args='[]' class="w-full border p-1.5 rounded bg-white"></select>
+          </div>
+          <div>
+            <label class="block font-semibold text-gray-600 mb-1">Trạng thái</label>
+            <select id="licRepRegAllStatusSelect" data-evt-change="onLicenseReportFilterChange" data-args='[]' class="w-full border p-1.5 rounded bg-white">
+              <option value="">-- Tất cả --</option>
+              <option value="PENDING">Chờ duyệt</option>
+              <option value="APPROVED">Đã duyệt</option>
+              <option value="ISSUED">Đã phát hành</option>
+              <option value="REJECTED">Từ chối</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
+          <div class="bg-gray-50 border rounded p-3">
+            <div class="text-[11px] font-semibold text-gray-500">Tổng đăng ký</div>
+            <div id="licRepRegAllTotalCnt" class="text-lg font-bold text-gray-900">—</div>
+          </div>
+          <div class="bg-gray-50 border rounded p-3">
+            <div class="text-[11px] font-semibold text-gray-500">Chờ duyệt</div>
+            <div id="licRepRegAllPendingCnt" class="text-lg font-bold text-amber-600">—</div>
+          </div>
+          <div class="bg-gray-50 border rounded p-3">
+            <div class="text-[11px] font-semibold text-gray-500">Đã duyệt</div>
+            <div id="licRepRegAllApprovedCnt" class="text-lg font-bold text-sky-700">—</div>
+          </div>
+          <div class="bg-gray-50 border rounded p-3">
+            <div class="text-[11px] font-semibold text-gray-500">Đã phát hành</div>
+            <div id="licRepRegAllIssuedCnt" class="text-lg font-bold text-teal-700">—</div>
+          </div>
+          <div class="bg-gray-50 border rounded p-3">
+            <div class="text-[11px] font-semibold text-gray-500">Từ chối</div>
+            <div id="licRepRegAllRejectedCnt" class="text-lg font-bold text-red-600">—</div>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse border bg-white text-xs">
+            <thead><tr class="bg-gray-100 text-left">
+              <th class="border p-2">Kỳ mua</th><th class="border p-2">Công ty</th><th class="border p-2">Phần mềm</th><th class="border p-2 text-center">Đang dùng</th><th class="border p-2 text-center">Mua thực tế</th><th class="border p-2 text-right">Thành tiền</th><th class="border p-2 text-center">Trạng thái</th><th class="border p-2">Ngày đăng ký</th>
+            </tr></thead>
+            <tbody id="licRepRegAllTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Báo cáo 10: Phát hành đăng ký mua — Tổng hợp theo Kỳ -->
+      <div id="licRepPanel10" class="hidden bg-white border rounded-xl p-4 shadow-sm">
+        <div class="flex justify-between items-center mb-2">
+          <h3 class="font-bold text-gray-800 text-sm">10. Phát hành đăng ký mua — Tổng hợp theo Kỳ</h3>
+          <button data-evt-click="exportRoundsSummaryXlsx" data-args='[]' class="btn-secondary px-2.5 py-1.5 rounded font-semibold transition text-xs">📤 Xuất Excel</button>
+        </div>
+        <p class="text-[11px] text-gray-500 mb-2">Nguồn: tab "Phát hành đăng ký mua" (góc nhìn Admin quản lý Kỳ mua) — tổng hợp mỗi Kỳ mua thành 1 dòng để so sánh nhanh giữa các kỳ (toàn bộ công ty/phần mềm, không áp dụng bộ lọc đầu trang).</p>
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse border bg-white text-xs">
+            <thead><tr class="bg-gray-100 text-left">
+              <th class="border p-2">Kỳ mua</th><th class="border p-2 text-center">Trạng thái kỳ</th><th class="border p-2 text-center">Số công ty tham gia</th><th class="border p-2 text-center">Tổng SL đăng ký</th><th class="border p-2 text-right">Tổng thành tiền</th><th class="border p-2 text-center">Đã phát hành</th><th class="border p-2 text-center">Chờ duyệt</th>
+            </tr></thead>
+            <tbody id="licRepRoundsSummaryTableBody"></tbody>
+          </table>
         </div>
       </div>
     </div>
