@@ -2599,6 +2599,7 @@
     <div class="flex gap-1 border-b border-gray-200 flex-wrap">
       <button id="btnContractSubContracts" data-evt-click="switchContractSubTab" data-args='["contracts"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📄 Hợp đồng</button>
       <button id="btnContractSubGuarantees" data-evt-click="switchContractSubTab" data-args='["guarantees"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🛡️ Bảo lãnh phát hành</button>
+      <button id="btnContractSubReports" data-evt-click="switchContractSubTab" data-args='["reports"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📊 Báo cáo</button>
     </div>
 
     <!-- Sub-tab: Hợp đồng -->
@@ -2652,6 +2653,101 @@
         </table>
       </div>
       <div id="guaranteeListPaginationBox" class="flex flex-col sm:flex-row justify-between items-center gap-3 bg-gray-50 p-3 rounded border text-xs text-gray-700"></div>
+    </div>
+
+    <!-- Sub-tab: Báo cáo -->
+    <div id="contractSubReports" class="hidden space-y-4">
+      <div class="flex gap-1 border-b border-gray-200 flex-wrap">
+        <button id="btnCtrRepTab1" data-evt-click="switchContractReportTab" data-args='[1]' class="nav-tab active text-xs px-3 py-2 font-semibold whitespace-nowrap">1. Tổng quan</button>
+        <button id="btnCtrRepTab2" data-evt-click="switchContractReportTab" data-args='[2]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">2. Hợp đồng sắp hết hạn</button>
+        <button id="btnCtrRepTab3" data-evt-click="switchContractReportTab" data-args='[3]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">3. Bảo lãnh sắp hết hạn</button>
+        <button id="btnCtrRepTab4" data-evt-click="switchContractReportTab" data-args='[4]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">4. Theo Công ty/Phòng</button>
+      </div>
+
+      <!-- Panel 1: Tổng quan -->
+      <div id="ctrRepPanel1" class="space-y-3">
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div class="bg-white border rounded-xl p-3"><div class="text-[11px] text-gray-500">Hợp đồng · Chờ duyệt</div><div id="ctrRepHdPending" class="text-xl font-bold text-amber-600">0</div></div>
+          <div class="bg-white border rounded-xl p-3"><div class="text-[11px] text-gray-500">Hợp đồng · Đã duyệt</div><div id="ctrRepHdApproved" class="text-xl font-bold text-success-700">0</div></div>
+          <div class="bg-white border rounded-xl p-3"><div class="text-[11px] text-gray-500">Hợp đồng · Từ chối</div><div id="ctrRepHdRejected" class="text-xl font-bold text-danger-700">0</div></div>
+          <div class="bg-white border rounded-xl p-3"><div class="text-[11px] text-gray-500">Hợp đồng · Đã thanh lý</div><div id="ctrRepHdTerminated" class="text-xl font-bold text-slate-600">0</div></div>
+          <div class="bg-white border rounded-xl p-3"><div class="text-[11px] text-gray-500">Phụ lục · Chờ duyệt</div><div id="ctrRepPlPending" class="text-xl font-bold text-amber-600">0</div></div>
+          <div class="bg-white border rounded-xl p-3"><div class="text-[11px] text-gray-500">Phụ lục · Đã duyệt</div><div id="ctrRepPlApproved" class="text-xl font-bold text-success-700">0</div></div>
+          <div class="bg-white border rounded-xl p-3"><div class="text-[11px] text-gray-500">Bảo lãnh · Chờ duyệt</div><div id="ctrRepBlPending" class="text-xl font-bold text-amber-600">0</div></div>
+          <div class="bg-white border rounded-xl p-3"><div class="text-[11px] text-gray-500">Bảo lãnh · Đã duyệt</div><div id="ctrRepBlApproved" class="text-xl font-bold text-success-700">0</div></div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="bg-brand-50 border border-brand-200 rounded-xl p-4">
+            <div class="text-xs text-brand-800 font-semibold">Tổng giá trị Hợp đồng đã duyệt</div>
+            <div id="ctrRepHdTotalValue" class="text-2xl font-bold text-brand-800 mt-1">0 ₫</div>
+          </div>
+          <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+            <div class="text-xs text-indigo-800 font-semibold">Tổng giá trị Bảo lãnh đã duyệt</div>
+            <div id="ctrRepBlTotalValue" class="text-2xl font-bold text-indigo-800 mt-1">0 ₫</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel 2: Hợp đồng sắp hết hạn -->
+      <div id="ctrRepPanel2" class="hidden space-y-3">
+        <div class="flex gap-1 flex-wrap items-center">
+          <span class="text-xs font-semibold text-gray-600 mr-1">Trong vòng:</span>
+          <button id="btnCtrRepHdExpiry7" data-evt-click="onCtrRepHdExpiryDaysChange" data-args='[7]' class="nav-tab text-xs px-3 py-1.5 font-semibold">7 ngày</button>
+          <button id="btnCtrRepHdExpiry15" data-evt-click="onCtrRepHdExpiryDaysChange" data-args='[15]' class="nav-tab text-xs px-3 py-1.5 font-semibold">15 ngày</button>
+          <button id="btnCtrRepHdExpiry30" data-evt-click="onCtrRepHdExpiryDaysChange" data-args='[30]' class="nav-tab active text-xs px-3 py-1.5 font-semibold">30 ngày</button>
+          <button id="btnCtrRepHdExpiry60" data-evt-click="onCtrRepHdExpiryDaysChange" data-args='[60]' class="nav-tab text-xs px-3 py-1.5 font-semibold">60 ngày</button>
+          <button id="btnCtrRepHdExpiry90" data-evt-click="onCtrRepHdExpiryDaysChange" data-args='[90]' class="nav-tab text-xs px-3 py-1.5 font-semibold">90 ngày</button>
+          <button data-evt-click="exportCtrRepHdExpiryXlsx" data-args='[]' class="ml-auto btn-secondary text-xs px-3 py-1.5 rounded font-semibold">📤 Xuất Excel</button>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse border bg-white text-xs">
+            <thead><tr class="bg-gray-100 text-left">
+              <th class="border p-2">Mã</th><th class="border p-2">Tên hợp đồng</th><th class="border p-2">Công ty</th><th class="border p-2">Phòng</th>
+              <th class="border p-2 text-center">Ngày hết hạn</th><th class="border p-2 text-center">Còn lại</th><th class="border p-2 text-right">Giá trị</th>
+            </tr></thead>
+            <tbody id="ctrRepHdExpiryBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Panel 3: Bảo lãnh sắp hết hạn -->
+      <div id="ctrRepPanel3" class="hidden space-y-3">
+        <div class="flex gap-1 flex-wrap items-center">
+          <span class="text-xs font-semibold text-gray-600 mr-1">Trong vòng:</span>
+          <button id="btnCtrRepBlExpiry7" data-evt-click="onCtrRepBlExpiryDaysChange" data-args='[7]' class="nav-tab text-xs px-3 py-1.5 font-semibold">7 ngày</button>
+          <button id="btnCtrRepBlExpiry15" data-evt-click="onCtrRepBlExpiryDaysChange" data-args='[15]' class="nav-tab text-xs px-3 py-1.5 font-semibold">15 ngày</button>
+          <button id="btnCtrRepBlExpiry30" data-evt-click="onCtrRepBlExpiryDaysChange" data-args='[30]' class="nav-tab active text-xs px-3 py-1.5 font-semibold">30 ngày</button>
+          <button id="btnCtrRepBlExpiry60" data-evt-click="onCtrRepBlExpiryDaysChange" data-args='[60]' class="nav-tab text-xs px-3 py-1.5 font-semibold">60 ngày</button>
+          <button id="btnCtrRepBlExpiry90" data-evt-click="onCtrRepBlExpiryDaysChange" data-args='[90]' class="nav-tab text-xs px-3 py-1.5 font-semibold">90 ngày</button>
+          <button data-evt-click="exportCtrRepBlExpiryXlsx" data-args='[]' class="ml-auto btn-secondary text-xs px-3 py-1.5 rounded font-semibold">📤 Xuất Excel</button>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse border bg-white text-xs">
+            <thead><tr class="bg-gray-100 text-left">
+              <th class="border p-2">Mã</th><th class="border p-2">Tên bảo lãnh</th><th class="border p-2">Gắn với</th><th class="border p-2">Đơn vị phát hành</th>
+              <th class="border p-2 text-center">Ngày hết hạn</th><th class="border p-2 text-center">Còn lại</th><th class="border p-2 text-right">Giá trị</th>
+            </tr></thead>
+            <tbody id="ctrRepBlExpiryBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Panel 4: Theo Công ty/Phòng -->
+      <div id="ctrRepPanel4" class="hidden space-y-3">
+        <div class="flex justify-end">
+          <button data-evt-click="exportCtrRepByUnitXlsx" data-args='[]' class="btn-secondary text-xs px-3 py-1.5 rounded font-semibold">📤 Xuất Excel</button>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse border bg-white text-xs">
+            <thead><tr class="bg-gray-100 text-left">
+              <th class="border p-2">Công ty</th><th class="border p-2">Phòng</th>
+              <th class="border p-2 text-center">Số hợp đồng</th><th class="border p-2 text-right">Tổng giá trị hợp đồng</th>
+              <th class="border p-2 text-center">Số bảo lãnh</th><th class="border p-2 text-right">Tổng giá trị bảo lãnh</th>
+            </tr></thead>
+            <tbody id="ctrRepByUnitBody"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </div>
 

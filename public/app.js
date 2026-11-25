@@ -12389,10 +12389,13 @@ function isPerpetualSoftware(softwareId) {
     function switchContractSubTab(name) {
       document.getElementById('contractSubContracts').classList.toggle('hidden', name !== 'contracts');
       document.getElementById('contractSubGuarantees').classList.toggle('hidden', name !== 'guarantees');
+      document.getElementById('contractSubReports').classList.toggle('hidden', name !== 'reports');
       document.getElementById('btnContractSubContracts').classList.toggle('active', name === 'contracts');
       document.getElementById('btnContractSubGuarantees').classList.toggle('active', name === 'guarantees');
+      document.getElementById('btnContractSubReports').classList.toggle('active', name === 'reports');
       if (name === 'contracts') renderContractList();
       if (name === 'guarantees') renderGuaranteeFlatList();
+      if (name === 'reports') renderContractReports();
     }
 
     function contractStatusBadge(status) {
@@ -12904,4 +12907,161 @@ function isPerpetualSoftware(softwareId) {
         renderContractList();
         if (!document.getElementById('contractSubGuarantees').classList.contains('hidden')) renderGuaranteeFlatList();
       } catch (err) { showToast(err.message, 'danger'); }
+    }
+
+    // --- Báo cáo module Hợp đồng & Bảo lãnh — tính hoàn toàn từ dữ liệu đã
+    // tải sẵn trong ContractDB (giống cách các báo cáo License/Ngân sách
+    // dùng dữ liệu đã tải, không gọi thêm API riêng). ---
+    let ctrRepActiveTab = 1;
+    const ctrRepState = { hdExpiryDays: 30, blExpiryDays: 30 };
+    let ctrRepHdExpiryExport = { header: [], rows: [], filename: 'hop_dong_sap_het_han.xlsx' };
+    let ctrRepBlExpiryExport = { header: [], rows: [], filename: 'bao_lanh_sap_het_han.xlsx' };
+    let ctrRepByUnitExport = { header: [], rows: [], filename: 'thong_ke_hop_dong_theo_don_vi.xlsx' };
+
+    function switchContractReportTab(n) {
+      ctrRepActiveTab = Number(n);
+      for (let i = 1; i <= 4; i++) {
+        document.getElementById('ctrRepPanel' + i).classList.toggle('hidden', i !== ctrRepActiveTab);
+        document.getElementById('btnCtrRepTab' + i).classList.toggle('active', i === ctrRepActiveTab);
+      }
+    }
+    function daysUntil(dateIso) {
+      if (!dateIso) return null;
+      const target = new Date(dateIso + 'T00:00:00');
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      return Math.round((target - today) / 86400000);
+    }
+    function remainingDaysLabel(days) {
+      if (days === null) return '—';
+      if (days < 0) return `<span class="text-red-600 font-semibold">Quá hạn ${Math.abs(days)} ngày</span>`;
+      if (days === 0) return `<span class="text-red-600 font-semibold">Hết hạn hôm nay</span>`;
+      return `<span class="${days <= 7 ? 'text-amber-600 font-semibold' : ''}">Còn ${days} ngày</span>`;
+    }
+    function renderContractReports() {
+      renderCtrRepOverview();
+      renderCtrRepHdExpiry();
+      renderCtrRepBlExpiry();
+      renderCtrRepByUnit();
+    }
+    function renderCtrRepOverview() {
+      const hd = ContractDB.contracts;
+      const pl = ContractDB.addendums;
+      const bl = ContractDB.guarantees;
+      document.getElementById('ctrRepHdPending').textContent = hd.filter(c => c.status === 'PENDING').length;
+      document.getElementById('ctrRepHdApproved').textContent = hd.filter(c => c.status === 'APPROVED').length;
+      document.getElementById('ctrRepHdRejected').textContent = hd.filter(c => c.status === 'REJECTED').length;
+      document.getElementById('ctrRepHdTerminated').textContent = hd.filter(c => c.status === 'TERMINATED').length;
+      document.getElementById('ctrRepPlPending').textContent = pl.filter(a => a.status === 'PENDING').length;
+      document.getElementById('ctrRepPlApproved').textContent = pl.filter(a => a.status === 'APPROVED').length;
+      document.getElementById('ctrRepBlPending').textContent = bl.filter(g => g.status === 'PENDING').length;
+      document.getElementById('ctrRepBlApproved').textContent = bl.filter(g => g.status === 'APPROVED').length;
+      const hdTotal = hd.filter(c => c.status === 'APPROVED').reduce((s, c) => s + (Number(c.value) || 0), 0);
+      const blTotal = bl.filter(g => g.status === 'APPROVED').reduce((s, g) => s + (Number(g.value) || 0), 0);
+      document.getElementById('ctrRepHdTotalValue').textContent = formatMoney(hdTotal);
+      document.getElementById('ctrRepBlTotalValue').textContent = formatMoney(blTotal);
+    }
+    function onCtrRepHdExpiryDaysChange(days) {
+      ctrRepState.hdExpiryDays = Number(days);
+      [7, 15, 30, 60, 90].forEach(d => document.getElementById('btnCtrRepHdExpiry' + d).classList.toggle('active', d === ctrRepState.hdExpiryDays));
+      renderCtrRepHdExpiry();
+    }
+    function onCtrRepBlExpiryDaysChange(days) {
+      ctrRepState.blExpiryDays = Number(days);
+      [7, 15, 30, 60, 90].forEach(d => document.getElementById('btnCtrRepBlExpiry' + d).classList.toggle('active', d === ctrRepState.blExpiryDays));
+      renderCtrRepBlExpiry();
+    }
+    function renderCtrRepHdExpiry() {
+      const rows = ContractDB.contracts
+        .filter(c => c.status === 'APPROVED' && c.expiryDate)
+        .map(c => ({ c, days: daysUntil(c.expiryDate) }))
+        .filter(x => x.days !== null && x.days <= ctrRepState.hdExpiryDays)
+        .sort((a, b) => a.days - b.days);
+      document.getElementById('ctrRepHdExpiryBody').innerHTML = rows.length ? rows.map(({ c, days }) => `
+        <tr class="hover:bg-gray-50">
+          <td class="border p-2 font-mono text-[11px]">${escapeHtml(c.code)}</td>
+          <td class="border p-2">${escapeHtml(c.name)}</td>
+          <td class="border p-2">${escapeHtml(companyNameById(c.companyId))}</td>
+          <td class="border p-2">${escapeHtml(c.deptName)}</td>
+          <td class="border p-2 text-center">${escapeHtml(fmtDateVN(c.expiryDate))}</td>
+          <td class="border p-2 text-center">${remainingDaysLabel(days)}</td>
+          <td class="border p-2 text-right">${c.value ? formatMoney(c.value) : '—'}</td>
+        </tr>`).join('') : '<tr><td colspan="7" class="text-center p-4 text-gray-500">Không có hợp đồng nào sắp hết hạn trong mốc đã chọn.</td></tr>';
+      ctrRepHdExpiryExport = {
+        header: ['Mã', 'Tên hợp đồng', 'Công ty', 'Phòng', 'Ngày hết hạn', 'Số ngày còn lại', 'Giá trị'],
+        rows: rows.map(({ c, days }) => [c.code, c.name, companyNameById(c.companyId), c.deptName, fmtDateVN(c.expiryDate), days, c.value || 0]),
+        filename: `hop_dong_sap_het_han_${ctrRepState.hdExpiryDays}ngay.xlsx`
+      };
+    }
+    function renderCtrRepBlExpiry() {
+      const rows = ContractDB.guarantees
+        .filter(g => g.status === 'APPROVED' && g.hasTerm && g.expiryDate)
+        .map(g => ({ g, days: daysUntil(g.expiryDate) }))
+        .filter(x => x.days !== null && x.days <= ctrRepState.blExpiryDays)
+        .sort((a, b) => a.days - b.days);
+      document.getElementById('ctrRepBlExpiryBody').innerHTML = rows.length ? rows.map(({ g, days }) => `
+        <tr class="hover:bg-gray-50">
+          <td class="border p-2 font-mono text-[11px]">${escapeHtml(g.code)}</td>
+          <td class="border p-2">${escapeHtml(g.name)}</td>
+          <td class="border p-2 text-[11px]">${escapeHtml(guaranteeParentRefLabel(g))}</td>
+          <td class="border p-2">${escapeHtml(g.issuer || '—')}</td>
+          <td class="border p-2 text-center">${escapeHtml(fmtDateVN(g.expiryDate))}</td>
+          <td class="border p-2 text-center">${remainingDaysLabel(days)}</td>
+          <td class="border p-2 text-right">${g.value ? formatMoney(g.value) : '—'}</td>
+        </tr>`).join('') : '<tr><td colspan="7" class="text-center p-4 text-gray-500">Không có bảo lãnh nào sắp hết hạn trong mốc đã chọn.</td></tr>';
+      ctrRepBlExpiryExport = {
+        header: ['Mã', 'Tên bảo lãnh', 'Gắn với', 'Đơn vị phát hành', 'Ngày hết hạn', 'Số ngày còn lại', 'Giá trị'],
+        rows: rows.map(({ g, days }) => [g.code, g.name, guaranteeParentRefLabel(g), g.issuer || '', fmtDateVN(g.expiryDate), days, g.value || 0]),
+        filename: `bao_lanh_sap_het_han_${ctrRepState.blExpiryDays}ngay.xlsx`
+      };
+    }
+    function renderCtrRepByUnit() {
+      const groups = new Map();
+      ContractDB.contracts.forEach(c => {
+        const key = `${c.companyId}|||${c.deptName}`;
+        if (!groups.has(key)) groups.set(key, { companyId: c.companyId, deptName: c.deptName, hdCount: 0, hdValue: 0, blCount: 0, blValue: 0 });
+        const g = groups.get(key);
+        g.hdCount++;
+        g.hdValue += Number(c.value) || 0;
+      });
+      ContractDB.guarantees.forEach(g => {
+        let contractId = g.contractId;
+        if (!contractId && g.addendumId) {
+          const a = ContractDB.addendums.find(x => x.id === g.addendumId);
+          contractId = a ? a.contractId : null;
+        }
+        const c = ContractDB.contracts.find(x => x.id === contractId);
+        if (!c) return;
+        const key = `${c.companyId}|||${c.deptName}`;
+        if (!groups.has(key)) groups.set(key, { companyId: c.companyId, deptName: c.deptName, hdCount: 0, hdValue: 0, blCount: 0, blValue: 0 });
+        const row = groups.get(key);
+        row.blCount++;
+        row.blValue += Number(g.value) || 0;
+      });
+      const rows = Array.from(groups.values()).sort((a, b) => companyNameById(a.companyId).localeCompare(companyNameById(b.companyId)) || a.deptName.localeCompare(b.deptName));
+      document.getElementById('ctrRepByUnitBody').innerHTML = rows.length ? rows.map(r => `
+        <tr class="hover:bg-gray-50">
+          <td class="border p-2">${escapeHtml(companyNameById(r.companyId))}</td>
+          <td class="border p-2">${escapeHtml(r.deptName)}</td>
+          <td class="border p-2 text-center">${r.hdCount}</td>
+          <td class="border p-2 text-right">${formatMoney(r.hdValue)}</td>
+          <td class="border p-2 text-center">${r.blCount}</td>
+          <td class="border p-2 text-right">${formatMoney(r.blValue)}</td>
+        </tr>`).join('') : '<tr><td colspan="6" class="text-center p-4 text-gray-500">Chưa có dữ liệu.</td></tr>';
+      ctrRepByUnitExport = {
+        header: ['Công ty', 'Phòng', 'Số hợp đồng', 'Tổng giá trị hợp đồng', 'Số bảo lãnh', 'Tổng giá trị bảo lãnh'],
+        rows: rows.map(r => [companyNameById(r.companyId), r.deptName, r.hdCount, r.hdValue, r.blCount, r.blValue]),
+        filename: 'thong_ke_hop_dong_theo_don_vi.xlsx'
+      };
+    }
+    function exportCtrRepHdExpiryXlsx() {
+      if (!ctrRepHdExpiryExport.rows.length) return showToast('Không có dữ liệu để xuất.', 'warning');
+      downloadXlsxFile(ctrRepHdExpiryExport.filename, ctrRepHdExpiryExport.header, ctrRepHdExpiryExport.rows);
+    }
+    function exportCtrRepBlExpiryXlsx() {
+      if (!ctrRepBlExpiryExport.rows.length) return showToast('Không có dữ liệu để xuất.', 'warning');
+      downloadXlsxFile(ctrRepBlExpiryExport.filename, ctrRepBlExpiryExport.header, ctrRepBlExpiryExport.rows);
+    }
+    function exportCtrRepByUnitXlsx() {
+      if (!ctrRepByUnitExport.rows.length) return showToast('Không có dữ liệu để xuất.', 'warning');
+      downloadXlsxFile(ctrRepByUnitExport.filename, ctrRepByUnitExport.header, ctrRepByUnitExport.rows);
     }
