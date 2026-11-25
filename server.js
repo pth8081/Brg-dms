@@ -255,6 +255,16 @@ async function ensureSchemaMigrations() {
     await ensureColumnExists('lic_purchase_registrations', 'correction_reason', 'VARCHAR(500) NULL DEFAULT NULL');
     await ensureColumnExists('lic_purchase_registrations', 'correction_requested_by', 'VARCHAR(100) NULL DEFAULT NULL');
     await ensureColumnExists('lic_purchase_registrations', 'correction_requested_at', 'VARCHAR(100) NULL DEFAULT NULL');
+    // Bảng cấu hình mới (docUploadConfig/contractUploadConfig) BẮT BUỘC phải
+    // có sẵn dòng version trong sync_versions TRƯỚC lần lưu đầu tiên — nếu
+    // không, baseVersion phía client sẽ là "chưa có" (undefined) trong khi
+    // checkAndBumpSyncVersion() mặc định current=1 khi chưa có dòng, khiến
+    // lần lưu đầu tiên luôn báo nhầm "dữ liệu vừa bị người khác cập nhật"
+    // (409) dù chưa ai từng lưu. Seed sẵn version=1, cùng lý do/cơ chế với
+    // ensureColumnExists ở trên (schema.sql không tự chạy lại mỗi lần deploy).
+    await pool.query(
+        "INSERT INTO sync_versions (table_name, version) VALUES ('docUploadConfig', 1), ('contractUploadConfig', 1) ON DUPLICATE KEY UPDATE table_name = table_name"
+    ).catch(err => console.error('❌ Lỗi tự khởi tạo sync_versions cho cấu hình loại file tải lên:', err.message));
 }
 
 let pool;
@@ -2083,6 +2093,27 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
                     orgUnitAttr: raw.orgUnitAttr || ''
                 };
             })() : {},
+            // Khác với emailConfig/ldapConfig (chỉ Admin cần, chứa thông tin hạ
+            // tầng nhạy cảm) — danh sách loại file được phép tải lên không nhạy
+            // cảm và MỌI user đăng nhập đều cần biết (để hiển thị "accept" đúng
+            // ở ô chọn file + thông báo lỗi rõ ràng khi họ tự tải lên, không chỉ
+            // riêng Admin xem màn cấu hình).
+            docUploadConfig: {
+                allowedExt: (() => {
+                    const raw = configMap.docUploadConfig
+                        ? (typeof configMap.docUploadConfig === 'string' ? JSON.parse(configMap.docUploadConfig) : configMap.docUploadConfig)
+                        : {};
+                    return Array.isArray(raw.allowedExt) ? raw.allowedExt : ['pdf'];
+                })()
+            },
+            contractUploadConfig: {
+                allowedExt: (() => {
+                    const raw = configMap.contractUploadConfig
+                        ? (typeof configMap.contractUploadConfig === 'string' ? JSON.parse(configMap.contractUploadConfig) : configMap.contractUploadConfig)
+                        : {};
+                    return Array.isArray(raw.allowedExt) ? raw.allowedExt : [];
+                })()
+            },
             systemLogs: logs,
             syncVersions,
             maxPdfSizeMB: MAX_PDF_SIZE_MB
@@ -2094,13 +2125,13 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
 });
 
 // Các bảng cấu hình hệ thống chỉ Admin mới được ghi
-const ADMIN_ONLY_TABLES = new Set(['users', 'workflows', 'depts', 'cats', 'deptWorkflows', 'emailConfig', 'ldapConfig']);
+const ADMIN_ONLY_TABLES = new Set(['users', 'workflows', 'depts', 'cats', 'deptWorkflows', 'emailConfig', 'ldapConfig', 'docUploadConfig', 'contractUploadConfig']);
 // system_logs KHÔNG còn nằm trong danh sách này — bảng log dùng route riêng
 // (POST/DELETE /api/logs) thay vì cơ chế sync-theo-mảng chung, vì kiểu sync
 // "so sánh ID để suy luận có xoá hay không" vốn dùng cho các bảng nhỏ/toàn bộ
 // dữ liệu tải hết 1 lần sẽ PHÁ HUỶ log khi bảng thật đã vượt quá 300 dòng
 // (bootstrap chỉ tải 300 log mới nhất) — xem route mới bên dưới để biết lý do.
-const KNOWN_TABLES = new Set(['docs', 'users', 'depts', 'cats', 'workflows', 'deptWorkflows', 'emailConfig', 'ldapConfig']);
+const KNOWN_TABLES = new Set(['docs', 'users', 'depts', 'cats', 'workflows', 'deptWorkflows', 'emailConfig', 'ldapConfig', 'docUploadConfig', 'contractUploadConfig']);
 const MAX_SYNC_ROWS = 5000;
 
 // (CONCURRENCY-01) Các bảng "xóa-chèn-lại/ghi đè toàn bộ theo snapshot client
@@ -2113,7 +2144,7 @@ const MAX_SYNC_ROWS = 5000;
 // xem nhánh `table === 'docs'` bên dưới) — áp dụng nguyên tắc tương tự nhưng ở
 // mức "phiên bản nguyên" cho các bảng còn lại, vì các bảng này ghi đè theo toàn
 // bộ snapshot chứ không theo từng dòng riêng lẻ như docs.
-const SYNC_VERSIONED_TABLES = new Set(['users', 'depts', 'cats', 'workflows', 'deptWorkflows', 'emailConfig', 'ldapConfig']);
+const SYNC_VERSIONED_TABLES = new Set(['users', 'depts', 'cats', 'workflows', 'deptWorkflows', 'emailConfig', 'ldapConfig', 'docUploadConfig', 'contractUploadConfig']);
 class SyncVersionConflictError extends Error {
     constructor(message) { super(message); this.syncConflict = true; }
 }
@@ -2406,6 +2437,61 @@ function validatePdfUpload(fileName, fileType, buffer) {
     return null; // hợp lệ
 }
 
+// --- Cấu hình loại file được phép tải lên (Quản lý Tài liệu /
+// Hợp đồng & Bảo lãnh — mỗi module 1 danh sách riêng, Admin tự cấu hình ở
+// màn Hệ thống). Lưu dạng { allowedExt: ['pdf', 'docx', ...] } trong
+// app_configs — allowedExt RỖNG nghĩa là KHÔNG giới hạn (cho phép mọi loại
+// file), giữ đúng hành vi hiện tại của module Hợp đồng & Bảo lãnh cho tới khi
+// Admin chủ động cấu hình. Vẫn giữ zero-trust: so khớp magic bytes thật ở đầu
+// file với đuôi file khai báo cho các loại phổ biến đã biết chữ ký — loại nào
+// Admin tự thêm vào (không có trong danh sách chữ ký dưới đây) chỉ kiểm tra
+// theo đuôi file, không chặn được hẳn nội dung giả mạo nhưng vẫn tốt hơn hiện
+// trạng (module Hợp đồng & Bảo lãnh trước đây không kiểm tra gì cả).
+const EXT_MAGIC_SIGNATURES = {
+    pdf: [Buffer.from('%PDF-', 'ascii')],
+    docx: [Buffer.from([0x50, 0x4B, 0x03, 0x04])],
+    xlsx: [Buffer.from([0x50, 0x4B, 0x03, 0x04])],
+    pptx: [Buffer.from([0x50, 0x4B, 0x03, 0x04])],
+    zip: [Buffer.from([0x50, 0x4B, 0x03, 0x04])],
+    doc: [Buffer.from([0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1])],
+    xls: [Buffer.from([0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1])],
+    ppt: [Buffer.from([0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1])],
+    jpg: [Buffer.from([0xFF, 0xD8, 0xFF])],
+    jpeg: [Buffer.from([0xFF, 0xD8, 0xFF])],
+    png: [Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])],
+    gif: [Buffer.from('GIF8', 'ascii')],
+    rar: [Buffer.from([0x52, 0x61, 0x72, 0x21, 0x1A, 0x07])]
+};
+
+function getFileExt(fileName) {
+    const m = /\.([a-zA-Z0-9]+)$/.exec(String(fileName || '').trim());
+    return m ? m[1].toLowerCase() : '';
+}
+
+// Kiểm tra 1 file (không phải PDF — PDF luôn đi qua validatePdfUpload +
+// watermark riêng) theo danh sách đuôi được phép + chữ ký magic bytes (nếu
+// biết). Trả về null nếu hợp lệ, hoặc chuỗi lỗi tiếng Việt nếu không.
+function validateUploadExtAndMagicBytes(fileName, buffer, allowedExt) {
+    const ext = getFileExt(fileName);
+    if (!ext) return 'Tên file phải có đuôi mở rộng.';
+    if (Array.isArray(allowedExt) && allowedExt.length > 0 && !allowedExt.includes(ext)) {
+        return `Định dạng file ".${ext}" không được phép tải lên (chỉ nhận: ${allowedExt.map(e => '.' + e).join(', ')}).`;
+    }
+    if (!Buffer.isBuffer(buffer) || buffer.length === 0) return 'File rỗng hoặc không hợp lệ.';
+    const sigs = EXT_MAGIC_SIGNATURES[ext];
+    if (sigs && !sigs.some(sig => buffer.subarray(0, sig.length).equals(sig))) {
+        return `Nội dung file không khớp với định dạng ".${ext}" đã khai báo (sai magic bytes ở đầu file).`;
+    }
+    return null;
+}
+
+async function getUploadAllowedExt(configKey, defaultExt) {
+    const [rows] = await pool.query('SELECT config_value FROM app_configs WHERE config_key = ?', [configKey]);
+    if (!rows[0]) return defaultExt;
+    const raw = typeof rows[0].config_value === 'string' ? JSON.parse(rows[0].config_value) : rows[0].config_value;
+    return Array.isArray(raw.allowedExt) ? raw.allowedExt : defaultExt;
+}
+
 // --- Đóng dấu bản quyền lên mọi tài liệu PDF ngay khi upload ---
 // Watermark chéo (kiểu "CONFIDENTIAL" quen thuộc) được nhúng vĩnh viễn vào file
 // trước khi lưu ra đĩa, nên luôn xuất hiện dù xem trực tiếp hay tải file về.
@@ -2540,6 +2626,7 @@ app.post('/api/docs/upload', requireAuth, uploadLimiter, (req, res, next) => {
         // PDF của tài liệu cũ chưa migrate ra đĩa) cho TOÀN BỘ tài liệu, trên
         // MỌI lượt upload, dù không dùng tới, rất tốn băng thông/bộ nhớ khi
         // bảng docs lớn dần.
+        const docAllowedExt = await getUploadAllowedExt('docUploadConfig', ['pdf']);
         const [existingRows] = await pool.query(
             'SELECT id, code, title, dept, cat, status, doc_group_id, version_no, deleted_at FROM docs'
         );
@@ -2626,7 +2713,7 @@ app.post('/api/docs/upload', requireAuth, uploadLimiter, (req, res, next) => {
                         throw new UploadError(400, `Phòng ban [${finalDept}] hoặc Phân loại [${finalCat}] chưa được cấu hình viết tắt — không thể tự sinh mã tài liệu.`);
                     }
                     if (files.length > 1) {
-                        finalTitle = file.originalname.replace(/\.pdf$/i, '');
+                        finalTitle = file.originalname.replace(/\.[a-zA-Z0-9]+$/, '');
                     }
                     // Mã tài liệu: BRG-{Viết tắt Phòng ban}-{Viết tắt Phân loại}-{STT tăng dần
                     // theo các mã có cùng tiền tố}. VD: BRG-IT-QT-001, BRG-IT-QT-002...
@@ -2645,20 +2732,37 @@ app.post('/api/docs/upload', requireAuth, uploadLimiter, (req, res, next) => {
                 if (fieldError) {
                     throw new UploadError(400, fieldError);
                 }
-                const pdfError = validatePdfUpload(file.originalname, file.mimetype, file.buffer);
-                if (pdfError) {
-                    throw new UploadError(400, `Tài liệu [${code}]: ${pdfError}`);
+                const fileExt = getFileExt(file.originalname);
+                // Đóng dấu bản quyền + kiểm tra magic bytes chuyên biệt chỉ áp dụng
+                // được cho PDF (thư viện pdf-lib không xử lý được các định dạng
+                // khác) — các loại file khác Admin cho phép thêm (docx/xlsx/ảnh...)
+                // chỉ kiểm tra đuôi file + magic bytes chung, lưu nguyên văn, không
+                // đóng dấu bản quyền.
+                let finalBuffer = file.buffer;
+                let fileMimeType = 'application/pdf';
+                if (fileExt === 'pdf') {
+                    if (Array.isArray(docAllowedExt) && docAllowedExt.length > 0 && !docAllowedExt.includes('pdf')) {
+                        throw new UploadError(400, `Tài liệu [${code}]: Định dạng file ".pdf" không được phép tải lên (chỉ nhận: ${docAllowedExt.map(e => '.' + e).join(', ')}).`);
+                    }
+                    const pdfError = validatePdfUpload(file.originalname, file.mimetype, file.buffer);
+                    if (pdfError) {
+                        throw new UploadError(400, `Tài liệu [${code}]: ${pdfError}`);
+                    }
+                    try {
+                        finalBuffer = await stampCopyrightWatermark(file.buffer);
+                    } catch (e) {
+                        throw new UploadError(400, `Tài liệu [${code}]: không thể xử lý file PDF để đóng dấu bản quyền.`);
+                    }
+                } else {
+                    const extError = validateUploadExtAndMagicBytes(file.originalname, file.buffer, docAllowedExt);
+                    if (extError) {
+                        throw new UploadError(400, `Tài liệu [${code}]: ${extError}`);
+                    }
+                    fileMimeType = file.mimetype || 'application/octet-stream';
                 }
 
-                let stampedBuffer;
-                try {
-                    stampedBuffer = await stampCopyrightWatermark(file.buffer);
-                } catch (e) {
-                    throw new UploadError(400, `Tài liệu [${code}]: không thể xử lý file PDF để đóng dấu bản quyền.`);
-                }
-
-                const filePath = `${id}.pdf`;
-                fs.writeFileSync(path.join(UPLOAD_DIR, filePath), stampedBuffer);
+                const filePath = `${id}.${fileExt}`;
+                fs.writeFileSync(path.join(UPLOAD_DIR, filePath), finalBuffer);
                 savedFilePaths.push(filePath);
 
                 // Mã tài liệu mới sinh ra từ bộ đếm trong bộ nhớ (không atomic) có thể
@@ -2672,7 +2776,7 @@ app.post('/api/docs/upload', requireAuth, uploadLimiter, (req, res, next) => {
                         await pool.query(
                             `INSERT INTO docs (id, code, title, ver, dept, cat, summary, file_name, file_type, file_path, created_by, creator_username, created_at, workflow_id, current_step_order, status, history, doc_group_id, version_no)
                              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                            [id, code, finalTitle, ver, finalDept, finalCat, summary, file.originalname, 'application/pdf', filePath,
+                            [id, code, finalTitle, ver, finalDept, finalCat, summary, file.originalname, fileMimeType, filePath,
                                 req.user.name, req.user.username, new Date().toISOString(), workflowId, 1, 'PENDING', JSON.stringify([]),
                                 docGroupId, versionNo]
                         );
@@ -3529,7 +3633,15 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                 username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: 'workflows',
                 description: `Cập nhật danh sách mẫu quy trình duyệt (${data.length} mẫu).`
             });
-        } else if (['deptWorkflows', 'emailConfig', 'ldapConfig'].includes(table)) {
+        } else if (['deptWorkflows', 'emailConfig', 'ldapConfig', 'docUploadConfig', 'contractUploadConfig'].includes(table)) {
+            if ((table === 'docUploadConfig' || table === 'contractUploadConfig')) {
+                const rawList = Array.isArray(data && data.allowedExt) ? data.allowedExt : [];
+                const cleaned = [...new Set(
+                    rawList.map(e => String(e || '').trim().toLowerCase().replace(/^\./, '')).filter(e => /^[a-z0-9]{1,10}$/.test(e))
+                )];
+                if (cleaned.length > 30) return res.status(400).json({ error: 'Danh sách đuôi file được phép tối đa 30 loại.' });
+                data.allowedExt = cleaned;
+            }
             // (L5) Khi gán người duyệt cho từng bước theo phòng ban, chưa từng
             // kiểm tra username được gán có thực sự tồn tại/đang hoạt động hay
             // không — nếu không, canApproveStep() không bao giờ khớp và tài liệu
@@ -3639,12 +3751,20 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
             }
             // (F4) Ghi log việc cấu hình đã bị đổi — KHÔNG BAO GIỜ ghi lại mật khẩu/bí
             // mật thật (servicePassword/smtpPass) vào system_logs, chỉ ghi nhận sự kiện.
-            const cfgActionType = table === 'deptWorkflows' ? 'UPDATE_DEPT_WORKFLOWS' : table === 'emailConfig' ? 'UPDATE_EMAIL_CONFIG' : 'UPDATE_LDAP_CONFIG';
+            const cfgActionType = table === 'deptWorkflows' ? 'UPDATE_DEPT_WORKFLOWS'
+                : table === 'emailConfig' ? 'UPDATE_EMAIL_CONFIG'
+                : table === 'ldapConfig' ? 'UPDATE_LDAP_CONFIG'
+                : table === 'docUploadConfig' ? 'UPDATE_DOC_UPLOAD_CONFIG'
+                : 'UPDATE_CONTRACT_UPLOAD_CONFIG';
             const cfgDescription = table === 'deptWorkflows'
                 ? 'Cập nhật cấu hình quy trình duyệt theo phòng ban.'
                 : table === 'emailConfig'
                     ? `Cập nhật cấu hình gửi email hệ thống (SMTP host: ${data.smtpHost || '(trống)'}).`
-                    : `Cập nhật cấu hình đăng nhập/đồng bộ LDAP-AD (URL: ${data.url || '(trống)'}).`;
+                    : table === 'ldapConfig'
+                        ? `Cập nhật cấu hình đăng nhập/đồng bộ LDAP-AD (URL: ${data.url || '(trống)'}).`
+                        : table === 'docUploadConfig'
+                            ? `Cập nhật danh sách loại file được phép tải lên — Quản lý Tài liệu (${data.allowedExt.length > 0 ? data.allowedExt.map(e => '.' + e).join(', ') : 'không giới hạn'}).`
+                            : `Cập nhật danh sách loại file được phép tải lên — Hợp đồng & Bảo lãnh (${data.allowedExt.length > 0 ? data.allowedExt.map(e => '.' + e).join(', ') : 'không giới hạn'}).`;
             await writeAuditLog({
                 module: 'SYSTEM_CONFIG', actionType: cfgActionType, status: 'SUCCESS',
                 username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: table,
@@ -9616,10 +9736,49 @@ app.get('/api/budget2/reports', requireAuth, requireBudgetReportViewOrAdmin, asy
 
 function requireContractViewOrAdmin(req, res, next) {
     const p = req.user && req.user.perms;
-    if (!p || !(p.admin || p.contractManager || p.contractCreator || p.contractApprover || p.contractSelfApprove || p.contractViewer || p.contractDownloader || p.contractPrinter)) {
+    if (!p || !(p.admin || p.contractManager || p.contractCreator || p.contractApprover || p.contractSelfApprove || p.contractViewer || p.contractDownloader || p.contractPrinter || p.contractDeptViewer || p.contractRelatedUnitViewer)) {
         return res.status(403).json({ error: 'Yêu cầu quyền truy cập module Hợp đồng & Bảo lãnh.' });
     }
     next();
+}
+// "Xem toàn bộ" (không giới hạn theo Phòng/Đơn vị liên quan) — khác với 2
+// quyền hẹp contractDeptViewer/contractRelatedUnitViewer bên dưới, vốn CHỈ
+// thấy đúng bản ghi khớp Phòng sở hữu hoặc nằm trong "Đơn vị liên quan".
+function hasBroadContractView(perms) {
+    return !!(perms.admin || perms.contractManager || perms.contractCreator || perms.contractApprover || perms.contractSelfApprove || perms.contractViewer || perms.contractDownloader || perms.contractPrinter);
+}
+function parseRelatedDepts(json) {
+    try {
+        const arr = JSON.parse(json || '[]');
+        return Array.isArray(arr) ? arr.filter(x => x && x.companyId && x.deptName) : [];
+    } catch (e) { return []; }
+}
+// LƯU Ý: tài khoản người dùng (bảng users) chỉ gắn với 1 Phòng (cột dept,
+// tên thường), KHÔNG gắn với Công ty cụ thể nào — nên không có dữ liệu phía
+// người xem để so khớp đúng cặp {companyId, deptName}. Phần companyId lưu
+// trong "Đơn vị liên quan" vì vậy CHỈ mang tính hiển thị/phân biệt lúc người
+// tạo chọn (tránh chọn nhầm giữa các Phòng trùng tên), còn việc XÉT QUYỀN XEM
+// vẫn chỉ so khớp theo ĐÚNG TÊN Phòng của người xem, bỏ qua Công ty.
+function relatedDeptsIncludeUser(relatedDepts, userDeptName) {
+    return relatedDepts.some(rd => rd.deptName === userDeptName);
+}
+// Dọn dữ liệu "Đơn vị liên quan" gửi lên từ client: chỉ giữ cặp hợp lệ
+// (companyId số + deptName không rỗng), gộp trùng.
+function sanitizeRelatedDepts(raw) {
+    if (!Array.isArray(raw)) return [];
+    const seen = new Set();
+    const out = [];
+    for (const item of raw) {
+        if (!item) continue;
+        const companyId = Number(item.companyId);
+        const deptName = String(item.deptName || '').trim();
+        if (!companyId || !deptName) continue;
+        const key = `${companyId}|||${deptName}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ companyId, deptName });
+    }
+    return out;
 }
 function requireContractCreateOrAdmin(req, res, next) {
     const p = req.user && req.user.perms;
@@ -9687,19 +9846,128 @@ async function nextContractCode(table, docTypePrefix, companyCode, deptAbbr) {
     return `${prefix}${String(maxSeq + 1).padStart(6, '0')}`;
 }
 
-function mapContract(c) { return { id: c.id, code: c.code, name: c.name, companyId: c.company_id, deptName: c.dept_name, counterparty: c.counterparty, contractDate: fmtDate(c.contract_date), expiryDate: fmtDate(c.expiry_date), value: c.value, note: c.note, status: c.status, createdBy: c.created_by, createdAt: c.created_at, approvedBy: c.approved_by, approvedAt: c.approved_at, rejectReason: c.reject_reason, terminatedBy: c.terminated_by, terminatedAt: c.terminated_at, terminateNote: c.terminate_note }; }
-function mapAddendum(a) { return { id: a.id, code: a.code, contractId: a.contract_id, name: a.name, addendumDate: fmtDate(a.addendum_date), note: a.note, status: a.status, createdBy: a.created_by, createdAt: a.created_at, approvedBy: a.approved_by, approvedAt: a.approved_at, rejectReason: a.reject_reason }; }
-function mapGuarantee(g) { return { id: g.id, code: g.code, contractId: g.contract_id, addendumId: g.addendum_id, parentGuaranteeId: g.parent_guarantee_id, replacesGuaranteeId: g.replaces_guarantee_id, name: g.name, issuer: g.issuer, value: g.value, note: g.note, hasTerm: !!g.has_term, effectiveDate: fmtDate(g.effective_date), expiryDate: fmtDate(g.expiry_date), status: g.status, createdBy: g.created_by, createdAt: g.created_at, approvedBy: g.approved_by, approvedAt: g.approved_at, rejectReason: g.reject_reason }; }
+function mapContract(c) { return { id: c.id, code: c.code, name: c.name, companyId: c.company_id, deptName: c.dept_name, counterparty: c.counterparty, contractDate: fmtDate(c.contract_date), expiryDate: fmtDate(c.expiry_date), value: c.value, note: c.note, status: c.status, createdBy: c.created_by, createdAt: c.created_at, approvedBy: c.approved_by, approvedAt: c.approved_at, rejectReason: c.reject_reason, terminatedBy: c.terminated_by, terminatedAt: c.terminated_at, terminateNote: c.terminate_note, relatedDepts: parseRelatedDepts(c.related_depts) }; }
+function mapAddendum(a) { return { id: a.id, code: a.code, contractId: a.contract_id, name: a.name, addendumDate: fmtDate(a.addendum_date), expiryDate: fmtDate(a.expiry_date), note: a.note, status: a.status, createdBy: a.created_by, createdAt: a.created_at, approvedBy: a.approved_by, approvedAt: a.approved_at, rejectReason: a.reject_reason, relatedDepts: parseRelatedDepts(a.related_depts) }; }
+function mapGuarantee(g) { return { id: g.id, code: g.code, contractId: g.contract_id, addendumId: g.addendum_id, parentGuaranteeId: g.parent_guarantee_id, replacesGuaranteeId: g.replaces_guarantee_id, name: g.name, issuer: g.issuer, value: g.value, note: g.note, hasTerm: !!g.has_term, effectiveDate: fmtDate(g.effective_date), expiryDate: fmtDate(g.expiry_date), status: g.status, createdBy: g.created_by, createdAt: g.created_at, approvedBy: g.approved_by, approvedAt: g.approved_at, rejectReason: g.reject_reason, relatedDepts: parseRelatedDepts(g.related_depts) }; }
+// Xác định tên Phòng "sở hữu" 1 bảo lãnh — suy ra từ Hợp đồng (trực tiếp
+// hoặc qua Phụ lục cha), dùng cho quyền "Phòng ban được xem" (contractDept
+// Viewer) vì Bảo lãnh không có cột dept_name riêng, phải kế thừa từ cha.
+function resolveGuaranteeOwnerDeptName(guarantee, contractsById, addendumsById) {
+    if (guarantee.contract_id) {
+        const c = contractsById.get(guarantee.contract_id);
+        return c ? c.dept_name : null;
+    }
+    if (guarantee.addendum_id) {
+        const a = addendumsById.get(guarantee.addendum_id);
+        if (!a) return null;
+        const c = contractsById.get(a.contract_id);
+        return c ? c.dept_name : null;
+    }
+    return null;
+}
 function mapCtrAttachment(a) { return { id: a.id, recordType: a.record_type, recordId: a.record_id, attachmentGroup: a.attachment_group, fileName: a.file_name, uploadedBy: a.uploaded_by, uploadedAt: a.uploaded_at }; }
+
+// Kiểm tra lại per-record cho người CHỈ có contractDeptViewer/contractRelated
+// UnitViewer (không có quyền "xem toàn bộ") khi họ mở trực tiếp 1 URL file
+// đính kèm — chặn dò ID ngoài phạm vi được xem, vì bootstrap chỉ lọc ở tầng
+// danh sách chứ không chặn được việc gọi thẳng URL file theo ID khác.
+async function userCanViewContractRecord(user, recordType, recordId) {
+    if (hasBroadContractView(user.perms)) return true;
+    const p = user.perms;
+    if (!p.contractDeptViewer && !p.contractRelatedUnitViewer) return false;
+    const userDeptName = user.dept;
+    if (recordType === 'CONTRACT') {
+        const [[c]] = await pool.query('SELECT dept_name, related_depts FROM ctr_contracts WHERE id = ?', [recordId]);
+        if (!c) return false;
+        return (p.contractDeptViewer && c.dept_name === userDeptName) || (p.contractRelatedUnitViewer && relatedDeptsIncludeUser(parseRelatedDepts(c.related_depts), userDeptName));
+    }
+    if (recordType === 'ADDENDUM') {
+        const [[a]] = await pool.query('SELECT contract_id, related_depts FROM ctr_addendums WHERE id = ?', [recordId]);
+        if (!a) return false;
+        const [[c]] = await pool.query('SELECT dept_name FROM ctr_contracts WHERE id = ?', [a.contract_id]);
+        return (p.contractDeptViewer && c && c.dept_name === userDeptName) || (p.contractRelatedUnitViewer && relatedDeptsIncludeUser(parseRelatedDepts(a.related_depts), userDeptName));
+    }
+    if (recordType === 'GUARANTEE') {
+        const [[g]] = await pool.query('SELECT contract_id, addendum_id, related_depts FROM ctr_guarantees WHERE id = ?', [recordId]);
+        if (!g) return false;
+        let ownerDeptName = null;
+        if (g.contract_id) {
+            const [[c]] = await pool.query('SELECT dept_name FROM ctr_contracts WHERE id = ?', [g.contract_id]);
+            ownerDeptName = c ? c.dept_name : null;
+        } else if (g.addendum_id) {
+            const [[a]] = await pool.query('SELECT contract_id FROM ctr_addendums WHERE id = ?', [g.addendum_id]);
+            if (a) { const [[c]] = await pool.query('SELECT dept_name FROM ctr_contracts WHERE id = ?', [a.contract_id]); ownerDeptName = c ? c.dept_name : null; }
+        }
+        return (p.contractDeptViewer && ownerDeptName && ownerDeptName === userDeptName) || (p.contractRelatedUnitViewer && relatedDeptsIncludeUser(parseRelatedDepts(g.related_depts), userDeptName));
+    }
+    return false;
+}
 
 app.get('/api/contracts/bootstrap', requireAuth, requireContractViewOrAdmin, async (req, res) => {
     try {
         const [companies] = await pool.query('SELECT id, name, code FROM lic_companies ORDER BY name');
         const [depts] = await pool.query('SELECT name, abbr FROM depts ORDER BY name');
-        const [contracts] = await pool.query('SELECT * FROM ctr_contracts ORDER BY id DESC');
-        const [addendums] = await pool.query('SELECT * FROM ctr_addendums ORDER BY id DESC');
-        const [guarantees] = await pool.query('SELECT * FROM ctr_guarantees ORDER BY id DESC');
-        const [attachments] = await pool.query('SELECT * FROM ctr_attachments ORDER BY id DESC');
+        let [contracts] = await pool.query('SELECT * FROM ctr_contracts ORDER BY id DESC');
+        let [addendums] = await pool.query('SELECT * FROM ctr_addendums ORDER BY id DESC');
+        let [guarantees] = await pool.query('SELECT * FROM ctr_guarantees ORDER BY id DESC');
+        let [attachments] = await pool.query('SELECT * FROM ctr_attachments ORDER BY id DESC');
+
+        // Quyền "xem toàn bộ" (contractManager/Creator/Approver/SelfApprove/
+        // Viewer/Downloader/Printer/Admin) thấy nguyên danh sách như cũ. Người
+        // CHỈ có contractDeptViewer/contractRelatedUnitViewer (không có quyền
+        // nào ở trên) bị giới hạn: chỉ thấy Hợp đồng/Phụ lục/Bảo lãnh thuộc
+        // đúng Phòng của mình (contractDeptViewer) hoặc có tên Phòng của mình
+        // trong "Đơn vị liên quan" (contractRelatedUnitViewer) — kèm theo cha
+        // của bất kỳ Phụ lục/Bảo lãnh nào lọt qua, để cây không bị đứt gãy.
+        if (!hasBroadContractView(req.user.perms)) {
+            const p = req.user.perms;
+            const userDeptName = req.user.dept;
+            const contractsById = new Map(contracts.map(c => [c.id, c]));
+            const addendumsById = new Map(addendums.map(a => [a.id, a]));
+
+            const contractVisible = c => (p.contractDeptViewer && c.dept_name === userDeptName) || (p.contractRelatedUnitViewer && relatedDeptsIncludeUser(parseRelatedDepts(c.related_depts), userDeptName));
+            const addendumVisible = a => {
+                const parent = contractsById.get(a.contract_id);
+                const deptOk = p.contractDeptViewer && parent && parent.dept_name === userDeptName;
+                const relatedOk = p.contractRelatedUnitViewer && relatedDeptsIncludeUser(parseRelatedDepts(a.related_depts), userDeptName);
+                return deptOk || relatedOk;
+            };
+            const guaranteeVisible = g => {
+                const ownerDeptName = resolveGuaranteeOwnerDeptName(g, contractsById, addendumsById);
+                const deptOk = p.contractDeptViewer && ownerDeptName && ownerDeptName === userDeptName;
+                const relatedOk = p.contractRelatedUnitViewer && relatedDeptsIncludeUser(parseRelatedDepts(g.related_depts), userDeptName);
+                return deptOk || relatedOk;
+            };
+
+            const visibleContractIds = new Set(contracts.filter(contractVisible).map(c => c.id));
+            const visibleAddendums = addendums.filter(addendumVisible);
+            const visibleAddendumIds = new Set(visibleAddendums.map(a => a.id));
+            const visibleGuarantees = guarantees.filter(guaranteeVisible);
+            const visibleGuaranteeIds = new Set(visibleGuarantees.map(g => g.id));
+            // Hiện lại Hợp đồng/Phụ lục cha của bất kỳ Phụ lục/Bảo lãnh nào đã
+            // lọt qua bộ lọc, để cây Hợp đồng > Phụ lục > Bảo lãnh luôn còn đủ
+            // context hiển thị (không hiện "mồ côi" giữa chừng).
+            visibleAddendums.forEach(a => visibleContractIds.add(a.contract_id));
+            visibleGuarantees.forEach(g => {
+                if (g.contract_id) visibleContractIds.add(g.contract_id);
+                if (g.addendum_id) {
+                    visibleAddendumIds.add(g.addendum_id);
+                    const a = addendumsById.get(g.addendum_id);
+                    if (a) visibleContractIds.add(a.contract_id);
+                }
+            });
+
+            contracts = contracts.filter(c => visibleContractIds.has(c.id));
+            addendums = addendums.filter(a => visibleAddendumIds.has(a.id));
+            guarantees = guarantees.filter(g => visibleGuaranteeIds.has(g.id));
+            const visibleAttachmentKeys = new Set([
+                ...contracts.map(c => `CONTRACT:${c.id}`),
+                ...addendums.map(a => `ADDENDUM:${a.id}`),
+                ...guarantees.map(g => `GUARANTEE:${g.id}`)
+            ]);
+            attachments = attachments.filter(att => visibleAttachmentKeys.has(`${att.record_type}:${att.record_id}`));
+        }
+
         res.json({
             companies: companies.map(c => ({ id: c.id, name: c.name, code: c.code })),
             depts: depts.map(d => ({ name: d.name, abbr: d.abbr })),
@@ -9725,6 +9993,7 @@ app.post('/api/contracts', requireAuth, requireContractCreateOrAdmin, async (req
         const expiryDate = (req.body && req.body.expiryDate) || null;
         const value = (req.body && req.body.value !== undefined && req.body.value !== '') ? Number(req.body.value) : null;
         const note = String((req.body && req.body.note) || '').trim();
+        const relatedDepts = sanitizeRelatedDepts(req.body && req.body.relatedDepts);
         if (!name) return res.status(400).json({ error: 'Vui lòng nhập tên hợp đồng.' });
         if (!companyId) return res.status(400).json({ error: 'Vui lòng chọn Công ty.' });
         if (!deptName) return res.status(400).json({ error: 'Vui lòng chọn Phòng.' });
@@ -9738,9 +10007,9 @@ app.post('/api/contracts', requireAuth, requireContractCreateOrAdmin, async (req
         const code = await nextContractCode('ctr_contracts', 'HD', company.code, dept.abbr);
         const now = new Date().toLocaleString('vi-VN');
         const [result] = await pool.query(
-            `INSERT INTO ctr_contracts (code, name, company_id, dept_name, counterparty, contract_date, expiry_date, value, note, status, created_by, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
-            [code, name, companyId, deptName, counterparty || null, contractDate, expiryDate, value, note || null, req.user.username, now]
+            `INSERT INTO ctr_contracts (code, name, company_id, dept_name, counterparty, contract_date, expiry_date, value, note, related_depts, status, created_by, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
+            [code, name, companyId, deptName, counterparty || null, contractDate, expiryDate, value, note || null, JSON.stringify(relatedDepts), req.user.username, now]
         );
         await writeAuditLog({ module: 'CONTRACT', actionType: 'CREATE_CONTRACT', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: code, description: `Tạo hợp đồng [${code}]: ${name}.` });
         res.json({ success: true, id: result.insertId, code });
@@ -9799,7 +10068,9 @@ app.post('/api/contracts/addendums', requireAuth, requireContractCreateOrAdmin, 
         const name = String((req.body && req.body.name) || '').trim();
         const contractId = Number(req.body && req.body.contractId);
         const addendumDate = (req.body && req.body.addendumDate) || null;
+        const expiryDate = (req.body && req.body.expiryDate) || null;
         const note = String((req.body && req.body.note) || '').trim();
+        const relatedDepts = sanitizeRelatedDepts(req.body && req.body.relatedDepts);
         if (!name) return res.status(400).json({ error: 'Vui lòng nhập tên phụ lục.' });
         if (!contractId) return res.status(400).json({ error: 'Vui lòng chọn Hợp đồng liên quan.' });
         const [[contract]] = await pool.query('SELECT * FROM ctr_contracts WHERE id = ?', [contractId]);
@@ -9812,8 +10083,8 @@ app.post('/api/contracts/addendums', requireAuth, requireContractCreateOrAdmin, 
         const code = await nextContractCode('ctr_addendums', 'PLHD', company.code, dept.abbr);
         const now = new Date().toLocaleString('vi-VN');
         const [result] = await pool.query(
-            `INSERT INTO ctr_addendums (code, contract_id, name, addendum_date, note, status, created_by, created_at) VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
-            [code, contractId, name, addendumDate, note || null, req.user.username, now]
+            `INSERT INTO ctr_addendums (code, contract_id, name, addendum_date, expiry_date, note, related_depts, status, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
+            [code, contractId, name, addendumDate, expiryDate, note || null, JSON.stringify(relatedDepts), req.user.username, now]
         );
         await writeAuditLog({ module: 'CONTRACT', actionType: 'CREATE_ADDENDUM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: code, description: `Tạo phụ lục [${code}] cho hợp đồng [${contract.code}]: ${name}.` });
         res.json({ success: true, id: result.insertId, code });
@@ -9853,11 +10124,15 @@ app.post('/api/contracts/guarantees', requireAuth, requireContractCreateOrAdmin,
         const value = (req.body && req.body.value !== undefined && req.body.value !== '') ? Number(req.body.value) : null;
         const note = String((req.body && req.body.note) || '').trim();
         const hasTerm = !!(req.body && req.body.hasTerm);
-        const effectiveDate = (hasTerm && req.body.effectiveDate) ? req.body.effectiveDate : null;
+        // "Vô thời hạn" vẫn luôn cần Ngày hiệu lực (ngày bắt đầu có hiệu lực)
+        // — chỉ Ngày hết hạn là null khi không có thời hạn.
+        const effectiveDate = (req.body && req.body.effectiveDate) ? req.body.effectiveDate : null;
         const expiryDate = (hasTerm && req.body.expiryDate) ? req.body.expiryDate : null;
+        const relatedDepts = sanitizeRelatedDepts(req.body && req.body.relatedDepts);
 
         if (!name) return res.status(400).json({ error: 'Vui lòng nhập tên bảo lãnh.' });
-        if (hasTerm && (!effectiveDate || !expiryDate)) return res.status(400).json({ error: 'Bảo lãnh có thời hạn phải nhập đủ Ngày hiệu lực và Ngày hết hạn.' });
+        if (!effectiveDate) return res.status(400).json({ error: 'Vui lòng nhập Ngày hiệu lực.' });
+        if (hasTerm && !expiryDate) return res.status(400).json({ error: 'Bảo lãnh có thời hạn phải nhập Ngày hết hạn.' });
 
         let parentGuarantee = null;
         if (parentGuaranteeId) {
@@ -9900,9 +10175,9 @@ app.post('/api/contracts/guarantees', requireAuth, requireContractCreateOrAdmin,
         const code = await nextContractCode('ctr_guarantees', 'BLPH', company.code, dept.abbr);
         const now = new Date().toLocaleString('vi-VN');
         const [result] = await pool.query(
-            `INSERT INTO ctr_guarantees (code, contract_id, addendum_id, parent_guarantee_id, replaces_guarantee_id, name, issuer, value, note, has_term, effective_date, expiry_date, status, created_by, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
-            [code, contractId || null, addendumId || null, parentGuaranteeId || null, replacesGuaranteeId || null, name, issuer || null, value, note || null, hasTerm ? 1 : 0, effectiveDate, expiryDate, req.user.username, now]
+            `INSERT INTO ctr_guarantees (code, contract_id, addendum_id, parent_guarantee_id, replaces_guarantee_id, name, issuer, value, note, has_term, effective_date, expiry_date, related_depts, status, created_by, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
+            [code, contractId || null, addendumId || null, parentGuaranteeId || null, replacesGuaranteeId || null, name, issuer || null, value, note || null, hasTerm ? 1 : 0, effectiveDate, expiryDate, JSON.stringify(relatedDepts), req.user.username, now]
         );
         await writeAuditLog({ module: 'CONTRACT', actionType: 'CREATE_GUARANTEE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: code, description: `Tạo bảo lãnh phát hành [${code}]: ${name}${parentGuarantee ? ` (bảo lãnh con của ${parentGuarantee.code})` : ''}${replacedGuarantee ? `, thay thế [${replacedGuarantee.code}]` : ''}.` });
         res.json({ success: true, id: result.insertId, code });
@@ -9992,6 +10267,15 @@ app.post('/api/contracts/attachments', requireAuth, requireContractCreateOrAdmin
         const [[record]] = await pool.query(`SELECT id FROM ${table} WHERE id = ?`, [recordId]);
         if (!record) return res.status(404).json({ error: 'Không tìm thấy văn bản để đính kèm.' });
 
+        // Kiểm tra đuôi file được phép + magic bytes TRƯỚC khi ghi file nào ra
+        // đĩa (validate hết cả lượt rồi mới ghi, tránh lưu dở dang file không
+        // hợp lệ nằm giữa các file hợp lệ trong cùng 1 lượt upload nhiều file).
+        const contractAllowedExt = await getUploadAllowedExt('contractUploadConfig', []);
+        for (const file of files) {
+            const extError = validateUploadExtAndMagicBytes(file.originalname, file.buffer, contractAllowedExt);
+            if (extError) return res.status(400).json({ error: `File "${file.originalname}": ${extError}` });
+        }
+
         const subDir = 'contracts';
         fs.mkdirSync(path.join(UPLOAD_DIR, subDir), { recursive: true });
         const now = new Date().toLocaleString('vi-VN');
@@ -10017,6 +10301,17 @@ app.delete('/api/contracts/attachments/:id', requireAuth, requireContractCreateO
     try {
         const [[att]] = await pool.query('SELECT * FROM ctr_attachments WHERE id = ?', [req.params.id]);
         if (!att) return res.status(404).json({ error: 'Không tìm thấy file đính kèm.' });
+        // Khóa xóa file đính kèm một khi Hợp đồng/Phụ lục/Bảo lãnh đã rời
+        // PENDING (Đã duyệt/Từ chối/Đã thanh lý/Đã thay thế) — tránh xóa nhầm
+        // do icon Tải/Xóa nằm sát nhau trên điện thoại (phản hồi người dùng).
+        // Admin vẫn bỏ qua được (đã có "quyền cao nhất xóa cả bản ghi" riêng).
+        if (!req.user.perms.admin) {
+            const table = CTR_RECORD_TABLES[att.record_type];
+            const [[rec]] = await pool.query(`SELECT status FROM ${table} WHERE id = ?`, [att.record_id]);
+            if (rec && rec.status !== 'PENDING') {
+                return res.status(403).json({ error: 'Hồ sơ đã qua trạng thái Chờ duyệt — không tự xóa file đính kèm được nữa, liên hệ Admin nếu cần.' });
+            }
+        }
         await pool.query('DELETE FROM ctr_attachments WHERE id = ?', [req.params.id]);
         fs.unlink(path.join(UPLOAD_DIR, att.file_path), () => {});
         await writeAuditLog({ module: 'CONTRACT', actionType: 'DELETE_ATTACHMENT', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: att.file_name, description: `Xóa file đính kèm [${att.file_name}] khỏi ${att.record_type} #${att.record_id}.` });
@@ -10030,6 +10325,9 @@ app.get('/api/contracts/attachments/:id/view', requireAuth, requireContractViewO
     try {
         const [[att]] = await pool.query('SELECT * FROM ctr_attachments WHERE id = ?', [req.params.id]);
         if (!att) return res.status(404).json({ error: 'Không tìm thấy file.' });
+        if (!await userCanViewContractRecord(req.user, att.record_type, att.record_id)) {
+            return res.status(403).json({ error: 'Bạn không có quyền xem file đính kèm này.' });
+        }
         res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(att.file_name)}"`);
         res.sendFile(path.join(UPLOAD_DIR, att.file_path));
     } catch (err) {
@@ -10041,10 +10339,147 @@ app.get('/api/contracts/attachments/:id/download', requireAuth, requireContractD
     try {
         const [[att]] = await pool.query('SELECT * FROM ctr_attachments WHERE id = ?', [req.params.id]);
         if (!att) return res.status(404).json({ error: 'Không tìm thấy file.' });
+        if (!await userCanViewContractRecord(req.user, att.record_type, att.record_id)) {
+            return res.status(403).json({ error: 'Bạn không có quyền tải file đính kèm này.' });
+        }
         res.download(path.join(UPLOAD_DIR, att.file_path), att.file_name);
     } catch (err) {
         console.error('❌ Lỗi tải file đính kèm:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// ============================================================
+// XÓA VĨNH VIỄN Hợp đồng/Phụ lục/Bảo lãnh — CHỈ Admin (không phải
+// contractManager) được xóa, dùng để hỗ trợ người dùng khi họ lỡ tạo
+// nhầm/cần dọn dữ liệu, không khôi phục lại được (không làm Thùng rác
+// riêng cho module này — xóa cuốn chiếu toàn bộ con cháu + file đính kèm
+// liên quan trong 1 giao dịch). Không có ràng buộc FOREIGN KEY ở schema.sql
+// (giống các bảng khác trong toàn hệ thống) nên phải tự dọn đúng thứ tự:
+// ctr_attachments -> ctr_guarantees (con trước cha) -> ctr_addendums ->
+// ctr_contracts, và tự gỡ tham chiếu "thay thế" treo (replaces_guarantee_id)
+// trỏ tới bản ghi sắp xóa từ các bảo lãnh KHÔNG bị xóa cùng lúc.
+// ============================================================
+
+// Mở rộng 1 danh sách id Bảo lãnh gốc thành chính nó + mọi bảo lãnh con cháu
+// (đệ quy theo parent_guarantee_id), dùng conn đang trong transaction.
+async function collectGuaranteeDescendants(conn, rootIds) {
+    const all = new Set(rootIds);
+    let frontier = rootIds.slice();
+    while (frontier.length) {
+        const placeholders = frontier.map(() => '?').join(',');
+        const [children] = await conn.query(`SELECT id FROM ctr_guarantees WHERE parent_guarantee_id IN (${placeholders})`, frontier);
+        const newIds = children.map(c => c.id).filter(id => !all.has(id));
+        newIds.forEach(id => all.add(id));
+        frontier = newIds;
+    }
+    return Array.from(all);
+}
+// Lấy danh sách file đính kèm của 1 record_type + danh sách record_id (dùng
+// conn đang trong transaction) — trả về để xóa file trên đĩa SAU KHI commit
+// thành công (tránh xóa file vật lý rồi lại phải rollback).
+async function collectAttachmentFiles(conn, recordType, recordIds) {
+    if (!recordIds.length) return [];
+    const placeholders = recordIds.map(() => '?').join(',');
+    const [rows] = await conn.query(`SELECT file_path FROM ctr_attachments WHERE record_type = ? AND record_id IN (${placeholders})`, [recordType, ...recordIds]);
+    await conn.query(`DELETE FROM ctr_attachments WHERE record_type = ? AND record_id IN (${placeholders})`, [recordType, ...recordIds]);
+    return rows.map(r => r.file_path);
+}
+function unlinkContractFiles(filePaths) {
+    filePaths.forEach(p => fs.unlink(path.join(UPLOAD_DIR, p), () => {}));
+}
+async function deleteGuaranteeSet(conn, guaranteeIds) {
+    if (!guaranteeIds.length) return [];
+    const files = await collectAttachmentFiles(conn, 'GUARANTEE', guaranteeIds);
+    const placeholders = guaranteeIds.map(() => '?').join(',');
+    await conn.query(`UPDATE ctr_guarantees SET replaces_guarantee_id = NULL WHERE replaces_guarantee_id IN (${placeholders})`, guaranteeIds);
+    await conn.query(`DELETE FROM ctr_guarantees WHERE id IN (${placeholders})`, guaranteeIds);
+    return files;
+}
+
+app.delete('/api/contracts/contracts/:id', requireAuth, async (req, res) => {
+    if (!req.user.perms || !req.user.perms.admin) return res.status(403).json({ error: 'Chỉ Admin được xóa Hợp đồng.' });
+    const conn = await pool.getConnection();
+    try {
+        await conn.beginTransaction();
+        const [[contract]] = await conn.query('SELECT * FROM ctr_contracts WHERE id = ? FOR UPDATE', [req.params.id]);
+        if (!contract) { await conn.rollback(); return res.status(404).json({ error: 'Không tìm thấy hợp đồng.' }); }
+        const [addendumRows] = await conn.query('SELECT id FROM ctr_addendums WHERE contract_id = ?', [contract.id]);
+        const addendumIds = addendumRows.map(a => a.id);
+        const guaranteePlaceholders = addendumIds.map(() => '?').join(',');
+        const [rootGuarantees] = await conn.query(
+            `SELECT id FROM ctr_guarantees WHERE contract_id = ?${addendumIds.length ? ` OR addendum_id IN (${guaranteePlaceholders})` : ''}`,
+            addendumIds.length ? [contract.id, ...addendumIds] : [contract.id]
+        );
+        const allGuaranteeIds = await collectGuaranteeDescendants(conn, rootGuarantees.map(g => g.id));
+
+        let files = [];
+        files = files.concat(await deleteGuaranteeSet(conn, allGuaranteeIds));
+        files = files.concat(await collectAttachmentFiles(conn, 'ADDENDUM', addendumIds));
+        if (addendumIds.length) await conn.query(`DELETE FROM ctr_addendums WHERE id IN (${addendumIds.map(() => '?').join(',')})`, addendumIds);
+        files = files.concat(await collectAttachmentFiles(conn, 'CONTRACT', [contract.id]));
+        await conn.query('DELETE FROM ctr_contracts WHERE id = ?', [contract.id]);
+
+        await conn.commit();
+        unlinkContractFiles(files);
+        await writeAuditLog({ module: 'CONTRACT', actionType: 'DELETE_CONTRACT', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: contract.code, description: `Xóa vĩnh viễn hợp đồng [${contract.code}]: ${contract.name} (kèm ${addendumIds.length} phụ lục, ${allGuaranteeIds.length} bảo lãnh).` });
+        res.json({ success: true });
+    } catch (err) {
+        await conn.rollback();
+        console.error('❌ Lỗi xóa hợp đồng:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    } finally {
+        conn.release();
+    }
+});
+
+app.delete('/api/contracts/addendums/:id', requireAuth, async (req, res) => {
+    if (!req.user.perms || !req.user.perms.admin) return res.status(403).json({ error: 'Chỉ Admin được xóa Phụ lục.' });
+    const conn = await pool.getConnection();
+    try {
+        await conn.beginTransaction();
+        const [[addendum]] = await conn.query('SELECT * FROM ctr_addendums WHERE id = ? FOR UPDATE', [req.params.id]);
+        if (!addendum) { await conn.rollback(); return res.status(404).json({ error: 'Không tìm thấy phụ lục.' }); }
+        const [rootGuarantees] = await conn.query('SELECT id FROM ctr_guarantees WHERE addendum_id = ?', [addendum.id]);
+        const allGuaranteeIds = await collectGuaranteeDescendants(conn, rootGuarantees.map(g => g.id));
+
+        let files = await deleteGuaranteeSet(conn, allGuaranteeIds);
+        files = files.concat(await collectAttachmentFiles(conn, 'ADDENDUM', [addendum.id]));
+        await conn.query('DELETE FROM ctr_addendums WHERE id = ?', [addendum.id]);
+
+        await conn.commit();
+        unlinkContractFiles(files);
+        await writeAuditLog({ module: 'CONTRACT', actionType: 'DELETE_ADDENDUM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: addendum.code, description: `Xóa vĩnh viễn phụ lục [${addendum.code}]: ${addendum.name} (kèm ${allGuaranteeIds.length} bảo lãnh).` });
+        res.json({ success: true });
+    } catch (err) {
+        await conn.rollback();
+        console.error('❌ Lỗi xóa phụ lục:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    } finally {
+        conn.release();
+    }
+});
+
+app.delete('/api/contracts/guarantees/:id', requireAuth, async (req, res) => {
+    if (!req.user.perms || !req.user.perms.admin) return res.status(403).json({ error: 'Chỉ Admin được xóa Bảo lãnh phát hành.' });
+    const conn = await pool.getConnection();
+    try {
+        await conn.beginTransaction();
+        const [[guarantee]] = await conn.query('SELECT * FROM ctr_guarantees WHERE id = ? FOR UPDATE', [req.params.id]);
+        if (!guarantee) { await conn.rollback(); return res.status(404).json({ error: 'Không tìm thấy bảo lãnh.' }); }
+        const allGuaranteeIds = await collectGuaranteeDescendants(conn, [guarantee.id]);
+        const files = await deleteGuaranteeSet(conn, allGuaranteeIds);
+
+        await conn.commit();
+        unlinkContractFiles(files);
+        await writeAuditLog({ module: 'CONTRACT', actionType: 'DELETE_GUARANTEE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: guarantee.code, description: `Xóa vĩnh viễn bảo lãnh [${guarantee.code}]: ${guarantee.name}${allGuaranteeIds.length > 1 ? ` (kèm ${allGuaranteeIds.length - 1} bảo lãnh con)` : ''}.` });
+        res.json({ success: true });
+    } catch (err) {
+        await conn.rollback();
+        console.error('❌ Lỗi xóa bảo lãnh:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    } finally {
+        conn.release();
     }
 });
 

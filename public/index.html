@@ -330,7 +330,7 @@
 
       <div id="uploadBox" class="bg-blue-50 p-4 rounded border border-blue-200 hidden">
         <h3 class="font-bold mb-1 text-blue-900 flex items-center gap-2">
-          📄 Tải Lên Tài Liệu (chỉ chấp nhận file PDF)
+          📄 Tải Lên Tài Liệu (<span id="docUploadAllowedExtLabel">chỉ chấp nhận file PDF</span>)
         </h3>
         <p class="text-xs text-blue-700 mb-1 font-semibold">Hệ thống áp dụng phân quyền upload theo từng Phòng ban mà bạn được phân công. Mã tài liệu và phiên bản do hệ thống tự sinh.</p>
 
@@ -589,6 +589,52 @@
         </form>
       </div>
 
+      <div class="bg-emerald-50 p-4 rounded border border-emerald-300 space-y-4">
+        <h3 class="font-bold text-emerald-900 text-sm flex items-center gap-1">📎 Cấu Hình Loại File Được Phép Tải Lên</h3>
+        <p class="text-[11px] text-emerald-800">Áp dụng cho mọi lượt tải file lên hệ thống (mọi user, không chỉ Admin) — mỗi module có danh sách riêng. Bỏ trống/chọn "Không giới hạn" nghĩa là chấp nhận mọi loại file.</p>
+
+        <form data-evt-submit="saveDocUploadConfig" data-args='[{"__live__":"event"}]' class="bg-white p-3 rounded border text-xs space-y-2">
+          <div class="flex items-center justify-between gap-2 flex-wrap">
+            <label class="font-bold text-gray-700">📄 Quản Lý Tài Liệu</label>
+            <select id="cfgDocUploadMode" data-evt-change="onCfgUploadModeChange" data-args='["doc"]' class="border p-1.5 rounded bg-white font-semibold text-xs">
+              <option value="restricted">🔒 Giới hạn — chỉ cho phép các loại dưới đây</option>
+              <option value="unrestricted">🔓 Không giới hạn (cho phép mọi loại file)</option>
+            </select>
+          </div>
+          <div id="cfgDocUploadExtBox" class="space-y-2">
+            <div id="cfgDocUploadExtGroups" class="flex flex-wrap gap-3"></div>
+            <div>
+              <label class="block font-semibold text-gray-600 mb-1">Đuôi file khác (phân tách bằng dấu phẩy, VD: dwg, dxf)</label>
+              <input id="cfgDocUploadExtCustom" placeholder="dwg, dxf" class="w-full border p-1.5 rounded">
+            </div>
+          </div>
+          <p class="text-[10px] text-gray-500">⚠️ Đóng dấu bản quyền tự động và kiểm tra nội dung thật (magic bytes) hiện chỉ áp dụng được cho PDF. Các loại file khác chỉ kiểm tra theo đuôi/magic bytes cơ bản, không đóng dấu bản quyền.</p>
+          <div class="flex justify-end pt-1">
+            <button type="submit" class="shrink-0 btn-primary px-4 py-1.5 rounded font-bold">Lưu Cấu Hình — Tài Liệu</button>
+          </div>
+        </form>
+
+        <form data-evt-submit="saveContractUploadConfig" data-args='[{"__live__":"event"}]' class="bg-white p-3 rounded border text-xs space-y-2">
+          <div class="flex items-center justify-between gap-2 flex-wrap">
+            <label class="font-bold text-gray-700">📑 Hợp Đồng & Bảo Lãnh Phát Hành</label>
+            <select id="cfgContractUploadMode" data-evt-change="onCfgUploadModeChange" data-args='["contract"]' class="border p-1.5 rounded bg-white font-semibold text-xs">
+              <option value="unrestricted">🔓 Không giới hạn (cho phép mọi loại file)</option>
+              <option value="restricted">🔒 Giới hạn — chỉ cho phép các loại dưới đây</option>
+            </select>
+          </div>
+          <div id="cfgContractUploadExtBox" class="space-y-2">
+            <div id="cfgContractUploadExtGroups" class="flex flex-wrap gap-3"></div>
+            <div>
+              <label class="block font-semibold text-gray-600 mb-1">Đuôi file khác (phân tách bằng dấu phẩy, VD: dwg, dxf)</label>
+              <input id="cfgContractUploadExtCustom" placeholder="dwg, dxf" class="w-full border p-1.5 rounded">
+            </div>
+          </div>
+          <div class="flex justify-end pt-1">
+            <button type="submit" class="shrink-0 btn-primary px-4 py-1.5 rounded font-bold">Lưu Cấu Hình — Hợp Đồng & Bảo Lãnh</button>
+          </div>
+        </form>
+      </div>
+
       <div class="bg-blue-50 border border-blue-200 rounded p-3 text-xs text-blue-900">
         📘 Quản lý Phòng ban và Phân loại tài liệu đã chuyển sang tab <b>"🗂️ Quản Lý Danh Mục"</b> ở trên, cùng chỗ với các danh mục dùng chung khác.
       </div>
@@ -796,6 +842,14 @@
                 <input type="checkbox" id="pContractPrinter"> Quyền in Hợp đồng/Phụ lục/Bảo lãnh
               </label>
               <p class="text-[10px] text-gray-500 leading-tight">Quyền cộng thêm — có quyền này mới được in trực tiếp.</p>
+              <label class="flex items-center gap-2 text-teal-700 font-semibold cursor-pointer border-t pt-2">
+                <input type="checkbox" id="pContractDeptViewer"> Phòng ban được xem
+              </label>
+              <p class="text-[10px] text-gray-500 leading-tight">Mặc định xem được (như Người xem) các Hợp đồng/Phụ lục/Bảo lãnh thuộc ĐÚNG Phòng của chính mình, không xem được của Phòng khác.</p>
+              <label class="flex items-center gap-2 text-teal-700 font-semibold cursor-pointer border-t pt-2">
+                <input type="checkbox" id="pContractRelatedUnitViewer"> Đơn vị liên quan được xem
+              </label>
+              <p class="text-[10px] text-gray-500 leading-tight">Xem được các Hợp đồng/Phụ lục/Bảo lãnh có gắn "Đơn vị liên quan" trùng tên Phòng của chính mình, dù không phải Phòng sở hữu.</p>
               <div class="border-t pt-2 space-y-1.5">
                 <div class="flex justify-between items-center">
                   <span class="font-semibold text-orange-700">Phạm vi Công ty được tạo</span>
@@ -2599,12 +2653,30 @@
     <div class="flex gap-1 border-b border-gray-200 flex-wrap">
       <button id="btnContractSubContracts" data-evt-click="switchContractSubTab" data-args='["contracts"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📄 Hợp đồng</button>
       <button id="btnContractSubGuarantees" data-evt-click="switchContractSubTab" data-args='["guarantees"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🛡️ Bảo lãnh phát hành</button>
+      <button id="btnContractSubReports" data-evt-click="switchContractSubTab" data-args='["reports"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📊 Báo cáo</button>
     </div>
 
     <!-- Sub-tab: Hợp đồng -->
     <div id="contractSubContracts" class="hidden space-y-3">
       <button data-evt-click="openContractModal" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Thêm hợp đồng</button>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded border text-xs">
+        <div>
+          <label class="block font-semibold text-gray-600 mb-1">Trạng thái</label>
+          <select id="contractFilterStatus" data-evt-change="resetPageAndRerender" data-args='["contractList","renderContractList"]' class="w-full border p-1.5 rounded bg-white">
+            <option value="">-- Tất cả --</option>
+            <option value="PENDING">Chờ duyệt</option>
+            <option value="APPROVED">Đã duyệt</option>
+            <option value="REJECTED">Từ chối</option>
+            <option value="TERMINATED">Đã thanh lý</option>
+          </select>
+        </div>
+        <div>
+          <label class="block font-semibold text-gray-600 mb-1">Tìm kiếm (mã, tên, đối tác)</label>
+          <input id="contractFilterSearch" type="text" data-evt-input="resetPageAndRerender" data-args='["contractList","renderContractList"]' placeholder="VD: HD-..., tên hợp đồng, đối tác..." class="w-full border p-1.5 rounded">
+        </div>
+      </div>
       <div id="contractListContainer" class="space-y-3"></div>
+      <div id="contractListPaginationBox" class="flex flex-col sm:flex-row justify-between items-center gap-3 bg-gray-50 p-3 rounded border text-xs text-gray-700"></div>
     </div>
 
     <!-- Sub-tab: Bảo lãnh phát hành (danh sách phẳng, có tham chiếu ngược) -->
@@ -2612,7 +2684,7 @@
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded border text-xs">
         <div>
           <label class="block font-semibold text-gray-600 mb-1">Trạng thái</label>
-          <select id="guaranteeFilterStatus" data-evt-change="renderGuaranteeFlatList" data-args='[]' class="w-full border p-1.5 rounded bg-white">
+          <select id="guaranteeFilterStatus" data-evt-change="resetPageAndRerender" data-args='["guaranteeList","renderGuaranteeFlatList"]' class="w-full border p-1.5 rounded bg-white">
             <option value="">-- Tất cả --</option>
             <option value="PENDING">Chờ duyệt</option>
             <option value="APPROVED">Đã duyệt</option>
@@ -2622,7 +2694,7 @@
         </div>
         <div>
           <label class="block font-semibold text-gray-600 mb-1">Tìm kiếm (mã, tên, đơn vị phát hành)</label>
-          <input id="guaranteeFilterSearch" type="text" data-evt-input="renderGuaranteeFlatList" data-args='[]' placeholder="VD: BLPH-..., Vietcombank..." class="w-full border p-1.5 rounded">
+          <input id="guaranteeFilterSearch" type="text" data-evt-input="resetPageAndRerender" data-args='["guaranteeList","renderGuaranteeFlatList"]' placeholder="VD: BLPH-..., Vietcombank..." class="w-full border p-1.5 rounded">
         </div>
       </div>
       <div class="overflow-x-auto">
@@ -2633,6 +2705,102 @@
           </tr></thead>
           <tbody id="guaranteeFlatTableBody"></tbody>
         </table>
+      </div>
+      <div id="guaranteeListPaginationBox" class="flex flex-col sm:flex-row justify-between items-center gap-3 bg-gray-50 p-3 rounded border text-xs text-gray-700"></div>
+    </div>
+
+    <!-- Sub-tab: Báo cáo -->
+    <div id="contractSubReports" class="hidden space-y-4">
+      <div class="flex gap-1 border-b border-gray-200 flex-wrap">
+        <button id="btnCtrRepTab1" data-evt-click="switchContractReportTab" data-args='[1]' class="nav-tab active text-xs px-3 py-2 font-semibold whitespace-nowrap">1. Tổng quan</button>
+        <button id="btnCtrRepTab2" data-evt-click="switchContractReportTab" data-args='[2]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">2. Hợp đồng sắp hết hạn</button>
+        <button id="btnCtrRepTab3" data-evt-click="switchContractReportTab" data-args='[3]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">3. Bảo lãnh sắp hết hạn</button>
+        <button id="btnCtrRepTab4" data-evt-click="switchContractReportTab" data-args='[4]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">4. Theo Công ty/Phòng</button>
+      </div>
+
+      <!-- Panel 1: Tổng quan -->
+      <div id="ctrRepPanel1" class="space-y-3">
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div class="bg-white border rounded-xl p-3"><div class="text-[11px] text-gray-500">Hợp đồng · Chờ duyệt</div><div id="ctrRepHdPending" class="text-xl font-bold text-amber-600">0</div></div>
+          <div class="bg-white border rounded-xl p-3"><div class="text-[11px] text-gray-500">Hợp đồng · Đã duyệt</div><div id="ctrRepHdApproved" class="text-xl font-bold text-success-700">0</div></div>
+          <div class="bg-white border rounded-xl p-3"><div class="text-[11px] text-gray-500">Hợp đồng · Từ chối</div><div id="ctrRepHdRejected" class="text-xl font-bold text-danger-700">0</div></div>
+          <div class="bg-white border rounded-xl p-3"><div class="text-[11px] text-gray-500">Hợp đồng · Đã thanh lý</div><div id="ctrRepHdTerminated" class="text-xl font-bold text-slate-600">0</div></div>
+          <div class="bg-white border rounded-xl p-3"><div class="text-[11px] text-gray-500">Phụ lục · Chờ duyệt</div><div id="ctrRepPlPending" class="text-xl font-bold text-amber-600">0</div></div>
+          <div class="bg-white border rounded-xl p-3"><div class="text-[11px] text-gray-500">Phụ lục · Đã duyệt</div><div id="ctrRepPlApproved" class="text-xl font-bold text-success-700">0</div></div>
+          <div class="bg-white border rounded-xl p-3"><div class="text-[11px] text-gray-500">Bảo lãnh · Chờ duyệt</div><div id="ctrRepBlPending" class="text-xl font-bold text-amber-600">0</div></div>
+          <div class="bg-white border rounded-xl p-3"><div class="text-[11px] text-gray-500">Bảo lãnh · Đã duyệt</div><div id="ctrRepBlApproved" class="text-xl font-bold text-success-700">0</div></div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="bg-brand-50 border border-brand-200 rounded-xl p-4">
+            <div class="text-xs text-brand-800 font-semibold">Tổng giá trị Hợp đồng đã duyệt</div>
+            <div id="ctrRepHdTotalValue" class="text-2xl font-bold text-brand-800 mt-1">0 ₫</div>
+          </div>
+          <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+            <div class="text-xs text-indigo-800 font-semibold">Tổng giá trị Bảo lãnh đã duyệt</div>
+            <div id="ctrRepBlTotalValue" class="text-2xl font-bold text-indigo-800 mt-1">0 ₫</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel 2: Hợp đồng sắp hết hạn -->
+      <div id="ctrRepPanel2" class="hidden space-y-3">
+        <div class="flex gap-1 flex-wrap items-center">
+          <span class="text-xs font-semibold text-gray-600 mr-1">Trong vòng:</span>
+          <button id="btnCtrRepHdExpiry7" data-evt-click="onCtrRepHdExpiryDaysChange" data-args='[7]' class="nav-tab text-xs px-3 py-1.5 font-semibold">7 ngày</button>
+          <button id="btnCtrRepHdExpiry15" data-evt-click="onCtrRepHdExpiryDaysChange" data-args='[15]' class="nav-tab text-xs px-3 py-1.5 font-semibold">15 ngày</button>
+          <button id="btnCtrRepHdExpiry30" data-evt-click="onCtrRepHdExpiryDaysChange" data-args='[30]' class="nav-tab active text-xs px-3 py-1.5 font-semibold">30 ngày</button>
+          <button id="btnCtrRepHdExpiry60" data-evt-click="onCtrRepHdExpiryDaysChange" data-args='[60]' class="nav-tab text-xs px-3 py-1.5 font-semibold">60 ngày</button>
+          <button id="btnCtrRepHdExpiry90" data-evt-click="onCtrRepHdExpiryDaysChange" data-args='[90]' class="nav-tab text-xs px-3 py-1.5 font-semibold">90 ngày</button>
+          <button data-evt-click="exportCtrRepHdExpiryXlsx" data-args='[]' class="ml-auto btn-secondary text-xs px-3 py-1.5 rounded font-semibold">📤 Xuất Excel</button>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse border bg-white text-xs">
+            <thead><tr class="bg-gray-100 text-left">
+              <th class="border p-2">Mã</th><th class="border p-2">Tên hợp đồng</th><th class="border p-2">Công ty</th><th class="border p-2">Phòng</th>
+              <th class="border p-2 text-center">Ngày hết hạn</th><th class="border p-2 text-center">Còn lại</th><th class="border p-2 text-right">Giá trị</th>
+            </tr></thead>
+            <tbody id="ctrRepHdExpiryBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Panel 3: Bảo lãnh sắp hết hạn -->
+      <div id="ctrRepPanel3" class="hidden space-y-3">
+        <div class="flex gap-1 flex-wrap items-center">
+          <span class="text-xs font-semibold text-gray-600 mr-1">Trong vòng:</span>
+          <button id="btnCtrRepBlExpiry7" data-evt-click="onCtrRepBlExpiryDaysChange" data-args='[7]' class="nav-tab text-xs px-3 py-1.5 font-semibold">7 ngày</button>
+          <button id="btnCtrRepBlExpiry15" data-evt-click="onCtrRepBlExpiryDaysChange" data-args='[15]' class="nav-tab text-xs px-3 py-1.5 font-semibold">15 ngày</button>
+          <button id="btnCtrRepBlExpiry30" data-evt-click="onCtrRepBlExpiryDaysChange" data-args='[30]' class="nav-tab active text-xs px-3 py-1.5 font-semibold">30 ngày</button>
+          <button id="btnCtrRepBlExpiry60" data-evt-click="onCtrRepBlExpiryDaysChange" data-args='[60]' class="nav-tab text-xs px-3 py-1.5 font-semibold">60 ngày</button>
+          <button id="btnCtrRepBlExpiry90" data-evt-click="onCtrRepBlExpiryDaysChange" data-args='[90]' class="nav-tab text-xs px-3 py-1.5 font-semibold">90 ngày</button>
+          <button data-evt-click="exportCtrRepBlExpiryXlsx" data-args='[]' class="ml-auto btn-secondary text-xs px-3 py-1.5 rounded font-semibold">📤 Xuất Excel</button>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse border bg-white text-xs">
+            <thead><tr class="bg-gray-100 text-left">
+              <th class="border p-2">Mã</th><th class="border p-2">Tên bảo lãnh</th><th class="border p-2">Gắn với</th><th class="border p-2">Đơn vị phát hành</th>
+              <th class="border p-2 text-center">Ngày hết hạn</th><th class="border p-2 text-center">Còn lại</th><th class="border p-2 text-right">Giá trị</th>
+            </tr></thead>
+            <tbody id="ctrRepBlExpiryBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Panel 4: Theo Công ty/Phòng -->
+      <div id="ctrRepPanel4" class="hidden space-y-3">
+        <div class="flex justify-end">
+          <button data-evt-click="exportCtrRepByUnitXlsx" data-args='[]' class="btn-secondary text-xs px-3 py-1.5 rounded font-semibold">📤 Xuất Excel</button>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse border bg-white text-xs">
+            <thead><tr class="bg-gray-100 text-left">
+              <th class="border p-2">Công ty</th><th class="border p-2">Phòng</th>
+              <th class="border p-2 text-center">Số hợp đồng</th><th class="border p-2 text-right">Tổng giá trị hợp đồng</th>
+              <th class="border p-2 text-center">Số bảo lãnh</th><th class="border p-2 text-right">Tổng giá trị bảo lãnh</th>
+            </tr></thead>
+            <tbody id="ctrRepByUnitBody"></tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
@@ -2656,6 +2824,12 @@
           </div>
         </div>
         <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn vị liên quan <span class="text-gray-400 font-normal">(tùy chọn)</span></label>
+          <div id="contractRelatedDeptsBox" class="related-dept-box"></div>
+          <div class="related-dept-add-btn" data-evt-click="addRelatedDeptRow" data-args='["contract"]'>+ Thêm đơn vị liên quan</div>
+          <p class="text-[11px] text-indigo-700 mt-1">Người thuộc Phòng được chọn ở đây cũng xem được hợp đồng này (nếu được bật quyền "Đơn vị liên quan được xem").</p>
+        </div>
+        <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Tên hợp đồng <span class="text-red-500">*</span></label>
           <input id="contractName" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Hợp đồng thi công hạng mục điện...">
         </div>
@@ -2676,7 +2850,7 @@
           </div>
           <div>
             <label class="block text-xs font-semibold text-gray-600 mb-1">Giá trị hợp đồng (VNĐ)</label>
-            <input id="contractValue" type="number" min="0" class="w-full border p-2 rounded text-sm">
+            <input id="contractValue" type="text" inputmode="numeric" data-evt-input="onMoneyInputFormat" data-args='[{"__live__":"event"}]' class="w-full border p-2 rounded text-sm">
           </div>
         </div>
         <div>
@@ -2684,7 +2858,7 @@
           <textarea id="contractNote" rows="2" class="w-full border p-2 rounded text-sm"></textarea>
         </div>
         <div class="border rounded-lg p-3 bg-blue-50">
-          <label class="block text-xs font-bold text-blue-800 mb-1">📎 Đính kèm (chọn nhiều file)</label>
+          <label class="block text-xs font-bold text-blue-800 mb-1">📎 Hợp đồng đính kèm (chọn nhiều file)</label>
           <input id="contractFilesMain" type="file" multiple class="w-full text-xs">
         </div>
         <div class="border rounded-lg p-3 bg-amber-50">
@@ -2713,19 +2887,31 @@
           <input id="addendumContractId" type="hidden">
         </div>
         <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn vị liên quan <span class="text-gray-400 font-normal">(tùy chọn)</span></label>
+          <div id="addendumRelatedDeptsBox" class="related-dept-box"></div>
+          <div class="related-dept-add-btn" data-evt-click="addRelatedDeptRow" data-args='["addendum"]'>+ Thêm đơn vị liên quan</div>
+          <p class="text-[11px] text-indigo-700 mt-1">Người thuộc Phòng được chọn ở đây cũng xem được phụ lục này (nếu được bật quyền "Đơn vị liên quan được xem").</p>
+        </div>
+        <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Tên phụ lục <span class="text-red-500">*</span></label>
           <input id="addendumName" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Phụ lục điều chỉnh tiến độ">
         </div>
-        <div>
-          <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày ký</label>
-          <input id="addendumDate" type="date" class="w-full border p-2 rounded text-sm">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày ký</label>
+            <input id="addendumDate" type="date" class="w-full border p-2 rounded text-sm">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày hết hạn <span class="text-gray-400 font-normal">(tùy chọn)</span></label>
+            <input id="addendumExpiryDate" type="date" class="w-full border p-2 rounded text-sm">
+          </div>
         </div>
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Nội dung thay đổi / Ghi chú</label>
           <textarea id="addendumNote" rows="2" class="w-full border p-2 rounded text-sm"></textarea>
         </div>
         <div class="border rounded-lg p-3 bg-blue-50">
-          <label class="block text-xs font-bold text-blue-800 mb-1">📎 Đính kèm (chọn nhiều file)</label>
+          <label class="block text-xs font-bold text-blue-800 mb-1">📎 Phụ lục đính kèm (chọn nhiều file)</label>
           <input id="addendumFilesMain" type="file" multiple class="w-full text-xs">
         </div>
         <div class="border rounded-lg p-3 bg-amber-50">
@@ -2763,6 +2949,12 @@
           <p class="text-[11px] text-amber-700 mt-1">⚠️ Khi bảo lãnh này được duyệt, bảo lãnh cũ sẽ tự động chuyển trạng thái sang "Đã thay thế".</p>
         </div>
         <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn vị liên quan <span class="text-gray-400 font-normal">(tùy chọn)</span></label>
+          <div id="guaranteeRelatedDeptsBox" class="related-dept-box"></div>
+          <div class="related-dept-add-btn" data-evt-click="addRelatedDeptRow" data-args='["guarantee"]'>+ Thêm đơn vị liên quan</div>
+          <p class="text-[11px] text-indigo-700 mt-1">Người thuộc Phòng được chọn ở đây cũng xem được bảo lãnh này (nếu được bật quyền "Đơn vị liên quan được xem").</p>
+        </div>
+        <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Tên bảo lãnh <span class="text-red-500">*</span></label>
           <input id="guaranteeName" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Bảo lãnh thực hiện hợp đồng">
         </div>
@@ -2773,7 +2965,7 @@
           </div>
           <div>
             <label class="block text-xs font-semibold text-gray-600 mb-1">Giá trị bảo lãnh (VNĐ)</label>
-            <input id="guaranteeValue" type="number" min="0" class="w-full border p-2 rounded text-sm">
+            <input id="guaranteeValue" type="text" inputmode="numeric" data-evt-input="onMoneyInputFormat" data-args='[{"__live__":"event"}]' class="w-full border p-2 rounded text-sm">
           </div>
         </div>
         <div>
@@ -2783,13 +2975,13 @@
             <button type="button" id="guaranteeHasTermNo" data-evt-click="setGuaranteeHasTerm" data-args='[false]' class="flex-1 nav-tab text-xs px-3 py-1.5 font-semibold">Vô thời hạn</button>
           </div>
         </div>
-        <div id="guaranteeTermDatesWrap" class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày hiệu lực</label>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày hiệu lực <span class="text-red-500">*</span></label>
             <input id="guaranteeEffectiveDate" type="date" class="w-full border p-2 rounded text-sm">
           </div>
-          <div>
-            <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày hết hạn</label>
+          <div id="guaranteeExpiryDateWrap">
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày hết hạn <span class="text-red-500">*</span></label>
             <input id="guaranteeExpiryDate" type="date" class="w-full border p-2 rounded text-sm">
           </div>
         </div>
@@ -2805,6 +2997,22 @@
       <div class="p-5 border-t flex justify-end gap-2">
         <button type="button" data-evt-click="closeGuaranteeModal" data-args='[]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
         <button type="button" data-evt-click="saveGuarantee" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Gửi duyệt</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Xem chi tiết Bảo lãnh phát hành (chỉ đọc) — mở trực tiếp từ tab
+       "Bảo lãnh phát hành" (danh sách phẳng), không cần quay lại tab Hợp đồng
+       mới xem được thông tin + file đính kèm. -->
+  <div id="guaranteeViewModal" class="modal-backdrop hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
+      <div class="p-4 border-b flex justify-between items-center">
+        <h3 class="font-bold text-gray-900 text-sm">🛡️ Chi tiết Bảo lãnh phát hành</h3>
+        <button type="button" data-evt-click="closeGuaranteeViewModal" data-args='[]' class="text-gray-500 font-bold hover:text-gray-700 text-lg">✕</button>
+      </div>
+      <div id="guaranteeViewContent" class="p-4 space-y-2.5 text-sm"></div>
+      <div class="p-3 border-t flex justify-end gap-2">
+        <button type="button" data-evt-click="closeGuaranteeViewModal" data-args='[]' class="bg-gray-200 text-gray-700 px-4 py-1.5 rounded text-xs font-bold">Đóng</button>
       </div>
     </div>
   </div>
@@ -4041,7 +4249,7 @@
       <div id="regCorrInfoBox" class="bg-gray-50 border rounded p-2 text-xs text-gray-700 space-y-0.5"></div>
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn giá mới</label>
-        <input id="regCorrUnitPrice" type="number" min="0" step="1000" class="w-full border p-2 rounded text-sm">
+        <input id="regCorrUnitPrice" type="text" inputmode="numeric" data-evt-input="onMoneyInputFormat" data-args='[{"__live__":"event"}]' class="w-full border p-2 rounded text-sm">
       </div>
       <div id="regCorrQuantityWrap">
         <label class="block text-xs font-semibold text-gray-600 mb-1">Số lượng mới</label>
@@ -4624,6 +4832,12 @@
             </label>
             <label class="flex items-center gap-2 text-orange-500 font-semibold cursor-pointer border-t pt-2">
               <input type="checkbox" id="gContractPrinter"> Quyền in Hợp đồng/Phụ lục/Bảo lãnh
+            </label>
+            <label class="flex items-center gap-2 text-teal-700 font-semibold cursor-pointer border-t pt-2">
+              <input type="checkbox" id="gContractDeptViewer"> Phòng ban được xem
+            </label>
+            <label class="flex items-center gap-2 text-teal-700 font-semibold cursor-pointer border-t pt-2">
+              <input type="checkbox" id="gContractRelatedUnitViewer"> Đơn vị liên quan được xem
             </label>
             <div class="border-t pt-2 space-y-1.5">
               <div class="flex justify-between items-center">
