@@ -1119,6 +1119,10 @@ CREATE TABLE IF NOT EXISTS ctr_addendums (
 );
 CALL create_index_if_not_exists('ctr_addendums', 'idx_ctr_addendums_contract', 'contract_id');
 
+-- Ngày hết hạn riêng của Phụ lục (có thể khác ngày hết hạn của Hợp đồng gốc
+-- — VD phụ lục chỉ gia hạn thêm 1 phần hoặc 1 hạng mục cụ thể).
+CALL add_column_if_not_exists('ctr_addendums', 'expiry_date', 'DATE NULL DEFAULT NULL');
+
 -- Bảo lãnh phát hành — gắn đúng 1 trong 2 (contract_id HOẶC addendum_id, KHÔNG
 -- bao giờ cả hai). parent_guarantee_id (bảo lãnh CON) và replaces_guarantee_id
 -- (bảo lãnh THAY THẾ) là 2 thuộc tính ĐỘC LẬP — 1 bảo lãnh có thể vừa là con,

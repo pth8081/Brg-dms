@@ -2676,7 +2676,7 @@
           </div>
           <div>
             <label class="block text-xs font-semibold text-gray-600 mb-1">Giá trị hợp đồng (VNĐ)</label>
-            <input id="contractValue" type="number" min="0" class="w-full border p-2 rounded text-sm">
+            <input id="contractValue" type="text" inputmode="numeric" data-evt-input="onMoneyInputFormat" data-args='[{"__live__":"event"}]' class="w-full border p-2 rounded text-sm">
           </div>
         </div>
         <div>
@@ -2684,7 +2684,7 @@
           <textarea id="contractNote" rows="2" class="w-full border p-2 rounded text-sm"></textarea>
         </div>
         <div class="border rounded-lg p-3 bg-blue-50">
-          <label class="block text-xs font-bold text-blue-800 mb-1">📎 Đính kèm (chọn nhiều file)</label>
+          <label class="block text-xs font-bold text-blue-800 mb-1">📎 Hợp đồng đính kèm (chọn nhiều file)</label>
           <input id="contractFilesMain" type="file" multiple class="w-full text-xs">
         </div>
         <div class="border rounded-lg p-3 bg-amber-50">
@@ -2716,16 +2716,22 @@
           <label class="block text-xs font-semibold text-gray-600 mb-1">Tên phụ lục <span class="text-red-500">*</span></label>
           <input id="addendumName" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Phụ lục điều chỉnh tiến độ">
         </div>
-        <div>
-          <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày ký</label>
-          <input id="addendumDate" type="date" class="w-full border p-2 rounded text-sm">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày ký</label>
+            <input id="addendumDate" type="date" class="w-full border p-2 rounded text-sm">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày hết hạn <span class="text-gray-400 font-normal">(tùy chọn)</span></label>
+            <input id="addendumExpiryDate" type="date" class="w-full border p-2 rounded text-sm">
+          </div>
         </div>
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Nội dung thay đổi / Ghi chú</label>
           <textarea id="addendumNote" rows="2" class="w-full border p-2 rounded text-sm"></textarea>
         </div>
         <div class="border rounded-lg p-3 bg-blue-50">
-          <label class="block text-xs font-bold text-blue-800 mb-1">📎 Đính kèm (chọn nhiều file)</label>
+          <label class="block text-xs font-bold text-blue-800 mb-1">📎 Phụ lục đính kèm (chọn nhiều file)</label>
           <input id="addendumFilesMain" type="file" multiple class="w-full text-xs">
         </div>
         <div class="border rounded-lg p-3 bg-amber-50">
@@ -2773,7 +2779,7 @@
           </div>
           <div>
             <label class="block text-xs font-semibold text-gray-600 mb-1">Giá trị bảo lãnh (VNĐ)</label>
-            <input id="guaranteeValue" type="number" min="0" class="w-full border p-2 rounded text-sm">
+            <input id="guaranteeValue" type="text" inputmode="numeric" data-evt-input="onMoneyInputFormat" data-args='[{"__live__":"event"}]' class="w-full border p-2 rounded text-sm">
           </div>
         </div>
         <div>
@@ -2783,13 +2789,13 @@
             <button type="button" id="guaranteeHasTermNo" data-evt-click="setGuaranteeHasTerm" data-args='[false]' class="flex-1 nav-tab text-xs px-3 py-1.5 font-semibold">Vô thời hạn</button>
           </div>
         </div>
-        <div id="guaranteeTermDatesWrap" class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày hiệu lực</label>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày hiệu lực <span class="text-red-500">*</span></label>
             <input id="guaranteeEffectiveDate" type="date" class="w-full border p-2 rounded text-sm">
           </div>
-          <div>
-            <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày hết hạn</label>
+          <div id="guaranteeExpiryDateWrap">
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày hết hạn <span class="text-red-500">*</span></label>
             <input id="guaranteeExpiryDate" type="date" class="w-full border p-2 rounded text-sm">
           </div>
         </div>
@@ -4041,7 +4047,7 @@
       <div id="regCorrInfoBox" class="bg-gray-50 border rounded p-2 text-xs text-gray-700 space-y-0.5"></div>
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn giá mới</label>
-        <input id="regCorrUnitPrice" type="number" min="0" step="1000" class="w-full border p-2 rounded text-sm">
+        <input id="regCorrUnitPrice" type="text" inputmode="numeric" data-evt-input="onMoneyInputFormat" data-args='[{"__live__":"event"}]' class="w-full border p-2 rounded text-sm">
       </div>
       <div id="regCorrQuantityWrap">
         <label class="block text-xs font-semibold text-gray-600 mb-1">Số lượng mới</label>

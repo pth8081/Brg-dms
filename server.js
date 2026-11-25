@@ -9688,7 +9688,7 @@ async function nextContractCode(table, docTypePrefix, companyCode, deptAbbr) {
 }
 
 function mapContract(c) { return { id: c.id, code: c.code, name: c.name, companyId: c.company_id, deptName: c.dept_name, counterparty: c.counterparty, contractDate: fmtDate(c.contract_date), expiryDate: fmtDate(c.expiry_date), value: c.value, note: c.note, status: c.status, createdBy: c.created_by, createdAt: c.created_at, approvedBy: c.approved_by, approvedAt: c.approved_at, rejectReason: c.reject_reason, terminatedBy: c.terminated_by, terminatedAt: c.terminated_at, terminateNote: c.terminate_note }; }
-function mapAddendum(a) { return { id: a.id, code: a.code, contractId: a.contract_id, name: a.name, addendumDate: fmtDate(a.addendum_date), note: a.note, status: a.status, createdBy: a.created_by, createdAt: a.created_at, approvedBy: a.approved_by, approvedAt: a.approved_at, rejectReason: a.reject_reason }; }
+function mapAddendum(a) { return { id: a.id, code: a.code, contractId: a.contract_id, name: a.name, addendumDate: fmtDate(a.addendum_date), expiryDate: fmtDate(a.expiry_date), note: a.note, status: a.status, createdBy: a.created_by, createdAt: a.created_at, approvedBy: a.approved_by, approvedAt: a.approved_at, rejectReason: a.reject_reason }; }
 function mapGuarantee(g) { return { id: g.id, code: g.code, contractId: g.contract_id, addendumId: g.addendum_id, parentGuaranteeId: g.parent_guarantee_id, replacesGuaranteeId: g.replaces_guarantee_id, name: g.name, issuer: g.issuer, value: g.value, note: g.note, hasTerm: !!g.has_term, effectiveDate: fmtDate(g.effective_date), expiryDate: fmtDate(g.expiry_date), status: g.status, createdBy: g.created_by, createdAt: g.created_at, approvedBy: g.approved_by, approvedAt: g.approved_at, rejectReason: g.reject_reason }; }
 function mapCtrAttachment(a) { return { id: a.id, recordType: a.record_type, recordId: a.record_id, attachmentGroup: a.attachment_group, fileName: a.file_name, uploadedBy: a.uploaded_by, uploadedAt: a.uploaded_at }; }
 
@@ -9799,6 +9799,7 @@ app.post('/api/contracts/addendums', requireAuth, requireContractCreateOrAdmin, 
         const name = String((req.body && req.body.name) || '').trim();
         const contractId = Number(req.body && req.body.contractId);
         const addendumDate = (req.body && req.body.addendumDate) || null;
+        const expiryDate = (req.body && req.body.expiryDate) || null;
         const note = String((req.body && req.body.note) || '').trim();
         if (!name) return res.status(400).json({ error: 'Vui lòng nhập tên phụ lục.' });
         if (!contractId) return res.status(400).json({ error: 'Vui lòng chọn Hợp đồng liên quan.' });
@@ -9812,8 +9813,8 @@ app.post('/api/contracts/addendums', requireAuth, requireContractCreateOrAdmin, 
         const code = await nextContractCode('ctr_addendums', 'PLHD', company.code, dept.abbr);
         const now = new Date().toLocaleString('vi-VN');
         const [result] = await pool.query(
-            `INSERT INTO ctr_addendums (code, contract_id, name, addendum_date, note, status, created_by, created_at) VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
-            [code, contractId, name, addendumDate, note || null, req.user.username, now]
+            `INSERT INTO ctr_addendums (code, contract_id, name, addendum_date, expiry_date, note, status, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
+            [code, contractId, name, addendumDate, expiryDate, note || null, req.user.username, now]
         );
         await writeAuditLog({ module: 'CONTRACT', actionType: 'CREATE_ADDENDUM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: code, description: `Tạo phụ lục [${code}] cho hợp đồng [${contract.code}]: ${name}.` });
         res.json({ success: true, id: result.insertId, code });
@@ -9853,11 +9854,14 @@ app.post('/api/contracts/guarantees', requireAuth, requireContractCreateOrAdmin,
         const value = (req.body && req.body.value !== undefined && req.body.value !== '') ? Number(req.body.value) : null;
         const note = String((req.body && req.body.note) || '').trim();
         const hasTerm = !!(req.body && req.body.hasTerm);
-        const effectiveDate = (hasTerm && req.body.effectiveDate) ? req.body.effectiveDate : null;
+        // "Vô thời hạn" vẫn luôn cần Ngày hiệu lực (ngày bắt đầu có hiệu lực)
+        // — chỉ Ngày hết hạn là null khi không có thời hạn.
+        const effectiveDate = (req.body && req.body.effectiveDate) ? req.body.effectiveDate : null;
         const expiryDate = (hasTerm && req.body.expiryDate) ? req.body.expiryDate : null;
 
         if (!name) return res.status(400).json({ error: 'Vui lòng nhập tên bảo lãnh.' });
-        if (hasTerm && (!effectiveDate || !expiryDate)) return res.status(400).json({ error: 'Bảo lãnh có thời hạn phải nhập đủ Ngày hiệu lực và Ngày hết hạn.' });
+        if (!effectiveDate) return res.status(400).json({ error: 'Vui lòng nhập Ngày hiệu lực.' });
+        if (hasTerm && !expiryDate) return res.status(400).json({ error: 'Bảo lãnh có thời hạn phải nhập Ngày hết hạn.' });
 
         let parentGuarantee = null;
         if (parentGuaranteeId) {

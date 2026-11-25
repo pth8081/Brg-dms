@@ -6715,7 +6715,7 @@ function isPerpetualSoftware(softwareId) {
         <div>Số lượng hiện tại: <strong>${r.requestedQuantity}</strong>${issuedQty > 0 ? ` (đã phát hành ${issuedQty})` : ''}</div>
         ${r.correctionRequestedBy ? `<div class="text-amber-700 font-semibold pt-1 border-t mt-1">⚠️ Đang có 1 đính chính khác chờ duyệt (đề xuất bởi ${escapeHtml(r.correctionRequestedBy)}) — gửi lại sẽ THAY THẾ đề xuất đó.</div>` : ''}
       `;
-      document.getElementById('regCorrUnitPrice').value = r.unitPrice;
+      document.getElementById('regCorrUnitPrice').value = digitsToThousands(String(r.unitPrice));
       document.getElementById('regCorrQuantity').value = r.requestedQuantity;
       document.getElementById('regCorrQuantity').min = issuedQty || 1;
       document.getElementById('regCorrQuantityWrap').classList.toggle('hidden', fullyIssued);
@@ -6727,7 +6727,7 @@ function isPerpetualSoftware(softwareId) {
       const id = Number(document.getElementById('regCorrId').value);
       const r = licenseDB.purchaseRegistrations.find(x => x.id === id);
       if (!r) return;
-      const unitPrice = Number(document.getElementById('regCorrUnitPrice').value);
+      const unitPrice = parseThousandsInput(document.getElementById('regCorrUnitPrice').value);
       const fullyIssued = (r.issuedQuantity || 0) >= r.requestedQuantity;
       const requestedQuantity = fullyIssued ? null : Number(document.getElementById('regCorrQuantity').value);
       const reason = document.getElementById('regCorrReason').value.trim();
@@ -12519,7 +12519,7 @@ function isPerpetualSoftware(softwareId) {
                   <div>
                     <div class="font-mono text-[10px] text-gray-400">${escapeHtml(a.code)}</div>
                     <div class="text-sm font-semibold">${escapeHtml(a.name)} ${contractStatusBadge(a.status)}</div>
-                    ${a.addendumDate ? `<div class="text-[11px] text-gray-500">Ký ngày ${escapeHtml(fmtDateVN(a.addendumDate))}</div>` : ''}
+                    ${a.addendumDate || a.expiryDate ? `<div class="text-[11px] text-gray-500">${a.addendumDate ? 'Ký ngày ' + escapeHtml(fmtDateVN(a.addendumDate)) : ''}${a.addendumDate && a.expiryDate ? ' · ' : ''}${a.expiryDate ? 'Hết hạn ' + escapeHtml(fmtDateVN(a.expiryDate)) : ''}</div>` : ''}
                     ${a.status === 'REJECTED' && a.rejectReason ? `<div class="text-[11px] text-red-600">Lý do: ${escapeHtml(a.rejectReason)}</div>` : ''}
                   </div>
                   <div class="flex gap-1">
@@ -12547,7 +12547,7 @@ function isPerpetualSoftware(softwareId) {
       const children = ContractDB.guarantees.filter(x => x.parentGuaranteeId === g.id);
       const replacedBy = ContractDB.guarantees.find(x => x.replacesGuaranteeId === g.id && x.status !== 'REJECTED');
       const canDecide = g.status === 'PENDING' && canApproveContractItem(g);
-      const termLabel = g.hasTerm ? `${escapeHtml(fmtDateVN(g.effectiveDate))} → ${escapeHtml(fmtDateVN(g.expiryDate))}` : 'Vô thời hạn';
+      const termLabel = g.hasTerm ? `${escapeHtml(fmtDateVN(g.effectiveDate))} → ${escapeHtml(fmtDateVN(g.expiryDate))}` : `Hiệu lực từ ${escapeHtml(fmtDateVN(g.effectiveDate))} — Vô thời hạn`;
       return `
         <div class="border rounded p-2.5 mb-1.5 bg-white" style="margin-left:${depth * 16}px">
           <div class="flex justify-between items-start gap-2">
@@ -12593,7 +12593,7 @@ function isPerpetualSoftware(softwareId) {
           <td class="border p-2 text-[11px]">${escapeHtml(guaranteeParentRefLabel(g))}${g.parentGuaranteeId ? ' <span class="text-gray-400">(con)</span>' : ''}</td>
           <td class="border p-2">${escapeHtml(g.issuer || '—')}</td>
           <td class="border p-2 text-right">${g.value ? formatMoney(g.value) : '—'}</td>
-          <td class="border p-2 text-center text-[11px]">${g.hasTerm ? escapeHtml(fmtDateVN(g.expiryDate)) : 'Vô thời hạn'}</td>
+          <td class="border p-2 text-center text-[11px]">${g.hasTerm ? escapeHtml(fmtDateVN(g.expiryDate)) : escapeHtml(fmtDateVN(g.effectiveDate)) + ' → ∞'}</td>
           <td class="border p-2 text-center">${contractStatusBadge(g.status)}</td>
           <td class="border p-2 text-center whitespace-nowrap">${canDecide ? `<button ${dc('approveGuarantee', g.id)} class="px-1.5 py-0.5 rounded hover:bg-green-100 text-green-700 text-[11px] font-semibold">Duyệt</button><button ${dc('rejectGuarantee', g.id)} class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600 text-[11px] font-semibold">Từ chối</button>` : '—'}</td>
         </tr>`;
@@ -12659,7 +12659,7 @@ function isPerpetualSoftware(softwareId) {
             counterparty: document.getElementById('contractCounterparty').value.trim(),
             contractDate: document.getElementById('contractDate').value || null,
             expiryDate: document.getElementById('contractExpiryDate').value || null,
-            value: document.getElementById('contractValue').value || null,
+            value: parseThousandsInput(document.getElementById('contractValue').value) || null,
             note: document.getElementById('contractNote').value.trim()
           })
         });
@@ -12680,6 +12680,7 @@ function isPerpetualSoftware(softwareId) {
       document.getElementById('addendumContractId').value = contractId;
       document.getElementById('addendumName').value = '';
       document.getElementById('addendumDate').value = '';
+      document.getElementById('addendumExpiryDate').value = '';
       document.getElementById('addendumNote').value = '';
       document.getElementById('addendumFilesMain').value = '';
       document.getElementById('addendumFilesProposal').value = '';
@@ -12693,7 +12694,7 @@ function isPerpetualSoftware(softwareId) {
       try {
         const result = await apiFetch('/api/contracts/addendums', {
           method: 'POST',
-          body: JSON.stringify({ name, contractId, addendumDate: document.getElementById('addendumDate').value || null, note: document.getElementById('addendumNote').value.trim() })
+          body: JSON.stringify({ name, contractId, addendumDate: document.getElementById('addendumDate').value || null, expiryDate: document.getElementById('addendumExpiryDate').value || null, note: document.getElementById('addendumNote').value.trim() })
         });
         await uploadContractAttachmentFiles('ADDENDUM', result.id, document.getElementById('addendumFilesMain'), 'MAIN');
         await uploadContractAttachmentFiles('ADDENDUM', result.id, document.getElementById('addendumFilesProposal'), 'PROPOSAL');
@@ -12709,7 +12710,9 @@ function isPerpetualSoftware(softwareId) {
     function setGuaranteeHasTerm(hasTerm) {
       document.getElementById('guaranteeHasTermYes').classList.toggle('active', hasTerm);
       document.getElementById('guaranteeHasTermNo').classList.toggle('active', !hasTerm);
-      document.getElementById('guaranteeTermDatesWrap').classList.toggle('hidden', !hasTerm);
+      // "Vô thời hạn" vẫn cần Ngày hiệu lực (ngày bắt đầu có hiệu lực), chỉ
+      // ẩn/bỏ Ngày hết hạn — khác với trước đây ẩn luôn cả 2 ngày.
+      document.getElementById('guaranteeExpiryDateWrap').classList.toggle('hidden', !hasTerm);
       document.getElementById('guaranteeModal').dataset.hasTerm = hasTerm ? '1' : '0';
     }
     function openGuaranteeModal(mode, refId) {
@@ -12764,7 +12767,8 @@ function isPerpetualSoftware(softwareId) {
       const hasTerm = document.getElementById('guaranteeModal').dataset.hasTerm === '1';
       const effectiveDate = document.getElementById('guaranteeEffectiveDate').value;
       const expiryDate = document.getElementById('guaranteeExpiryDate').value;
-      if (hasTerm && (!effectiveDate || !expiryDate)) return showToast('Bảo lãnh có thời hạn phải nhập đủ Ngày hiệu lực và Ngày hết hạn.', 'warning');
+      if (!effectiveDate) return showToast('Vui lòng nhập Ngày hiệu lực.', 'warning');
+      if (hasTerm && !expiryDate) return showToast('Bảo lãnh có thời hạn phải nhập Ngày hết hạn.', 'warning');
       const contractId = document.getElementById('guaranteeContractId').value;
       const addendumId = document.getElementById('guaranteeAddendumId').value;
       const parentGuaranteeId = document.getElementById('guaranteeParentId').value;
@@ -12779,9 +12783,9 @@ function isPerpetualSoftware(softwareId) {
             parentGuaranteeId: parentGuaranteeId ? Number(parentGuaranteeId) : null,
             replacesGuaranteeId: replacesGuaranteeId ? Number(replacesGuaranteeId) : null,
             issuer: document.getElementById('guaranteeIssuer').value.trim(),
-            value: document.getElementById('guaranteeValue').value || null,
+            value: parseThousandsInput(document.getElementById('guaranteeValue').value) || null,
             note: document.getElementById('guaranteeNote').value.trim(),
-            hasTerm, effectiveDate: hasTerm ? effectiveDate : null, expiryDate: hasTerm ? expiryDate : null
+            hasTerm, effectiveDate, expiryDate: hasTerm ? expiryDate : null
           })
         });
         await uploadContractAttachmentFiles('GUARANTEE', result.id, document.getElementById('guaranteeFilesMain'), 'MAIN');
