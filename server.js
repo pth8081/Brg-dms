@@ -10172,6 +10172,17 @@ app.delete('/api/contracts/attachments/:id', requireAuth, requireContractCreateO
     try {
         const [[att]] = await pool.query('SELECT * FROM ctr_attachments WHERE id = ?', [req.params.id]);
         if (!att) return res.status(404).json({ error: 'Không tìm thấy file đính kèm.' });
+        // Khóa xóa file đính kèm một khi Hợp đồng/Phụ lục/Bảo lãnh đã rời
+        // PENDING (Đã duyệt/Từ chối/Đã thanh lý/Đã thay thế) — tránh xóa nhầm
+        // do icon Tải/Xóa nằm sát nhau trên điện thoại (phản hồi người dùng).
+        // Admin vẫn bỏ qua được (đã có "quyền cao nhất xóa cả bản ghi" riêng).
+        if (!req.user.perms.admin) {
+            const table = CTR_RECORD_TABLES[att.record_type];
+            const [[rec]] = await pool.query(`SELECT status FROM ${table} WHERE id = ?`, [att.record_id]);
+            if (rec && rec.status !== 'PENDING') {
+                return res.status(403).json({ error: 'Hồ sơ đã qua trạng thái Chờ duyệt — không tự xóa file đính kèm được nữa, liên hệ Admin nếu cần.' });
+            }
+        }
         await pool.query('DELETE FROM ctr_attachments WHERE id = ?', [req.params.id]);
         fs.unlink(path.join(UPLOAD_DIR, att.file_path), () => {});
         await writeAuditLog({ module: 'CONTRACT', actionType: 'DELETE_ATTACHMENT', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: att.file_name, description: `Xóa file đính kèm [${att.file_name}] khỏi ${att.record_type} #${att.record_id}.` });

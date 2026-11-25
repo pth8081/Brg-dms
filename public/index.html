@@ -2955,6 +2955,22 @@
     </div>
   </div>
 
+  <!-- Modal: Xem chi tiết Bảo lãnh phát hành (chỉ đọc) — mở trực tiếp từ tab
+       "Bảo lãnh phát hành" (danh sách phẳng), không cần quay lại tab Hợp đồng
+       mới xem được thông tin + file đính kèm. -->
+  <div id="guaranteeViewModal" class="modal-backdrop hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
+      <div class="p-4 border-b flex justify-between items-center">
+        <h3 class="font-bold text-gray-900 text-sm">🛡️ Chi tiết Bảo lãnh phát hành</h3>
+        <button type="button" data-evt-click="closeGuaranteeViewModal" data-args='[]' class="text-gray-500 font-bold hover:text-gray-700 text-lg">✕</button>
+      </div>
+      <div id="guaranteeViewContent" class="p-4 space-y-2.5 text-sm"></div>
+      <div class="p-3 border-t flex justify-end gap-2">
+        <button type="button" data-evt-click="closeGuaranteeViewModal" data-args='[]' class="bg-gray-200 text-gray-700 px-4 py-1.5 rounded text-xs font-bold">Đóng</button>
+      </div>
+    </div>
+  </div>
+
   <!-- MODULE: Quản lý Ngân sách (budget2) — độc lập với module Bản quyền, quy
        trình Đề xuất -> Phê duyệt -> Sử dụng, đặt ngang hàng Hệ thống/CNTT. -->
   <div id="budget2Section" class="hidden space-y-4">
