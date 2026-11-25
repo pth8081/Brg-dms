@@ -10052,6 +10052,140 @@ app.get('/api/contracts/attachments/:id/download', requireAuth, requireContractD
     }
 });
 
+// ============================================================
+// XÓA VĨNH VIỄN Hợp đồng/Phụ lục/Bảo lãnh — CHỈ Admin (không phải
+// contractManager) được xóa, dùng để hỗ trợ người dùng khi họ lỡ tạo
+// nhầm/cần dọn dữ liệu, không khôi phục lại được (không làm Thùng rác
+// riêng cho module này — xóa cuốn chiếu toàn bộ con cháu + file đính kèm
+// liên quan trong 1 giao dịch). Không có ràng buộc FOREIGN KEY ở schema.sql
+// (giống các bảng khác trong toàn hệ thống) nên phải tự dọn đúng thứ tự:
+// ctr_attachments -> ctr_guarantees (con trước cha) -> ctr_addendums ->
+// ctr_contracts, và tự gỡ tham chiếu "thay thế" treo (replaces_guarantee_id)
+// trỏ tới bản ghi sắp xóa từ các bảo lãnh KHÔNG bị xóa cùng lúc.
+// ============================================================
+
+// Mở rộng 1 danh sách id Bảo lãnh gốc thành chính nó + mọi bảo lãnh con cháu
+// (đệ quy theo parent_guarantee_id), dùng conn đang trong transaction.
+async function collectGuaranteeDescendants(conn, rootIds) {
+    const all = new Set(rootIds);
+    let frontier = rootIds.slice();
+    while (frontier.length) {
+        const placeholders = frontier.map(() => '?').join(',');
+        const [children] = await conn.query(`SELECT id FROM ctr_guarantees WHERE parent_guarantee_id IN (${placeholders})`, frontier);
+        const newIds = children.map(c => c.id).filter(id => !all.has(id));
+        newIds.forEach(id => all.add(id));
+        frontier = newIds;
+    }
+    return Array.from(all);
+}
+// Lấy danh sách file đính kèm của 1 record_type + danh sách record_id (dùng
+// conn đang trong transaction) — trả về để xóa file trên đĩa SAU KHI commit
+// thành công (tránh xóa file vật lý rồi lại phải rollback).
+async function collectAttachmentFiles(conn, recordType, recordIds) {
+    if (!recordIds.length) return [];
+    const placeholders = recordIds.map(() => '?').join(',');
+    const [rows] = await conn.query(`SELECT file_path FROM ctr_attachments WHERE record_type = ? AND record_id IN (${placeholders})`, [recordType, ...recordIds]);
+    await conn.query(`DELETE FROM ctr_attachments WHERE record_type = ? AND record_id IN (${placeholders})`, [recordType, ...recordIds]);
+    return rows.map(r => r.file_path);
+}
+function unlinkContractFiles(filePaths) {
+    filePaths.forEach(p => fs.unlink(path.join(UPLOAD_DIR, p), () => {}));
+}
+async function deleteGuaranteeSet(conn, guaranteeIds) {
+    if (!guaranteeIds.length) return [];
+    const files = await collectAttachmentFiles(conn, 'GUARANTEE', guaranteeIds);
+    const placeholders = guaranteeIds.map(() => '?').join(',');
+    await conn.query(`UPDATE ctr_guarantees SET replaces_guarantee_id = NULL WHERE replaces_guarantee_id IN (${placeholders})`, guaranteeIds);
+    await conn.query(`DELETE FROM ctr_guarantees WHERE id IN (${placeholders})`, guaranteeIds);
+    return files;
+}
+
+app.delete('/api/contracts/contracts/:id', requireAuth, async (req, res) => {
+    if (!req.user.perms || !req.user.perms.admin) return res.status(403).json({ error: 'Chỉ Admin được xóa Hợp đồng.' });
+    const conn = await pool.getConnection();
+    try {
+        await conn.beginTransaction();
+        const [[contract]] = await conn.query('SELECT * FROM ctr_contracts WHERE id = ? FOR UPDATE', [req.params.id]);
+        if (!contract) { await conn.rollback(); return res.status(404).json({ error: 'Không tìm thấy hợp đồng.' }); }
+        const [addendumRows] = await conn.query('SELECT id FROM ctr_addendums WHERE contract_id = ?', [contract.id]);
+        const addendumIds = addendumRows.map(a => a.id);
+        const guaranteePlaceholders = addendumIds.map(() => '?').join(',');
+        const [rootGuarantees] = await conn.query(
+            `SELECT id FROM ctr_guarantees WHERE contract_id = ?${addendumIds.length ? ` OR addendum_id IN (${guaranteePlaceholders})` : ''}`,
+            addendumIds.length ? [contract.id, ...addendumIds] : [contract.id]
+        );
+        const allGuaranteeIds = await collectGuaranteeDescendants(conn, rootGuarantees.map(g => g.id));
+
+        let files = [];
+        files = files.concat(await deleteGuaranteeSet(conn, allGuaranteeIds));
+        files = files.concat(await collectAttachmentFiles(conn, 'ADDENDUM', addendumIds));
+        if (addendumIds.length) await conn.query(`DELETE FROM ctr_addendums WHERE id IN (${addendumIds.map(() => '?').join(',')})`, addendumIds);
+        files = files.concat(await collectAttachmentFiles(conn, 'CONTRACT', [contract.id]));
+        await conn.query('DELETE FROM ctr_contracts WHERE id = ?', [contract.id]);
+
+        await conn.commit();
+        unlinkContractFiles(files);
+        await writeAuditLog({ module: 'CONTRACT', actionType: 'DELETE_CONTRACT', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: contract.code, description: `Xóa vĩnh viễn hợp đồng [${contract.code}]: ${contract.name} (kèm ${addendumIds.length} phụ lục, ${allGuaranteeIds.length} bảo lãnh).` });
+        res.json({ success: true });
+    } catch (err) {
+        await conn.rollback();
+        console.error('❌ Lỗi xóa hợp đồng:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    } finally {
+        conn.release();
+    }
+});
+
+app.delete('/api/contracts/addendums/:id', requireAuth, async (req, res) => {
+    if (!req.user.perms || !req.user.perms.admin) return res.status(403).json({ error: 'Chỉ Admin được xóa Phụ lục.' });
+    const conn = await pool.getConnection();
+    try {
+        await conn.beginTransaction();
+        const [[addendum]] = await conn.query('SELECT * FROM ctr_addendums WHERE id = ? FOR UPDATE', [req.params.id]);
+        if (!addendum) { await conn.rollback(); return res.status(404).json({ error: 'Không tìm thấy phụ lục.' }); }
+        const [rootGuarantees] = await conn.query('SELECT id FROM ctr_guarantees WHERE addendum_id = ?', [addendum.id]);
+        const allGuaranteeIds = await collectGuaranteeDescendants(conn, rootGuarantees.map(g => g.id));
+
+        let files = await deleteGuaranteeSet(conn, allGuaranteeIds);
+        files = files.concat(await collectAttachmentFiles(conn, 'ADDENDUM', [addendum.id]));
+        await conn.query('DELETE FROM ctr_addendums WHERE id = ?', [addendum.id]);
+
+        await conn.commit();
+        unlinkContractFiles(files);
+        await writeAuditLog({ module: 'CONTRACT', actionType: 'DELETE_ADDENDUM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: addendum.code, description: `Xóa vĩnh viễn phụ lục [${addendum.code}]: ${addendum.name} (kèm ${allGuaranteeIds.length} bảo lãnh).` });
+        res.json({ success: true });
+    } catch (err) {
+        await conn.rollback();
+        console.error('❌ Lỗi xóa phụ lục:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    } finally {
+        conn.release();
+    }
+});
+
+app.delete('/api/contracts/guarantees/:id', requireAuth, async (req, res) => {
+    if (!req.user.perms || !req.user.perms.admin) return res.status(403).json({ error: 'Chỉ Admin được xóa Bảo lãnh phát hành.' });
+    const conn = await pool.getConnection();
+    try {
+        await conn.beginTransaction();
+        const [[guarantee]] = await conn.query('SELECT * FROM ctr_guarantees WHERE id = ? FOR UPDATE', [req.params.id]);
+        if (!guarantee) { await conn.rollback(); return res.status(404).json({ error: 'Không tìm thấy bảo lãnh.' }); }
+        const allGuaranteeIds = await collectGuaranteeDescendants(conn, [guarantee.id]);
+        const files = await deleteGuaranteeSet(conn, allGuaranteeIds);
+
+        await conn.commit();
+        unlinkContractFiles(files);
+        await writeAuditLog({ module: 'CONTRACT', actionType: 'DELETE_GUARANTEE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: guarantee.code, description: `Xóa vĩnh viễn bảo lãnh [${guarantee.code}]: ${guarantee.name}${allGuaranteeIds.length > 1 ? ` (kèm ${allGuaranteeIds.length - 1} bảo lãnh con)` : ''}.` });
+        res.json({ success: true });
+    } catch (err) {
+        await conn.rollback();
+        console.error('❌ Lỗi xóa bảo lãnh:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    } finally {
+        conn.release();
+    }
+});
+
 // (L5 - whole-app) Trước đây không có middleware xử lý lỗi tập trung — bất
 // kỳ lỗi nào ném RA NGOÀI khối try/catch của từng route (VD: JSON body gửi
 // lên bị lỗi cú pháp, express.json() tự ném lỗi TRƯỚC khi vào route handler)

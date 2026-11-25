@@ -2604,7 +2604,24 @@
     <!-- Sub-tab: Hợp đồng -->
     <div id="contractSubContracts" class="hidden space-y-3">
       <button data-evt-click="openContractModal" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Thêm hợp đồng</button>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded border text-xs">
+        <div>
+          <label class="block font-semibold text-gray-600 mb-1">Trạng thái</label>
+          <select id="contractFilterStatus" data-evt-change="resetPageAndRerender" data-args='["contractList","renderContractList"]' class="w-full border p-1.5 rounded bg-white">
+            <option value="">-- Tất cả --</option>
+            <option value="PENDING">Chờ duyệt</option>
+            <option value="APPROVED">Đã duyệt</option>
+            <option value="REJECTED">Từ chối</option>
+            <option value="TERMINATED">Đã thanh lý</option>
+          </select>
+        </div>
+        <div>
+          <label class="block font-semibold text-gray-600 mb-1">Tìm kiếm (mã, tên, đối tác)</label>
+          <input id="contractFilterSearch" type="text" data-evt-input="resetPageAndRerender" data-args='["contractList","renderContractList"]' placeholder="VD: HD-..., tên hợp đồng, đối tác..." class="w-full border p-1.5 rounded">
+        </div>
+      </div>
       <div id="contractListContainer" class="space-y-3"></div>
+      <div id="contractListPaginationBox" class="flex flex-col sm:flex-row justify-between items-center gap-3 bg-gray-50 p-3 rounded border text-xs text-gray-700"></div>
     </div>
 
     <!-- Sub-tab: Bảo lãnh phát hành (danh sách phẳng, có tham chiếu ngược) -->
@@ -2612,7 +2629,7 @@
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded border text-xs">
         <div>
           <label class="block font-semibold text-gray-600 mb-1">Trạng thái</label>
-          <select id="guaranteeFilterStatus" data-evt-change="renderGuaranteeFlatList" data-args='[]' class="w-full border p-1.5 rounded bg-white">
+          <select id="guaranteeFilterStatus" data-evt-change="resetPageAndRerender" data-args='["guaranteeList","renderGuaranteeFlatList"]' class="w-full border p-1.5 rounded bg-white">
             <option value="">-- Tất cả --</option>
             <option value="PENDING">Chờ duyệt</option>
             <option value="APPROVED">Đã duyệt</option>
@@ -2622,7 +2639,7 @@
         </div>
         <div>
           <label class="block font-semibold text-gray-600 mb-1">Tìm kiếm (mã, tên, đơn vị phát hành)</label>
-          <input id="guaranteeFilterSearch" type="text" data-evt-input="renderGuaranteeFlatList" data-args='[]' placeholder="VD: BLPH-..., Vietcombank..." class="w-full border p-1.5 rounded">
+          <input id="guaranteeFilterSearch" type="text" data-evt-input="resetPageAndRerender" data-args='["guaranteeList","renderGuaranteeFlatList"]' placeholder="VD: BLPH-..., Vietcombank..." class="w-full border p-1.5 rounded">
         </div>
       </div>
       <div class="overflow-x-auto">
@@ -2634,6 +2651,7 @@
           <tbody id="guaranteeFlatTableBody"></tbody>
         </table>
       </div>
+      <div id="guaranteeListPaginationBox" class="flex flex-col sm:flex-row justify-between items-center gap-3 bg-gray-50 p-3 rounded border text-xs text-gray-700"></div>
     </div>
   </div>
 

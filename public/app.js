@@ -12466,15 +12466,31 @@ function isPerpetualSoftware(softwareId) {
       if (!container) return;
       if (ContractDB.contracts.length === 0) {
         container.innerHTML = `<div class="text-center text-gray-500 text-sm p-6 border rounded bg-gray-50">Chưa có hợp đồng nào — bấm "+ Thêm hợp đồng" để bắt đầu.</div>`;
+        renderPaginationBar('contractListPaginationBox', 'contractList', 0, 'renderContractList', { itemLabel: 'hợp đồng', pageSizeOptions: [10, 20, 50, 100] });
         return;
       }
-      container.innerHTML = ContractDB.contracts.map(c => {
+      const statusFilter = document.getElementById('contractFilterStatus').value;
+      const search = document.getElementById('contractFilterSearch').value.trim().toLowerCase();
+      let filtered = ContractDB.contracts;
+      if (statusFilter) filtered = filtered.filter(c => c.status === statusFilter);
+      if (search) filtered = filtered.filter(c => `${c.code} ${c.name} ${c.counterparty || ''}`.toLowerCase().includes(search));
+
+      if (filtered.length === 0) {
+        container.innerHTML = `<div class="text-center text-gray-500 text-sm p-6 border rounded bg-gray-50">Không tìm thấy hợp đồng nào khớp bộ lọc.</div>`;
+        renderPaginationBar('contractListPaginationBox', 'contractList', 0, 'renderContractList', { itemLabel: 'hợp đồng', pageSizeOptions: [10, 20, 50, 100] });
+        return;
+      }
+      const pageItems = paginateSlice('contractList', filtered, 10);
+      container.innerHTML = pageItems.map(c => {
         const expanded = contractExpandedIds.has(c.id);
         const pendingActions = c.status === 'PENDING' && canApproveContractItem(c)
           ? `<button ${dc('approveContract', c.id)} class="text-xs font-bold text-white bg-green-600 hover:bg-green-700 px-2.5 py-1 rounded">✓ Duyệt</button><button ${dc('rejectContract', c.id)} class="text-xs font-bold text-white bg-red-600 hover:bg-red-700 px-2.5 py-1 rounded">✕ Từ chối</button>`
           : '';
         const terminateAction = c.status === 'APPROVED' && canTerminateContract()
           ? `<button ${dc('terminateContract', c.id)} class="text-xs font-bold text-slate-600 border border-slate-300 hover:bg-slate-100 px-2.5 py-1 rounded">🔒 Thanh lý</button>`
+          : '';
+        const deleteAction = currentUser.perms.admin
+          ? `<button ${dc('deleteContract', c.id)} class="text-xs font-bold text-red-700 border border-red-300 hover:bg-red-50 px-2.5 py-1 rounded">🗑 Xóa</button>`
           : '';
         return `
           <div class="bg-white border rounded-xl p-4 shadow-sm">
@@ -12489,12 +12505,14 @@ function isPerpetualSoftware(softwareId) {
               <div class="flex gap-1.5 items-center flex-wrap justify-end">
                 ${pendingActions}
                 ${terminateAction}
+                ${deleteAction}
                 <button ${dc('toggleContractExpand', c.id)} class="text-xs font-semibold text-gray-600 hover:underline px-2 py-1">${expanded ? '▾ Thu gọn' : '▸ Chi tiết'}</button>
               </div>
             </div>
             ${expanded ? renderContractDetail(c) : ''}
           </div>`;
       }).join('');
+      renderPaginationBar('contractListPaginationBox', 'contractList', filtered.length, 'renderContractList', { itemLabel: 'hợp đồng', pageSizeOptions: [10, 20, 50, 100] });
     }
     function toggleContractExpand(id) {
       id = Number(id);
@@ -12524,6 +12542,7 @@ function isPerpetualSoftware(softwareId) {
                   </div>
                   <div class="flex gap-1">
                     ${a.status === 'PENDING' && canApproveContractItem(a) ? `<button ${dc('approveAddendum', a.id)} class="text-[11px] font-bold text-white bg-green-600 hover:bg-green-700 px-2 py-0.5 rounded">✓</button><button ${dc('rejectAddendum', a.id)} class="text-[11px] font-bold text-white bg-red-600 hover:bg-red-700 px-2 py-0.5 rounded">✕</button>` : ''}
+                    ${currentUser.perms.admin ? `<button ${dc('deleteAddendum', a.id)} class="text-[11px] font-semibold text-red-700 border border-red-300 hover:bg-red-50 px-2 py-0.5 rounded">🗑 Xóa</button>` : ''}
                   </div>
                 </div>
                 ${renderAttachmentList('ADDENDUM', a.id)}
@@ -12563,6 +12582,7 @@ function isPerpetualSoftware(softwareId) {
               ${canDecide ? `<button ${dc('approveGuarantee', g.id)} class="text-[11px] font-bold text-white bg-green-600 hover:bg-green-700 px-2 py-0.5 rounded">✓ Duyệt</button><button ${dc('rejectGuarantee', g.id)} class="text-[11px] font-bold text-white bg-red-600 hover:bg-red-700 px-2 py-0.5 rounded">✕ Từ chối</button>` : ''}
               ${canWriteContract() ? `<button ${dc('openGuaranteeModal', 'child', g.id)} class="text-[11px] font-semibold text-blue-600 hover:underline">+ Con</button>` : ''}
               ${canWriteContract() && g.status === 'APPROVED' && !replacedBy ? `<button ${dc('openGuaranteeModal', 'replace', g.id)} class="text-[11px] font-semibold text-indigo-600 hover:underline">⇄ Thay thế</button>` : ''}
+              ${currentUser.perms.admin ? `<button ${dc('deleteGuarantee', g.id)} class="text-[11px] font-semibold text-red-700 border border-red-300 hover:bg-red-50 px-2 py-0.5 rounded">🗑 Xóa</button>` : ''}
             </div>
           </div>
           ${renderAttachmentList('GUARANTEE', g.id)}
@@ -12585,8 +12605,13 @@ function isPerpetualSoftware(softwareId) {
       let rows = ContractDB.guarantees;
       if (statusFilter) rows = rows.filter(g => g.status === statusFilter);
       if (search) rows = rows.filter(g => `${g.code} ${g.name} ${g.issuer || ''}`.toLowerCase().includes(search));
-      document.getElementById('guaranteeFlatTableBody').innerHTML = rows.length ? rows.map(g => {
+      const pageRows = paginateSlice('guaranteeList', rows, 10);
+      document.getElementById('guaranteeFlatTableBody').innerHTML = pageRows.length ? pageRows.map(g => {
         const canDecide = g.status === 'PENDING' && canApproveContractItem(g);
+        const deleteAction = currentUser.perms.admin ? `<button ${dc('deleteGuarantee', g.id)} class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-700 text-[11px] font-semibold">🗑 Xóa</button>` : '';
+        const actions = canDecide
+          ? `<button ${dc('approveGuarantee', g.id)} class="px-1.5 py-0.5 rounded hover:bg-green-100 text-green-700 text-[11px] font-semibold">Duyệt</button><button ${dc('rejectGuarantee', g.id)} class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600 text-[11px] font-semibold">Từ chối</button>${deleteAction}`
+          : (deleteAction || '—');
         return `<tr class="hover:bg-gray-50">
           <td class="border p-2 font-mono text-[11px]">${escapeHtml(g.code)}</td>
           <td class="border p-2">${escapeHtml(g.name)}</td>
@@ -12595,9 +12620,10 @@ function isPerpetualSoftware(softwareId) {
           <td class="border p-2 text-right">${g.value ? formatMoney(g.value) : '—'}</td>
           <td class="border p-2 text-center text-[11px]">${g.hasTerm ? escapeHtml(fmtDateVN(g.expiryDate)) : escapeHtml(fmtDateVN(g.effectiveDate)) + ' → ∞'}</td>
           <td class="border p-2 text-center">${contractStatusBadge(g.status)}</td>
-          <td class="border p-2 text-center whitespace-nowrap">${canDecide ? `<button ${dc('approveGuarantee', g.id)} class="px-1.5 py-0.5 rounded hover:bg-green-100 text-green-700 text-[11px] font-semibold">Duyệt</button><button ${dc('rejectGuarantee', g.id)} class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600 text-[11px] font-semibold">Từ chối</button>` : '—'}</td>
+          <td class="border p-2 text-center whitespace-nowrap">${actions}</td>
         </tr>`;
       }).join('') : '<tr><td colspan="8" class="text-center p-4 text-gray-500">Chưa có bảo lãnh nào.</td></tr>';
+      renderPaginationBar('guaranteeListPaginationBox', 'guaranteeList', rows.length, 'renderGuaranteeFlatList', { itemLabel: 'bảo lãnh', pageSizeOptions: [10, 20, 50, 100] });
     }
 
     // --- Công ty/Phòng theo phạm vi quyền người tạo (mirror uploadAll/uploadDepts) ---
@@ -12833,5 +12859,49 @@ function isPerpetualSoftware(softwareId) {
         showToast('Đã thanh lý hợp đồng.', 'success');
         await reloadContractData();
         renderContractList();
+      } catch (err) { showToast(err.message, 'danger'); }
+    }
+
+    // --- Xóa vĩnh viễn (CHỈ Admin) — hỗ trợ dọn dữ liệu, xóa cuốn chiếu toàn
+    // bộ Phụ lục/Bảo lãnh/đính kèm liên quan, không khôi phục lại được. ---
+    async function deleteContract(id) {
+      const c = ContractDB.contracts.find(x => x.id === id);
+      if (!c) return;
+      const ok = await showConfirm({ title: 'Xóa vĩnh viễn Hợp đồng', message: `Xóa vĩnh viễn hợp đồng [${c.code}] "${c.name}"? Toàn bộ Phụ lục, Bảo lãnh và file đính kèm liên quan sẽ bị xóa theo, KHÔNG thể khôi phục.`, danger: true, confirmText: 'Xóa vĩnh viễn' });
+      if (!ok) return;
+      try {
+        await apiFetch(`/api/contracts/contracts/${id}`, { method: 'DELETE' });
+        showToast('Đã xóa vĩnh viễn hợp đồng.', 'success');
+        contractExpandedIds.delete(id);
+        await reloadContractData();
+        renderContractList();
+        if (!document.getElementById('contractSubGuarantees').classList.contains('hidden')) renderGuaranteeFlatList();
+      } catch (err) { showToast(err.message, 'danger'); }
+    }
+    async function deleteAddendum(id) {
+      const a = ContractDB.addendums.find(x => x.id === id);
+      if (!a) return;
+      const ok = await showConfirm({ title: 'Xóa vĩnh viễn Phụ lục', message: `Xóa vĩnh viễn phụ lục [${a.code}] "${a.name}"? Toàn bộ Bảo lãnh và file đính kèm gắn theo sẽ bị xóa theo, KHÔNG thể khôi phục.`, danger: true, confirmText: 'Xóa vĩnh viễn' });
+      if (!ok) return;
+      try {
+        await apiFetch(`/api/contracts/addendums/${id}`, { method: 'DELETE' });
+        showToast('Đã xóa vĩnh viễn phụ lục.', 'success');
+        await reloadContractData();
+        renderContractList();
+        if (!document.getElementById('contractSubGuarantees').classList.contains('hidden')) renderGuaranteeFlatList();
+      } catch (err) { showToast(err.message, 'danger'); }
+    }
+    async function deleteGuarantee(id) {
+      const g = ContractDB.guarantees.find(x => x.id === id);
+      if (!g) return;
+      const hasChildren = ContractDB.guarantees.some(x => x.parentGuaranteeId === id);
+      const ok = await showConfirm({ title: 'Xóa vĩnh viễn Bảo lãnh', message: `Xóa vĩnh viễn bảo lãnh [${g.code}] "${g.name}"?${hasChildren ? ' Các bảo lãnh con gắn theo cũng sẽ bị xóa theo.' : ''} KHÔNG thể khôi phục.`, danger: true, confirmText: 'Xóa vĩnh viễn' });
+      if (!ok) return;
+      try {
+        await apiFetch(`/api/contracts/guarantees/${id}`, { method: 'DELETE' });
+        showToast('Đã xóa vĩnh viễn bảo lãnh.', 'success');
+        await reloadContractData();
+        renderContractList();
+        if (!document.getElementById('contractSubGuarantees').classList.contains('hidden')) renderGuaranteeFlatList();
       } catch (err) { showToast(err.message, 'danger'); }
     }
