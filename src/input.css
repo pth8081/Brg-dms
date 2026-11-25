@@ -230,3 +230,12 @@ input[type="file"]::file-selector-button {
 input[type="file"]::file-selector-button:hover {
   background-color: var(--color-brand-700);
 }
+
+/* "Đơn vị liên quan" — mỗi dòng là 1 cặp Công ty + Phòng (module Hợp đồng &
+   Bảo lãnh), dùng chung cho cả 3 form Hợp đồng/Phụ lục/Bảo lãnh. */
+.related-dept-box { border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; background: #f8fafc; }
+.related-dept-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+.related-dept-row:last-child { margin-bottom: 0; }
+.related-dept-remove-btn { color: #dc2626; font-weight: 700; font-size: 13px; cursor: pointer; padding: 4px 8px; border-radius: 6px; }
+.related-dept-remove-btn:hover { background: #fef2f2; }
+.related-dept-add-btn { font-size: 12px; font-weight: 700; color: #1d4ed8; cursor: pointer; margin-top: 4px; display: inline-block; }

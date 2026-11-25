@@ -3001,7 +3001,9 @@
         !p.admin && p.contractApprover ? '<span class="bg-indigo-100 text-indigo-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">✅ Duyệt Hợp đồng</span>' : '',
         p.contractSelfApprove ? '<span class="bg-rose-100 text-rose-800 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔓 Tự duyệt Hợp đồng</span>' : '',
         !p.admin && !p.contractManager && p.contractViewer ? '<span class="bg-orange-50 text-orange-600 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔎 Xem Hợp đồng</span>' : '',
-        p.contractPrinter ? '<span class="bg-orange-50 text-orange-600 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🖨️ In Hợp đồng</span>' : ''
+        p.contractPrinter ? '<span class="bg-orange-50 text-orange-600 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🖨️ In Hợp đồng</span>' : '',
+        !p.admin && !p.contractManager && !p.contractViewer && p.contractDeptViewer ? '<span class="bg-teal-50 text-teal-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🏢 Xem theo Phòng</span>' : '',
+        !p.admin && !p.contractManager && !p.contractViewer && p.contractRelatedUnitViewer ? '<span class="bg-teal-50 text-teal-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-1">🔗 Xem Đơn vị liên quan</span>' : ''
       ].filter(Boolean).join('');
       return badges || '<span class="text-gray-400 text-[10px] italic">Không có quyền nào</span>';
     }
@@ -3077,6 +3079,8 @@
       document.getElementById('gContractViewer').checked = !!p.contractViewer;
       document.getElementById('gContractDownloader').checked = !!p.contractDownloader;
       document.getElementById('gContractPrinter').checked = !!p.contractPrinter;
+      document.getElementById('gContractDeptViewer').checked = !!p.contractDeptViewer;
+      document.getElementById('gContractRelatedUnitViewer').checked = !!p.contractRelatedUnitViewer;
       document.getElementById('gContractCompanyAll').checked = !!p.contractCompanyAll;
       document.querySelectorAll('.gContractCompany').forEach(cb => cb.checked = p.contractCompanies ? p.contractCompanies.includes(Number(cb.value)) : false);
       toggleScopeGroup('gContractCompanyAll', 'gContractCompany');
@@ -3118,6 +3122,8 @@
         contractViewer: document.getElementById('gContractViewer').checked,
         contractDownloader: document.getElementById('gContractDownloader').checked,
         contractPrinter: document.getElementById('gContractPrinter').checked,
+        contractDeptViewer: document.getElementById('gContractDeptViewer').checked,
+        contractRelatedUnitViewer: document.getElementById('gContractRelatedUnitViewer').checked,
         contractCompanyAll: document.getElementById('gContractCompanyAll').checked,
         contractCompanies: Array.from(document.querySelectorAll('.gContractCompany:checked')).map(c => Number(c.value)),
         contractDeptAll: document.getElementById('gContractDeptAll').checked,
@@ -3327,6 +3333,8 @@
         contractViewer: document.getElementById('pContractViewer').checked,
         contractDownloader: document.getElementById('pContractDownloader').checked,
         contractPrinter: document.getElementById('pContractPrinter').checked,
+        contractDeptViewer: document.getElementById('pContractDeptViewer').checked,
+        contractRelatedUnitViewer: document.getElementById('pContractRelatedUnitViewer').checked,
         contractCompanyAll: document.getElementById('pContractCompanyAll').checked,
         contractCompanies: Array.from(document.querySelectorAll('.pContractCompany:checked')).map(c => Number(c.value)),
         contractDeptAll: document.getElementById('pContractDeptAll').checked,
@@ -3462,6 +3470,8 @@
       document.getElementById('pContractViewer').checked = !!p.contractViewer;
       document.getElementById('pContractDownloader').checked = !!p.contractDownloader;
       document.getElementById('pContractPrinter').checked = !!p.contractPrinter;
+      document.getElementById('pContractDeptViewer').checked = !!p.contractDeptViewer;
+      document.getElementById('pContractRelatedUnitViewer').checked = !!p.contractRelatedUnitViewer;
       document.getElementById('pContractCompanyAll').checked = !!p.contractCompanyAll;
       document.querySelectorAll('.pContractCompany').forEach(cb => cb.checked = p.contractCompanies ? p.contractCompanies.includes(Number(cb.value)) : false);
       toggleScopeGroup('pContractCompanyAll', 'pContractCompany');
@@ -12364,7 +12374,7 @@ function isPerpetualSoftware(softwareId) {
     // 1 lần (ContractDB.loaded) khi vào tab, reload lại sau mỗi lần ghi.
     // ============================================================
     function canViewContractModule(p) {
-      return !!(p.admin || p.contractManager || p.contractCreator || p.contractApprover || p.contractSelfApprove || p.contractViewer || p.contractDownloader || p.contractPrinter);
+      return !!(p.admin || p.contractManager || p.contractCreator || p.contractApprover || p.contractSelfApprove || p.contractViewer || p.contractDownloader || p.contractPrinter || p.contractDeptViewer || p.contractRelatedUnitViewer);
     }
     const ContractDB = { companies: [], depts: [], contracts: [], addendums: [], guarantees: [], attachments: [], createScope: { companyIds: null, deptNames: null }, loaded: false };
     const contractExpandedIds = new Set();
@@ -12502,6 +12512,7 @@ function isPerpetualSoftware(softwareId) {
                 <div class="font-mono text-[11px] text-gray-400">${escapeHtml(c.code)}</div>
                 <div class="font-bold text-gray-800">${escapeHtml(c.name)} ${contractStatusBadge(c.status)}</div>
                 <div class="text-xs text-gray-500 mt-1">${escapeHtml(companyNameById(c.companyId))} · ${escapeHtml(c.deptName)}${c.counterparty ? ' · Đối tác: ' + escapeHtml(c.counterparty) : ''}${c.contractDate ? ' · Ký ngày ' + escapeHtml(fmtDateVN(c.contractDate)) : ''}${c.expiryDate ? ' · Hết hạn ' + escapeHtml(fmtDateVN(c.expiryDate)) : ''}${c.value ? ' · ' + formatMoney(c.value) : ''}</div>
+                ${c.relatedDepts && c.relatedDepts.length ? `<div class="text-[11px] text-indigo-600 mt-0.5">🔗 Đơn vị liên quan: ${escapeHtml(relatedDeptsDisplayLabel(c.relatedDepts))}</div>` : ''}
                 ${c.status === 'REJECTED' && c.rejectReason ? `<div class="text-xs text-red-600 mt-1">Lý do từ chối: ${escapeHtml(c.rejectReason)}</div>` : ''}
                 ${c.status === 'TERMINATED' ? `<div class="text-xs text-slate-600 mt-1">Đã thanh lý bởi ${escapeHtml(c.terminatedBy || '')} lúc ${escapeHtml(c.terminatedAt || '')}${c.terminateNote ? ' — ' + escapeHtml(c.terminateNote) : ''}</div>` : ''}
               </div>
@@ -12541,6 +12552,7 @@ function isPerpetualSoftware(softwareId) {
                     <div class="font-mono text-[10px] text-gray-400">${escapeHtml(a.code)}</div>
                     <div class="text-sm font-semibold">${escapeHtml(a.name)} ${contractStatusBadge(a.status)}</div>
                     ${a.addendumDate || a.expiryDate ? `<div class="text-[11px] text-gray-500">${a.addendumDate ? 'Ký ngày ' + escapeHtml(fmtDateVN(a.addendumDate)) : ''}${a.addendumDate && a.expiryDate ? ' · ' : ''}${a.expiryDate ? 'Hết hạn ' + escapeHtml(fmtDateVN(a.expiryDate)) : ''}</div>` : ''}
+                    ${a.relatedDepts && a.relatedDepts.length ? `<div class="text-[11px] text-indigo-600">🔗 Đơn vị liên quan: ${escapeHtml(relatedDeptsDisplayLabel(a.relatedDepts))}</div>` : ''}
                     ${a.status === 'REJECTED' && a.rejectReason ? `<div class="text-[11px] text-red-600">Lý do: ${escapeHtml(a.rejectReason)}</div>` : ''}
                   </div>
                   <div class="flex gap-1">
@@ -12580,6 +12592,7 @@ function isPerpetualSoftware(softwareId) {
               ${g.replacesGuaranteeId ? `<div class="text-[11px] text-indigo-600">⇄ Thay thế bảo lãnh #${g.replacesGuaranteeId}</div>` : ''}
               ${replacedBy ? `<div class="text-[11px] text-gray-500">↳ Đã có bảo lãnh thay thế: ${escapeHtml(replacedBy.code)}</div>` : ''}
               ${g.status === 'REJECTED' && g.rejectReason ? `<div class="text-[11px] text-red-600">Lý do: ${escapeHtml(g.rejectReason)}</div>` : ''}
+              ${g.relatedDepts && g.relatedDepts.length ? `<div class="text-[11px] text-indigo-600">🔗 Đơn vị liên quan: ${escapeHtml(relatedDeptsDisplayLabel(g.relatedDepts))}</div>` : ''}
             </div>
             <div class="flex gap-1 flex-wrap justify-end">
               ${canDecide ? `<button ${dc('approveGuarantee', g.id)} class="text-[11px] font-bold text-white bg-green-600 hover:bg-green-700 px-2 py-0.5 rounded">✓ Duyệt</button><button ${dc('rejectGuarantee', g.id)} class="text-[11px] font-bold text-white bg-red-600 hover:bg-red-700 px-2 py-0.5 rounded">✕ Từ chối</button>` : ''}
@@ -12670,6 +12683,7 @@ function isPerpetualSoftware(softwareId) {
       document.getElementById('contractFilesMain').value = '';
       document.getElementById('contractFilesProposal').value = '';
       renderContractCompanyDeptFields();
+      resetRelatedDeptsState('contract');
       document.getElementById('contractModal').classList.remove('hidden');
     }
     function closeContractModal() { document.getElementById('contractModal').classList.add('hidden'); }
@@ -12689,7 +12703,8 @@ function isPerpetualSoftware(softwareId) {
             contractDate: document.getElementById('contractDate').value || null,
             expiryDate: document.getElementById('contractExpiryDate').value || null,
             value: parseThousandsInput(document.getElementById('contractValue').value) || null,
-            note: document.getElementById('contractNote').value.trim()
+            note: document.getElementById('contractNote').value.trim(),
+            relatedDepts: getRelatedDeptsForSave('contract')
           })
         });
         await uploadContractAttachmentFiles('CONTRACT', result.id, document.getElementById('contractFilesMain'), 'MAIN');
@@ -12713,6 +12728,7 @@ function isPerpetualSoftware(softwareId) {
       document.getElementById('addendumNote').value = '';
       document.getElementById('addendumFilesMain').value = '';
       document.getElementById('addendumFilesProposal').value = '';
+      resetRelatedDeptsState('addendum');
       document.getElementById('addendumModal').classList.remove('hidden');
     }
     function closeAddendumModal() { document.getElementById('addendumModal').classList.add('hidden'); }
@@ -12723,7 +12739,7 @@ function isPerpetualSoftware(softwareId) {
       try {
         const result = await apiFetch('/api/contracts/addendums', {
           method: 'POST',
-          body: JSON.stringify({ name, contractId, addendumDate: document.getElementById('addendumDate').value || null, expiryDate: document.getElementById('addendumExpiryDate').value || null, note: document.getElementById('addendumNote').value.trim() })
+          body: JSON.stringify({ name, contractId, addendumDate: document.getElementById('addendumDate').value || null, expiryDate: document.getElementById('addendumExpiryDate').value || null, note: document.getElementById('addendumNote').value.trim(), relatedDepts: getRelatedDeptsForSave('addendum') })
         });
         await uploadContractAttachmentFiles('ADDENDUM', result.id, document.getElementById('addendumFilesMain'), 'MAIN');
         await uploadContractAttachmentFiles('ADDENDUM', result.id, document.getElementById('addendumFilesProposal'), 'PROPOSAL');
@@ -12755,6 +12771,7 @@ function isPerpetualSoftware(softwareId) {
       document.getElementById('guaranteeValue').value = '';
       document.getElementById('guaranteeNote').value = '';
       document.getElementById('guaranteeFilesMain').value = '';
+      resetRelatedDeptsState('guarantee');
       setGuaranteeHasTerm(true);
       document.getElementById('guaranteeEffectiveDate').value = '';
       document.getElementById('guaranteeExpiryDate').value = '';
@@ -12814,7 +12831,8 @@ function isPerpetualSoftware(softwareId) {
             issuer: document.getElementById('guaranteeIssuer').value.trim(),
             value: parseThousandsInput(document.getElementById('guaranteeValue').value) || null,
             note: document.getElementById('guaranteeNote').value.trim(),
-            hasTerm, effectiveDate, expiryDate: hasTerm ? expiryDate : null
+            hasTerm, effectiveDate, expiryDate: hasTerm ? expiryDate : null,
+            relatedDepts: getRelatedDeptsForSave('guarantee')
           })
         });
         await uploadContractAttachmentFiles('GUARANTEE', result.id, document.getElementById('guaranteeFilesMain'), 'MAIN');
@@ -13064,4 +13082,65 @@ function isPerpetualSoftware(softwareId) {
     function exportCtrRepByUnitXlsx() {
       if (!ctrRepByUnitExport.rows.length) return showToast('Không có dữ liệu để xuất.', 'warning');
       downloadXlsxFile(ctrRepByUnitExport.filename, ctrRepByUnitExport.header, ctrRepByUnitExport.rows);
+    }
+
+    // --- "Đơn vị liên quan" (Công ty + Phòng) — dùng chung cho 3 form Hợp
+    // đồng/Phụ lục/Bảo lãnh, mỗi form giữ 1 mảng {companyId, deptName} riêng
+    // theo prefix ('contract'/'addendum'/'guarantee'). Không có cơ chế sửa
+    // (chỉ tạo mới) nên luôn reset về rỗng khi mở modal. ---
+    const relatedDeptsState = { contract: [], addendum: [], guarantee: [] };
+    function resetRelatedDeptsState(prefix) {
+      relatedDeptsState[prefix] = [];
+      renderRelatedDeptsBox(prefix);
+    }
+    function renderRelatedDeptsBox(prefix) {
+      const box = document.getElementById(`${prefix}RelatedDeptsBox`);
+      if (!box) return;
+      const rows = relatedDeptsState[prefix];
+      if (rows.length === 0) {
+        box.innerHTML = '<p class="text-[11px] text-gray-400 italic">Chưa thêm đơn vị liên quan nào.</p>';
+        return;
+      }
+      box.innerHTML = rows.map((row, idx) => `
+        <div class="related-dept-row">
+          <select ${dchg('onRelatedDeptFieldChange', prefix, idx, 'companyId', LIVE_VALUE)} class="w-full border p-1.5 rounded text-xs bg-white">
+            <option value="">-- Chọn Công ty --</option>
+            ${ContractDB.companies.map(c => `<option value="${c.id}" ${String(c.id) === String(row.companyId) ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
+          </select>
+          <select ${dchg('onRelatedDeptFieldChange', prefix, idx, 'deptName', LIVE_VALUE)} class="w-full border p-1.5 rounded text-xs bg-white">
+            <option value="">-- Chọn Phòng --</option>
+            ${ContractDB.depts.map(d => `<option value="${escapeHtml(d.name)}" ${d.name === row.deptName ? 'selected' : ''}>${escapeHtml(d.name)}</option>`).join('')}
+          </select>
+          <span ${dc('removeRelatedDeptRow', prefix, idx)} class="related-dept-remove-btn">✕</span>
+        </div>
+      `).join('');
+    }
+    function addRelatedDeptRow(prefix) {
+      relatedDeptsState[prefix].push({ companyId: '', deptName: '' });
+      renderRelatedDeptsBox(prefix);
+    }
+    function removeRelatedDeptRow(prefix, idx) {
+      relatedDeptsState[prefix].splice(Number(idx), 1);
+      renderRelatedDeptsBox(prefix);
+    }
+    function onRelatedDeptFieldChange(prefix, idx, field, value) {
+      relatedDeptsState[prefix][Number(idx)][field] = value;
+    }
+    // Đọc lại state lúc lưu: bỏ dòng chưa chọn đủ Công ty+Phòng, gộp trùng
+    // (cùng 1 cặp Công ty+Phòng chỉ giữ 1 lần).
+    function getRelatedDeptsForSave(prefix) {
+      const seen = new Set();
+      const out = [];
+      for (const row of relatedDeptsState[prefix]) {
+        if (!row.companyId || !row.deptName) continue;
+        const key = `${row.companyId}|||${row.deptName}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ companyId: Number(row.companyId), deptName: row.deptName });
+      }
+      return out;
+    }
+    function relatedDeptsDisplayLabel(relatedDepts) {
+      if (!relatedDepts || relatedDepts.length === 0) return '';
+      return relatedDepts.map(rd => `${rd.deptName} (${companyNameById(rd.companyId)})`).join(', ');
     }

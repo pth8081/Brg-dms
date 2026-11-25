@@ -1102,6 +1102,12 @@ CALL add_column_if_not_exists('ctr_contracts', 'terminated_by', 'VARCHAR(100) NU
 CALL add_column_if_not_exists('ctr_contracts', 'terminated_at', 'VARCHAR(100) NULL DEFAULT NULL');
 CALL add_column_if_not_exists('ctr_contracts', 'terminate_note', 'VARCHAR(500) NULL DEFAULT NULL');
 
+-- Đơn vị liên quan — mảng JSON các cặp {companyId, deptName} (KHÔNG chỉ tên
+-- Phòng đơn thuần, vì bảng depts dùng chung cho mọi Công ty — phải ghép rõ
+-- Công ty để tránh nhầm "Phòng Kế Toán" công ty này với công ty khác khi so
+-- khớp quyền "Đơn vị liên quan được xem", xem getContractRelatedDeptMatch()).
+CALL add_column_if_not_exists('ctr_contracts', 'related_depts', 'VARCHAR(2000) NULL DEFAULT NULL');
+
 -- Phụ lục hợp đồng — bắt buộc gắn đúng 1 Hợp đồng đã tồn tại.
 CREATE TABLE IF NOT EXISTS ctr_addendums (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -1122,6 +1128,7 @@ CALL create_index_if_not_exists('ctr_addendums', 'idx_ctr_addendums_contract', '
 -- Ngày hết hạn riêng của Phụ lục (có thể khác ngày hết hạn của Hợp đồng gốc
 -- — VD phụ lục chỉ gia hạn thêm 1 phần hoặc 1 hạng mục cụ thể).
 CALL add_column_if_not_exists('ctr_addendums', 'expiry_date', 'DATE NULL DEFAULT NULL');
+CALL add_column_if_not_exists('ctr_addendums', 'related_depts', 'VARCHAR(2000) NULL DEFAULT NULL');
 
 -- Bảo lãnh phát hành — gắn đúng 1 trong 2 (contract_id HOẶC addendum_id, KHÔNG
 -- bao giờ cả hai). parent_guarantee_id (bảo lãnh CON) và replaces_guarantee_id
@@ -1156,6 +1163,7 @@ CALL create_index_if_not_exists('ctr_guarantees', 'idx_ctr_guarantees_addendum',
 CALL create_index_if_not_exists('ctr_guarantees', 'idx_ctr_guarantees_parent', 'parent_guarantee_id');
 CALL create_index_if_not_exists('ctr_guarantees', 'idx_ctr_guarantees_replaces', 'replaces_guarantee_id');
 CALL create_index_if_not_exists('ctr_guarantees', 'idx_ctr_guarantees_status', 'status');
+CALL add_column_if_not_exists('ctr_guarantees', 'related_depts', 'VARCHAR(2000) NULL DEFAULT NULL');
 
 -- Đính kèm multi-upload dùng chung cho cả 3 loại văn bản — record_type phân
 -- biệt loại, attachment_group phân biệt "Đính kèm" (MAIN) và "Tờ trình đính

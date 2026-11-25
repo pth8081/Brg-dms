@@ -9616,10 +9616,49 @@ app.get('/api/budget2/reports', requireAuth, requireBudgetReportViewOrAdmin, asy
 
 function requireContractViewOrAdmin(req, res, next) {
     const p = req.user && req.user.perms;
-    if (!p || !(p.admin || p.contractManager || p.contractCreator || p.contractApprover || p.contractSelfApprove || p.contractViewer || p.contractDownloader || p.contractPrinter)) {
+    if (!p || !(p.admin || p.contractManager || p.contractCreator || p.contractApprover || p.contractSelfApprove || p.contractViewer || p.contractDownloader || p.contractPrinter || p.contractDeptViewer || p.contractRelatedUnitViewer)) {
         return res.status(403).json({ error: 'Yêu cầu quyền truy cập module Hợp đồng & Bảo lãnh.' });
     }
     next();
+}
+// "Xem toàn bộ" (không giới hạn theo Phòng/Đơn vị liên quan) — khác với 2
+// quyền hẹp contractDeptViewer/contractRelatedUnitViewer bên dưới, vốn CHỈ
+// thấy đúng bản ghi khớp Phòng sở hữu hoặc nằm trong "Đơn vị liên quan".
+function hasBroadContractView(perms) {
+    return !!(perms.admin || perms.contractManager || perms.contractCreator || perms.contractApprover || perms.contractSelfApprove || perms.contractViewer || perms.contractDownloader || perms.contractPrinter);
+}
+function parseRelatedDepts(json) {
+    try {
+        const arr = JSON.parse(json || '[]');
+        return Array.isArray(arr) ? arr.filter(x => x && x.companyId && x.deptName) : [];
+    } catch (e) { return []; }
+}
+// LƯU Ý: tài khoản người dùng (bảng users) chỉ gắn với 1 Phòng (cột dept,
+// tên thường), KHÔNG gắn với Công ty cụ thể nào — nên không có dữ liệu phía
+// người xem để so khớp đúng cặp {companyId, deptName}. Phần companyId lưu
+// trong "Đơn vị liên quan" vì vậy CHỈ mang tính hiển thị/phân biệt lúc người
+// tạo chọn (tránh chọn nhầm giữa các Phòng trùng tên), còn việc XÉT QUYỀN XEM
+// vẫn chỉ so khớp theo ĐÚNG TÊN Phòng của người xem, bỏ qua Công ty.
+function relatedDeptsIncludeUser(relatedDepts, userDeptName) {
+    return relatedDepts.some(rd => rd.deptName === userDeptName);
+}
+// Dọn dữ liệu "Đơn vị liên quan" gửi lên từ client: chỉ giữ cặp hợp lệ
+// (companyId số + deptName không rỗng), gộp trùng.
+function sanitizeRelatedDepts(raw) {
+    if (!Array.isArray(raw)) return [];
+    const seen = new Set();
+    const out = [];
+    for (const item of raw) {
+        if (!item) continue;
+        const companyId = Number(item.companyId);
+        const deptName = String(item.deptName || '').trim();
+        if (!companyId || !deptName) continue;
+        const key = `${companyId}|||${deptName}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ companyId, deptName });
+    }
+    return out;
 }
 function requireContractCreateOrAdmin(req, res, next) {
     const p = req.user && req.user.perms;
@@ -9687,19 +9726,128 @@ async function nextContractCode(table, docTypePrefix, companyCode, deptAbbr) {
     return `${prefix}${String(maxSeq + 1).padStart(6, '0')}`;
 }
 
-function mapContract(c) { return { id: c.id, code: c.code, name: c.name, companyId: c.company_id, deptName: c.dept_name, counterparty: c.counterparty, contractDate: fmtDate(c.contract_date), expiryDate: fmtDate(c.expiry_date), value: c.value, note: c.note, status: c.status, createdBy: c.created_by, createdAt: c.created_at, approvedBy: c.approved_by, approvedAt: c.approved_at, rejectReason: c.reject_reason, terminatedBy: c.terminated_by, terminatedAt: c.terminated_at, terminateNote: c.terminate_note }; }
-function mapAddendum(a) { return { id: a.id, code: a.code, contractId: a.contract_id, name: a.name, addendumDate: fmtDate(a.addendum_date), expiryDate: fmtDate(a.expiry_date), note: a.note, status: a.status, createdBy: a.created_by, createdAt: a.created_at, approvedBy: a.approved_by, approvedAt: a.approved_at, rejectReason: a.reject_reason }; }
-function mapGuarantee(g) { return { id: g.id, code: g.code, contractId: g.contract_id, addendumId: g.addendum_id, parentGuaranteeId: g.parent_guarantee_id, replacesGuaranteeId: g.replaces_guarantee_id, name: g.name, issuer: g.issuer, value: g.value, note: g.note, hasTerm: !!g.has_term, effectiveDate: fmtDate(g.effective_date), expiryDate: fmtDate(g.expiry_date), status: g.status, createdBy: g.created_by, createdAt: g.created_at, approvedBy: g.approved_by, approvedAt: g.approved_at, rejectReason: g.reject_reason }; }
+function mapContract(c) { return { id: c.id, code: c.code, name: c.name, companyId: c.company_id, deptName: c.dept_name, counterparty: c.counterparty, contractDate: fmtDate(c.contract_date), expiryDate: fmtDate(c.expiry_date), value: c.value, note: c.note, status: c.status, createdBy: c.created_by, createdAt: c.created_at, approvedBy: c.approved_by, approvedAt: c.approved_at, rejectReason: c.reject_reason, terminatedBy: c.terminated_by, terminatedAt: c.terminated_at, terminateNote: c.terminate_note, relatedDepts: parseRelatedDepts(c.related_depts) }; }
+function mapAddendum(a) { return { id: a.id, code: a.code, contractId: a.contract_id, name: a.name, addendumDate: fmtDate(a.addendum_date), expiryDate: fmtDate(a.expiry_date), note: a.note, status: a.status, createdBy: a.created_by, createdAt: a.created_at, approvedBy: a.approved_by, approvedAt: a.approved_at, rejectReason: a.reject_reason, relatedDepts: parseRelatedDepts(a.related_depts) }; }
+function mapGuarantee(g) { return { id: g.id, code: g.code, contractId: g.contract_id, addendumId: g.addendum_id, parentGuaranteeId: g.parent_guarantee_id, replacesGuaranteeId: g.replaces_guarantee_id, name: g.name, issuer: g.issuer, value: g.value, note: g.note, hasTerm: !!g.has_term, effectiveDate: fmtDate(g.effective_date), expiryDate: fmtDate(g.expiry_date), status: g.status, createdBy: g.created_by, createdAt: g.created_at, approvedBy: g.approved_by, approvedAt: g.approved_at, rejectReason: g.reject_reason, relatedDepts: parseRelatedDepts(g.related_depts) }; }
+// Xác định tên Phòng "sở hữu" 1 bảo lãnh — suy ra từ Hợp đồng (trực tiếp
+// hoặc qua Phụ lục cha), dùng cho quyền "Phòng ban được xem" (contractDept
+// Viewer) vì Bảo lãnh không có cột dept_name riêng, phải kế thừa từ cha.
+function resolveGuaranteeOwnerDeptName(guarantee, contractsById, addendumsById) {
+    if (guarantee.contract_id) {
+        const c = contractsById.get(guarantee.contract_id);
+        return c ? c.dept_name : null;
+    }
+    if (guarantee.addendum_id) {
+        const a = addendumsById.get(guarantee.addendum_id);
+        if (!a) return null;
+        const c = contractsById.get(a.contract_id);
+        return c ? c.dept_name : null;
+    }
+    return null;
+}
 function mapCtrAttachment(a) { return { id: a.id, recordType: a.record_type, recordId: a.record_id, attachmentGroup: a.attachment_group, fileName: a.file_name, uploadedBy: a.uploaded_by, uploadedAt: a.uploaded_at }; }
+
+// Kiểm tra lại per-record cho người CHỈ có contractDeptViewer/contractRelated
+// UnitViewer (không có quyền "xem toàn bộ") khi họ mở trực tiếp 1 URL file
+// đính kèm — chặn dò ID ngoài phạm vi được xem, vì bootstrap chỉ lọc ở tầng
+// danh sách chứ không chặn được việc gọi thẳng URL file theo ID khác.
+async function userCanViewContractRecord(user, recordType, recordId) {
+    if (hasBroadContractView(user.perms)) return true;
+    const p = user.perms;
+    if (!p.contractDeptViewer && !p.contractRelatedUnitViewer) return false;
+    const userDeptName = user.dept;
+    if (recordType === 'CONTRACT') {
+        const [[c]] = await pool.query('SELECT dept_name, related_depts FROM ctr_contracts WHERE id = ?', [recordId]);
+        if (!c) return false;
+        return (p.contractDeptViewer && c.dept_name === userDeptName) || (p.contractRelatedUnitViewer && relatedDeptsIncludeUser(parseRelatedDepts(c.related_depts), userDeptName));
+    }
+    if (recordType === 'ADDENDUM') {
+        const [[a]] = await pool.query('SELECT contract_id, related_depts FROM ctr_addendums WHERE id = ?', [recordId]);
+        if (!a) return false;
+        const [[c]] = await pool.query('SELECT dept_name FROM ctr_contracts WHERE id = ?', [a.contract_id]);
+        return (p.contractDeptViewer && c && c.dept_name === userDeptName) || (p.contractRelatedUnitViewer && relatedDeptsIncludeUser(parseRelatedDepts(a.related_depts), userDeptName));
+    }
+    if (recordType === 'GUARANTEE') {
+        const [[g]] = await pool.query('SELECT contract_id, addendum_id, related_depts FROM ctr_guarantees WHERE id = ?', [recordId]);
+        if (!g) return false;
+        let ownerDeptName = null;
+        if (g.contract_id) {
+            const [[c]] = await pool.query('SELECT dept_name FROM ctr_contracts WHERE id = ?', [g.contract_id]);
+            ownerDeptName = c ? c.dept_name : null;
+        } else if (g.addendum_id) {
+            const [[a]] = await pool.query('SELECT contract_id FROM ctr_addendums WHERE id = ?', [g.addendum_id]);
+            if (a) { const [[c]] = await pool.query('SELECT dept_name FROM ctr_contracts WHERE id = ?', [a.contract_id]); ownerDeptName = c ? c.dept_name : null; }
+        }
+        return (p.contractDeptViewer && ownerDeptName && ownerDeptName === userDeptName) || (p.contractRelatedUnitViewer && relatedDeptsIncludeUser(parseRelatedDepts(g.related_depts), userDeptName));
+    }
+    return false;
+}
 
 app.get('/api/contracts/bootstrap', requireAuth, requireContractViewOrAdmin, async (req, res) => {
     try {
         const [companies] = await pool.query('SELECT id, name, code FROM lic_companies ORDER BY name');
         const [depts] = await pool.query('SELECT name, abbr FROM depts ORDER BY name');
-        const [contracts] = await pool.query('SELECT * FROM ctr_contracts ORDER BY id DESC');
-        const [addendums] = await pool.query('SELECT * FROM ctr_addendums ORDER BY id DESC');
-        const [guarantees] = await pool.query('SELECT * FROM ctr_guarantees ORDER BY id DESC');
-        const [attachments] = await pool.query('SELECT * FROM ctr_attachments ORDER BY id DESC');
+        let [contracts] = await pool.query('SELECT * FROM ctr_contracts ORDER BY id DESC');
+        let [addendums] = await pool.query('SELECT * FROM ctr_addendums ORDER BY id DESC');
+        let [guarantees] = await pool.query('SELECT * FROM ctr_guarantees ORDER BY id DESC');
+        let [attachments] = await pool.query('SELECT * FROM ctr_attachments ORDER BY id DESC');
+
+        // Quyền "xem toàn bộ" (contractManager/Creator/Approver/SelfApprove/
+        // Viewer/Downloader/Printer/Admin) thấy nguyên danh sách như cũ. Người
+        // CHỈ có contractDeptViewer/contractRelatedUnitViewer (không có quyền
+        // nào ở trên) bị giới hạn: chỉ thấy Hợp đồng/Phụ lục/Bảo lãnh thuộc
+        // đúng Phòng của mình (contractDeptViewer) hoặc có tên Phòng của mình
+        // trong "Đơn vị liên quan" (contractRelatedUnitViewer) — kèm theo cha
+        // của bất kỳ Phụ lục/Bảo lãnh nào lọt qua, để cây không bị đứt gãy.
+        if (!hasBroadContractView(req.user.perms)) {
+            const p = req.user.perms;
+            const userDeptName = req.user.dept;
+            const contractsById = new Map(contracts.map(c => [c.id, c]));
+            const addendumsById = new Map(addendums.map(a => [a.id, a]));
+
+            const contractVisible = c => (p.contractDeptViewer && c.dept_name === userDeptName) || (p.contractRelatedUnitViewer && relatedDeptsIncludeUser(parseRelatedDepts(c.related_depts), userDeptName));
+            const addendumVisible = a => {
+                const parent = contractsById.get(a.contract_id);
+                const deptOk = p.contractDeptViewer && parent && parent.dept_name === userDeptName;
+                const relatedOk = p.contractRelatedUnitViewer && relatedDeptsIncludeUser(parseRelatedDepts(a.related_depts), userDeptName);
+                return deptOk || relatedOk;
+            };
+            const guaranteeVisible = g => {
+                const ownerDeptName = resolveGuaranteeOwnerDeptName(g, contractsById, addendumsById);
+                const deptOk = p.contractDeptViewer && ownerDeptName && ownerDeptName === userDeptName;
+                const relatedOk = p.contractRelatedUnitViewer && relatedDeptsIncludeUser(parseRelatedDepts(g.related_depts), userDeptName);
+                return deptOk || relatedOk;
+            };
+
+            const visibleContractIds = new Set(contracts.filter(contractVisible).map(c => c.id));
+            const visibleAddendums = addendums.filter(addendumVisible);
+            const visibleAddendumIds = new Set(visibleAddendums.map(a => a.id));
+            const visibleGuarantees = guarantees.filter(guaranteeVisible);
+            const visibleGuaranteeIds = new Set(visibleGuarantees.map(g => g.id));
+            // Hiện lại Hợp đồng/Phụ lục cha của bất kỳ Phụ lục/Bảo lãnh nào đã
+            // lọt qua bộ lọc, để cây Hợp đồng > Phụ lục > Bảo lãnh luôn còn đủ
+            // context hiển thị (không hiện "mồ côi" giữa chừng).
+            visibleAddendums.forEach(a => visibleContractIds.add(a.contract_id));
+            visibleGuarantees.forEach(g => {
+                if (g.contract_id) visibleContractIds.add(g.contract_id);
+                if (g.addendum_id) {
+                    visibleAddendumIds.add(g.addendum_id);
+                    const a = addendumsById.get(g.addendum_id);
+                    if (a) visibleContractIds.add(a.contract_id);
+                }
+            });
+
+            contracts = contracts.filter(c => visibleContractIds.has(c.id));
+            addendums = addendums.filter(a => visibleAddendumIds.has(a.id));
+            guarantees = guarantees.filter(g => visibleGuaranteeIds.has(g.id));
+            const visibleAttachmentKeys = new Set([
+                ...contracts.map(c => `CONTRACT:${c.id}`),
+                ...addendums.map(a => `ADDENDUM:${a.id}`),
+                ...guarantees.map(g => `GUARANTEE:${g.id}`)
+            ]);
+            attachments = attachments.filter(att => visibleAttachmentKeys.has(`${att.record_type}:${att.record_id}`));
+        }
+
         res.json({
             companies: companies.map(c => ({ id: c.id, name: c.name, code: c.code })),
             depts: depts.map(d => ({ name: d.name, abbr: d.abbr })),
@@ -9725,6 +9873,7 @@ app.post('/api/contracts', requireAuth, requireContractCreateOrAdmin, async (req
         const expiryDate = (req.body && req.body.expiryDate) || null;
         const value = (req.body && req.body.value !== undefined && req.body.value !== '') ? Number(req.body.value) : null;
         const note = String((req.body && req.body.note) || '').trim();
+        const relatedDepts = sanitizeRelatedDepts(req.body && req.body.relatedDepts);
         if (!name) return res.status(400).json({ error: 'Vui lòng nhập tên hợp đồng.' });
         if (!companyId) return res.status(400).json({ error: 'Vui lòng chọn Công ty.' });
         if (!deptName) return res.status(400).json({ error: 'Vui lòng chọn Phòng.' });
@@ -9738,9 +9887,9 @@ app.post('/api/contracts', requireAuth, requireContractCreateOrAdmin, async (req
         const code = await nextContractCode('ctr_contracts', 'HD', company.code, dept.abbr);
         const now = new Date().toLocaleString('vi-VN');
         const [result] = await pool.query(
-            `INSERT INTO ctr_contracts (code, name, company_id, dept_name, counterparty, contract_date, expiry_date, value, note, status, created_by, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
-            [code, name, companyId, deptName, counterparty || null, contractDate, expiryDate, value, note || null, req.user.username, now]
+            `INSERT INTO ctr_contracts (code, name, company_id, dept_name, counterparty, contract_date, expiry_date, value, note, related_depts, status, created_by, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
+            [code, name, companyId, deptName, counterparty || null, contractDate, expiryDate, value, note || null, JSON.stringify(relatedDepts), req.user.username, now]
         );
         await writeAuditLog({ module: 'CONTRACT', actionType: 'CREATE_CONTRACT', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: code, description: `Tạo hợp đồng [${code}]: ${name}.` });
         res.json({ success: true, id: result.insertId, code });
@@ -9801,6 +9950,7 @@ app.post('/api/contracts/addendums', requireAuth, requireContractCreateOrAdmin, 
         const addendumDate = (req.body && req.body.addendumDate) || null;
         const expiryDate = (req.body && req.body.expiryDate) || null;
         const note = String((req.body && req.body.note) || '').trim();
+        const relatedDepts = sanitizeRelatedDepts(req.body && req.body.relatedDepts);
         if (!name) return res.status(400).json({ error: 'Vui lòng nhập tên phụ lục.' });
         if (!contractId) return res.status(400).json({ error: 'Vui lòng chọn Hợp đồng liên quan.' });
         const [[contract]] = await pool.query('SELECT * FROM ctr_contracts WHERE id = ?', [contractId]);
@@ -9813,8 +9963,8 @@ app.post('/api/contracts/addendums', requireAuth, requireContractCreateOrAdmin, 
         const code = await nextContractCode('ctr_addendums', 'PLHD', company.code, dept.abbr);
         const now = new Date().toLocaleString('vi-VN');
         const [result] = await pool.query(
-            `INSERT INTO ctr_addendums (code, contract_id, name, addendum_date, expiry_date, note, status, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
-            [code, contractId, name, addendumDate, expiryDate, note || null, req.user.username, now]
+            `INSERT INTO ctr_addendums (code, contract_id, name, addendum_date, expiry_date, note, related_depts, status, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
+            [code, contractId, name, addendumDate, expiryDate, note || null, JSON.stringify(relatedDepts), req.user.username, now]
         );
         await writeAuditLog({ module: 'CONTRACT', actionType: 'CREATE_ADDENDUM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: code, description: `Tạo phụ lục [${code}] cho hợp đồng [${contract.code}]: ${name}.` });
         res.json({ success: true, id: result.insertId, code });
@@ -9858,6 +10008,7 @@ app.post('/api/contracts/guarantees', requireAuth, requireContractCreateOrAdmin,
         // — chỉ Ngày hết hạn là null khi không có thời hạn.
         const effectiveDate = (req.body && req.body.effectiveDate) ? req.body.effectiveDate : null;
         const expiryDate = (hasTerm && req.body.expiryDate) ? req.body.expiryDate : null;
+        const relatedDepts = sanitizeRelatedDepts(req.body && req.body.relatedDepts);
 
         if (!name) return res.status(400).json({ error: 'Vui lòng nhập tên bảo lãnh.' });
         if (!effectiveDate) return res.status(400).json({ error: 'Vui lòng nhập Ngày hiệu lực.' });
@@ -9904,9 +10055,9 @@ app.post('/api/contracts/guarantees', requireAuth, requireContractCreateOrAdmin,
         const code = await nextContractCode('ctr_guarantees', 'BLPH', company.code, dept.abbr);
         const now = new Date().toLocaleString('vi-VN');
         const [result] = await pool.query(
-            `INSERT INTO ctr_guarantees (code, contract_id, addendum_id, parent_guarantee_id, replaces_guarantee_id, name, issuer, value, note, has_term, effective_date, expiry_date, status, created_by, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
-            [code, contractId || null, addendumId || null, parentGuaranteeId || null, replacesGuaranteeId || null, name, issuer || null, value, note || null, hasTerm ? 1 : 0, effectiveDate, expiryDate, req.user.username, now]
+            `INSERT INTO ctr_guarantees (code, contract_id, addendum_id, parent_guarantee_id, replaces_guarantee_id, name, issuer, value, note, has_term, effective_date, expiry_date, related_depts, status, created_by, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
+            [code, contractId || null, addendumId || null, parentGuaranteeId || null, replacesGuaranteeId || null, name, issuer || null, value, note || null, hasTerm ? 1 : 0, effectiveDate, expiryDate, JSON.stringify(relatedDepts), req.user.username, now]
         );
         await writeAuditLog({ module: 'CONTRACT', actionType: 'CREATE_GUARANTEE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: code, description: `Tạo bảo lãnh phát hành [${code}]: ${name}${parentGuarantee ? ` (bảo lãnh con của ${parentGuarantee.code})` : ''}${replacedGuarantee ? `, thay thế [${replacedGuarantee.code}]` : ''}.` });
         res.json({ success: true, id: result.insertId, code });
@@ -10034,6 +10185,9 @@ app.get('/api/contracts/attachments/:id/view', requireAuth, requireContractViewO
     try {
         const [[att]] = await pool.query('SELECT * FROM ctr_attachments WHERE id = ?', [req.params.id]);
         if (!att) return res.status(404).json({ error: 'Không tìm thấy file.' });
+        if (!await userCanViewContractRecord(req.user, att.record_type, att.record_id)) {
+            return res.status(403).json({ error: 'Bạn không có quyền xem file đính kèm này.' });
+        }
         res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(att.file_name)}"`);
         res.sendFile(path.join(UPLOAD_DIR, att.file_path));
     } catch (err) {
@@ -10045,6 +10199,9 @@ app.get('/api/contracts/attachments/:id/download', requireAuth, requireContractD
     try {
         const [[att]] = await pool.query('SELECT * FROM ctr_attachments WHERE id = ?', [req.params.id]);
         if (!att) return res.status(404).json({ error: 'Không tìm thấy file.' });
+        if (!await userCanViewContractRecord(req.user, att.record_type, att.record_id)) {
+            return res.status(403).json({ error: 'Bạn không có quyền tải file đính kèm này.' });
+        }
         res.download(path.join(UPLOAD_DIR, att.file_path), att.file_name);
     } catch (err) {
         console.error('❌ Lỗi tải file đính kèm:', err.message);

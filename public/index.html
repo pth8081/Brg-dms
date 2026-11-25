@@ -796,6 +796,14 @@
                 <input type="checkbox" id="pContractPrinter"> Quyền in Hợp đồng/Phụ lục/Bảo lãnh
               </label>
               <p class="text-[10px] text-gray-500 leading-tight">Quyền cộng thêm — có quyền này mới được in trực tiếp.</p>
+              <label class="flex items-center gap-2 text-teal-700 font-semibold cursor-pointer border-t pt-2">
+                <input type="checkbox" id="pContractDeptViewer"> Phòng ban được xem
+              </label>
+              <p class="text-[10px] text-gray-500 leading-tight">Mặc định xem được (như Người xem) các Hợp đồng/Phụ lục/Bảo lãnh thuộc ĐÚNG Phòng của chính mình, không xem được của Phòng khác.</p>
+              <label class="flex items-center gap-2 text-teal-700 font-semibold cursor-pointer border-t pt-2">
+                <input type="checkbox" id="pContractRelatedUnitViewer"> Đơn vị liên quan được xem
+              </label>
+              <p class="text-[10px] text-gray-500 leading-tight">Xem được các Hợp đồng/Phụ lục/Bảo lãnh có gắn "Đơn vị liên quan" trùng tên Phòng của chính mình, dù không phải Phòng sở hữu.</p>
               <div class="border-t pt-2 space-y-1.5">
                 <div class="flex justify-between items-center">
                   <span class="font-semibold text-orange-700">Phạm vi Công ty được tạo</span>
@@ -2770,6 +2778,12 @@
           </div>
         </div>
         <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn vị liên quan <span class="text-gray-400 font-normal">(tùy chọn)</span></label>
+          <div id="contractRelatedDeptsBox" class="related-dept-box"></div>
+          <div class="related-dept-add-btn" data-evt-click="addRelatedDeptRow" data-args='["contract"]'>+ Thêm đơn vị liên quan</div>
+          <p class="text-[11px] text-indigo-700 mt-1">Người thuộc Phòng được chọn ở đây cũng xem được hợp đồng này (nếu được bật quyền "Đơn vị liên quan được xem").</p>
+        </div>
+        <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Tên hợp đồng <span class="text-red-500">*</span></label>
           <input id="contractName" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Hợp đồng thi công hạng mục điện...">
         </div>
@@ -2827,6 +2841,12 @@
           <input id="addendumContractId" type="hidden">
         </div>
         <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn vị liên quan <span class="text-gray-400 font-normal">(tùy chọn)</span></label>
+          <div id="addendumRelatedDeptsBox" class="related-dept-box"></div>
+          <div class="related-dept-add-btn" data-evt-click="addRelatedDeptRow" data-args='["addendum"]'>+ Thêm đơn vị liên quan</div>
+          <p class="text-[11px] text-indigo-700 mt-1">Người thuộc Phòng được chọn ở đây cũng xem được phụ lục này (nếu được bật quyền "Đơn vị liên quan được xem").</p>
+        </div>
+        <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Tên phụ lục <span class="text-red-500">*</span></label>
           <input id="addendumName" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Phụ lục điều chỉnh tiến độ">
         </div>
@@ -2881,6 +2901,12 @@
           <input id="guaranteeReplacesLabel" type="text" readonly class="w-full border p-2 rounded text-sm bg-gray-100 font-mono text-gray-600">
           <input id="guaranteeReplacesId" type="hidden">
           <p class="text-[11px] text-amber-700 mt-1">⚠️ Khi bảo lãnh này được duyệt, bảo lãnh cũ sẽ tự động chuyển trạng thái sang "Đã thay thế".</p>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn vị liên quan <span class="text-gray-400 font-normal">(tùy chọn)</span></label>
+          <div id="guaranteeRelatedDeptsBox" class="related-dept-box"></div>
+          <div class="related-dept-add-btn" data-evt-click="addRelatedDeptRow" data-args='["guarantee"]'>+ Thêm đơn vị liên quan</div>
+          <p class="text-[11px] text-indigo-700 mt-1">Người thuộc Phòng được chọn ở đây cũng xem được bảo lãnh này (nếu được bật quyền "Đơn vị liên quan được xem").</p>
         </div>
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Tên bảo lãnh <span class="text-red-500">*</span></label>
@@ -4744,6 +4770,12 @@
             </label>
             <label class="flex items-center gap-2 text-orange-500 font-semibold cursor-pointer border-t pt-2">
               <input type="checkbox" id="gContractPrinter"> Quyền in Hợp đồng/Phụ lục/Bảo lãnh
+            </label>
+            <label class="flex items-center gap-2 text-teal-700 font-semibold cursor-pointer border-t pt-2">
+              <input type="checkbox" id="gContractDeptViewer"> Phòng ban được xem
+            </label>
+            <label class="flex items-center gap-2 text-teal-700 font-semibold cursor-pointer border-t pt-2">
+              <input type="checkbox" id="gContractRelatedUnitViewer"> Đơn vị liên quan được xem
             </label>
             <div class="border-t pt-2 space-y-1.5">
               <div class="flex justify-between items-center">
