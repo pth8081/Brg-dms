@@ -1056,6 +1056,111 @@ CALL add_column_if_not_exists('lic_purchase_registrations', 'correction_reason',
 CALL add_column_if_not_exists('lic_purchase_registrations', 'correction_requested_by', 'VARCHAR(100) NULL DEFAULT NULL');
 CALL add_column_if_not_exists('lic_purchase_registrations', 'correction_requested_at', 'VARCHAR(100) NULL DEFAULT NULL');
 
+-- =====================================================================
+-- Module Quản lý Hợp đồng & Bảo lãnh phát hành — ĐỘC LẬP hoàn toàn với
+-- module Tài liệu (không dùng luồng duyệt nhiều bước theo phòng ban/depts-
+-- Workflows) và với License/Ngân sách, nhưng DÙNG CHUNG danh mục Công ty
+-- (lic_companies) và Phòng ban (depts, đã có sẵn abbr dùng để sinh mã tài
+-- liệu ở module Tài liệu) thay vì tạo thêm 1 danh mục công ty/phòng ban thứ
+-- 3 trong hệ thống. Bộ quyền phẳng riêng (contractCreator/contractApprover/
+-- contractSelfApprove/contractViewer/contractDownloader/contractPrinter/
+-- contractManager) lưu trong cột perms (JSON) có sẵn của users/
+-- permission_groups — không cần thêm cột/bảng riêng cho quyền.
+--
+-- Mã tự sinh theo kiểu "MAX số hậu tố hiện có + 1" (giống hệt cơ chế sinh mã
+-- tài liệu ở app.post /api/docs/upload, hàm nextCodeForPrefix) — không dùng
+-- bảng đếm riêng để tránh lệch số khi dữ liệu bị xoá. Định dạng:
+-- {Loại}-{Mã Công ty}-{Mã Phòng}-{STT 6 chữ số, không reset}, ví dụ
+-- HD-NHSC-ITC-000001 / PLHD-NHSC-ITC-000001 / BLPH-NHSC-ITC-000001.
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS ctr_contracts (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    code VARCHAR(50) UNIQUE NOT NULL,
+    name VARCHAR(500) NOT NULL,
+    company_id BIGINT NOT NULL,
+    dept_name VARCHAR(255) NOT NULL,
+    counterparty VARCHAR(500) NULL DEFAULT NULL,
+    contract_date DATE NULL DEFAULT NULL,
+    value DECIMAL(18,2) NULL DEFAULT NULL,
+    note VARCHAR(2000) NULL DEFAULT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    created_by VARCHAR(100) NOT NULL,
+    created_at VARCHAR(100) NOT NULL,
+    approved_by VARCHAR(100) NULL DEFAULT NULL,
+    approved_at VARCHAR(100) NULL DEFAULT NULL,
+    reject_reason VARCHAR(500) NULL DEFAULT NULL
+);
+CALL create_index_if_not_exists('ctr_contracts', 'idx_ctr_contracts_company', 'company_id');
+CALL create_index_if_not_exists('ctr_contracts', 'idx_ctr_contracts_status', 'status');
+
+-- Phụ lục hợp đồng — bắt buộc gắn đúng 1 Hợp đồng đã tồn tại.
+CREATE TABLE IF NOT EXISTS ctr_addendums (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    code VARCHAR(50) UNIQUE NOT NULL,
+    contract_id BIGINT NOT NULL,
+    name VARCHAR(500) NOT NULL,
+    addendum_date DATE NULL DEFAULT NULL,
+    note VARCHAR(2000) NULL DEFAULT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    created_by VARCHAR(100) NOT NULL,
+    created_at VARCHAR(100) NOT NULL,
+    approved_by VARCHAR(100) NULL DEFAULT NULL,
+    approved_at VARCHAR(100) NULL DEFAULT NULL,
+    reject_reason VARCHAR(500) NULL DEFAULT NULL
+);
+CALL create_index_if_not_exists('ctr_addendums', 'idx_ctr_addendums_contract', 'contract_id');
+
+-- Bảo lãnh phát hành — gắn đúng 1 trong 2 (contract_id HOẶC addendum_id, KHÔNG
+-- bao giờ cả hai). parent_guarantee_id (bảo lãnh CON) và replaces_guarantee_id
+-- (bảo lãnh THAY THẾ) là 2 thuộc tính ĐỘC LẬP — 1 bảo lãnh có thể vừa là con,
+-- vừa thay thế 1 bảo lãnh khác cùng lúc. has_term = 0 (vô thời hạn) thì
+-- effective_date/expiry_date luôn NULL, không bắt buộc nhập. status REPLACED
+-- tự gán cho bảo lãnh CŨ khi bảo lãnh thay thế nó được duyệt (APPROVED) — xem
+-- route POST /api/contracts/guarantees/:id/approve.
+CREATE TABLE IF NOT EXISTS ctr_guarantees (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    code VARCHAR(50) UNIQUE NOT NULL,
+    contract_id BIGINT NULL DEFAULT NULL,
+    addendum_id BIGINT NULL DEFAULT NULL,
+    parent_guarantee_id BIGINT NULL DEFAULT NULL,
+    replaces_guarantee_id BIGINT NULL DEFAULT NULL,
+    name VARCHAR(500) NOT NULL,
+    issuer VARCHAR(500) NULL DEFAULT NULL,
+    value DECIMAL(18,2) NULL DEFAULT NULL,
+    note VARCHAR(2000) NULL DEFAULT NULL,
+    has_term TINYINT(1) NOT NULL DEFAULT 1,
+    effective_date DATE NULL DEFAULT NULL,
+    expiry_date DATE NULL DEFAULT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    created_by VARCHAR(100) NOT NULL,
+    created_at VARCHAR(100) NOT NULL,
+    approved_by VARCHAR(100) NULL DEFAULT NULL,
+    approved_at VARCHAR(100) NULL DEFAULT NULL,
+    reject_reason VARCHAR(500) NULL DEFAULT NULL
+);
+CALL create_index_if_not_exists('ctr_guarantees', 'idx_ctr_guarantees_contract', 'contract_id');
+CALL create_index_if_not_exists('ctr_guarantees', 'idx_ctr_guarantees_addendum', 'addendum_id');
+CALL create_index_if_not_exists('ctr_guarantees', 'idx_ctr_guarantees_parent', 'parent_guarantee_id');
+CALL create_index_if_not_exists('ctr_guarantees', 'idx_ctr_guarantees_replaces', 'replaces_guarantee_id');
+CALL create_index_if_not_exists('ctr_guarantees', 'idx_ctr_guarantees_status', 'status');
+
+-- Đính kèm multi-upload dùng chung cho cả 3 loại văn bản — record_type phân
+-- biệt loại, attachment_group phân biệt "Đính kèm" (MAIN) và "Tờ trình đính
+-- kèm" (PROPOSAL, chỉ áp dụng CONTRACT/ADDENDUM). File lưu trên đĩa qua
+-- UPLOAD_DIR có sẵn (giống cơ chế file PDF tài liệu), không lưu trong CSDL.
+CREATE TABLE IF NOT EXISTS ctr_attachments (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    record_type VARCHAR(20) NOT NULL,
+    record_id BIGINT NOT NULL,
+    attachment_group VARCHAR(20) NOT NULL DEFAULT 'MAIN',
+    file_path VARCHAR(500) NOT NULL,
+    file_name VARCHAR(500) NOT NULL,
+    uploaded_by VARCHAR(100) NOT NULL,
+    uploaded_at VARCHAR(100) NOT NULL
+);
+CALL create_index_if_not_exists('ctr_attachments', 'idx_ctr_attachments_record', 'record_type, record_id');
+
 -- Dọn dẹp: xóa các thủ tục tạm sau khi dùng xong, không để lại trong CSDL thật.
 DROP PROCEDURE IF EXISTS create_index_if_not_exists;
 DROP PROCEDURE IF EXISTS create_unique_index_if_not_exists;

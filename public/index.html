@@ -272,6 +272,7 @@
       <button id="btnLicensePortalTab" data-evt-click="switchTab" data-args='["licensePortal"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">💰</span><span>Ngân sách &amp; Kỳ mua</span></button>
       <button id="btnItAssetsTab" data-evt-click="switchTab" data-args='["itAssets"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">🖥️</span><span>Quản lý CNTT</span></button>
       <button id="btnBudget2Tab" data-evt-click="switchTab" data-args='["budget2"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">💵</span><span>Quản lý Ngân sách</span></button>
+      <button id="btnContractTab" data-evt-click="switchTab" data-args='["contract"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">📜</span><span>Hợp đồng &amp; Bảo lãnh</span></button>
       <button id="btnAdminTab" data-evt-click="switchTab" data-args='["admin"]' class="sidebar-link hidden text-sm px-3 py-2.5 rounded-md"><span class="sidebar-link-icon">🛡️</span><span>Hệ thống</span></button>
 
       <div id="userHeader" class="sidebar-foot hidden mt-auto pt-3 px-2">
@@ -765,10 +766,59 @@
               </div>
               <div id="pDownloadDeptContainer" class="space-y-1 pl-1 max-h-36 overflow-y-auto"></div>
             </div>
+
+            <div class="bg-white p-3 rounded border space-y-2">
+              <h4 class="font-bold text-orange-800 border-b pb-1 text-xs">6. Hợp đồng &amp; Bảo lãnh</h4>
+              <label class="flex items-center gap-2 text-orange-700 font-semibold cursor-pointer">
+                <input type="checkbox" id="pContractManager"> Người quản lý Hợp đồng (toàn quyền module)
+              </label>
+              <p class="text-[10px] text-gray-500 leading-tight">Toàn quyền module Hợp đồng &amp; Bảo lãnh (tạo/sửa/xóa, duyệt Hợp đồng/Phụ lục/Bảo lãnh phát hành), không có quyền Admin ở module khác.</p>
+              <label class="flex items-center gap-2 text-orange-600 font-semibold cursor-pointer border-t pt-2">
+                <input type="checkbox" id="pContractCreator"> Người tạo Hợp đồng/Phụ lục/Bảo lãnh
+              </label>
+              <p class="text-[10px] text-gray-500 leading-tight">Tạo được Hợp đồng, Phụ lục, Bảo lãnh phát hành trong Phạm vi Công ty/Phòng bên dưới, không tự duyệt được.</p>
+              <label class="flex items-center gap-2 text-indigo-700 font-semibold cursor-pointer border-t pt-2">
+                <input type="checkbox" id="pContractApprover"> Người duyệt Hợp đồng/Phụ lục/Bảo lãnh
+              </label>
+              <p class="text-[10px] text-gray-500 leading-tight">Chỉ Duyệt/Từ chối Hợp đồng, Phụ lục, Bảo lãnh phát hành do người khác tạo — tách riêng khỏi "Người quản lý".</p>
+              <label class="flex items-center gap-2 text-rose-700 font-semibold cursor-pointer border-t pt-2">
+                <input type="checkbox" id="pContractSelfApprove"> Quyền tự phê duyệt do chính mình tạo
+              </label>
+              <p class="text-[10px] text-gray-500 leading-tight">Quyền RIÊNG, độc lập hoàn toàn với mọi quyền khác — kể cả Admin cũng KHÔNG tự động có, phải bật rõ ở đây mới tự duyệt được đúng bản ghi do CHÍNH MÌNH tạo.</p>
+              <label class="flex items-center gap-2 text-orange-500 font-semibold cursor-pointer border-t pt-2">
+                <input type="checkbox" id="pContractViewer"> Người xem Hợp đồng (chỉ xem)
+              </label>
+              <p class="text-[10px] text-gray-500 leading-tight">Xem toàn bộ dữ liệu module Hợp đồng &amp; Bảo lãnh, không tạo/sửa/xóa/duyệt.</p>
+              <label class="flex items-center gap-2 text-orange-500 font-semibold cursor-pointer border-t pt-2">
+                <input type="checkbox" id="pContractDownloader"> Quyền tải file đính kèm
+              </label>
+              <label class="flex items-center gap-2 text-orange-500 font-semibold cursor-pointer border-t pt-2">
+                <input type="checkbox" id="pContractPrinter"> Quyền in Hợp đồng/Phụ lục/Bảo lãnh
+              </label>
+              <p class="text-[10px] text-gray-500 leading-tight">Quyền cộng thêm — có quyền này mới được in trực tiếp.</p>
+              <div class="border-t pt-2 space-y-1.5">
+                <div class="flex justify-between items-center">
+                  <span class="font-semibold text-orange-700">Phạm vi Công ty được tạo</span>
+                  <label class="flex items-center gap-1 font-bold text-orange-700 cursor-pointer text-[11px]">
+                    <input type="checkbox" id="pContractCompanyAll" data-evt-change="toggleScopeGroup" data-args='["pContractCompanyAll","pContractCompany"]'> ALL
+                  </label>
+                </div>
+                <div id="pContractCompanyContainer" class="space-y-1 pl-1 max-h-28 overflow-y-auto"></div>
+              </div>
+              <div class="border-t pt-2 space-y-1.5">
+                <div class="flex justify-between items-center">
+                  <span class="font-semibold text-orange-700">Phạm vi Phòng được tạo</span>
+                  <label class="flex items-center gap-1 font-bold text-orange-700 cursor-pointer text-[11px]">
+                    <input type="checkbox" id="pContractDeptAll" data-evt-change="toggleScopeGroup" data-args='["pContractDeptAll","pContractDept"]'> ALL
+                  </label>
+                </div>
+                <div id="pContractDeptContainer" class="space-y-1 pl-1 max-h-28 overflow-y-auto"></div>
+              </div>
+            </div>
           </div>
 
           <div class="bg-white p-3 rounded border space-y-2 text-xs">
-            <h4 class="font-bold text-teal-800 border-b pb-1 text-xs">6. Phạm vi tự phục vụ Bản quyền (Ngân sách + Kỳ mua)</h4>
+            <h4 class="font-bold text-teal-800 border-b pb-1 text-xs">7. Phạm vi tự phục vụ Bản quyền (Ngân sách + Kỳ mua)</h4>
             <p class="text-[11px] text-gray-500">Nếu gán phạm vi, tài khoản này (không phải Admin) sẽ đăng nhập thẳng vào Cổng tự phục vụ để tự lập dự trù ngân sách / đăng ký mua trong đúng phạm vi được gán, ở các Kỳ Admin đã tạo và gán phạm vi khớp.</p>
             <select id="userScopeType" data-evt-change="onScopeTypeChange" data-args='["user"]' class="w-full border p-1.5 rounded text-xs bg-white mb-2">
               <option value="">-- Không có phạm vi (tài khoản thường) --</option>
@@ -785,7 +835,7 @@
           </div>
 
           <div class="bg-white p-3 rounded border space-y-2 text-xs">
-            <h4 class="font-bold text-teal-800 border-b pb-1 text-xs">7. Phạm vi Ngân sách (Quản lý/Chỉ xem/5 quyền theo phòng)</h4>
+            <h4 class="font-bold text-teal-800 border-b pb-1 text-xs">8. Phạm vi Ngân sách (Quản lý/Chỉ xem/5 quyền theo phòng)</h4>
             <p class="text-[11px] text-gray-500">Với "Người quản lý Ngân sách"/"Người xem Ngân sách" ở mục 1 — để trống thì được toàn quyền quản lý/xem MỌI công ty/đơn vị như hiện tại; gán phạm vi thì chỉ quản lý/xem được đúng Công ty hoặc Khối/Phòng/Ban (và các đơn vị con) được gán. Với 5 quyền "...theo phòng"/"Gửi phê duyệt..." ở mục 1 — BẮT BUỘC phải chọn phạm vi ở đây, không được để trống.</p>
             <select id="userBudgetScopeType" data-evt-change="onScopeTypeChange" data-args='["userBudget"]' class="w-full border p-1.5 rounded text-xs bg-white mb-2">
               <option value="">-- Không giới hạn (toàn bộ công ty/đơn vị) --</option>
@@ -2535,6 +2585,220 @@
       </div>
       <div class="bg-blue-50 border border-blue-200 rounded p-3 text-xs text-blue-800">
         💡 Để gửi được email thật, vào <b>Hệ thống → Cấu hình Email</b> và nhập đủ SMTP Host/Port/Tài khoản/Mật khẩu, rồi bật "Kích hoạt gửi Email".
+      </div>
+    </div>
+  </div>
+
+  <!-- MODULE: Quản lý Hợp đồng & Bảo lãnh phát hành — độc lập hoàn toàn với
+       module Tài liệu (không dùng luồng duyệt nhiều bước theo phòng ban) và
+       License/Ngân sách, nhưng dùng chung danh mục Công ty (lic_companies)
+       và Phòng ban (depts). 2 màn hình chính: "Hợp đồng" (mỗi hợp đồng mở
+       rộng ra xem Phụ lục + cây Bảo lãnh liên quan) và "Bảo lãnh phát hành"
+       (danh sách phẳng toàn bộ bảo lãnh, có tham chiếu ngược). -->
+  <div id="contractSection" class="hidden space-y-4">
+    <div class="flex gap-1 border-b border-gray-200 flex-wrap">
+      <button id="btnContractSubContracts" data-evt-click="switchContractSubTab" data-args='["contracts"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">📄 Hợp đồng</button>
+      <button id="btnContractSubGuarantees" data-evt-click="switchContractSubTab" data-args='["guarantees"]' class="nav-tab text-xs px-3 py-2 font-semibold whitespace-nowrap">🛡️ Bảo lãnh phát hành</button>
+    </div>
+
+    <!-- Sub-tab: Hợp đồng -->
+    <div id="contractSubContracts" class="hidden space-y-3">
+      <button data-evt-click="openContractModal" data-args='[]' class="btn-primary px-2.5 py-1.5 rounded font-semibold transition text-xs">+ Thêm hợp đồng</button>
+      <div id="contractListContainer" class="space-y-3"></div>
+    </div>
+
+    <!-- Sub-tab: Bảo lãnh phát hành (danh sách phẳng, có tham chiếu ngược) -->
+    <div id="contractSubGuarantees" class="hidden space-y-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded border text-xs">
+        <div>
+          <label class="block font-semibold text-gray-600 mb-1">Trạng thái</label>
+          <select id="guaranteeFilterStatus" data-evt-change="renderGuaranteeFlatList" data-args='[]' class="w-full border p-1.5 rounded bg-white">
+            <option value="">-- Tất cả --</option>
+            <option value="PENDING">Chờ duyệt</option>
+            <option value="APPROVED">Đã duyệt</option>
+            <option value="REJECTED">Từ chối</option>
+            <option value="REPLACED">Đã thay thế</option>
+          </select>
+        </div>
+        <div>
+          <label class="block font-semibold text-gray-600 mb-1">Tìm kiếm (mã, tên, đơn vị phát hành)</label>
+          <input id="guaranteeFilterSearch" type="text" data-evt-input="renderGuaranteeFlatList" data-args='[]' placeholder="VD: BLPH-..., Vietcombank..." class="w-full border p-1.5 rounded">
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full border-collapse border bg-white text-xs">
+          <thead><tr class="bg-gray-100 text-left">
+            <th class="border p-2">Mã</th><th class="border p-2">Tên bảo lãnh</th><th class="border p-2">Gắn với</th><th class="border p-2">Đơn vị phát hành</th>
+            <th class="border p-2 text-right">Giá trị</th><th class="border p-2 text-center">Thời hạn</th><th class="border p-2 text-center">Trạng thái</th><th class="border p-2 text-center whitespace-nowrap">Thao tác</th>
+          </tr></thead>
+          <tbody id="guaranteeFlatTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Hợp đồng -->
+  <div id="contractModal" class="modal-backdrop hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+      <div class="p-5 border-b flex justify-between items-center">
+        <h3 class="font-bold text-gray-800">📄 Thêm Hợp đồng</h3>
+        <button type="button" data-evt-click="closeContractModal" data-args='[]' class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+      </div>
+      <div class="p-5 space-y-3">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Công ty <span class="text-red-500">*</span></label>
+            <div id="contractCompanyFieldWrap"></div>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Phòng <span class="text-red-500">*</span></label>
+            <div id="contractDeptFieldWrap"></div>
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Tên hợp đồng <span class="text-red-500">*</span></label>
+          <input id="contractName" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Hợp đồng thi công hạng mục điện...">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Đối tác</label>
+            <input id="contractCounterparty" type="text" class="w-full border p-2 rounded text-sm" placeholder="Tên đối tác, tự nhập">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày ký</label>
+            <input id="contractDate" type="date" class="w-full border p-2 rounded text-sm">
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Giá trị hợp đồng (VNĐ)</label>
+          <input id="contractValue" type="number" min="0" class="w-full border p-2 rounded text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Ghi chú</label>
+          <textarea id="contractNote" rows="2" class="w-full border p-2 rounded text-sm"></textarea>
+        </div>
+        <div class="border rounded-lg p-3 bg-blue-50">
+          <label class="block text-xs font-bold text-blue-800 mb-1">📎 Đính kèm (chọn nhiều file)</label>
+          <input id="contractFilesMain" type="file" multiple class="w-full text-xs">
+        </div>
+        <div class="border rounded-lg p-3 bg-amber-50">
+          <label class="block text-xs font-bold text-amber-800 mb-1">📑 Tờ trình đính kèm (chọn nhiều file)</label>
+          <input id="contractFilesProposal" type="file" multiple class="w-full text-xs">
+        </div>
+      </div>
+      <div class="p-5 border-t flex justify-end gap-2">
+        <button type="button" data-evt-click="closeContractModal" data-args='[]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveContract" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Gửi duyệt</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Phụ lục hợp đồng -->
+  <div id="addendumModal" class="modal-backdrop hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+      <div class="p-5 border-b flex justify-between items-center">
+        <h3 class="font-bold text-gray-800">📎 Thêm Phụ lục hợp đồng</h3>
+        <button type="button" data-evt-click="closeAddendumModal" data-args='[]' class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+      </div>
+      <div class="p-5 space-y-3">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Hợp đồng liên quan</label>
+          <input id="addendumContractLabel" type="text" readonly class="w-full border p-2 rounded text-sm bg-gray-100 font-mono text-gray-600">
+          <input id="addendumContractId" type="hidden">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Tên phụ lục <span class="text-red-500">*</span></label>
+          <input id="addendumName" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Phụ lục điều chỉnh tiến độ">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày ký</label>
+          <input id="addendumDate" type="date" class="w-full border p-2 rounded text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Nội dung thay đổi / Ghi chú</label>
+          <textarea id="addendumNote" rows="2" class="w-full border p-2 rounded text-sm"></textarea>
+        </div>
+        <div class="border rounded-lg p-3 bg-blue-50">
+          <label class="block text-xs font-bold text-blue-800 mb-1">📎 Đính kèm (chọn nhiều file)</label>
+          <input id="addendumFilesMain" type="file" multiple class="w-full text-xs">
+        </div>
+        <div class="border rounded-lg p-3 bg-amber-50">
+          <label class="block text-xs font-bold text-amber-800 mb-1">📑 Tờ trình đính kèm (chọn nhiều file)</label>
+          <input id="addendumFilesProposal" type="file" multiple class="w-full text-xs">
+        </div>
+      </div>
+      <div class="p-5 border-t flex justify-end gap-2">
+        <button type="button" data-evt-click="closeAddendumModal" data-args='[]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveAddendum" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Gửi duyệt</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Bảo lãnh phát hành — dùng chung cho cả 3 trường hợp (thường/con/
+       thay thế), ẩn hiện field tùy ngữ cảnh mở modal. -->
+  <div id="guaranteeModal" class="modal-backdrop hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+      <div class="p-5 border-b flex justify-between items-center">
+        <h3 id="guaranteeModalTitle" class="font-bold text-gray-800">🛡️ Thêm Bảo lãnh phát hành</h3>
+        <button type="button" data-evt-click="closeGuaranteeModal" data-args='[]' class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+      </div>
+      <div class="p-5 space-y-3">
+        <input id="guaranteeContractId" type="hidden">
+        <input id="guaranteeAddendumId" type="hidden">
+        <input id="guaranteeParentId" type="hidden">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Gắn với</label>
+          <input id="guaranteeParentLabel" type="text" readonly class="w-full border p-2 rounded text-sm bg-gray-100 font-mono text-gray-600">
+        </div>
+        <div id="guaranteeReplacesWrap" class="hidden">
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Bảo lãnh được thay thế</label>
+          <input id="guaranteeReplacesLabel" type="text" readonly class="w-full border p-2 rounded text-sm bg-gray-100 font-mono text-gray-600">
+          <input id="guaranteeReplacesId" type="hidden">
+          <p class="text-[11px] text-amber-700 mt-1">⚠️ Khi bảo lãnh này được duyệt, bảo lãnh cũ sẽ tự động chuyển trạng thái sang "Đã thay thế".</p>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Tên bảo lãnh <span class="text-red-500">*</span></label>
+          <input id="guaranteeName" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Bảo lãnh thực hiện hợp đồng">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn vị phát hành</label>
+            <input id="guaranteeIssuer" type="text" class="w-full border p-2 rounded text-sm" placeholder="VD: Ngân hàng Vietcombank">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Giá trị bảo lãnh (VNĐ)</label>
+            <input id="guaranteeValue" type="number" min="0" class="w-full border p-2 rounded text-sm">
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Thời hạn</label>
+          <div class="flex gap-1">
+            <button type="button" id="guaranteeHasTermYes" data-evt-click="setGuaranteeHasTerm" data-args='[true]' class="flex-1 nav-tab text-xs px-3 py-1.5 font-semibold">Có thời hạn</button>
+            <button type="button" id="guaranteeHasTermNo" data-evt-click="setGuaranteeHasTerm" data-args='[false]' class="flex-1 nav-tab text-xs px-3 py-1.5 font-semibold">Vô thời hạn</button>
+          </div>
+        </div>
+        <div id="guaranteeTermDatesWrap" class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày hiệu lực</label>
+            <input id="guaranteeEffectiveDate" type="date" class="w-full border p-2 rounded text-sm">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày hết hạn</label>
+            <input id="guaranteeExpiryDate" type="date" class="w-full border p-2 rounded text-sm">
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Ghi chú</label>
+          <textarea id="guaranteeNote" rows="2" class="w-full border p-2 rounded text-sm"></textarea>
+        </div>
+        <div class="border rounded-lg p-3 bg-blue-50">
+          <label class="block text-xs font-bold text-blue-800 mb-1">📎 Đính kèm (chọn nhiều file)</label>
+          <input id="guaranteeFilesMain" type="file" multiple class="w-full text-xs">
+        </div>
+      </div>
+      <div class="p-5 border-t flex justify-end gap-2">
+        <button type="button" data-evt-click="closeGuaranteeModal" data-args='[]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
+        <button type="button" data-evt-click="saveGuarantee" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Gửi duyệt</button>
       </div>
     </div>
   </div>
@@ -4331,6 +4595,48 @@
               </label>
             </div>
             <div id="gDownloadDeptContainer" class="space-y-1 pl-1 max-h-36 overflow-y-auto"></div>
+          </div>
+          <div class="bg-white p-3 rounded border space-y-2">
+            <h4 class="font-bold text-orange-800 border-b pb-1 text-xs">6. Hợp đồng &amp; Bảo lãnh</h4>
+            <label class="flex items-center gap-2 text-orange-700 font-semibold cursor-pointer">
+              <input type="checkbox" id="gContractManager"> Người quản lý Hợp đồng (toàn quyền module)
+            </label>
+            <label class="flex items-center gap-2 text-orange-600 font-semibold cursor-pointer border-t pt-2">
+              <input type="checkbox" id="gContractCreator"> Người tạo Hợp đồng/Phụ lục/Bảo lãnh
+            </label>
+            <label class="flex items-center gap-2 text-indigo-700 font-semibold cursor-pointer border-t pt-2">
+              <input type="checkbox" id="gContractApprover"> Người duyệt Hợp đồng/Phụ lục/Bảo lãnh
+            </label>
+            <label class="flex items-center gap-2 text-rose-700 font-semibold cursor-pointer border-t pt-2">
+              <input type="checkbox" id="gContractSelfApprove"> Quyền tự phê duyệt do chính mình tạo
+            </label>
+            <label class="flex items-center gap-2 text-orange-500 font-semibold cursor-pointer border-t pt-2">
+              <input type="checkbox" id="gContractViewer"> Người xem Hợp đồng (chỉ xem)
+            </label>
+            <label class="flex items-center gap-2 text-orange-500 font-semibold cursor-pointer border-t pt-2">
+              <input type="checkbox" id="gContractDownloader"> Quyền tải file đính kèm
+            </label>
+            <label class="flex items-center gap-2 text-orange-500 font-semibold cursor-pointer border-t pt-2">
+              <input type="checkbox" id="gContractPrinter"> Quyền in Hợp đồng/Phụ lục/Bảo lãnh
+            </label>
+            <div class="border-t pt-2 space-y-1.5">
+              <div class="flex justify-between items-center">
+                <span class="font-semibold text-orange-700">Phạm vi Công ty được tạo</span>
+                <label class="flex items-center gap-1 font-bold text-orange-700 cursor-pointer text-[11px]">
+                  <input type="checkbox" id="gContractCompanyAll" data-evt-change="toggleScopeGroup" data-args='["gContractCompanyAll","gContractCompany"]'> ALL
+                </label>
+              </div>
+              <div id="gContractCompanyContainer" class="space-y-1 pl-1 max-h-28 overflow-y-auto"></div>
+            </div>
+            <div class="border-t pt-2 space-y-1.5">
+              <div class="flex justify-between items-center">
+                <span class="font-semibold text-orange-700">Phạm vi Phòng được tạo</span>
+                <label class="flex items-center gap-1 font-bold text-orange-700 cursor-pointer text-[11px]">
+                  <input type="checkbox" id="gContractDeptAll" data-evt-change="toggleScopeGroup" data-args='["gContractDeptAll","gContractDept"]'> ALL
+                </label>
+              </div>
+              <div id="gContractDeptContainer" class="space-y-1 pl-1 max-h-28 overflow-y-auto"></div>
+            </div>
           </div>
         </div>
       </div>

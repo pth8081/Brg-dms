@@ -9596,6 +9596,427 @@ app.get('/api/budget2/reports', requireAuth, requireBudgetReportViewOrAdmin, asy
     }
 });
 
+// ============================================================
+// MODULE QUẢN LÝ HỢP ĐỒNG & BẢO LÃNH PHÁT HÀNH — độc lập hoàn toàn với module
+// Tài liệu (không dùng luồng duyệt nhiều bước theo depts/deptWorkflows) và
+// License/Ngân sách, nhưng DÙNG CHUNG danh mục Công ty (lic_companies) và
+// Phòng ban (depts, có sẵn abbr dùng để sinh mã) — không tạo thêm danh mục
+// công ty/phòng ban thứ 3. Bộ quyền phẳng riêng lưu trong perms (JSON, không
+// cần bảng/cột riêng): contractCreator, contractApprover, contractSelfApprove
+// (TÁCH RIÊNG độc lập hoàn toàn, kể cả Admin không tự có — giống licenseSelf
+// Approve/budgetSelfApprove), contractViewer, contractDownloader,
+// contractPrinter (quyền CỘNG THÊM, không phải tầng thay thế Xem/Tải),
+// contractManager (toàn quyền module). Phạm vi TẠO (không phải phạm vi XEM):
+// contractCompanyAll/contractCompanies, contractDeptAll/contractDepts —
+// giới hạn Công ty/Phòng được chọn khi tạo Hợp đồng mới, mirror đúng cơ chế
+// uploadAll/uploadDepts của module Tài liệu (xem updateUploadDeptDropdown()
+// ở app.js) — nếu phạm vi chỉ gồm đúng 1 Công ty + 1 Phòng, client tự hiện
+// thẳng không cần chọn.
+// ============================================================
+
+function requireContractViewOrAdmin(req, res, next) {
+    const p = req.user && req.user.perms;
+    if (!p || !(p.admin || p.contractManager || p.contractCreator || p.contractApprover || p.contractSelfApprove || p.contractViewer || p.contractDownloader || p.contractPrinter)) {
+        return res.status(403).json({ error: 'Yêu cầu quyền truy cập module Hợp đồng & Bảo lãnh.' });
+    }
+    next();
+}
+function requireContractCreateOrAdmin(req, res, next) {
+    const p = req.user && req.user.perms;
+    if (!p || !(p.admin || p.contractManager || p.contractCreator)) {
+        return res.status(403).json({ error: 'Yêu cầu quyền Tạo hợp đồng & bảo lãnh.' });
+    }
+    next();
+}
+function requireContractApproveOrSelfOrAdmin(req, res, next) {
+    const p = req.user && req.user.perms;
+    if (!p || !(p.admin || p.contractManager || p.contractApprover || p.contractSelfApprove)) {
+        return res.status(403).json({ error: 'Yêu cầu quyền Duyệt hợp đồng & bảo lãnh.' });
+    }
+    next();
+}
+function requireContractDownloadOrAdmin(req, res, next) {
+    const p = req.user && req.user.perms;
+    if (!p || !(p.admin || p.contractManager || p.contractDownloader)) {
+        return res.status(403).json({ error: 'Yêu cầu quyền Tải tài liệu Hợp đồng & Bảo lãnh.' });
+    }
+    next();
+}
+
+// Phạm vi Công ty/Phòng được phép TẠO hợp đồng — null = không giới hạn (toàn
+// bộ hệ thống), mảng rỗng = không được tạo ở đâu cả.
+function getContractCompanyScope(perms) {
+    if (perms.admin || perms.contractManager || perms.contractCompanyAll) return null;
+    return Array.isArray(perms.contractCompanies) ? perms.contractCompanies.map(Number) : [];
+}
+function getContractDeptScope(perms) {
+    if (perms.admin || perms.contractManager || perms.contractDeptAll) return null;
+    return Array.isArray(perms.contractDepts) ? perms.contractDepts : [];
+}
+function canCreateContractFor(perms, companyId, deptName) {
+    const companies = getContractCompanyScope(perms);
+    const depts = getContractDeptScope(perms);
+    if (companies !== null && !companies.includes(Number(companyId))) return false;
+    if (depts !== null && !depts.includes(deptName)) return false;
+    return true;
+}
+
+// Sinh mã tự động kiểu "MAX số hậu tố hiện có + 1" trong đúng 1 bảng — giống
+// hệt cơ chế nextCodeForPrefix() ở app.post('/api/docs/upload'), KHÔNG dùng
+// bảng đếm riêng để tránh lệch số khi dữ liệu bị xoá (xoá 1 bản ghi giữa dãy
+// không làm số kế tiếp bị sinh trùng lại).
+async function nextContractCode(table, docTypePrefix, companyCode, deptAbbr) {
+    const prefix = `${docTypePrefix}-${companyCode}-${deptAbbr}-`;
+    const [rows] = await pool.query(`SELECT code FROM ${table} WHERE code LIKE ?`, [`${prefix}%`]);
+    let maxSeq = 0;
+    for (const r of rows) {
+        const n = parseInt(r.code.slice(prefix.length), 10);
+        if (Number.isFinite(n) && n > maxSeq) maxSeq = n;
+    }
+    return `${prefix}${String(maxSeq + 1).padStart(6, '0')}`;
+}
+
+function mapContract(c) { return { id: c.id, code: c.code, name: c.name, companyId: c.company_id, deptName: c.dept_name, counterparty: c.counterparty, contractDate: fmtDate(c.contract_date), value: c.value, note: c.note, status: c.status, createdBy: c.created_by, createdAt: c.created_at, approvedBy: c.approved_by, approvedAt: c.approved_at, rejectReason: c.reject_reason }; }
+function mapAddendum(a) { return { id: a.id, code: a.code, contractId: a.contract_id, name: a.name, addendumDate: fmtDate(a.addendum_date), note: a.note, status: a.status, createdBy: a.created_by, createdAt: a.created_at, approvedBy: a.approved_by, approvedAt: a.approved_at, rejectReason: a.reject_reason }; }
+function mapGuarantee(g) { return { id: g.id, code: g.code, contractId: g.contract_id, addendumId: g.addendum_id, parentGuaranteeId: g.parent_guarantee_id, replacesGuaranteeId: g.replaces_guarantee_id, name: g.name, issuer: g.issuer, value: g.value, note: g.note, hasTerm: !!g.has_term, effectiveDate: fmtDate(g.effective_date), expiryDate: fmtDate(g.expiry_date), status: g.status, createdBy: g.created_by, createdAt: g.created_at, approvedBy: g.approved_by, approvedAt: g.approved_at, rejectReason: g.reject_reason }; }
+function mapCtrAttachment(a) { return { id: a.id, recordType: a.record_type, recordId: a.record_id, attachmentGroup: a.attachment_group, fileName: a.file_name, uploadedBy: a.uploaded_by, uploadedAt: a.uploaded_at }; }
+
+app.get('/api/contracts/bootstrap', requireAuth, requireContractViewOrAdmin, async (req, res) => {
+    try {
+        const [companies] = await pool.query('SELECT id, name, code FROM lic_companies ORDER BY name');
+        const [depts] = await pool.query('SELECT name, abbr FROM depts ORDER BY name');
+        const [contracts] = await pool.query('SELECT * FROM ctr_contracts ORDER BY id DESC');
+        const [addendums] = await pool.query('SELECT * FROM ctr_addendums ORDER BY id DESC');
+        const [guarantees] = await pool.query('SELECT * FROM ctr_guarantees ORDER BY id DESC');
+        const [attachments] = await pool.query('SELECT * FROM ctr_attachments ORDER BY id DESC');
+        res.json({
+            companies: companies.map(c => ({ id: c.id, name: c.name, code: c.code })),
+            depts: depts.map(d => ({ name: d.name, abbr: d.abbr })),
+            contracts: contracts.map(mapContract),
+            addendums: addendums.map(mapAddendum),
+            guarantees: guarantees.map(mapGuarantee),
+            attachments: attachments.map(mapCtrAttachment),
+            createScope: { companyIds: getContractCompanyScope(req.user.perms), deptNames: getContractDeptScope(req.user.perms) }
+        });
+    } catch (err) {
+        console.error('❌ Lỗi tải dữ liệu Hợp đồng & Bảo lãnh:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.post('/api/contracts', requireAuth, requireContractCreateOrAdmin, async (req, res) => {
+    try {
+        const name = String((req.body && req.body.name) || '').trim();
+        const companyId = Number(req.body && req.body.companyId);
+        const deptName = String((req.body && req.body.deptName) || '').trim();
+        const counterparty = String((req.body && req.body.counterparty) || '').trim();
+        const contractDate = (req.body && req.body.contractDate) || null;
+        const value = (req.body && req.body.value !== undefined && req.body.value !== '') ? Number(req.body.value) : null;
+        const note = String((req.body && req.body.note) || '').trim();
+        if (!name) return res.status(400).json({ error: 'Vui lòng nhập tên hợp đồng.' });
+        if (!companyId) return res.status(400).json({ error: 'Vui lòng chọn Công ty.' });
+        if (!deptName) return res.status(400).json({ error: 'Vui lòng chọn Phòng.' });
+        if (!canCreateContractFor(req.user.perms, companyId, deptName)) {
+            return res.status(403).json({ error: 'Bạn không có quyền tạo hợp đồng cho Công ty/Phòng đã chọn.' });
+        }
+        const [[company]] = await pool.query('SELECT code FROM lic_companies WHERE id = ?', [companyId]);
+        if (!company) return res.status(400).json({ error: 'Công ty không tồn tại.' });
+        const [[dept]] = await pool.query('SELECT abbr FROM depts WHERE name = ?', [deptName]);
+        if (!dept) return res.status(400).json({ error: 'Phòng không tồn tại.' });
+        const code = await nextContractCode('ctr_contracts', 'HD', company.code, dept.abbr);
+        const now = new Date().toLocaleString('vi-VN');
+        const [result] = await pool.query(
+            `INSERT INTO ctr_contracts (code, name, company_id, dept_name, counterparty, contract_date, value, note, status, created_by, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
+            [code, name, companyId, deptName, counterparty || null, contractDate, value, note || null, req.user.username, now]
+        );
+        await writeAuditLog({ module: 'CONTRACT', actionType: 'CREATE_CONTRACT', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: code, description: `Tạo hợp đồng [${code}]: ${name}.` });
+        res.json({ success: true, id: result.insertId, code });
+    } catch (err) {
+        console.error('❌ Lỗi tạo hợp đồng:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+function registerContractApproveReject(entityPath, table, entityLabel, actionPrefix) {
+    app.post(`/api/contracts/${entityPath}/:id/approve`, requireAuth, requireContractApproveOrSelfOrAdmin, async (req, res) => {
+        try {
+            const [[rec]] = await pool.query(`SELECT * FROM ${table} WHERE id = ?`, [req.params.id]);
+            if (!rec) return res.status(404).json({ error: `Không tìm thấy ${entityLabel}.` });
+            if (rec.status !== 'PENDING') return res.status(400).json({ error: `${entityLabel} không ở trạng thái chờ duyệt.` });
+            if (rec.created_by === req.user.username) {
+                if (!req.user.perms.contractSelfApprove) return res.status(403).json({ error: `Không thể tự duyệt ${entityLabel} chính mình tạo — cần quyền "Tự phê duyệt" (contractSelfApprove).` });
+            } else if (!req.user.perms.admin && !req.user.perms.contractManager && !req.user.perms.contractApprover) {
+                return res.status(403).json({ error: 'Yêu cầu quyền Duyệt hợp đồng & bảo lãnh.' });
+            }
+            const now = new Date().toLocaleString('vi-VN');
+            await pool.query(`UPDATE ${table} SET status = 'APPROVED', approved_by = ?, approved_at = ?, reject_reason = NULL WHERE id = ?`, [req.user.username, now, rec.id]);
+            await writeAuditLog({ module: 'CONTRACT', actionType: `APPROVE_${actionPrefix}`, status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: rec.code, description: `Duyệt ${entityLabel} [${rec.code}].` });
+            res.json({ success: true });
+        } catch (err) {
+            console.error(`❌ Lỗi duyệt ${entityLabel}:`, err.message);
+            res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+        }
+    });
+    app.post(`/api/contracts/${entityPath}/:id/reject`, requireAuth, requireContractApproveOrSelfOrAdmin, async (req, res) => {
+        try {
+            const reason = String((req.body && req.body.reason) || '').trim();
+            const [[rec]] = await pool.query(`SELECT * FROM ${table} WHERE id = ?`, [req.params.id]);
+            if (!rec) return res.status(404).json({ error: `Không tìm thấy ${entityLabel}.` });
+            if (rec.status !== 'PENDING') return res.status(400).json({ error: `${entityLabel} không ở trạng thái chờ duyệt.` });
+            if (rec.created_by === req.user.username) {
+                if (!req.user.perms.contractSelfApprove) return res.status(403).json({ error: `Không thể tự xử lý ${entityLabel} chính mình tạo — cần quyền "Tự phê duyệt" (contractSelfApprove).` });
+            } else if (!req.user.perms.admin && !req.user.perms.contractManager && !req.user.perms.contractApprover) {
+                return res.status(403).json({ error: 'Yêu cầu quyền Duyệt hợp đồng & bảo lãnh.' });
+            }
+            const now = new Date().toLocaleString('vi-VN');
+            await pool.query(`UPDATE ${table} SET status = 'REJECTED', approved_by = ?, approved_at = ?, reject_reason = ? WHERE id = ?`, [req.user.username, now, reason || null, rec.id]);
+            await writeAuditLog({ module: 'CONTRACT', actionType: `REJECT_${actionPrefix}`, status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: rec.code, description: `Từ chối ${entityLabel} [${rec.code}]${reason ? `: ${reason}` : ''}.` });
+            res.json({ success: true });
+        } catch (err) {
+            console.error(`❌ Lỗi từ chối ${entityLabel}:`, err.message);
+            res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+        }
+    });
+}
+registerContractApproveReject('contracts', 'ctr_contracts', 'hợp đồng', 'CONTRACT');
+registerContractApproveReject('addendums', 'ctr_addendums', 'phụ lục', 'ADDENDUM');
+
+app.post('/api/contracts/addendums', requireAuth, requireContractCreateOrAdmin, async (req, res) => {
+    try {
+        const name = String((req.body && req.body.name) || '').trim();
+        const contractId = Number(req.body && req.body.contractId);
+        const addendumDate = (req.body && req.body.addendumDate) || null;
+        const note = String((req.body && req.body.note) || '').trim();
+        if (!name) return res.status(400).json({ error: 'Vui lòng nhập tên phụ lục.' });
+        if (!contractId) return res.status(400).json({ error: 'Vui lòng chọn Hợp đồng liên quan.' });
+        const [[contract]] = await pool.query('SELECT * FROM ctr_contracts WHERE id = ?', [contractId]);
+        if (!contract) return res.status(400).json({ error: 'Hợp đồng liên quan không tồn tại.' });
+        if (!canCreateContractFor(req.user.perms, contract.company_id, contract.dept_name)) {
+            return res.status(403).json({ error: 'Bạn không có quyền tạo phụ lục cho Hợp đồng thuộc Công ty/Phòng này.' });
+        }
+        const [[company]] = await pool.query('SELECT code FROM lic_companies WHERE id = ?', [contract.company_id]);
+        const [[dept]] = await pool.query('SELECT abbr FROM depts WHERE name = ?', [contract.dept_name]);
+        const code = await nextContractCode('ctr_addendums', 'PLHD', company.code, dept.abbr);
+        const now = new Date().toLocaleString('vi-VN');
+        const [result] = await pool.query(
+            `INSERT INTO ctr_addendums (code, contract_id, name, addendum_date, note, status, created_by, created_at) VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
+            [code, contractId, name, addendumDate, note || null, req.user.username, now]
+        );
+        await writeAuditLog({ module: 'CONTRACT', actionType: 'CREATE_ADDENDUM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: code, description: `Tạo phụ lục [${code}] cho hợp đồng [${contract.code}]: ${name}.` });
+        res.json({ success: true, id: result.insertId, code });
+    } catch (err) {
+        console.error('❌ Lỗi tạo phụ lục:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.post('/api/contracts/guarantees', requireAuth, requireContractCreateOrAdmin, async (req, res) => {
+    try {
+        const name = String((req.body && req.body.name) || '').trim();
+        let contractId = (req.body && req.body.contractId) ? Number(req.body.contractId) : null;
+        let addendumId = (req.body && req.body.addendumId) ? Number(req.body.addendumId) : null;
+        const parentGuaranteeId = (req.body && req.body.parentGuaranteeId) ? Number(req.body.parentGuaranteeId) : null;
+        const replacesGuaranteeId = (req.body && req.body.replacesGuaranteeId) ? Number(req.body.replacesGuaranteeId) : null;
+        const issuer = String((req.body && req.body.issuer) || '').trim();
+        const value = (req.body && req.body.value !== undefined && req.body.value !== '') ? Number(req.body.value) : null;
+        const note = String((req.body && req.body.note) || '').trim();
+        const hasTerm = !!(req.body && req.body.hasTerm);
+        const effectiveDate = (hasTerm && req.body.effectiveDate) ? req.body.effectiveDate : null;
+        const expiryDate = (hasTerm && req.body.expiryDate) ? req.body.expiryDate : null;
+
+        if (!name) return res.status(400).json({ error: 'Vui lòng nhập tên bảo lãnh.' });
+        if (hasTerm && (!effectiveDate || !expiryDate)) return res.status(400).json({ error: 'Bảo lãnh có thời hạn phải nhập đủ Ngày hiệu lực và Ngày hết hạn.' });
+
+        let parentGuarantee = null;
+        if (parentGuaranteeId) {
+            const [[pg]] = await pool.query('SELECT * FROM ctr_guarantees WHERE id = ?', [parentGuaranteeId]);
+            if (!pg) return res.status(400).json({ error: 'Bảo lãnh cha không tồn tại.' });
+            parentGuarantee = pg;
+            // Bảo lãnh con LUÔN gắn theo đúng Hợp đồng/Phụ lục của bảo lãnh cha — khóa, không cho chọn khác.
+            contractId = pg.contract_id;
+            addendumId = pg.addendum_id;
+        }
+        if (!contractId && !addendumId) return res.status(400).json({ error: 'Vui lòng chọn Hợp đồng hoặc Phụ lục để gắn bảo lãnh.' });
+        if (contractId && addendumId) return res.status(400).json({ error: 'Bảo lãnh chỉ được gắn với đúng 1 trong 2: Hợp đồng hoặc Phụ lục.' });
+
+        let companyId, deptName;
+        if (contractId) {
+            const [[c]] = await pool.query('SELECT * FROM ctr_contracts WHERE id = ?', [contractId]);
+            if (!c) return res.status(400).json({ error: 'Hợp đồng không tồn tại.' });
+            companyId = c.company_id; deptName = c.dept_name;
+        } else {
+            const [[a]] = await pool.query('SELECT * FROM ctr_addendums WHERE id = ?', [addendumId]);
+            if (!a) return res.status(400).json({ error: 'Phụ lục không tồn tại.' });
+            const [[c]] = await pool.query('SELECT * FROM ctr_contracts WHERE id = ?', [a.contract_id]);
+            if (!c) return res.status(400).json({ error: 'Hợp đồng gốc của phụ lục không tồn tại.' });
+            companyId = c.company_id; deptName = c.dept_name;
+        }
+        if (!canCreateContractFor(req.user.perms, companyId, deptName)) {
+            return res.status(403).json({ error: 'Bạn không có quyền tạo bảo lãnh cho Công ty/Phòng này.' });
+        }
+
+        let replacedGuarantee = null;
+        if (replacesGuaranteeId) {
+            const [[rg]] = await pool.query('SELECT * FROM ctr_guarantees WHERE id = ?', [replacesGuaranteeId]);
+            if (!rg) return res.status(400).json({ error: 'Bảo lãnh được thay thế không tồn tại.' });
+            if (rg.status !== 'APPROVED') return res.status(400).json({ error: 'Chỉ có thể thay thế 1 bảo lãnh đang ở trạng thái Đã duyệt.' });
+            replacedGuarantee = rg;
+        }
+
+        const [[company]] = await pool.query('SELECT code FROM lic_companies WHERE id = ?', [companyId]);
+        const [[dept]] = await pool.query('SELECT abbr FROM depts WHERE name = ?', [deptName]);
+        const code = await nextContractCode('ctr_guarantees', 'BLPH', company.code, dept.abbr);
+        const now = new Date().toLocaleString('vi-VN');
+        const [result] = await pool.query(
+            `INSERT INTO ctr_guarantees (code, contract_id, addendum_id, parent_guarantee_id, replaces_guarantee_id, name, issuer, value, note, has_term, effective_date, expiry_date, status, created_by, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
+            [code, contractId || null, addendumId || null, parentGuaranteeId || null, replacesGuaranteeId || null, name, issuer || null, value, note || null, hasTerm ? 1 : 0, effectiveDate, expiryDate, req.user.username, now]
+        );
+        await writeAuditLog({ module: 'CONTRACT', actionType: 'CREATE_GUARANTEE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: code, description: `Tạo bảo lãnh phát hành [${code}]: ${name}${parentGuarantee ? ` (bảo lãnh con của ${parentGuarantee.code})` : ''}${replacedGuarantee ? `, thay thế [${replacedGuarantee.code}]` : ''}.` });
+        res.json({ success: true, id: result.insertId, code });
+    } catch (err) {
+        console.error('❌ Lỗi tạo bảo lãnh phát hành:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.post('/api/contracts/guarantees/:id/approve', requireAuth, requireContractApproveOrSelfOrAdmin, async (req, res) => {
+    const conn = await pool.getConnection();
+    try {
+        await conn.beginTransaction();
+        const [[g]] = await conn.query('SELECT * FROM ctr_guarantees WHERE id = ? FOR UPDATE', [req.params.id]);
+        if (!g) { await conn.rollback(); return res.status(404).json({ error: 'Không tìm thấy bảo lãnh.' }); }
+        if (g.status !== 'PENDING') { await conn.rollback(); return res.status(400).json({ error: 'Bảo lãnh không ở trạng thái chờ duyệt.' }); }
+        if (g.created_by === req.user.username) {
+            if (!req.user.perms.contractSelfApprove) { await conn.rollback(); return res.status(403).json({ error: 'Không thể tự duyệt bảo lãnh chính mình tạo — cần quyền "Tự phê duyệt" (contractSelfApprove).' }); }
+        } else if (!req.user.perms.admin && !req.user.perms.contractManager && !req.user.perms.contractApprover) {
+            await conn.rollback();
+            return res.status(403).json({ error: 'Yêu cầu quyền Duyệt hợp đồng & bảo lãnh.' });
+        }
+        const now = new Date().toLocaleString('vi-VN');
+        await conn.query(`UPDATE ctr_guarantees SET status = 'APPROVED', approved_by = ?, approved_at = ?, reject_reason = NULL WHERE id = ?`, [req.user.username, now, g.id]);
+        // Bảo lãnh thay thế được duyệt → bảo lãnh CŨ tự động chuyển sang
+        // REPLACED (chỉ khi nó vẫn đang APPROVED — đã bị người khác thu hồi/từ
+        // chối thì giữ nguyên trạng thái đó, không ghi đè).
+        if (g.replaces_guarantee_id) {
+            await conn.query(`UPDATE ctr_guarantees SET status = 'REPLACED' WHERE id = ? AND status = 'APPROVED'`, [g.replaces_guarantee_id]);
+        }
+        await conn.commit();
+        await writeAuditLog({ module: 'CONTRACT', actionType: 'APPROVE_GUARANTEE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: g.code, description: `Duyệt bảo lãnh phát hành [${g.code}]${g.replaces_guarantee_id ? ' (tự động chuyển bảo lãnh cũ sang trạng thái Đã thay thế)' : ''}.` });
+        res.json({ success: true });
+    } catch (err) {
+        await conn.rollback();
+        console.error('❌ Lỗi duyệt bảo lãnh phát hành:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    } finally {
+        conn.release();
+    }
+});
+app.post('/api/contracts/guarantees/:id/reject', requireAuth, requireContractApproveOrSelfOrAdmin, async (req, res) => {
+    try {
+        const reason = String((req.body && req.body.reason) || '').trim();
+        const [[g]] = await pool.query('SELECT * FROM ctr_guarantees WHERE id = ?', [req.params.id]);
+        if (!g) return res.status(404).json({ error: 'Không tìm thấy bảo lãnh.' });
+        if (g.status !== 'PENDING') return res.status(400).json({ error: 'Bảo lãnh không ở trạng thái chờ duyệt.' });
+        if (g.created_by === req.user.username) {
+            if (!req.user.perms.contractSelfApprove) return res.status(403).json({ error: 'Không thể tự xử lý bảo lãnh chính mình tạo — cần quyền "Tự phê duyệt" (contractSelfApprove).' });
+        } else if (!req.user.perms.admin && !req.user.perms.contractManager && !req.user.perms.contractApprover) {
+            return res.status(403).json({ error: 'Yêu cầu quyền Duyệt hợp đồng & bảo lãnh.' });
+        }
+        const now = new Date().toLocaleString('vi-VN');
+        await pool.query(`UPDATE ctr_guarantees SET status = 'REJECTED', approved_by = ?, approved_at = ?, reject_reason = ? WHERE id = ?`, [req.user.username, now, reason || null, g.id]);
+        await writeAuditLog({ module: 'CONTRACT', actionType: 'REJECT_GUARANTEE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: g.code, description: `Từ chối bảo lãnh phát hành [${g.code}]${reason ? `: ${reason}` : ''}.` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi từ chối bảo lãnh phát hành:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+// --- Đính kèm multi-upload dùng chung CONTRACT/ADDENDUM/GUARANTEE — tái
+// dùng đúng middleware `upload` (multer memoryStorage) đã khai báo cho
+// /api/docs/upload. attachmentGroup=PROPOSAL ("Tờ trình đính kèm") chỉ áp
+// dụng CONTRACT/ADDENDUM.
+const CTR_RECORD_TABLES = { CONTRACT: 'ctr_contracts', ADDENDUM: 'ctr_addendums', GUARANTEE: 'ctr_guarantees' };
+app.post('/api/contracts/attachments', requireAuth, requireContractCreateOrAdmin, uploadLimiter, (req, res, next) => {
+    upload.array('files', 50)(req, res, (err) => {
+        if (err) {
+            if (err.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ error: `Kích thước file vượt quá giới hạn cho phép (${MAX_PDF_SIZE_MB}MB).` });
+            console.error('❌ Lỗi Multer khi tải đính kèm Hợp đồng/Bảo lãnh:', err.message);
+            return res.status(400).json({ error: 'Lỗi khi tải file lên, vui lòng kiểm tra lại file và thử lại.' });
+        }
+        next();
+    });
+}, async (req, res) => {
+    try {
+        const files = req.files || [];
+        if (files.length === 0) return res.status(400).json({ error: 'Chưa chọn file nào để tải lên.' });
+        const recordType = String((req.body && req.body.recordType) || '').toUpperCase();
+        const recordId = Number(req.body && req.body.recordId);
+        const attachmentGroup = (req.body && req.body.attachmentGroup === 'PROPOSAL') ? 'PROPOSAL' : 'MAIN';
+        const table = CTR_RECORD_TABLES[recordType];
+        if (!table || !recordId) return res.status(400).json({ error: 'Thiếu thông tin văn bản để đính kèm.' });
+        if (attachmentGroup === 'PROPOSAL' && recordType === 'GUARANTEE') return res.status(400).json({ error: '"Tờ trình đính kèm" chỉ áp dụng cho Hợp đồng/Phụ lục.' });
+        const [[record]] = await pool.query(`SELECT id FROM ${table} WHERE id = ?`, [recordId]);
+        if (!record) return res.status(404).json({ error: 'Không tìm thấy văn bản để đính kèm.' });
+
+        const subDir = 'contracts';
+        fs.mkdirSync(path.join(UPLOAD_DIR, subDir), { recursive: true });
+        const now = new Date().toLocaleString('vi-VN');
+        const saved = [];
+        for (const file of files) {
+            const safeExt = path.extname(file.originalname).slice(0, 10).replace(/[^a-zA-Z0-9.]/g, '');
+            const storedName = `${subDir}/${Date.now()}_${crypto.randomBytes(8).toString('hex')}${safeExt}`;
+            fs.writeFileSync(path.join(UPLOAD_DIR, storedName), file.buffer);
+            const [result] = await pool.query(
+                'INSERT INTO ctr_attachments (record_type, record_id, attachment_group, file_path, file_name, uploaded_by, uploaded_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                [recordType, recordId, attachmentGroup, storedName, file.originalname, req.user.username, now]
+            );
+            saved.push(mapCtrAttachment({ id: result.insertId, record_type: recordType, record_id: recordId, attachment_group: attachmentGroup, file_name: file.originalname, uploaded_by: req.user.username, uploaded_at: now }));
+        }
+        await writeAuditLog({ module: 'CONTRACT', actionType: 'UPLOAD_ATTACHMENT', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: `${recordType} #${recordId}`, description: `Đính kèm ${saved.length} file (${attachmentGroup === 'PROPOSAL' ? 'Tờ trình đính kèm' : 'Đính kèm'}) vào ${recordType} #${recordId}.` });
+        res.json({ success: true, attachments: saved });
+    } catch (err) {
+        console.error('❌ Lỗi tải đính kèm Hợp đồng/Bảo lãnh:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+app.delete('/api/contracts/attachments/:id', requireAuth, requireContractCreateOrAdmin, async (req, res) => {
+    try {
+        const [[att]] = await pool.query('SELECT * FROM ctr_attachments WHERE id = ?', [req.params.id]);
+        if (!att) return res.status(404).json({ error: 'Không tìm thấy file đính kèm.' });
+        await pool.query('DELETE FROM ctr_attachments WHERE id = ?', [req.params.id]);
+        fs.unlink(path.join(UPLOAD_DIR, att.file_path), () => {});
+        await writeAuditLog({ module: 'CONTRACT', actionType: 'DELETE_ATTACHMENT', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: att.file_name, description: `Xóa file đính kèm [${att.file_name}] khỏi ${att.record_type} #${att.record_id}.` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi xóa đính kèm:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+app.get('/api/contracts/attachments/:id/view', requireAuth, requireContractViewOrAdmin, async (req, res) => {
+    try {
+        const [[att]] = await pool.query('SELECT * FROM ctr_attachments WHERE id = ?', [req.params.id]);
+        if (!att) return res.status(404).json({ error: 'Không tìm thấy file.' });
+        res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(att.file_name)}"`);
+        res.sendFile(path.join(UPLOAD_DIR, att.file_path));
+    } catch (err) {
+        console.error('❌ Lỗi xem file đính kèm:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+app.get('/api/contracts/attachments/:id/download', requireAuth, requireContractDownloadOrAdmin, async (req, res) => {
+    try {
+        const [[att]] = await pool.query('SELECT * FROM ctr_attachments WHERE id = ?', [req.params.id]);
+        if (!att) return res.status(404).json({ error: 'Không tìm thấy file.' });
+        res.download(path.join(UPLOAD_DIR, att.file_path), att.file_name);
+    } catch (err) {
+        console.error('❌ Lỗi tải file đính kèm:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
 // (L5 - whole-app) Trước đây không có middleware xử lý lỗi tập trung — bất
 // kỳ lỗi nào ném RA NGOÀI khối try/catch của từng route (VD: JSON body gửi
 // lên bị lỗi cú pháp, express.json() tự ném lỗi TRƯỚC khi vào route handler)
