@@ -9642,6 +9642,17 @@ function requireContractDownloadOrAdmin(req, res, next) {
     }
     next();
 }
+// Thanh lý/Chấm dứt Hợp đồng — hành động "đóng" 1 hợp đồng đang hiệu lực,
+// CHỈ contractManager/Admin được bấm (không mở cho Creator/Approver/Self
+// Approve — khác với tạo/duyệt thông thường, vì đây là thao tác kết thúc
+// vĩnh viễn 1 hợp đồng, cần ở đúng cấp "toàn quyền module").
+function requireContractManagerOrAdmin(req, res, next) {
+    const p = req.user && req.user.perms;
+    if (!p || !(p.admin || p.contractManager)) {
+        return res.status(403).json({ error: 'Yêu cầu quyền Quản lý Hợp đồng & Bảo lãnh.' });
+    }
+    next();
+}
 
 // Phạm vi Công ty/Phòng được phép TẠO hợp đồng — null = không giới hạn (toàn
 // bộ hệ thống), mảng rỗng = không được tạo ở đâu cả.
@@ -9676,7 +9687,7 @@ async function nextContractCode(table, docTypePrefix, companyCode, deptAbbr) {
     return `${prefix}${String(maxSeq + 1).padStart(6, '0')}`;
 }
 
-function mapContract(c) { return { id: c.id, code: c.code, name: c.name, companyId: c.company_id, deptName: c.dept_name, counterparty: c.counterparty, contractDate: fmtDate(c.contract_date), value: c.value, note: c.note, status: c.status, createdBy: c.created_by, createdAt: c.created_at, approvedBy: c.approved_by, approvedAt: c.approved_at, rejectReason: c.reject_reason }; }
+function mapContract(c) { return { id: c.id, code: c.code, name: c.name, companyId: c.company_id, deptName: c.dept_name, counterparty: c.counterparty, contractDate: fmtDate(c.contract_date), expiryDate: fmtDate(c.expiry_date), value: c.value, note: c.note, status: c.status, createdBy: c.created_by, createdAt: c.created_at, approvedBy: c.approved_by, approvedAt: c.approved_at, rejectReason: c.reject_reason, terminatedBy: c.terminated_by, terminatedAt: c.terminated_at, terminateNote: c.terminate_note }; }
 function mapAddendum(a) { return { id: a.id, code: a.code, contractId: a.contract_id, name: a.name, addendumDate: fmtDate(a.addendum_date), note: a.note, status: a.status, createdBy: a.created_by, createdAt: a.created_at, approvedBy: a.approved_by, approvedAt: a.approved_at, rejectReason: a.reject_reason }; }
 function mapGuarantee(g) { return { id: g.id, code: g.code, contractId: g.contract_id, addendumId: g.addendum_id, parentGuaranteeId: g.parent_guarantee_id, replacesGuaranteeId: g.replaces_guarantee_id, name: g.name, issuer: g.issuer, value: g.value, note: g.note, hasTerm: !!g.has_term, effectiveDate: fmtDate(g.effective_date), expiryDate: fmtDate(g.expiry_date), status: g.status, createdBy: g.created_by, createdAt: g.created_at, approvedBy: g.approved_by, approvedAt: g.approved_at, rejectReason: g.reject_reason }; }
 function mapCtrAttachment(a) { return { id: a.id, recordType: a.record_type, recordId: a.record_id, attachmentGroup: a.attachment_group, fileName: a.file_name, uploadedBy: a.uploaded_by, uploadedAt: a.uploaded_at }; }
@@ -9711,6 +9722,7 @@ app.post('/api/contracts', requireAuth, requireContractCreateOrAdmin, async (req
         const deptName = String((req.body && req.body.deptName) || '').trim();
         const counterparty = String((req.body && req.body.counterparty) || '').trim();
         const contractDate = (req.body && req.body.contractDate) || null;
+        const expiryDate = (req.body && req.body.expiryDate) || null;
         const value = (req.body && req.body.value !== undefined && req.body.value !== '') ? Number(req.body.value) : null;
         const note = String((req.body && req.body.note) || '').trim();
         if (!name) return res.status(400).json({ error: 'Vui lòng nhập tên hợp đồng.' });
@@ -9726,9 +9738,9 @@ app.post('/api/contracts', requireAuth, requireContractCreateOrAdmin, async (req
         const code = await nextContractCode('ctr_contracts', 'HD', company.code, dept.abbr);
         const now = new Date().toLocaleString('vi-VN');
         const [result] = await pool.query(
-            `INSERT INTO ctr_contracts (code, name, company_id, dept_name, counterparty, contract_date, value, note, status, created_by, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
-            [code, name, companyId, deptName, counterparty || null, contractDate, value, note || null, req.user.username, now]
+            `INSERT INTO ctr_contracts (code, name, company_id, dept_name, counterparty, contract_date, expiry_date, value, note, status, created_by, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
+            [code, name, companyId, deptName, counterparty || null, contractDate, expiryDate, value, note || null, req.user.username, now]
         );
         await writeAuditLog({ module: 'CONTRACT', actionType: 'CREATE_CONTRACT', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: code, description: `Tạo hợp đồng [${code}]: ${name}.` });
         res.json({ success: true, id: result.insertId, code });
@@ -9807,6 +9819,25 @@ app.post('/api/contracts/addendums', requireAuth, requireContractCreateOrAdmin, 
         res.json({ success: true, id: result.insertId, code });
     } catch (err) {
         console.error('❌ Lỗi tạo phụ lục:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.post('/api/contracts/:id/terminate', requireAuth, requireContractManagerOrAdmin, async (req, res) => {
+    try {
+        const note = String((req.body && req.body.note) || '').trim();
+        const [[contract]] = await pool.query('SELECT * FROM ctr_contracts WHERE id = ?', [req.params.id]);
+        if (!contract) return res.status(404).json({ error: 'Không tìm thấy hợp đồng.' });
+        if (contract.status !== 'APPROVED') return res.status(400).json({ error: 'Chỉ thanh lý được hợp đồng đang ở trạng thái Đã duyệt.' });
+        const now = new Date().toLocaleString('vi-VN');
+        await pool.query(
+            `UPDATE ctr_contracts SET status = 'TERMINATED', terminated_by = ?, terminated_at = ?, terminate_note = ? WHERE id = ?`,
+            [req.user.username, now, note || null, contract.id]
+        );
+        await writeAuditLog({ module: 'CONTRACT', actionType: 'TERMINATE_CONTRACT', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: contract.code, description: `Thanh lý/Chấm dứt hợp đồng [${contract.code}]${note ? `: ${note}` : '.'}` });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('❌ Lỗi thanh lý hợp đồng:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });

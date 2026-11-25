@@ -594,6 +594,10 @@
         if ((fnName === 'approveContract' || fnName === 'approveAddendum' || fnName === 'approveGuarantee') && p.contractSelfApprove) return null;
         return (p.contractManager || p.contractApprover) ? null : 'contract';
       }
+      // Thanh lý/Chấm dứt Hợp đồng — CHỈ contractManager (không mở cho
+      // Creator/Approver/SelfApprove như các hành động khác ở trên), khớp
+      // đúng requireContractManagerOrAdmin() ở server.js.
+      if (fnName === 'terminateContract') return p.contractManager ? null : 'contract';
       if (VIEWER_BLOCKED_ACTIONS.contract.has(fnName) && !p.contractManager && !p.contractCreator) return 'contract';
       return null;
     }
@@ -12395,6 +12399,7 @@ function isPerpetualSoftware(softwareId) {
       if (status === 'APPROVED') return `<span class="text-[10px] font-bold text-success-700 bg-success-100 px-2 py-0.5 rounded-full whitespace-nowrap">Đã duyệt</span>`;
       if (status === 'REJECTED') return `<span class="text-[10px] font-bold text-danger-700 bg-danger-100 px-2 py-0.5 rounded-full whitespace-nowrap">Từ chối</span>`;
       if (status === 'REPLACED') return `<span class="text-[10px] font-bold text-gray-600 bg-gray-200 px-2 py-0.5 rounded-full whitespace-nowrap">Đã thay thế</span>`;
+      if (status === 'TERMINATED') return `<span class="text-[10px] font-bold text-slate-700 bg-slate-200 px-2 py-0.5 rounded-full whitespace-nowrap">Đã thanh lý</span>`;
       return `<span class="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full whitespace-nowrap">Chờ duyệt</span>`;
     }
     function canApproveContractItem(item) {
@@ -12406,6 +12411,10 @@ function isPerpetualSoftware(softwareId) {
     function canWriteContract() {
       const p = currentUser.perms;
       return !!(p.admin || p.contractManager || p.contractCreator);
+    }
+    function canTerminateContract() {
+      const p = currentUser.perms;
+      return !!(p.admin || p.contractManager);
     }
     function canDownloadContractAttachment() {
       const p = currentUser.perms;
@@ -12464,17 +12473,22 @@ function isPerpetualSoftware(softwareId) {
         const pendingActions = c.status === 'PENDING' && canApproveContractItem(c)
           ? `<button ${dc('approveContract', c.id)} class="text-xs font-bold text-white bg-green-600 hover:bg-green-700 px-2.5 py-1 rounded">✓ Duyệt</button><button ${dc('rejectContract', c.id)} class="text-xs font-bold text-white bg-red-600 hover:bg-red-700 px-2.5 py-1 rounded">✕ Từ chối</button>`
           : '';
+        const terminateAction = c.status === 'APPROVED' && canTerminateContract()
+          ? `<button ${dc('terminateContract', c.id)} class="text-xs font-bold text-slate-600 border border-slate-300 hover:bg-slate-100 px-2.5 py-1 rounded">🔒 Thanh lý</button>`
+          : '';
         return `
           <div class="bg-white border rounded-xl p-4 shadow-sm">
             <div class="flex flex-wrap justify-between items-start gap-2">
               <div>
                 <div class="font-mono text-[11px] text-gray-400">${escapeHtml(c.code)}</div>
                 <div class="font-bold text-gray-800">${escapeHtml(c.name)} ${contractStatusBadge(c.status)}</div>
-                <div class="text-xs text-gray-500 mt-1">${escapeHtml(companyNameById(c.companyId))} · ${escapeHtml(c.deptName)}${c.counterparty ? ' · Đối tác: ' + escapeHtml(c.counterparty) : ''}${c.contractDate ? ' · Ký ngày ' + escapeHtml(fmtDateVN(c.contractDate)) : ''}${c.value ? ' · ' + formatMoney(c.value) : ''}</div>
+                <div class="text-xs text-gray-500 mt-1">${escapeHtml(companyNameById(c.companyId))} · ${escapeHtml(c.deptName)}${c.counterparty ? ' · Đối tác: ' + escapeHtml(c.counterparty) : ''}${c.contractDate ? ' · Ký ngày ' + escapeHtml(fmtDateVN(c.contractDate)) : ''}${c.expiryDate ? ' · Hết hạn ' + escapeHtml(fmtDateVN(c.expiryDate)) : ''}${c.value ? ' · ' + formatMoney(c.value) : ''}</div>
                 ${c.status === 'REJECTED' && c.rejectReason ? `<div class="text-xs text-red-600 mt-1">Lý do từ chối: ${escapeHtml(c.rejectReason)}</div>` : ''}
+                ${c.status === 'TERMINATED' ? `<div class="text-xs text-slate-600 mt-1">Đã thanh lý bởi ${escapeHtml(c.terminatedBy || '')} lúc ${escapeHtml(c.terminatedAt || '')}${c.terminateNote ? ' — ' + escapeHtml(c.terminateNote) : ''}</div>` : ''}
               </div>
               <div class="flex gap-1.5 items-center flex-wrap justify-end">
                 ${pendingActions}
+                ${terminateAction}
                 <button ${dc('toggleContractExpand', c.id)} class="text-xs font-semibold text-gray-600 hover:underline px-2 py-1">${expanded ? '▾ Thu gọn' : '▸ Chi tiết'}</button>
               </div>
             </div>
@@ -12621,6 +12635,7 @@ function isPerpetualSoftware(softwareId) {
       document.getElementById('contractName').value = '';
       document.getElementById('contractCounterparty').value = '';
       document.getElementById('contractDate').value = '';
+      document.getElementById('contractExpiryDate').value = '';
       document.getElementById('contractValue').value = '';
       document.getElementById('contractNote').value = '';
       document.getElementById('contractFilesMain').value = '';
@@ -12643,6 +12658,7 @@ function isPerpetualSoftware(softwareId) {
             name, companyId: Number(companyId), deptName,
             counterparty: document.getElementById('contractCounterparty').value.trim(),
             contractDate: document.getElementById('contractDate').value || null,
+            expiryDate: document.getElementById('contractExpiryDate').value || null,
             value: document.getElementById('contractValue').value || null,
             note: document.getElementById('contractNote').value.trim()
           })
@@ -12799,5 +12815,19 @@ function isPerpetualSoftware(softwareId) {
         await reloadContractData();
         renderContractList();
         if (!document.getElementById('contractSubGuarantees').classList.contains('hidden')) renderGuaranteeFlatList();
+      } catch (err) { showToast(err.message, 'danger'); }
+    }
+
+    // --- Thanh lý/Chấm dứt Hợp đồng (một chiều, CHỈ contractManager/Admin) ---
+    async function terminateContract(id) {
+      const note = await showPrompt({ title: 'Thanh lý Hợp đồng', message: 'Ghi chú thanh lý (tùy chọn):', placeholder: 'VD: hai bên đã tất toán, chấm dứt trước hạn...' });
+      if (note === null) return;
+      const ok = await showConfirm({ title: 'Thanh lý Hợp đồng', message: 'Xác nhận thanh lý/chấm dứt hợp đồng này? Không thể hoàn tác.', danger: true, confirmText: 'Thanh lý' });
+      if (!ok) return;
+      try {
+        await apiFetch(`/api/contracts/${id}/terminate`, { method: 'POST', body: JSON.stringify({ note }) });
+        showToast('Đã thanh lý hợp đồng.', 'success');
+        await reloadContractData();
+        renderContractList();
       } catch (err) { showToast(err.message, 'danger'); }
     }

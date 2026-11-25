@@ -1094,6 +1094,14 @@ CREATE TABLE IF NOT EXISTS ctr_contracts (
 CALL create_index_if_not_exists('ctr_contracts', 'idx_ctr_contracts_company', 'company_id');
 CALL create_index_if_not_exists('ctr_contracts', 'idx_ctr_contracts_status', 'status');
 
+-- Thanh lý/Chấm dứt hợp đồng (trạng thái TERMINATED, một chiều, chỉ áp dụng
+-- cho hợp đồng đang APPROVED) — Phụ lục/Bảo lãnh gắn vào vẫn giữ nguyên, chỉ
+-- đánh dấu bản thân Hợp đồng đã kết thúc, không xóa lịch sử.
+CALL add_column_if_not_exists('ctr_contracts', 'expiry_date', 'DATE NULL DEFAULT NULL');
+CALL add_column_if_not_exists('ctr_contracts', 'terminated_by', 'VARCHAR(100) NULL DEFAULT NULL');
+CALL add_column_if_not_exists('ctr_contracts', 'terminated_at', 'VARCHAR(100) NULL DEFAULT NULL');
+CALL add_column_if_not_exists('ctr_contracts', 'terminate_note', 'VARCHAR(500) NULL DEFAULT NULL');
+
 -- Phụ lục hợp đồng — bắt buộc gắn đúng 1 Hợp đồng đã tồn tại.
 CREATE TABLE IF NOT EXISTS ctr_addendums (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,

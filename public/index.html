@@ -2669,9 +2669,15 @@
             <input id="contractDate" type="date" class="w-full border p-2 rounded text-sm">
           </div>
         </div>
-        <div>
-          <label class="block text-xs font-semibold text-gray-600 mb-1">Giá trị hợp đồng (VNĐ)</label>
-          <input id="contractValue" type="number" min="0" class="w-full border p-2 rounded text-sm">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Ngày hết hạn <span class="text-gray-400 font-normal">(tùy chọn)</span></label>
+            <input id="contractExpiryDate" type="date" class="w-full border p-2 rounded text-sm">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Giá trị hợp đồng (VNĐ)</label>
+            <input id="contractValue" type="number" min="0" class="w-full border p-2 rounded text-sm">
+          </div>
         </div>
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Ghi chú</label>
