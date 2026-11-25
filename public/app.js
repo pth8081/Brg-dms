@@ -12609,6 +12609,24 @@ function isPerpetualSoftware(softwareId) {
         if (!document.getElementById('contractSubGuarantees').classList.contains('hidden')) renderGuaranteeFlatList();
       } catch (err) { showToast(err.message, 'danger'); }
     }
+    // "⬇ Tải" ngay trong cột Thao tác của bảng Bảo lãnh (phản hồi người dùng:
+    // trước đây phải bấm "Xem" rồi mới thấy icon tải nhỏ cạnh từng file, dễ bị
+    // bỏ qua). 1 file → tải thẳng; nhiều file → mở "Xem" để chọn đúng file.
+    function downloadGuaranteeAttachment(id) {
+      const atts = ContractDB.attachments.filter(a => a.recordType === 'GUARANTEE' && a.recordId === id);
+      if (atts.length === 0) return showToast('Bảo lãnh này chưa có file đính kèm.', 'warning');
+      if (atts.length === 1) {
+        const a = document.createElement('a');
+        a.href = `/api/contracts/attachments/${atts[0].id}/download`;
+        a.download = atts[0].fileName || '';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        return;
+      }
+      showToast('Bảo lãnh có nhiều file đính kèm — chọn file cần tải trong phần "Xem".', 'info');
+      openGuaranteeViewModal(id);
+    }
     async function uploadContractAttachmentFiles(recordType, recordId, inputEl, group) {
       if (!inputEl || !inputEl.files || inputEl.files.length === 0) return;
       const fd = new FormData();
@@ -12776,9 +12794,10 @@ function isPerpetualSoftware(softwareId) {
         const canDecide = g.status === 'PENDING' && canApproveContractItem(g);
         const deleteAction = currentUser.perms.admin ? `<button ${dc('deleteGuarantee', g.id)} class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-700 text-[11px] font-semibold">🗑 Xóa</button>` : '';
         const viewAction = `<button ${dc('openGuaranteeViewModal', g.id)} class="px-1.5 py-0.5 rounded hover:bg-blue-100 text-blue-700 text-[11px] font-semibold">👁 Xem</button>`;
+        const downloadAction = canDownloadContractAttachment() ? `<button ${dc('downloadGuaranteeAttachment', g.id)} class="px-1.5 py-0.5 rounded hover:bg-emerald-100 text-emerald-700 text-[11px] font-semibold">⬇ Tải</button>` : '';
         const printAction = canPrintContract() ? `<button ${dc('printContractRecord', 'guarantee', g.id)} class="px-1.5 py-0.5 rounded hover:bg-indigo-100 text-indigo-700 text-[11px] font-semibold">🖨️ In</button>` : '';
         const decideAction = canDecide ? `<button ${dc('approveGuarantee', g.id)} class="px-1.5 py-0.5 rounded hover:bg-green-100 text-green-700 text-[11px] font-semibold">Duyệt</button><button ${dc('rejectGuarantee', g.id)} class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600 text-[11px] font-semibold">Từ chối</button>` : '';
-        const actions = `${decideAction}${viewAction}${printAction}${deleteAction}`;
+        const actions = `${decideAction}${viewAction}${downloadAction}${printAction}${deleteAction}`;
         return `<tr class="hover:bg-gray-50">
           <td class="border p-2 font-mono text-[11px]">${escapeHtml(g.code)}</td>
           <td class="border p-2">${escapeHtml(g.name)}</td>
