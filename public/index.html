@@ -330,7 +330,7 @@
 
       <div id="uploadBox" class="bg-blue-50 p-4 rounded border border-blue-200 hidden">
         <h3 class="font-bold mb-1 text-blue-900 flex items-center gap-2">
-          📄 Tải Lên Tài Liệu (chỉ chấp nhận file PDF)
+          📄 Tải Lên Tài Liệu (<span id="docUploadAllowedExtLabel">chỉ chấp nhận file PDF</span>)
         </h3>
         <p class="text-xs text-blue-700 mb-1 font-semibold">Hệ thống áp dụng phân quyền upload theo từng Phòng ban mà bạn được phân công. Mã tài liệu và phiên bản do hệ thống tự sinh.</p>
 
@@ -585,6 +585,52 @@
           <div class="md:col-span-4 flex flex-col sm:flex-row justify-between sm:items-center gap-2 pt-1">
             <span class="text-gray-500 italic text-[11px]">Dùng LDAP Server URL ở trên. Tài khoản dịch vụ cần quyền duyệt (search) thư mục trong Base DN. Hệ thống tự đồng bộ hàng ngày, có thể bấm "Đồng bộ ngay" ở tab Tài khoản AD để chạy thử ngay.</span>
             <button type="submit" class="shrink-0 btn-primary px-4 py-1.5 rounded font-bold">Lưu Cấu Hình Đồng Bộ AD</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="bg-emerald-50 p-4 rounded border border-emerald-300 space-y-4">
+        <h3 class="font-bold text-emerald-900 text-sm flex items-center gap-1">📎 Cấu Hình Loại File Được Phép Tải Lên</h3>
+        <p class="text-[11px] text-emerald-800">Áp dụng cho mọi lượt tải file lên hệ thống (mọi user, không chỉ Admin) — mỗi module có danh sách riêng. Bỏ trống/chọn "Không giới hạn" nghĩa là chấp nhận mọi loại file.</p>
+
+        <form data-evt-submit="saveDocUploadConfig" data-args='[{"__live__":"event"}]' class="bg-white p-3 rounded border text-xs space-y-2">
+          <div class="flex items-center justify-between gap-2 flex-wrap">
+            <label class="font-bold text-gray-700">📄 Quản Lý Tài Liệu</label>
+            <select id="cfgDocUploadMode" data-evt-change="onCfgUploadModeChange" data-args='["doc"]' class="border p-1.5 rounded bg-white font-semibold text-xs">
+              <option value="restricted">🔒 Giới hạn — chỉ cho phép các loại dưới đây</option>
+              <option value="unrestricted">🔓 Không giới hạn (cho phép mọi loại file)</option>
+            </select>
+          </div>
+          <div id="cfgDocUploadExtBox" class="space-y-2">
+            <div id="cfgDocUploadExtGroups" class="flex flex-wrap gap-3"></div>
+            <div>
+              <label class="block font-semibold text-gray-600 mb-1">Đuôi file khác (phân tách bằng dấu phẩy, VD: dwg, dxf)</label>
+              <input id="cfgDocUploadExtCustom" placeholder="dwg, dxf" class="w-full border p-1.5 rounded">
+            </div>
+          </div>
+          <p class="text-[10px] text-gray-500">⚠️ Đóng dấu bản quyền tự động và kiểm tra nội dung thật (magic bytes) hiện chỉ áp dụng được cho PDF. Các loại file khác chỉ kiểm tra theo đuôi/magic bytes cơ bản, không đóng dấu bản quyền.</p>
+          <div class="flex justify-end pt-1">
+            <button type="submit" class="shrink-0 btn-primary px-4 py-1.5 rounded font-bold">Lưu Cấu Hình — Tài Liệu</button>
+          </div>
+        </form>
+
+        <form data-evt-submit="saveContractUploadConfig" data-args='[{"__live__":"event"}]' class="bg-white p-3 rounded border text-xs space-y-2">
+          <div class="flex items-center justify-between gap-2 flex-wrap">
+            <label class="font-bold text-gray-700">📑 Hợp Đồng & Bảo Lãnh Phát Hành</label>
+            <select id="cfgContractUploadMode" data-evt-change="onCfgUploadModeChange" data-args='["contract"]' class="border p-1.5 rounded bg-white font-semibold text-xs">
+              <option value="unrestricted">🔓 Không giới hạn (cho phép mọi loại file)</option>
+              <option value="restricted">🔒 Giới hạn — chỉ cho phép các loại dưới đây</option>
+            </select>
+          </div>
+          <div id="cfgContractUploadExtBox" class="space-y-2">
+            <div id="cfgContractUploadExtGroups" class="flex flex-wrap gap-3"></div>
+            <div>
+              <label class="block font-semibold text-gray-600 mb-1">Đuôi file khác (phân tách bằng dấu phẩy, VD: dwg, dxf)</label>
+              <input id="cfgContractUploadExtCustom" placeholder="dwg, dxf" class="w-full border p-1.5 rounded">
+            </div>
+          </div>
+          <div class="flex justify-end pt-1">
+            <button type="submit" class="shrink-0 btn-primary px-4 py-1.5 rounded font-bold">Lưu Cấu Hình — Hợp Đồng & Bảo Lãnh</button>
           </div>
         </form>
       </div>

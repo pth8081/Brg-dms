@@ -1207,5 +1207,6 @@ ON DUPLICATE KEY UPDATE name=name;
 
 INSERT INTO sync_versions (table_name, version) VALUES
 ('users', 1), ('depts', 1), ('cats', 1), ('workflows', 1),
-('deptWorkflows', 1), ('emailConfig', 1), ('ldapConfig', 1)
+('deptWorkflows', 1), ('emailConfig', 1), ('ldapConfig', 1),
+('docUploadConfig', 1), ('contractUploadConfig', 1)
 ON DUPLICATE KEY UPDATE table_name=table_name;

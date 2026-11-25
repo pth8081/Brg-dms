@@ -255,6 +255,16 @@ async function ensureSchemaMigrations() {
     await ensureColumnExists('lic_purchase_registrations', 'correction_reason', 'VARCHAR(500) NULL DEFAULT NULL');
     await ensureColumnExists('lic_purchase_registrations', 'correction_requested_by', 'VARCHAR(100) NULL DEFAULT NULL');
     await ensureColumnExists('lic_purchase_registrations', 'correction_requested_at', 'VARCHAR(100) NULL DEFAULT NULL');
+    // Bảng cấu hình mới (docUploadConfig/contractUploadConfig) BẮT BUỘC phải
+    // có sẵn dòng version trong sync_versions TRƯỚC lần lưu đầu tiên — nếu
+    // không, baseVersion phía client sẽ là "chưa có" (undefined) trong khi
+    // checkAndBumpSyncVersion() mặc định current=1 khi chưa có dòng, khiến
+    // lần lưu đầu tiên luôn báo nhầm "dữ liệu vừa bị người khác cập nhật"
+    // (409) dù chưa ai từng lưu. Seed sẵn version=1, cùng lý do/cơ chế với
+    // ensureColumnExists ở trên (schema.sql không tự chạy lại mỗi lần deploy).
+    await pool.query(
+        "INSERT INTO sync_versions (table_name, version) VALUES ('docUploadConfig', 1), ('contractUploadConfig', 1) ON DUPLICATE KEY UPDATE table_name = table_name"
+    ).catch(err => console.error('❌ Lỗi tự khởi tạo sync_versions cho cấu hình loại file tải lên:', err.message));
 }
 
 let pool;
@@ -2083,6 +2093,27 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
                     orgUnitAttr: raw.orgUnitAttr || ''
                 };
             })() : {},
+            // Khác với emailConfig/ldapConfig (chỉ Admin cần, chứa thông tin hạ
+            // tầng nhạy cảm) — danh sách loại file được phép tải lên không nhạy
+            // cảm và MỌI user đăng nhập đều cần biết (để hiển thị "accept" đúng
+            // ở ô chọn file + thông báo lỗi rõ ràng khi họ tự tải lên, không chỉ
+            // riêng Admin xem màn cấu hình).
+            docUploadConfig: {
+                allowedExt: (() => {
+                    const raw = configMap.docUploadConfig
+                        ? (typeof configMap.docUploadConfig === 'string' ? JSON.parse(configMap.docUploadConfig) : configMap.docUploadConfig)
+                        : {};
+                    return Array.isArray(raw.allowedExt) ? raw.allowedExt : ['pdf'];
+                })()
+            },
+            contractUploadConfig: {
+                allowedExt: (() => {
+                    const raw = configMap.contractUploadConfig
+                        ? (typeof configMap.contractUploadConfig === 'string' ? JSON.parse(configMap.contractUploadConfig) : configMap.contractUploadConfig)
+                        : {};
+                    return Array.isArray(raw.allowedExt) ? raw.allowedExt : [];
+                })()
+            },
             systemLogs: logs,
             syncVersions,
             maxPdfSizeMB: MAX_PDF_SIZE_MB
@@ -2094,13 +2125,13 @@ app.get('/api/bootstrap', requireAuth, async (req, res) => {
 });
 
 // Các bảng cấu hình hệ thống chỉ Admin mới được ghi
-const ADMIN_ONLY_TABLES = new Set(['users', 'workflows', 'depts', 'cats', 'deptWorkflows', 'emailConfig', 'ldapConfig']);
+const ADMIN_ONLY_TABLES = new Set(['users', 'workflows', 'depts', 'cats', 'deptWorkflows', 'emailConfig', 'ldapConfig', 'docUploadConfig', 'contractUploadConfig']);
 // system_logs KHÔNG còn nằm trong danh sách này — bảng log dùng route riêng
 // (POST/DELETE /api/logs) thay vì cơ chế sync-theo-mảng chung, vì kiểu sync
 // "so sánh ID để suy luận có xoá hay không" vốn dùng cho các bảng nhỏ/toàn bộ
 // dữ liệu tải hết 1 lần sẽ PHÁ HUỶ log khi bảng thật đã vượt quá 300 dòng
 // (bootstrap chỉ tải 300 log mới nhất) — xem route mới bên dưới để biết lý do.
-const KNOWN_TABLES = new Set(['docs', 'users', 'depts', 'cats', 'workflows', 'deptWorkflows', 'emailConfig', 'ldapConfig']);
+const KNOWN_TABLES = new Set(['docs', 'users', 'depts', 'cats', 'workflows', 'deptWorkflows', 'emailConfig', 'ldapConfig', 'docUploadConfig', 'contractUploadConfig']);
 const MAX_SYNC_ROWS = 5000;
 
 // (CONCURRENCY-01) Các bảng "xóa-chèn-lại/ghi đè toàn bộ theo snapshot client
@@ -2113,7 +2144,7 @@ const MAX_SYNC_ROWS = 5000;
 // xem nhánh `table === 'docs'` bên dưới) — áp dụng nguyên tắc tương tự nhưng ở
 // mức "phiên bản nguyên" cho các bảng còn lại, vì các bảng này ghi đè theo toàn
 // bộ snapshot chứ không theo từng dòng riêng lẻ như docs.
-const SYNC_VERSIONED_TABLES = new Set(['users', 'depts', 'cats', 'workflows', 'deptWorkflows', 'emailConfig', 'ldapConfig']);
+const SYNC_VERSIONED_TABLES = new Set(['users', 'depts', 'cats', 'workflows', 'deptWorkflows', 'emailConfig', 'ldapConfig', 'docUploadConfig', 'contractUploadConfig']);
 class SyncVersionConflictError extends Error {
     constructor(message) { super(message); this.syncConflict = true; }
 }
@@ -2406,6 +2437,61 @@ function validatePdfUpload(fileName, fileType, buffer) {
     return null; // hợp lệ
 }
 
+// --- Cấu hình loại file được phép tải lên (Quản lý Tài liệu /
+// Hợp đồng & Bảo lãnh — mỗi module 1 danh sách riêng, Admin tự cấu hình ở
+// màn Hệ thống). Lưu dạng { allowedExt: ['pdf', 'docx', ...] } trong
+// app_configs — allowedExt RỖNG nghĩa là KHÔNG giới hạn (cho phép mọi loại
+// file), giữ đúng hành vi hiện tại của module Hợp đồng & Bảo lãnh cho tới khi
+// Admin chủ động cấu hình. Vẫn giữ zero-trust: so khớp magic bytes thật ở đầu
+// file với đuôi file khai báo cho các loại phổ biến đã biết chữ ký — loại nào
+// Admin tự thêm vào (không có trong danh sách chữ ký dưới đây) chỉ kiểm tra
+// theo đuôi file, không chặn được hẳn nội dung giả mạo nhưng vẫn tốt hơn hiện
+// trạng (module Hợp đồng & Bảo lãnh trước đây không kiểm tra gì cả).
+const EXT_MAGIC_SIGNATURES = {
+    pdf: [Buffer.from('%PDF-', 'ascii')],
+    docx: [Buffer.from([0x50, 0x4B, 0x03, 0x04])],
+    xlsx: [Buffer.from([0x50, 0x4B, 0x03, 0x04])],
+    pptx: [Buffer.from([0x50, 0x4B, 0x03, 0x04])],
+    zip: [Buffer.from([0x50, 0x4B, 0x03, 0x04])],
+    doc: [Buffer.from([0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1])],
+    xls: [Buffer.from([0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1])],
+    ppt: [Buffer.from([0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1])],
+    jpg: [Buffer.from([0xFF, 0xD8, 0xFF])],
+    jpeg: [Buffer.from([0xFF, 0xD8, 0xFF])],
+    png: [Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])],
+    gif: [Buffer.from('GIF8', 'ascii')],
+    rar: [Buffer.from([0x52, 0x61, 0x72, 0x21, 0x1A, 0x07])]
+};
+
+function getFileExt(fileName) {
+    const m = /\.([a-zA-Z0-9]+)$/.exec(String(fileName || '').trim());
+    return m ? m[1].toLowerCase() : '';
+}
+
+// Kiểm tra 1 file (không phải PDF — PDF luôn đi qua validatePdfUpload +
+// watermark riêng) theo danh sách đuôi được phép + chữ ký magic bytes (nếu
+// biết). Trả về null nếu hợp lệ, hoặc chuỗi lỗi tiếng Việt nếu không.
+function validateUploadExtAndMagicBytes(fileName, buffer, allowedExt) {
+    const ext = getFileExt(fileName);
+    if (!ext) return 'Tên file phải có đuôi mở rộng.';
+    if (Array.isArray(allowedExt) && allowedExt.length > 0 && !allowedExt.includes(ext)) {
+        return `Định dạng file ".${ext}" không được phép tải lên (chỉ nhận: ${allowedExt.map(e => '.' + e).join(', ')}).`;
+    }
+    if (!Buffer.isBuffer(buffer) || buffer.length === 0) return 'File rỗng hoặc không hợp lệ.';
+    const sigs = EXT_MAGIC_SIGNATURES[ext];
+    if (sigs && !sigs.some(sig => buffer.subarray(0, sig.length).equals(sig))) {
+        return `Nội dung file không khớp với định dạng ".${ext}" đã khai báo (sai magic bytes ở đầu file).`;
+    }
+    return null;
+}
+
+async function getUploadAllowedExt(configKey, defaultExt) {
+    const [rows] = await pool.query('SELECT config_value FROM app_configs WHERE config_key = ?', [configKey]);
+    if (!rows[0]) return defaultExt;
+    const raw = typeof rows[0].config_value === 'string' ? JSON.parse(rows[0].config_value) : rows[0].config_value;
+    return Array.isArray(raw.allowedExt) ? raw.allowedExt : defaultExt;
+}
+
 // --- Đóng dấu bản quyền lên mọi tài liệu PDF ngay khi upload ---
 // Watermark chéo (kiểu "CONFIDENTIAL" quen thuộc) được nhúng vĩnh viễn vào file
 // trước khi lưu ra đĩa, nên luôn xuất hiện dù xem trực tiếp hay tải file về.
@@ -2540,6 +2626,7 @@ app.post('/api/docs/upload', requireAuth, uploadLimiter, (req, res, next) => {
         // PDF của tài liệu cũ chưa migrate ra đĩa) cho TOÀN BỘ tài liệu, trên
         // MỌI lượt upload, dù không dùng tới, rất tốn băng thông/bộ nhớ khi
         // bảng docs lớn dần.
+        const docAllowedExt = await getUploadAllowedExt('docUploadConfig', ['pdf']);
         const [existingRows] = await pool.query(
             'SELECT id, code, title, dept, cat, status, doc_group_id, version_no, deleted_at FROM docs'
         );
@@ -2626,7 +2713,7 @@ app.post('/api/docs/upload', requireAuth, uploadLimiter, (req, res, next) => {
                         throw new UploadError(400, `Phòng ban [${finalDept}] hoặc Phân loại [${finalCat}] chưa được cấu hình viết tắt — không thể tự sinh mã tài liệu.`);
                     }
                     if (files.length > 1) {
-                        finalTitle = file.originalname.replace(/\.pdf$/i, '');
+                        finalTitle = file.originalname.replace(/\.[a-zA-Z0-9]+$/, '');
                     }
                     // Mã tài liệu: BRG-{Viết tắt Phòng ban}-{Viết tắt Phân loại}-{STT tăng dần
                     // theo các mã có cùng tiền tố}. VD: BRG-IT-QT-001, BRG-IT-QT-002...
@@ -2645,20 +2732,37 @@ app.post('/api/docs/upload', requireAuth, uploadLimiter, (req, res, next) => {
                 if (fieldError) {
                     throw new UploadError(400, fieldError);
                 }
-                const pdfError = validatePdfUpload(file.originalname, file.mimetype, file.buffer);
-                if (pdfError) {
-                    throw new UploadError(400, `Tài liệu [${code}]: ${pdfError}`);
+                const fileExt = getFileExt(file.originalname);
+                // Đóng dấu bản quyền + kiểm tra magic bytes chuyên biệt chỉ áp dụng
+                // được cho PDF (thư viện pdf-lib không xử lý được các định dạng
+                // khác) — các loại file khác Admin cho phép thêm (docx/xlsx/ảnh...)
+                // chỉ kiểm tra đuôi file + magic bytes chung, lưu nguyên văn, không
+                // đóng dấu bản quyền.
+                let finalBuffer = file.buffer;
+                let fileMimeType = 'application/pdf';
+                if (fileExt === 'pdf') {
+                    if (Array.isArray(docAllowedExt) && docAllowedExt.length > 0 && !docAllowedExt.includes('pdf')) {
+                        throw new UploadError(400, `Tài liệu [${code}]: Định dạng file ".pdf" không được phép tải lên (chỉ nhận: ${docAllowedExt.map(e => '.' + e).join(', ')}).`);
+                    }
+                    const pdfError = validatePdfUpload(file.originalname, file.mimetype, file.buffer);
+                    if (pdfError) {
+                        throw new UploadError(400, `Tài liệu [${code}]: ${pdfError}`);
+                    }
+                    try {
+                        finalBuffer = await stampCopyrightWatermark(file.buffer);
+                    } catch (e) {
+                        throw new UploadError(400, `Tài liệu [${code}]: không thể xử lý file PDF để đóng dấu bản quyền.`);
+                    }
+                } else {
+                    const extError = validateUploadExtAndMagicBytes(file.originalname, file.buffer, docAllowedExt);
+                    if (extError) {
+                        throw new UploadError(400, `Tài liệu [${code}]: ${extError}`);
+                    }
+                    fileMimeType = file.mimetype || 'application/octet-stream';
                 }
 
-                let stampedBuffer;
-                try {
-                    stampedBuffer = await stampCopyrightWatermark(file.buffer);
-                } catch (e) {
-                    throw new UploadError(400, `Tài liệu [${code}]: không thể xử lý file PDF để đóng dấu bản quyền.`);
-                }
-
-                const filePath = `${id}.pdf`;
-                fs.writeFileSync(path.join(UPLOAD_DIR, filePath), stampedBuffer);
+                const filePath = `${id}.${fileExt}`;
+                fs.writeFileSync(path.join(UPLOAD_DIR, filePath), finalBuffer);
                 savedFilePaths.push(filePath);
 
                 // Mã tài liệu mới sinh ra từ bộ đếm trong bộ nhớ (không atomic) có thể
@@ -2672,7 +2776,7 @@ app.post('/api/docs/upload', requireAuth, uploadLimiter, (req, res, next) => {
                         await pool.query(
                             `INSERT INTO docs (id, code, title, ver, dept, cat, summary, file_name, file_type, file_path, created_by, creator_username, created_at, workflow_id, current_step_order, status, history, doc_group_id, version_no)
                              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                            [id, code, finalTitle, ver, finalDept, finalCat, summary, file.originalname, 'application/pdf', filePath,
+                            [id, code, finalTitle, ver, finalDept, finalCat, summary, file.originalname, fileMimeType, filePath,
                                 req.user.name, req.user.username, new Date().toISOString(), workflowId, 1, 'PENDING', JSON.stringify([]),
                                 docGroupId, versionNo]
                         );
@@ -3529,7 +3633,15 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
                 username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: 'workflows',
                 description: `Cập nhật danh sách mẫu quy trình duyệt (${data.length} mẫu).`
             });
-        } else if (['deptWorkflows', 'emailConfig', 'ldapConfig'].includes(table)) {
+        } else if (['deptWorkflows', 'emailConfig', 'ldapConfig', 'docUploadConfig', 'contractUploadConfig'].includes(table)) {
+            if ((table === 'docUploadConfig' || table === 'contractUploadConfig')) {
+                const rawList = Array.isArray(data && data.allowedExt) ? data.allowedExt : [];
+                const cleaned = [...new Set(
+                    rawList.map(e => String(e || '').trim().toLowerCase().replace(/^\./, '')).filter(e => /^[a-z0-9]{1,10}$/.test(e))
+                )];
+                if (cleaned.length > 30) return res.status(400).json({ error: 'Danh sách đuôi file được phép tối đa 30 loại.' });
+                data.allowedExt = cleaned;
+            }
             // (L5) Khi gán người duyệt cho từng bước theo phòng ban, chưa từng
             // kiểm tra username được gán có thực sự tồn tại/đang hoạt động hay
             // không — nếu không, canApproveStep() không bao giờ khớp và tài liệu
@@ -3639,12 +3751,20 @@ app.post('/api/sync/:table', requireAuth, async (req, res, next) => {
             }
             // (F4) Ghi log việc cấu hình đã bị đổi — KHÔNG BAO GIỜ ghi lại mật khẩu/bí
             // mật thật (servicePassword/smtpPass) vào system_logs, chỉ ghi nhận sự kiện.
-            const cfgActionType = table === 'deptWorkflows' ? 'UPDATE_DEPT_WORKFLOWS' : table === 'emailConfig' ? 'UPDATE_EMAIL_CONFIG' : 'UPDATE_LDAP_CONFIG';
+            const cfgActionType = table === 'deptWorkflows' ? 'UPDATE_DEPT_WORKFLOWS'
+                : table === 'emailConfig' ? 'UPDATE_EMAIL_CONFIG'
+                : table === 'ldapConfig' ? 'UPDATE_LDAP_CONFIG'
+                : table === 'docUploadConfig' ? 'UPDATE_DOC_UPLOAD_CONFIG'
+                : 'UPDATE_CONTRACT_UPLOAD_CONFIG';
             const cfgDescription = table === 'deptWorkflows'
                 ? 'Cập nhật cấu hình quy trình duyệt theo phòng ban.'
                 : table === 'emailConfig'
                     ? `Cập nhật cấu hình gửi email hệ thống (SMTP host: ${data.smtpHost || '(trống)'}).`
-                    : `Cập nhật cấu hình đăng nhập/đồng bộ LDAP-AD (URL: ${data.url || '(trống)'}).`;
+                    : table === 'ldapConfig'
+                        ? `Cập nhật cấu hình đăng nhập/đồng bộ LDAP-AD (URL: ${data.url || '(trống)'}).`
+                        : table === 'docUploadConfig'
+                            ? `Cập nhật danh sách loại file được phép tải lên — Quản lý Tài liệu (${data.allowedExt.length > 0 ? data.allowedExt.map(e => '.' + e).join(', ') : 'không giới hạn'}).`
+                            : `Cập nhật danh sách loại file được phép tải lên — Hợp đồng & Bảo lãnh (${data.allowedExt.length > 0 ? data.allowedExt.map(e => '.' + e).join(', ') : 'không giới hạn'}).`;
             await writeAuditLog({
                 module: 'SYSTEM_CONFIG', actionType: cfgActionType, status: 'SUCCESS',
                 username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: table,
@@ -10146,6 +10266,15 @@ app.post('/api/contracts/attachments', requireAuth, requireContractCreateOrAdmin
         if (attachmentGroup === 'PROPOSAL' && recordType === 'GUARANTEE') return res.status(400).json({ error: '"Tờ trình đính kèm" chỉ áp dụng cho Hợp đồng/Phụ lục.' });
         const [[record]] = await pool.query(`SELECT id FROM ${table} WHERE id = ?`, [recordId]);
         if (!record) return res.status(404).json({ error: 'Không tìm thấy văn bản để đính kèm.' });
+
+        // Kiểm tra đuôi file được phép + magic bytes TRƯỚC khi ghi file nào ra
+        // đĩa (validate hết cả lượt rồi mới ghi, tránh lưu dở dang file không
+        // hợp lệ nằm giữa các file hợp lệ trong cùng 1 lượt upload nhiều file).
+        const contractAllowedExt = await getUploadAllowedExt('contractUploadConfig', []);
+        for (const file of files) {
+            const extError = validateUploadExtAndMagicBytes(file.originalname, file.buffer, contractAllowedExt);
+            if (extError) return res.status(400).json({ error: `File "${file.originalname}": ${extError}` });
+        }
 
         const subDir = 'contracts';
         fs.mkdirSync(path.join(UPLOAD_DIR, subDir), { recursive: true });

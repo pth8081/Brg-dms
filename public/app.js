@@ -40,7 +40,9 @@
       workflows: [], deptWorkflows: {},
       emailConfig: {}, systemLogs: [],
       maxPdfSizeMB: 20, ldapConfig: {}, syncVersions: {},
-      permissionGroups: []
+      permissionGroups: [],
+      docUploadConfig: { allowedExt: ['pdf'] },
+      contractUploadConfig: { allowedExt: [] }
     };
 
     // Dữ liệu module Quản Lý Bản Quyền — độc lập với DB ở trên, tải riêng khi
@@ -326,6 +328,11 @@
       // tình gửi lại chuỗi che này lên server như thể đó là mật khẩu mới (VD khi
       // lưu form đăng nhập LDAP ở trên, vốn không liên quan tới mật khẩu này).
       if (DB.ldapConfig.servicePassword) DB.ldapConfig.servicePassword = '';
+      // Danh sách loại file được phép tải lên (Tài liệu / Hợp đồng & Bảo lãnh) —
+      // không nhạy cảm, trả cho MỌI user để tự đặt "accept" đúng ở ô chọn file.
+      DB.docUploadConfig = data.docUploadConfig || { allowedExt: ['pdf'] };
+      DB.contractUploadConfig = data.contractUploadConfig || { allowedExt: [] };
+      applyUploadAcceptAttrs();
       // (CONCURRENCY-01) Phiên bản hiện tại của từng bảng đồng bộ toàn snapshot
       // (users/depts/cats/workflows/deptWorkflows/emailConfig/ldapConfig) — gửi
       // lại đúng giá trị này mỗi lần đồng bộ để server phát hiện ai đó khác đã
@@ -1560,7 +1567,7 @@
         btn.classList.toggle('text-gray-700', key !== subName);
       });
 
-      if (subName === 'users') { renderDeptCheckboxes(); populatePermissionGroupSelect(); renderPermissionGroupList(); renderUsers(); renderPendingUsers(); loadEmailConfigToForm(); loadLdapConfigToForm(); ensureUserScopePickerReady().then(() => renderContractScopeCheckboxes()); }
+      if (subName === 'users') { renderDeptCheckboxes(); populatePermissionGroupSelect(); renderPermissionGroupList(); renderUsers(); renderPendingUsers(); loadEmailConfigToForm(); loadLdapConfigToForm(); loadUploadConfigToForm('doc'); loadUploadConfigToForm('contract'); ensureUserScopePickerReady().then(() => renderContractScopeCheckboxes()); }
       if (subName === 'catalog') { switchCatalogSubTab(catalogSubTabState || 'dept'); }
       if (subName === 'workflow') { renderWorkflowTab(); }
       if (subName === 'log') { renderSystemLogs(); }
@@ -1754,9 +1761,14 @@
 
       // Kiểm tra nhanh phía client để UX tốt hơn. Đây KHÔNG phải lớp bảo mật thật —
       // server luôn tự kiểm tra lại (kể cả magic bytes, dung lượng, mã/version tự
-      // sinh) và không tin dữ liệu client gửi.
-      const invalidFile = files.find(f => f.type !== 'application/pdf' && !f.name.toLowerCase().endsWith('.pdf'));
-      if (invalidFile) return showToast(`File "${invalidFile.name}" không phải PDF. Chỉ được phép tải lên file PDF!`, 'danger');
+      // sinh) và không tin dữ liệu client gửi. Danh sách đuôi được phép lấy từ
+      // cấu hình Admin (mục "📎 Cấu Hình Loại File Được Phép Tải Lên") — rỗng =
+      // không giới hạn.
+      const docAllowedExt = (DB.docUploadConfig && DB.docUploadConfig.allowedExt) || [];
+      if (docAllowedExt.length > 0) {
+        const invalidFile = files.find(f => !docAllowedExt.includes((f.name.split('.').pop() || '').toLowerCase()));
+        if (invalidFile) return showToast(`File "${invalidFile.name}": định dạng không được phép tải lên (chỉ nhận: ${docAllowedExt.map(e => '.' + e).join(', ')}).`, 'danger');
+      }
       const maxBytes = (DB.maxPdfSizeMB || 20) * 1024 * 1024;
       const oversizeFile = files.find(f => f.size > maxBytes);
       if (oversizeFile) return showToast(`File "${oversizeFile.name}" vượt quá giới hạn cho phép (${DB.maxPdfSizeMB}MB).`, 'danger');
@@ -3864,6 +3876,118 @@
       showToast('Đã lưu cấu hình đồng bộ AD thành công!', 'success');
       document.getElementById('cfgAdServicePassword').value = '';
     }
+
+    // --- Cấu hình loại file được phép tải lên (Quản lý Tài liệu / Hợp đồng &
+    // Bảo lãnh — mỗi module 1 danh sách riêng, xem server.js EXT_MAGIC_SIGNATURES
+    // + getUploadAllowedExt). allowedExt RỖNG = không giới hạn.
+    const UPLOAD_EXT_PRESET_GROUPS = [
+      { label: 'PDF', exts: ['pdf'] },
+      { label: 'Word (doc, docx)', exts: ['doc', 'docx'] },
+      { label: 'Excel (xls, xlsx)', exts: ['xls', 'xlsx'] },
+      { label: 'PowerPoint (ppt, pptx)', exts: ['ppt', 'pptx'] },
+      { label: 'Ảnh (jpg, png, gif)', exts: ['jpg', 'jpeg', 'png', 'gif'] },
+      { label: 'Văn bản (txt)', exts: ['txt'] },
+      { label: 'Nén (zip, rar)', exts: ['zip', 'rar'] }
+    ];
+    const UPLOAD_CFG_KIND_META = {
+      doc: { dbKey: 'docUploadConfig', modeId: 'cfgDocUploadMode', boxId: 'cfgDocUploadExtBox', groupsId: 'cfgDocUploadExtGroups', customId: 'cfgDocUploadExtCustom', noun: 'Quản lý Tài liệu' },
+      contract: { dbKey: 'contractUploadConfig', modeId: 'cfgContractUploadMode', boxId: 'cfgContractUploadExtBox', groupsId: 'cfgContractUploadExtGroups', customId: 'cfgContractUploadExtCustom', noun: 'Hợp đồng & Bảo lãnh' }
+    };
+
+    function extListToAccept(allowedExt) {
+      if (!Array.isArray(allowedExt) || allowedExt.length === 0) return '';
+      return allowedExt.map(e => '.' + e).join(',');
+    }
+
+    // Đặt lại thuộc tính "accept" của các ô chọn file theo đúng cấu hình hiện
+    // tại — gọi lại sau mỗi lần bootstrap/lưu cấu hình để không cần tải lại trang.
+    function applyUploadAcceptAttrs() {
+      const docAllowedExt = (DB.docUploadConfig && DB.docUploadConfig.allowedExt) || [];
+      const docAccept = extListToAccept(docAllowedExt);
+      const docFileEl = document.getElementById('docFile');
+      if (docFileEl) {
+        if (docAccept) docFileEl.setAttribute('accept', docAccept); else docFileEl.removeAttribute('accept');
+      }
+      const docLabelEl = document.getElementById('docUploadAllowedExtLabel');
+      if (docLabelEl) {
+        docLabelEl.innerText = docAllowedExt.length > 0
+          ? `chỉ chấp nhận: ${docAllowedExt.map(e => '.' + e).join(', ')}`
+          : 'mọi loại file';
+      }
+      const ctrAccept = extListToAccept(DB.contractUploadConfig && DB.contractUploadConfig.allowedExt);
+      ['contractFilesMain', 'contractFilesProposal', 'addendumFilesMain', 'addendumFilesProposal', 'guaranteeFilesMain'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (ctrAccept) el.setAttribute('accept', ctrAccept); else el.removeAttribute('accept');
+      });
+    }
+
+    function renderUploadExtGroupCheckboxes(kind) {
+      const meta = UPLOAD_CFG_KIND_META[kind];
+      const container = document.getElementById(meta.groupsId);
+      if (!container) return;
+      container.innerHTML = UPLOAD_EXT_PRESET_GROUPS.map((g, i) => `
+        <label class="flex items-center gap-1.5 bg-gray-50 border rounded px-2 py-1 cursor-pointer">
+          <input type="checkbox" id="${meta.modeId}_grp_${i}">
+          <span>${g.label}</span>
+        </label>
+      `).join('');
+    }
+
+    function onCfgUploadModeChange(kind) {
+      const meta = UPLOAD_CFG_KIND_META[kind];
+      const mode = document.getElementById(meta.modeId).value;
+      document.getElementById(meta.boxId).classList.toggle('hidden', mode === 'unrestricted');
+    }
+
+    function loadUploadConfigToForm(kind) {
+      const meta = UPLOAD_CFG_KIND_META[kind];
+      const cfg = DB[meta.dbKey] || {};
+      const allowedExt = Array.isArray(cfg.allowedExt) ? cfg.allowedExt : [];
+      renderUploadExtGroupCheckboxes(kind);
+      document.getElementById(meta.modeId).value = allowedExt.length > 0 ? 'restricted' : 'unrestricted';
+      onCfgUploadModeChange(kind);
+      const covered = new Set();
+      UPLOAD_EXT_PRESET_GROUPS.forEach((g, i) => {
+        const allIn = g.exts.every(e => allowedExt.includes(e));
+        const cb = document.getElementById(`${meta.modeId}_grp_${i}`);
+        if (cb) cb.checked = allIn;
+        if (allIn) g.exts.forEach(e => covered.add(e));
+      });
+      document.getElementById(meta.customId).value = allowedExt.filter(e => !covered.has(e)).join(', ');
+    }
+
+    function getUploadConfigFromForm(kind) {
+      const meta = UPLOAD_CFG_KIND_META[kind];
+      if (document.getElementById(meta.modeId).value === 'unrestricted') return { allowedExt: [] };
+      const exts = new Set();
+      UPLOAD_EXT_PRESET_GROUPS.forEach((g, i) => {
+        const cb = document.getElementById(`${meta.modeId}_grp_${i}`);
+        if (cb && cb.checked) g.exts.forEach(e => exts.add(e));
+      });
+      document.getElementById(meta.customId).value.split(',')
+        .map(s => s.trim().toLowerCase().replace(/^\./, ''))
+        .filter(Boolean)
+        .forEach(e => exts.add(e));
+      return { allowedExt: [...exts] };
+    }
+
+    async function saveUploadConfig(kind) {
+      const meta = UPLOAD_CFG_KIND_META[kind];
+      const next = getUploadConfigFromForm(kind);
+      if (next.allowedExt.length === 0 && document.getElementById(meta.modeId).value === 'restricted') {
+        return showToast('Vui lòng chọn ít nhất 1 loại file được phép, hoặc chuyển về "Không giới hạn".', 'warning');
+      }
+      const prev = DB[meta.dbKey];
+      DB[meta.dbKey] = next;
+      const ok = await syncStorage(meta.dbKey);
+      if (!ok) { DB[meta.dbKey] = prev; return; }
+      applyUploadAcceptAttrs();
+      showToast(`Đã lưu cấu hình loại file được phép — ${meta.noun}.`, 'success');
+    }
+
+    async function saveDocUploadConfig(e) { e.preventDefault(); await saveUploadConfig('doc'); }
+    async function saveContractUploadConfig(e) { e.preventDefault(); await saveUploadConfig('contract'); }
 
     function downloadUserTemplate() {
       downloadXlsxFile('user_import_template.xlsx',
