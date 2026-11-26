@@ -12660,18 +12660,20 @@ function isPerpetualSoftware(softwareId) {
       const pageItems = paginateSlice('contractList', filtered, 10);
       container.innerHTML = pageItems.map(c => {
         const expanded = contractExpandedIds.has(c.id);
-        const pendingActions = c.status === 'PENDING' && canApproveContractItem(c)
-          ? `<button ${dc('approveContract', c.id)} class="text-xs font-bold text-white bg-green-600 hover:bg-green-700 px-2.5 py-1 rounded">✓ Duyệt</button><button ${dc('rejectContract', c.id)} class="text-xs font-bold text-white bg-red-600 hover:bg-red-700 px-2.5 py-1 rounded">✕ Từ chối</button>`
-          : '';
-        const terminateAction = c.status === 'APPROVED' && canTerminateContract()
-          ? `<button ${dc('terminateContract', c.id)} class="text-xs font-bold text-slate-600 border border-slate-300 hover:bg-slate-100 px-2.5 py-1 rounded">🔒 Thanh lý</button>`
-          : '';
-        const deleteAction = currentUser.perms.admin
-          ? `<button ${dc('deleteContract', c.id)} class="text-xs font-bold text-red-700 border border-red-300 hover:bg-red-50 px-2.5 py-1 rounded">🗑 Xóa</button>`
-          : '';
-        const printAction = canPrintContract()
-          ? `<button ${dc('printContractRecord', 'contract', c.id)} class="text-xs font-bold text-indigo-700 border border-indigo-300 hover:bg-indigo-50 px-2.5 py-1 rounded">🖨️ In</button>`
-          : '';
+        // Gọn cột/hàng Thao tác (phản hồi người dùng: hàng nút trước đây quá
+        // dài) — gộp HẾT các hành động xử lý hồ sơ vào 1 menu "⋮" thả xuống,
+        // dùng chung cơ chế renderRowActionsMenu/toggleRowMenu đã có sẵn cho
+        // module Tài liệu/Ngân sách. "▸ Chi tiết/▾ Thu gọn" giữ riêng vì đây
+        // là mở/đóng khung bên dưới, không phải 1 thao tác xử lý hồ sơ.
+        const menuId = `rowMenu_contract_${c.id}`;
+        const canDecideContract = c.status === 'PENDING' && canApproveContractItem(c);
+        const menuItems = [
+          canDecideContract ? `<button ${dc('approveContractFromMenu', c.id)} class="block w-full text-left px-3 py-2 text-xs text-success-700 hover:bg-gray-100">✓ Duyệt</button>` : '',
+          canDecideContract ? `<button ${dc('rejectContractFromMenu', c.id)} class="block w-full text-left px-3 py-2 text-xs text-danger-600 hover:bg-gray-100">✕ Từ chối</button>` : '',
+          (c.status === 'APPROVED' && canTerminateContract()) ? `<button ${dc('terminateContractFromMenu', c.id)} class="block w-full text-left px-3 py-2 text-xs text-slate-600 hover:bg-gray-100">🔒 Thanh lý</button>` : '',
+          canPrintContract() ? `<button ${dc('printContractFromMenu', 'contract', c.id)} class="block w-full text-left px-3 py-2 text-xs text-indigo-700 hover:bg-gray-100">🖨️ In</button>` : '',
+          currentUser.perms.admin ? `<button ${dc('deleteContractFromMenu', c.id)} class="block w-full text-left px-3 py-2 text-xs text-danger-700 hover:bg-danger-50">🗑️ Xóa</button>` : ''
+        ];
         return `
           <div class="bg-white border rounded-xl p-4 shadow-sm">
             <div class="flex flex-wrap justify-between items-start gap-2">
@@ -12683,12 +12685,9 @@ function isPerpetualSoftware(softwareId) {
                 ${c.status === 'REJECTED' && c.rejectReason ? `<div class="text-xs text-red-600 mt-1">Lý do từ chối: ${escapeHtml(c.rejectReason)}</div>` : ''}
                 ${c.status === 'TERMINATED' ? `<div class="text-xs text-slate-600 mt-1">Đã thanh lý bởi ${escapeHtml(c.terminatedBy || '')} lúc ${escapeHtml(c.terminatedAt || '')}${c.terminateNote ? ' — ' + escapeHtml(c.terminateNote) : ''}</div>` : ''}
               </div>
-              <div class="flex gap-1.5 items-center flex-wrap justify-end">
-                ${pendingActions}
-                ${terminateAction}
-                ${deleteAction}
-                ${printAction}
-                <button ${dc('toggleContractExpand', c.id)} class="text-xs font-semibold text-gray-600 hover:underline px-2 py-1">${expanded ? '▾ Thu gọn' : '▸ Chi tiết'}</button>
+              <div class="flex gap-1.5 items-center shrink-0">
+                <button ${dc('toggleContractExpand', c.id)} class="text-xs font-semibold text-gray-600 hover:underline px-2 py-1 whitespace-nowrap">${expanded ? '▾ Thu gọn' : '▸ Chi tiết'}</button>
+                ${renderRowActionsMenu(menuId, menuItems)}
               </div>
             </div>
             ${expanded ? renderContractDetail(c) : ''}
@@ -12792,12 +12791,18 @@ function isPerpetualSoftware(softwareId) {
       const pageRows = paginateSlice('guaranteeList', rows, 10);
       document.getElementById('guaranteeFlatTableBody').innerHTML = pageRows.length ? pageRows.map(g => {
         const canDecide = g.status === 'PENDING' && canApproveContractItem(g);
-        const deleteAction = currentUser.perms.admin ? `<button ${dc('deleteGuarantee', g.id)} class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-700 text-[11px] font-semibold">🗑 Xóa</button>` : '';
-        const viewAction = `<button ${dc('openGuaranteeViewModal', g.id)} class="px-1.5 py-0.5 rounded hover:bg-blue-100 text-blue-700 text-[11px] font-semibold">👁 Xem</button>`;
-        const downloadAction = canDownloadContractAttachment() ? `<button ${dc('downloadGuaranteeAttachment', g.id)} class="px-1.5 py-0.5 rounded hover:bg-emerald-100 text-emerald-700 text-[11px] font-semibold">⬇ Tải</button>` : '';
-        const printAction = canPrintContract() ? `<button ${dc('printContractRecord', 'guarantee', g.id)} class="px-1.5 py-0.5 rounded hover:bg-indigo-100 text-indigo-700 text-[11px] font-semibold">🖨️ In</button>` : '';
-        const decideAction = canDecide ? `<button ${dc('approveGuarantee', g.id)} class="px-1.5 py-0.5 rounded hover:bg-green-100 text-green-700 text-[11px] font-semibold">Duyệt</button><button ${dc('rejectGuarantee', g.id)} class="px-1.5 py-0.5 rounded hover:bg-red-100 text-red-600 text-[11px] font-semibold">Từ chối</button>` : '';
-        const actions = `${decideAction}${viewAction}${downloadAction}${printAction}${deleteAction}`;
+        // Gọn cột Thao tác (phản hồi người dùng: trước đây quá nhiều nút sát
+        // nhau, tràn ngang trên điện thoại) — gộp HẾT vào 1 menu "⋮" thả xuống,
+        // dùng chung cơ chế renderRowActionsMenu/toggleRowMenu như bảng Hợp đồng.
+        const menuId = `rowMenu_guarantee_${g.id}`;
+        const menuItems = [
+          canDecide ? `<button ${dc('approveGuaranteeFromMenu', g.id)} class="block w-full text-left px-3 py-2 text-xs text-success-700 hover:bg-gray-100">✓ Duyệt</button>` : '',
+          canDecide ? `<button ${dc('rejectGuaranteeFromMenu', g.id)} class="block w-full text-left px-3 py-2 text-xs text-danger-600 hover:bg-gray-100">✕ Từ chối</button>` : '',
+          `<button ${dc('openGuaranteeViewModalFromMenu', g.id)} class="block w-full text-left px-3 py-2 text-xs text-blue-700 hover:bg-gray-100">👁 Xem</button>`,
+          canDownloadContractAttachment() ? `<button ${dc('downloadGuaranteeAttachmentFromMenu', g.id)} class="block w-full text-left px-3 py-2 text-xs text-emerald-700 hover:bg-gray-100">⬇ Tải</button>` : '',
+          canPrintContract() ? `<button ${dc('printContractFromMenu', 'guarantee', g.id)} class="block w-full text-left px-3 py-2 text-xs text-indigo-700 hover:bg-gray-100">🖨️ In</button>` : '',
+          currentUser.perms.admin ? `<button ${dc('deleteGuaranteeFromMenu', g.id)} class="block w-full text-left px-3 py-2 text-xs text-danger-700 hover:bg-danger-50">🗑️ Xóa</button>` : ''
+        ];
         return `<tr class="hover:bg-gray-50">
           <td class="border p-2 font-mono text-[11px]">${escapeHtml(g.code)}</td>
           <td class="border p-2">${escapeHtml(g.name)}</td>
@@ -12806,7 +12811,7 @@ function isPerpetualSoftware(softwareId) {
           <td class="border p-2 text-right">${g.value ? formatMoney(g.value) : '—'}</td>
           <td class="border p-2 text-center text-[11px]">${g.hasTerm ? escapeHtml(fmtDateVN(g.expiryDate)) : escapeHtml(fmtDateVN(g.effectiveDate)) + ' → ∞'}</td>
           <td class="border p-2 text-center">${contractStatusBadge(g.status)}</td>
-          <td class="border p-2 text-center whitespace-nowrap">${actions}</td>
+          <td class="border p-2 text-center"><div class="inline-flex items-center justify-center">${renderRowActionsMenu(menuId, menuItems)}</div></td>
         </tr>`;
       }).join('') : '<tr><td colspan="8" class="text-center p-4 text-gray-500">Chưa có bảo lãnh nào.</td></tr>';
       renderPaginationBar('guaranteeListPaginationBox', 'guaranteeList', rows.length, 'renderGuaranteeFlatList', { itemLabel: 'bảo lãnh', pageSizeOptions: [10, 20, 50, 100] });
@@ -13038,6 +13043,20 @@ function isPerpetualSoftware(softwareId) {
         if (!document.getElementById('contractSubGuarantees').classList.contains('hidden')) renderGuaranteeFlatList();
       } catch (err) { showToast(err.message, 'danger'); }
     }
+
+    // --- Cầu nối cho menu "⋮ Thao tác" (Hợp đồng/Bảo lãnh) — đóng menu đang mở
+    // TRƯỚC khi thực hiện thao tác chính, giống hệt quy ước đã dùng cho menu
+    // "⋮" của bảng Tài liệu/Ngân sách (xem openDocDetailModalFromMenu...).
+    function approveContractFromMenu(id) { closeAllRowMenus(); approveContract(id); }
+    function rejectContractFromMenu(id) { closeAllRowMenus(); rejectContract(id); }
+    function terminateContractFromMenu(id) { closeAllRowMenus(); terminateContract(id); }
+    function deleteContractFromMenu(id) { closeAllRowMenus(); deleteContract(id); }
+    function printContractFromMenu(type, id) { closeAllRowMenus(); printContractRecord(type, id); }
+    function approveGuaranteeFromMenu(id) { closeAllRowMenus(); approveGuarantee(id); }
+    function rejectGuaranteeFromMenu(id) { closeAllRowMenus(); rejectGuarantee(id); }
+    function deleteGuaranteeFromMenu(id) { closeAllRowMenus(); deleteGuarantee(id); }
+    function openGuaranteeViewModalFromMenu(id) { closeAllRowMenus(); openGuaranteeViewModal(id); }
+    function downloadGuaranteeAttachmentFromMenu(id) { closeAllRowMenus(); downloadGuaranteeAttachment(id); }
 
     // --- Thanh lý/Chấm dứt Hợp đồng (một chiều, CHỈ contractManager/Admin) ---
     async function terminateContract(id) {
