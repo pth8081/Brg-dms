@@ -527,7 +527,7 @@
       // moduleCanManage.contract bên dưới.
       contract: new Set([
         'openContractModal', 'openAddendumModal', 'openGuaranteeModal',
-        'saveContract', 'saveAddendum', 'saveGuarantee', 'deleteContractAttachment'
+        'saveContract', 'saveAddendum', 'saveGuarantee'
       ])
     };
     // (Quyền Người duyệt — tách riêng khỏi Quản lý) Các thao tác Duyệt/Từ
@@ -12567,23 +12567,15 @@ function isPerpetualSoftware(softwareId) {
     }
     function companyNameById(id) { const c = ContractDB.companies.find(x => x.id === Number(id)); return c ? c.name : '—'; }
 
-    // --- Đính kèm: hiển thị (xem/tải link trực tiếp) + xóa — upload thực hiện
-    // ngay khi tạo bản ghi (2 bước: tạo bản ghi -> upload theo id trả về). ---
-    // Trạng thái bản ghi sở hữu đính kèm — dùng để khóa nút Xóa 1 khi đã rời
-    // PENDING (xem renderAttachmentList bên dưới).
-    function getContractRecordStatus(recordType, recordId) {
-      const list = recordType === 'CONTRACT' ? ContractDB.contracts : recordType === 'ADDENDUM' ? ContractDB.addendums : ContractDB.guarantees;
-      const rec = list.find(x => x.id === recordId);
-      return rec ? rec.status : null;
-    }
+    // --- Đính kèm: hiển thị (xem/tải link trực tiếp) — upload thực hiện ngay
+    // khi tạo bản ghi (2 bước: tạo bản ghi -> upload theo id trả về). Không
+    // còn xóa trực tiếp 1 file đính kèm (phản hồi người dùng: khóa với TẤT CẢ
+    // kể cả Admin, ở MỌI trạng thái kể cả Chờ duyệt) — cần thay file thì tạo
+    // Phụ lục/Bảo lãnh "⇄ Thay thế" (giữ nguyên bản cũ để tham chiếu), hoặc
+    // Admin xóa cả bản ghi (cascade) nếu thật sự cần dọn hẳn.
     function renderAttachmentList(recordType, recordId) {
       const atts = ContractDB.attachments.filter(a => a.recordType === recordType && a.recordId === recordId);
       if (atts.length === 0) return '';
-      // Khóa Xóa 1 khi hồ sơ đã rời "Chờ duyệt" (Admin luôn được bỏ qua khóa
-      // này, dùng "🗑 Xóa" cả bản ghi nếu thật sự cần dọn) — tránh bấm nhầm
-      // icon Tải/Xóa nằm sát nhau trên điện thoại (phản hồi người dùng).
-      const status = getContractRecordStatus(recordType, recordId);
-      const deleteLocked = !currentUser.perms.admin && status !== 'PENDING';
       const groups = [{ key: 'MAIN', label: '📎 Đính kèm' }, { key: 'PROPOSAL', label: '📑 Tờ trình đính kèm' }];
       return groups.map(grp => {
         const items = atts.filter(a => a.attachmentGroup === grp.key);
@@ -12592,22 +12584,9 @@ function isPerpetualSoftware(softwareId) {
           <span class="inline-flex items-center gap-1 bg-gray-100 border rounded px-1.5 py-0.5 text-[10px] mr-1 mb-1">
             <a href="/api/contracts/attachments/${a.id}/view" target="_blank" class="text-blue-700 hover:underline">${escapeHtml(a.fileName)}</a>
             ${canDownloadContractAttachment() ? `<a href="/api/contracts/attachments/${a.id}/download" class="text-gray-500 hover:text-gray-700" title="Tải xuống">⬇</a>` : ''}
-            ${canWriteContract() ? (deleteLocked
-              ? `<span class="text-gray-300 cursor-not-allowed" title="Hồ sơ đã qua Chờ duyệt — không tự xóa được nữa, liên hệ Admin nếu cần">✕</span>`
-              : `<button ${dc('deleteContractAttachment', a.id)} class="text-red-500 hover:text-red-700" title="Xóa">✕</button>`) : ''}
+            <span class="text-gray-300" title="Không thể xóa trực tiếp file đã tải lên — tạo Phụ lục/Bảo lãnh &quot;⇄ Thay thế&quot; nếu cần thay nội dung">🔒</span>
           </span>`).join('')}</div>`;
       }).join('');
-    }
-    async function deleteContractAttachment(id) {
-      const ok = await showConfirm({ title: 'Xóa file đính kèm', message: 'Xóa file đính kèm này?', danger: true, confirmText: 'Xóa' });
-      if (!ok) return;
-      try {
-        await apiFetch(`/api/contracts/attachments/${id}`, { method: 'DELETE' });
-        showToast('Đã xóa file đính kèm.', 'success');
-        await reloadContractData();
-        renderContractList();
-        if (!document.getElementById('contractSubGuarantees').classList.contains('hidden')) renderGuaranteeFlatList();
-      } catch (err) { showToast(err.message, 'danger'); }
     }
     // "⬇ Tải" ngay trong cột Thao tác của bảng Bảo lãnh (phản hồi người dùng:
     // trước đây phải bấm "Xem" rồi mới thấy icon tải nhỏ cạnh từng file, dễ bị
@@ -12712,18 +12691,23 @@ function isPerpetualSoftware(softwareId) {
               <h4 class="font-bold text-gray-700 text-xs">📎 Phụ lục hợp đồng (${addendums.length})</h4>
               ${canWriteContract() ? `<button ${dc('openAddendumModal', contract.id)} class="text-[11px] font-semibold text-blue-600 hover:underline">+ Thêm phụ lục</button>` : ''}
             </div>
-            ${addendums.length === 0 ? '<div class="text-xs text-gray-400 italic">Chưa có phụ lục.</div>' : addendums.map(a => `
+            ${addendums.length === 0 ? '<div class="text-xs text-gray-400 italic">Chưa có phụ lục.</div>' : addendums.map(a => {
+              const replacedByAddendum = ContractDB.addendums.find(x => x.replacesAddendumId === a.id && x.status !== 'REJECTED');
+              return `
               <div class="bg-gray-50 border rounded p-2.5 mb-2">
                 <div class="flex justify-between items-start gap-2">
                   <div>
                     <div class="font-mono text-[10px] text-gray-400">${escapeHtml(a.code)}</div>
                     <div class="text-sm font-semibold">${escapeHtml(a.name)} ${contractStatusBadge(a.status)}</div>
                     ${a.addendumDate || a.expiryDate ? `<div class="text-[11px] text-gray-500">${a.addendumDate ? 'Ký ngày ' + escapeHtml(fmtDateVN(a.addendumDate)) : ''}${a.addendumDate && a.expiryDate ? ' · ' : ''}${a.expiryDate ? 'Hết hạn ' + escapeHtml(fmtDateVN(a.expiryDate)) : ''}</div>` : ''}
+                    ${a.replacesAddendumId ? `<div class="text-[11px] text-indigo-600">⇄ Thay thế phụ lục #${a.replacesAddendumId}</div>` : ''}
+                    ${replacedByAddendum ? `<div class="text-[11px] text-gray-500">↳ Đã có phụ lục thay thế: ${escapeHtml(replacedByAddendum.code)}</div>` : ''}
                     ${a.relatedDepts && a.relatedDepts.length ? `<div class="text-[11px] text-indigo-600">🔗 Đơn vị liên quan: ${escapeHtml(relatedDeptsDisplayLabel(a.relatedDepts))}</div>` : ''}
                     ${a.status === 'REJECTED' && a.rejectReason ? `<div class="text-[11px] text-red-600">Lý do: ${escapeHtml(a.rejectReason)}</div>` : ''}
                   </div>
                   <div class="flex gap-1">
                     ${a.status === 'PENDING' && canApproveContractItem(a) ? `<button ${dc('approveAddendum', a.id)} class="text-[11px] font-bold text-white bg-green-600 hover:bg-green-700 px-2 py-0.5 rounded">✓</button><button ${dc('rejectAddendum', a.id)} class="text-[11px] font-bold text-white bg-red-600 hover:bg-red-700 px-2 py-0.5 rounded">✕</button>` : ''}
+                    ${canWriteContract() && a.status === 'APPROVED' && !replacedByAddendum ? `<button ${dc('openAddendumModal', contract.id, a.id)} class="text-[11px] font-semibold text-indigo-600 hover:underline">⇄ Thay thế</button>` : ''}
                     ${currentUser.perms.admin ? `<button ${dc('deleteAddendum', a.id)} class="text-[11px] font-semibold text-red-700 border border-red-300 hover:bg-red-50 px-2 py-0.5 rounded">🗑 Xóa</button>` : ''}
                   </div>
                 </div>
@@ -12733,7 +12717,8 @@ function isPerpetualSoftware(softwareId) {
                   ${canWriteContract() ? `<button ${dc('openGuaranteeModal', 'addendum', a.id)} class="text-[11px] font-semibold text-blue-600 hover:underline">+ Thêm bảo lãnh</button>` : ''}
                 </div>
                 ${addendumRootGuarantees(a.id).map(g => renderGuaranteeNode(g, 1)).join('')}
-              </div>`).join('')}
+              </div>`;
+            }).join('')}
           </div>
           <div>
             <div class="flex justify-between items-center mb-1">
@@ -12892,7 +12877,7 @@ function isPerpetualSoftware(softwareId) {
     }
 
     // --- Modal: Phụ lục hợp đồng ---
-    function openAddendumModal(contractId) {
+    function openAddendumModal(contractId, replacesId) {
       contractId = Number(contractId);
       const c = ContractDB.contracts.find(x => x.id === contractId);
       document.getElementById('addendumContractLabel').value = c ? `${c.code} — ${c.name}` : '';
@@ -12904,17 +12889,29 @@ function isPerpetualSoftware(softwareId) {
       document.getElementById('addendumFilesMain').value = '';
       document.getElementById('addendumFilesProposal').value = '';
       resetRelatedDeptsState('addendum');
+      document.getElementById('addendumReplacesId').value = '';
+      document.getElementById('addendumReplacesWrap').classList.add('hidden');
+      document.getElementById('addendumModalTitle').textContent = '📎 Thêm Phụ lục hợp đồng';
+      if (replacesId) {
+        const ra = ContractDB.addendums.find(x => x.id === Number(replacesId));
+        if (!ra) return;
+        document.getElementById('addendumReplacesId').value = replacesId;
+        document.getElementById('addendumReplacesLabel').value = `${ra.code} — ${ra.name}`;
+        document.getElementById('addendumReplacesWrap').classList.remove('hidden');
+        document.getElementById('addendumModalTitle').textContent = '⇄ Thêm Phụ lục thay thế';
+      }
       document.getElementById('addendumModal').classList.remove('hidden');
     }
     function closeAddendumModal() { document.getElementById('addendumModal').classList.add('hidden'); }
     async function saveAddendum() {
       const name = document.getElementById('addendumName').value.trim();
       const contractId = Number(document.getElementById('addendumContractId').value);
+      const replacesAddendumId = document.getElementById('addendumReplacesId').value || null;
       if (!name) return showToast('Vui lòng nhập tên phụ lục.', 'warning');
       try {
         const result = await apiFetch('/api/contracts/addendums', {
           method: 'POST',
-          body: JSON.stringify({ name, contractId, addendumDate: document.getElementById('addendumDate').value || null, expiryDate: document.getElementById('addendumExpiryDate').value || null, note: document.getElementById('addendumNote').value.trim(), relatedDepts: getRelatedDeptsForSave('addendum') })
+          body: JSON.stringify({ name, contractId, replacesAddendumId, addendumDate: document.getElementById('addendumDate').value || null, expiryDate: document.getElementById('addendumExpiryDate').value || null, note: document.getElementById('addendumNote').value.trim(), relatedDepts: getRelatedDeptsForSave('addendum') })
         });
         await uploadContractAttachmentFiles('ADDENDUM', result.id, document.getElementById('addendumFilesMain'), 'MAIN');
         await uploadContractAttachmentFiles('ADDENDUM', result.id, document.getElementById('addendumFilesProposal'), 'PROPOSAL');

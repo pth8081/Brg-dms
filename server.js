@@ -9847,7 +9847,7 @@ async function nextContractCode(table, docTypePrefix, companyCode, deptAbbr) {
 }
 
 function mapContract(c) { return { id: c.id, code: c.code, name: c.name, companyId: c.company_id, deptName: c.dept_name, counterparty: c.counterparty, contractDate: fmtDate(c.contract_date), expiryDate: fmtDate(c.expiry_date), value: c.value, note: c.note, status: c.status, createdBy: c.created_by, createdAt: c.created_at, approvedBy: c.approved_by, approvedAt: c.approved_at, rejectReason: c.reject_reason, terminatedBy: c.terminated_by, terminatedAt: c.terminated_at, terminateNote: c.terminate_note, relatedDepts: parseRelatedDepts(c.related_depts) }; }
-function mapAddendum(a) { return { id: a.id, code: a.code, contractId: a.contract_id, name: a.name, addendumDate: fmtDate(a.addendum_date), expiryDate: fmtDate(a.expiry_date), note: a.note, status: a.status, createdBy: a.created_by, createdAt: a.created_at, approvedBy: a.approved_by, approvedAt: a.approved_at, rejectReason: a.reject_reason, relatedDepts: parseRelatedDepts(a.related_depts) }; }
+function mapAddendum(a) { return { id: a.id, code: a.code, contractId: a.contract_id, replacesAddendumId: a.replaces_addendum_id, name: a.name, addendumDate: fmtDate(a.addendum_date), expiryDate: fmtDate(a.expiry_date), note: a.note, status: a.status, createdBy: a.created_by, createdAt: a.created_at, approvedBy: a.approved_by, approvedAt: a.approved_at, rejectReason: a.reject_reason, relatedDepts: parseRelatedDepts(a.related_depts) }; }
 function mapGuarantee(g) { return { id: g.id, code: g.code, contractId: g.contract_id, addendumId: g.addendum_id, parentGuaranteeId: g.parent_guarantee_id, replacesGuaranteeId: g.replaces_guarantee_id, name: g.name, issuer: g.issuer, value: g.value, note: g.note, hasTerm: !!g.has_term, effectiveDate: fmtDate(g.effective_date), expiryDate: fmtDate(g.expiry_date), status: g.status, createdBy: g.created_by, createdAt: g.created_at, approvedBy: g.approved_by, approvedAt: g.approved_at, rejectReason: g.reject_reason, relatedDepts: parseRelatedDepts(g.related_depts) }; }
 // Xác định tên Phòng "sở hữu" 1 bảo lãnh — suy ra từ Hợp đồng (trực tiếp
 // hoặc qua Phụ lục cha), dùng cho quyền "Phòng ban được xem" (contractDept
@@ -10032,7 +10032,15 @@ function registerContractApproveReject(entityPath, table, entityLabel, actionPre
             }
             const now = new Date().toLocaleString('vi-VN');
             await pool.query(`UPDATE ${table} SET status = 'APPROVED', approved_by = ?, approved_at = ?, reject_reason = NULL WHERE id = ?`, [req.user.username, now, rec.id]);
-            await writeAuditLog({ module: 'CONTRACT', actionType: `APPROVE_${actionPrefix}`, status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: rec.code, description: `Duyệt ${entityLabel} [${rec.code}].` });
+            // Phụ lục thay thế được duyệt → phụ lục CŨ tự động chuyển sang
+            // REPLACED (chỉ khi vẫn đang APPROVED — giống hệt cơ chế
+            // replaces_guarantee_id ở route duyệt bảo lãnh phát hành).
+            let replacedNote = '';
+            if (table === 'ctr_addendums' && rec.replaces_addendum_id) {
+                await pool.query(`UPDATE ctr_addendums SET status = 'REPLACED' WHERE id = ? AND status = 'APPROVED'`, [rec.replaces_addendum_id]);
+                replacedNote = ' (tự động chuyển phụ lục cũ sang trạng thái Đã thay thế)';
+            }
+            await writeAuditLog({ module: 'CONTRACT', actionType: `APPROVE_${actionPrefix}`, status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: rec.code, description: `Duyệt ${entityLabel} [${rec.code}]${replacedNote}.` });
             res.json({ success: true });
         } catch (err) {
             console.error(`❌ Lỗi duyệt ${entityLabel}:`, err.message);
@@ -10067,6 +10075,7 @@ app.post('/api/contracts/addendums', requireAuth, requireContractCreateOrAdmin, 
     try {
         const name = String((req.body && req.body.name) || '').trim();
         const contractId = Number(req.body && req.body.contractId);
+        const replacesAddendumId = (req.body && req.body.replacesAddendumId) ? Number(req.body.replacesAddendumId) : null;
         const addendumDate = (req.body && req.body.addendumDate) || null;
         const expiryDate = (req.body && req.body.expiryDate) || null;
         const note = String((req.body && req.body.note) || '').trim();
@@ -10078,15 +10087,23 @@ app.post('/api/contracts/addendums', requireAuth, requireContractCreateOrAdmin, 
         if (!canCreateContractFor(req.user.perms, contract.company_id, contract.dept_name)) {
             return res.status(403).json({ error: 'Bạn không có quyền tạo phụ lục cho Hợp đồng thuộc Công ty/Phòng này.' });
         }
+        let replacedAddendum = null;
+        if (replacesAddendumId) {
+            const [[ra]] = await pool.query('SELECT * FROM ctr_addendums WHERE id = ?', [replacesAddendumId]);
+            if (!ra) return res.status(400).json({ error: 'Phụ lục được thay thế không tồn tại.' });
+            if (ra.status !== 'APPROVED') return res.status(400).json({ error: 'Chỉ có thể thay thế 1 phụ lục đang ở trạng thái Đã duyệt.' });
+            if (ra.contract_id !== contractId) return res.status(400).json({ error: 'Phụ lục thay thế phải cùng Hợp đồng gốc với phụ lục được thay thế.' });
+            replacedAddendum = ra;
+        }
         const [[company]] = await pool.query('SELECT code FROM lic_companies WHERE id = ?', [contract.company_id]);
         const [[dept]] = await pool.query('SELECT abbr FROM depts WHERE name = ?', [contract.dept_name]);
         const code = await nextContractCode('ctr_addendums', 'PLHD', company.code, dept.abbr);
         const now = new Date().toLocaleString('vi-VN');
         const [result] = await pool.query(
-            `INSERT INTO ctr_addendums (code, contract_id, name, addendum_date, expiry_date, note, related_depts, status, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
-            [code, contractId, name, addendumDate, expiryDate, note || null, JSON.stringify(relatedDepts), req.user.username, now]
+            `INSERT INTO ctr_addendums (code, contract_id, replaces_addendum_id, name, addendum_date, expiry_date, note, related_depts, status, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
+            [code, contractId, replacesAddendumId || null, name, addendumDate, expiryDate, note || null, JSON.stringify(relatedDepts), req.user.username, now]
         );
-        await writeAuditLog({ module: 'CONTRACT', actionType: 'CREATE_ADDENDUM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: code, description: `Tạo phụ lục [${code}] cho hợp đồng [${contract.code}]: ${name}.` });
+        await writeAuditLog({ module: 'CONTRACT', actionType: 'CREATE_ADDENDUM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: code, description: `Tạo phụ lục [${code}] cho hợp đồng [${contract.code}]: ${name}${replacedAddendum ? `, thay thế [${replacedAddendum.code}]` : ''}.` });
         res.json({ success: true, id: result.insertId, code });
     } catch (err) {
         console.error('❌ Lỗi tạo phụ lục:', err.message);
@@ -10297,25 +10314,18 @@ app.post('/api/contracts/attachments', requireAuth, requireContractCreateOrAdmin
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
-app.delete('/api/contracts/attachments/:id', requireAuth, requireContractCreateOrAdmin, async (req, res) => {
+// (Phản hồi người dùng) Không còn cho xóa trực tiếp 1 file đính kèm nữa —
+// trước đây chỉ khóa khi hồ sơ rời PENDING và Admin vẫn được bỏ qua, nay khóa
+// với TẤT CẢ (kể cả Admin) ở MỌI trạng thái. Cần thay file thì tạo Phụ lục/
+// Bảo lãnh "⇄ Thay thế" (giữ nguyên bản cũ để tham chiếu — xem openAddendumModal/
+// openGuaranteeModal mode 'replace'); Admin vẫn xóa được cả bản ghi (cascade) nếu
+// thật sự cần dọn hẳn. Giữ lại route (thay vì gỡ bỏ) để trả lỗi rõ ràng cho
+// client cũ/gọi thẳng API thay vì 404 khó hiểu.
+app.delete('/api/contracts/attachments/:id', requireAuth, async (req, res) => {
     try {
         const [[att]] = await pool.query('SELECT * FROM ctr_attachments WHERE id = ?', [req.params.id]);
         if (!att) return res.status(404).json({ error: 'Không tìm thấy file đính kèm.' });
-        // Khóa xóa file đính kèm một khi Hợp đồng/Phụ lục/Bảo lãnh đã rời
-        // PENDING (Đã duyệt/Từ chối/Đã thanh lý/Đã thay thế) — tránh xóa nhầm
-        // do icon Tải/Xóa nằm sát nhau trên điện thoại (phản hồi người dùng).
-        // Admin vẫn bỏ qua được (đã có "quyền cao nhất xóa cả bản ghi" riêng).
-        if (!req.user.perms.admin) {
-            const table = CTR_RECORD_TABLES[att.record_type];
-            const [[rec]] = await pool.query(`SELECT status FROM ${table} WHERE id = ?`, [att.record_id]);
-            if (rec && rec.status !== 'PENDING') {
-                return res.status(403).json({ error: 'Hồ sơ đã qua trạng thái Chờ duyệt — không tự xóa file đính kèm được nữa, liên hệ Admin nếu cần.' });
-            }
-        }
-        await pool.query('DELETE FROM ctr_attachments WHERE id = ?', [req.params.id]);
-        fs.unlink(path.join(UPLOAD_DIR, att.file_path), () => {});
-        await writeAuditLog({ module: 'CONTRACT', actionType: 'DELETE_ATTACHMENT', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: att.file_name, description: `Xóa file đính kèm [${att.file_name}] khỏi ${att.record_type} #${att.record_id}.` });
-        res.json({ success: true });
+        return res.status(403).json({ error: 'Không thể xóa trực tiếp file đính kèm — vui lòng tạo Phụ lục/Bảo lãnh "⇄ Thay thế" nếu cần thay nội dung, bản cũ sẽ được giữ lại để tham chiếu.' });
     } catch (err) {
         console.error('❌ Lỗi xóa đính kèm:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
@@ -10416,7 +10426,13 @@ app.delete('/api/contracts/contracts/:id', requireAuth, async (req, res) => {
         let files = [];
         files = files.concat(await deleteGuaranteeSet(conn, allGuaranteeIds));
         files = files.concat(await collectAttachmentFiles(conn, 'ADDENDUM', addendumIds));
-        if (addendumIds.length) await conn.query(`DELETE FROM ctr_addendums WHERE id IN (${addendumIds.map(() => '?').join(',')})`, addendumIds);
+        if (addendumIds.length) {
+            // Gỡ tham chiếu "⇄ Thay thế" (replaces_addendum_id) treo tới các
+            // phụ lục sắp xóa — giống hệt deleteGuaranteeSet() xử lý với
+            // replaces_guarantee_id.
+            await conn.query(`UPDATE ctr_addendums SET replaces_addendum_id = NULL WHERE replaces_addendum_id IN (${addendumIds.map(() => '?').join(',')})`, addendumIds);
+            await conn.query(`DELETE FROM ctr_addendums WHERE id IN (${addendumIds.map(() => '?').join(',')})`, addendumIds);
+        }
         files = files.concat(await collectAttachmentFiles(conn, 'CONTRACT', [contract.id]));
         await conn.query('DELETE FROM ctr_contracts WHERE id = ?', [contract.id]);
 
@@ -10445,6 +10461,7 @@ app.delete('/api/contracts/addendums/:id', requireAuth, async (req, res) => {
 
         let files = await deleteGuaranteeSet(conn, allGuaranteeIds);
         files = files.concat(await collectAttachmentFiles(conn, 'ADDENDUM', [addendum.id]));
+        await conn.query('UPDATE ctr_addendums SET replaces_addendum_id = NULL WHERE replaces_addendum_id = ?', [addendum.id]);
         await conn.query('DELETE FROM ctr_addendums WHERE id = ?', [addendum.id]);
 
         await conn.commit();
