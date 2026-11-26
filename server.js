@@ -9906,7 +9906,13 @@ async function userCanViewContractRecord(user, recordType, recordId) {
 app.get('/api/contracts/bootstrap', requireAuth, requireContractViewOrAdmin, async (req, res) => {
     try {
         const [companies] = await pool.query('SELECT id, name, code FROM lic_companies ORDER BY name');
-        const [depts] = await pool.query('SELECT name, abbr FROM depts ORDER BY name');
+        // depts.org_unit_id là liên kết TÙY CHỌN sang module Bản quyền (xem
+        // chú thích ở schema.sql) — nhiều Phòng có thể chưa được gán, nên JOIN
+        // kiểu LEFT để không mất Phòng nào; companyId trả về NULL nghĩa là
+        // "chưa gán/dùng chung mọi Công ty" (xem cách lọc ở renderRelatedDeptsBox).
+        const [depts] = await pool.query(
+            'SELECT d.name, d.abbr, ou.company_id AS company_id FROM depts d LEFT JOIN lic_org_units ou ON ou.id = d.org_unit_id ORDER BY d.name'
+        );
         let [contracts] = await pool.query('SELECT * FROM ctr_contracts ORDER BY id DESC');
         let [addendums] = await pool.query('SELECT * FROM ctr_addendums ORDER BY id DESC');
         let [guarantees] = await pool.query('SELECT * FROM ctr_guarantees ORDER BY id DESC');
@@ -9970,7 +9976,7 @@ app.get('/api/contracts/bootstrap', requireAuth, requireContractViewOrAdmin, asy
 
         res.json({
             companies: companies.map(c => ({ id: c.id, name: c.name, code: c.code })),
-            depts: depts.map(d => ({ name: d.name, abbr: d.abbr })),
+            depts: depts.map(d => ({ name: d.name, abbr: d.abbr, companyId: d.company_id || null })),
             contracts: contracts.map(mapContract),
             addendums: addendums.map(mapAddendum),
             guarantees: guarantees.map(mapGuarantee),
