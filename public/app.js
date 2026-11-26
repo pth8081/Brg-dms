@@ -12582,11 +12582,118 @@ function isPerpetualSoftware(softwareId) {
         if (items.length === 0) return '';
         return `<div class="mt-1.5"><span class="text-[10px] font-semibold text-gray-500">${grp.label}:</span> ${items.map(a => `
           <span class="inline-flex items-center gap-1 bg-gray-100 border rounded px-1.5 py-0.5 text-[10px] mr-1 mb-1">
-            <a href="/api/contracts/attachments/${a.id}/view" target="_blank" class="text-blue-700 hover:underline">${escapeHtml(a.fileName)}</a>
+            <button ${dc('openContractAttachmentView', a.id)} class="text-blue-700 hover:underline">${escapeHtml(a.fileName)}</button>
             ${canDownloadContractAttachment() ? `<a href="/api/contracts/attachments/${a.id}/download" class="text-gray-500 hover:text-gray-700" title="Tải xuống">⬇</a>` : ''}
             <span class="text-gray-300" title="Không thể xóa trực tiếp file đã tải lên — tạo Phụ lục/Bảo lãnh &quot;⇄ Thay thế&quot; nếu cần thay nội dung">🔒</span>
           </span>`).join('')}</div>`;
       }).join('');
+    }
+
+    // --- Xem file đính kèm trực tiếp online (modal "Protected Viewer") — PDF/
+    // Ảnh hiển thị thẳng qua blob; Word (.docx) chuyển sang HTML bằng
+    // mammoth.js; Excel (.xlsx) đọc bằng ExcelJS và dựng thành bảng HTML. Giữ
+    // nguyên quyền Xem đã có — server vẫn tự kiểm tra lại ở GET .../view.
+    let contractAttViewObjectUrl = null;
+    let contractAttViewWorkbook = null;
+    let contractAttViewSheetIdx = 0;
+    function contractAttFileExt(fileName) {
+      const m = /\.([a-zA-Z0-9]+)$/.exec(String(fileName || '').trim());
+      return m ? m[1].toLowerCase() : '';
+    }
+    async function fetchContractAttachmentBlob(id) {
+      const res = await fetch(`/api/contracts/attachments/${id}/view`, { credentials: 'same-origin' });
+      if (!res.ok) {
+        if (res.status === 401) showLoginScreen();
+        let msg = `Lỗi HTTP ${res.status}`;
+        try { const body = await res.json(); if (body && body.error) msg = body.error; } catch (e) { /* no body */ }
+        const err = new Error(msg);
+        err.status = res.status;
+        throw err;
+      }
+      return await res.blob();
+    }
+    function closeContractAttachmentView() {
+      document.getElementById('contractAttViewModal').classList.add('hidden');
+      if (contractAttViewObjectUrl) { URL.revokeObjectURL(contractAttViewObjectUrl); contractAttViewObjectUrl = null; }
+      contractAttViewWorkbook = null;
+      contractAttViewSheetIdx = 0;
+    }
+    async function openContractAttachmentView(id) {
+      const att = ContractDB.attachments.find(a => a.id === id);
+      const fileName = att ? att.fileName : 'file';
+      document.getElementById('contractAttViewSub').textContent = fileName;
+      const container = document.getElementById('contractAttViewContent');
+      container.innerHTML = `<div class="p-8 text-center text-gray-500 text-sm">⏳ Đang tải nội dung file...</div>`;
+      document.getElementById('contractAttViewModal').classList.remove('hidden');
+
+      if (contractAttViewObjectUrl) { URL.revokeObjectURL(contractAttViewObjectUrl); contractAttViewObjectUrl = null; }
+      contractAttViewWorkbook = null;
+      contractAttViewSheetIdx = 0;
+
+      let blob;
+      try {
+        blob = await fetchContractAttachmentBlob(id);
+      } catch (e) {
+        container.innerHTML = `<div class="p-8 text-center text-red-600 text-sm">${escapeHtml(e.message || 'Không thể tải nội dung file.')}</div>`;
+        return;
+      }
+
+      const ext = contractAttFileExt(fileName);
+      try {
+        if (ext === 'pdf') {
+          const url = contractAttViewObjectUrl = URL.createObjectURL(blob);
+          // Không dùng sandbox — đã kiểm chứng khiến Chrome/Edge chặn hẳn việc
+          // render PDF từ blob: URI (giống iframe xem PDF ở module Tài liệu).
+          container.innerHTML = `<iframe src="${url}#toolbar=0&navpanes=0&scrollbar=0" class="w-full h-[65vh] border-0 rounded bg-white shadow"></iframe>`;
+        } else if (['jpg', 'jpeg', 'png', 'gif'].includes(ext)) {
+          const url = contractAttViewObjectUrl = URL.createObjectURL(blob);
+          container.innerHTML = `<img src="${url}" class="max-h-[65vh] max-w-full object-contain rounded shadow">`;
+        } else if (ext === 'docx') {
+          const arrayBuffer = await blob.arrayBuffer();
+          const result = await mammoth.convertToHtml({ arrayBuffer });
+          container.innerHTML = `<div class="contract-doc-preview bg-white shadow rounded p-8 md:p-10 w-full max-w-3xl mx-auto text-sm">${result.value || '<p class="text-gray-400 italic">(Tài liệu không có nội dung văn bản để hiển thị.)</p>'}</div>`;
+        } else if (ext === 'xlsx') {
+          const arrayBuffer = await blob.arrayBuffer();
+          const wb = new ExcelJS.Workbook();
+          await wb.xlsx.load(arrayBuffer);
+          contractAttViewWorkbook = wb;
+          contractAttViewSheetIdx = 0;
+          container.innerHTML = renderContractAttXlsxPreview();
+        } else {
+          container.innerHTML = `<div class="p-8 text-center text-gray-600 space-y-2">
+            <p class="font-bold text-base">📄 Định dạng tệp: ${escapeHtml(fileName)}</p>
+            <p class="text-xs">Xem trực tiếp áp dụng cho PDF/Ảnh/Word (.docx)/Excel (.xlsx). Dùng nút Tải xuống nếu được cấp quyền.</p>
+          </div>`;
+        }
+      } catch (e) {
+        console.error('Lỗi hiển thị file đính kèm:', e);
+        container.innerHTML = `<div class="p-8 text-center text-red-600 text-sm">Không thể hiển thị trực tiếp file này${ext ? ` (.${escapeHtml(ext)})` : ''}. Dùng nút Tải xuống nếu được cấp quyền.</div>`;
+      }
+    }
+    function renderContractAttXlsxPreview() {
+      const wb = contractAttViewWorkbook;
+      const sheets = wb.worksheets;
+      if (!sheets.length) return `<div class="p-8 text-center text-gray-500 text-sm">File Excel không có dữ liệu.</div>`;
+      const ws = sheets[contractAttViewSheetIdx] || sheets[0];
+      const rows = [];
+      ws.eachRow({ includeEmpty: true }, row => {
+        const cells = [];
+        row.eachCell({ includeEmpty: true }, cell => cells.push(xlsxCellToText(cell.value)));
+        rows.push(cells);
+      });
+      const maxCols = rows.reduce((m, r) => Math.max(m, r.length), 0);
+      const tabsHtml = sheets.length > 1 ? `<div class="flex gap-1 mb-2 flex-wrap w-full max-w-4xl">${sheets.map((s, i) => `<button ${dc('switchContractAttXlsxSheet', i)} class="text-[11px] font-semibold px-2.5 py-1 rounded ${i === contractAttViewSheetIdx ? 'bg-blue-600 text-white' : 'bg-white border text-gray-600'}">${escapeHtml(s.name)}</button>`).join('')}</div>` : '';
+      const tableHtml = (rows.length === 0 || maxCols === 0) ? '<div class="p-6 text-center text-gray-400 text-sm">Sheet trống.</div>' : `
+        <div class="bg-white shadow rounded overflow-auto w-full max-w-4xl">
+          <table class="border-collapse text-xs w-full">
+            ${rows.map((r, ri) => `<tr>${Array.from({ length: maxCols }).map((_, ci) => `<td class="border px-2 py-1 whitespace-nowrap ${ri === 0 ? 'bg-slate-800 text-white font-semibold' : ''}">${escapeHtml(r[ci] != null ? String(r[ci]) : '')}</td>`).join('')}</tr>`).join('')}
+          </table>
+        </div>`;
+      return `<div class="w-full flex flex-col items-center">${tabsHtml}${tableHtml}</div>`;
+    }
+    function switchContractAttXlsxSheet(idx) {
+      contractAttViewSheetIdx = Number(idx);
+      document.getElementById('contractAttViewContent').innerHTML = renderContractAttXlsxPreview();
     }
     // "⬇ Tải" ngay trong cột Thao tác của bảng Bảo lãnh (phản hồi người dùng:
     // trước đây phải bấm "Xem" rồi mới thấy icon tải nhỏ cạnh từng file, dễ bị

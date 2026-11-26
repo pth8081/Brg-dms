@@ -26,6 +26,10 @@
   <!-- ExcelJS (tự lưu trữ, không gọi CDN ngoài) — dùng để đọc/ghi file .xlsx thay cho
        CSV: tránh lỗi vỡ dấu tiếng Việt và sai dấu phân tách cột khi mở bằng Excel. -->
   <script src="/vendor/exceljs.min.js"></script>
+  <!-- Mammoth.js (tự lưu trữ) — chuyển nội dung file .docx sang HTML để xem trực
+       tiếp trong modal "Xem file đính kèm" (module Hợp đồng & Bảo lãnh), không
+       cần tải file về hay gửi ra dịch vụ ngoài. -->
+  <script src="/vendor/mammoth.browser.min.js"></script>
   <style>
     .dash-card.active-card {
       ring-width: 2px;
@@ -3019,6 +3023,28 @@
       <div id="guaranteeViewContent" class="p-4 space-y-2.5 text-sm"></div>
       <div class="p-3 border-t flex justify-end gap-2">
         <button type="button" data-evt-click="closeGuaranteeViewModal" data-args='[]' class="bg-gray-200 text-gray-700 px-4 py-1.5 rounded text-xs font-bold">Đóng</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Xem file đính kèm (Hợp đồng & Bảo lãnh) trực tiếp online — PDF/
+       Ảnh/Word/Excel, giữ nguyên quyền Xem đã có (xem openContractAttachmentView). -->
+  <div id="contractAttViewModal" class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-[70] p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-4xl w-full flex flex-col max-h-[90vh] overflow-hidden">
+      <div class="flex justify-between items-center bg-gray-800 text-white p-4">
+        <div class="min-w-0">
+          <h3 class="font-bold text-base flex items-center gap-2">👁 Xem file đính kèm</h3>
+          <p id="contractAttViewSub" class="text-xs text-gray-300 truncate"></p>
+        </div>
+        <button data-evt-click="closeContractAttachmentView" data-args='[]' class="text-gray-300 hover:text-white font-bold text-xl px-2 shrink-0">✕</button>
+      </div>
+      <div class="bg-amber-100 text-amber-900 px-4 py-2 text-xs font-semibold flex items-center justify-between border-b border-amber-200 select-none">
+        <span>🔒 Chế độ xem an toàn (chỉ xem trực tiếp trên ứng dụng)</span>
+        <span class="text-[10px] bg-amber-200 text-amber-900 font-bold px-2 py-0.5 rounded">Protected Viewer</span>
+      </div>
+      <div class="p-4 overflow-y-auto flex-1 bg-gray-100 flex flex-col items-center" id="contractAttViewContent"></div>
+      <div class="p-3 bg-gray-50 border-t flex justify-end items-center text-xs">
+        <button data-evt-click="closeContractAttachmentView" data-args='[]' class="bg-gray-600 text-white px-5 py-1.5 rounded font-bold hover:bg-gray-700">Đóng</button>
       </div>
     </div>
   </div>
