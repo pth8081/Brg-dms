@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "build:css": "tailwindcss -i ./src/input.css -o ./public/style.css --minify",
-    "build:vendor": "cp node_modules/exceljs/dist/exceljs.min.js public/vendor/exceljs.min.js",
+    "build:vendor": "cp node_modules/exceljs/dist/exceljs.min.js public/vendor/exceljs.min.js && cp node_modules/mammoth/mammoth.browser.min.js public/vendor/mammoth.browser.min.js",
     "build:js": "terser public/app.js -c -m --comments false -o public/app.min.js --source-map \"url='app.min.js.map'\"",
     "build": "npm run build:css && npm run build:vendor && npm run build:js",
     "prestart": "npm run build",
@@ -37,6 +37,7 @@
   "devDependencies": {
     "@tailwindcss/cli": "^4.3.3",
     "exceljs": "^4.4.0",
+    "mammoth": "^1.13.0",
     "tailwindcss": "^4.3.3",
     "terser": "^5.51.2"
   },

@@ -239,3 +239,21 @@ input[type="file"]::file-selector-button:hover {
 .related-dept-remove-btn { color: #dc2626; font-weight: 700; font-size: 13px; cursor: pointer; padding: 4px 8px; border-radius: 6px; }
 .related-dept-remove-btn:hover { background: #fef2f2; }
 .related-dept-add-btn { font-size: 12px; font-weight: 700; color: #1d4ed8; cursor: pointer; margin-top: 4px; display: inline-block; }
+
+/* Xem file .docx trực tiếp online (modal "Xem file đính kèm", module Hợp đồng
+   & Bảo lãnh) — mammoth.js chỉ trả về HTML ngữ nghĩa thuần (p/h1-h6/ul/table...),
+   Tailwind preflight đã xóa hết margin/style mặc định của các thẻ này nên cần
+   tự định dạng lại cho dễ đọc, giống trang văn bản Word thật. */
+.contract-doc-preview { font-family: Calibri, "Segoe UI", Arial, sans-serif; color: #1f2937; }
+.contract-doc-preview h1, .contract-doc-preview h2, .contract-doc-preview h3 { font-weight: 700; margin: 16px 0 8px; color: #1e3a5f; }
+.contract-doc-preview h1 { font-size: 1.3em; }
+.contract-doc-preview h2 { font-size: 1.15em; }
+.contract-doc-preview h3 { font-size: 1.05em; }
+.contract-doc-preview p { margin: 0 0 10px; }
+.contract-doc-preview ul, .contract-doc-preview ol { margin: 0 0 10px 1.5em; }
+.contract-doc-preview li { margin-bottom: 4px; }
+.contract-doc-preview table { border-collapse: collapse; margin: 0 0 12px; }
+.contract-doc-preview table td, .contract-doc-preview table th { border: 1px solid #cbd5e1; padding: 4px 8px; }
+.contract-doc-preview strong { font-weight: 700; }
+.contract-doc-preview em { font-style: italic; }
+.contract-doc-preview a { color: #1d4ed8; text-decoration: underline; }
