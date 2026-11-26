@@ -12580,12 +12580,13 @@ function isPerpetualSoftware(softwareId) {
       return groups.map(grp => {
         const items = atts.filter(a => a.attachmentGroup === grp.key);
         if (items.length === 0) return '';
-        return `<div class="mt-1.5"><span class="text-[10px] font-semibold text-gray-500">${grp.label}:</span> ${items.map(a => `
-          <span class="inline-flex items-center gap-1 bg-gray-100 border rounded px-1.5 py-0.5 text-[10px] mr-1 mb-1">
-            <button ${dc('openContractAttachmentView', a.id)} class="text-blue-700 hover:underline">${escapeHtml(a.fileName)}</button>
-            ${canDownloadContractAttachment() ? `<a href="/api/contracts/attachments/${a.id}/download" class="text-gray-500 hover:text-gray-700" title="Tải xuống">⬇</a>` : ''}
+        return `<div class="mt-1.5"><div class="text-[10px] font-semibold text-gray-500 mb-1">${grp.label}:</div> ${items.map(a => `
+          <div class="inline-flex items-center gap-2.5 flex-wrap bg-gray-50 border rounded-lg px-2.5 py-1.5 mr-1 mb-1">
+            <span class="text-[12px] font-medium text-gray-700">${escapeHtml(a.fileName)}</span>
+            <button ${dc('openContractAttachmentView', a.id)} class="text-[12px] font-bold text-blue-700 whitespace-nowrap">👁 Xem</button>
+            ${canDownloadContractAttachment() ? `<a href="/api/contracts/attachments/${a.id}/download" class="text-[12px] font-bold text-emerald-700 whitespace-nowrap">⬇ Tải</a>` : ''}
             <span class="text-gray-300" title="Không thể xóa trực tiếp file đã tải lên — tạo Phụ lục/Bảo lãnh &quot;⇄ Thay thế&quot; nếu cần thay nội dung">🔒</span>
-          </span>`).join('')}</div>`;
+          </div>`).join('')}</div>`;
       }).join('');
     }
 
