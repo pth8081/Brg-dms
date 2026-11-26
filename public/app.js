@@ -3992,7 +3992,7 @@
     function downloadUserTemplate() {
       downloadXlsxFile('user_import_template.xlsx',
         ['username', 'password', 'fullName', 'email', 'phone', 'dept'],
-        [['user_demo', '123456', 'Nguyễn Văn Demo', 'demo@company.com', '0987654321', 'Phòng IT']]);
+        [['user_demo', '123456', 'Nguyễn Văn Demo', 'demo@company.com', '0987654321', 'Phòng Kế Toán']]);
     }
 
     function exportUsersXlsx() {
