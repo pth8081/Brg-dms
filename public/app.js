@@ -13386,6 +13386,15 @@ function isPerpetualSoftware(softwareId) {
       relatedDeptsState[prefix] = [];
       renderRelatedDeptsBox(prefix);
     }
+    // Phòng chỉ lọc theo đúng Công ty đã chọn ở cùng dòng khi Phòng đó đã được
+    // gán Đơn vị tổ chức tương ứng (module Bản quyền, depts.org_unit_id —
+    // xem chú thích ở server.js/schema.sql). Phòng CHƯA gán (companyId NULL)
+    // vẫn hiện cho mọi Công ty, tránh danh sách trống oan nếu dữ liệu module
+    // Bản quyền chưa đối chiếu đủ.
+    function relatedDeptOptionsForCompany(companyId) {
+      if (!companyId) return ContractDB.depts;
+      return ContractDB.depts.filter(d => !d.companyId || String(d.companyId) === String(companyId));
+    }
     function renderRelatedDeptsBox(prefix) {
       const box = document.getElementById(`${prefix}RelatedDeptsBox`);
       if (!box) return;
@@ -13394,19 +13403,22 @@ function isPerpetualSoftware(softwareId) {
         box.innerHTML = '<p class="text-[11px] text-gray-400 italic">Chưa thêm đơn vị liên quan nào.</p>';
         return;
       }
-      box.innerHTML = rows.map((row, idx) => `
+      box.innerHTML = rows.map((row, idx) => {
+        const deptOptions = relatedDeptOptionsForCompany(row.companyId);
+        return `
         <div class="related-dept-row">
           <select ${dchg('onRelatedDeptFieldChange', prefix, idx, 'companyId', LIVE_VALUE)} class="w-full border p-1.5 rounded text-xs bg-white">
             <option value="">-- Chọn Công ty --</option>
             ${ContractDB.companies.map(c => `<option value="${c.id}" ${String(c.id) === String(row.companyId) ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
           </select>
-          <select ${dchg('onRelatedDeptFieldChange', prefix, idx, 'deptName', LIVE_VALUE)} class="w-full border p-1.5 rounded text-xs bg-white">
+          <select ${dchg('onRelatedDeptFieldChange', prefix, idx, 'deptName', LIVE_VALUE)} class="w-full border p-1.5 rounded text-xs bg-white" ${row.companyId ? '' : 'disabled title="Chọn Công ty trước"'}>
             <option value="">-- Chọn Phòng --</option>
-            ${ContractDB.depts.map(d => `<option value="${escapeHtml(d.name)}" ${d.name === row.deptName ? 'selected' : ''}>${escapeHtml(d.name)}</option>`).join('')}
+            ${deptOptions.map(d => `<option value="${escapeHtml(d.name)}" ${d.name === row.deptName ? 'selected' : ''}>${escapeHtml(d.name)}</option>`).join('')}
           </select>
           <span ${dc('removeRelatedDeptRow', prefix, idx)} class="related-dept-remove-btn">✕</span>
         </div>
-      `).join('');
+      `;
+      }).join('');
     }
     function addRelatedDeptRow(prefix) {
       relatedDeptsState[prefix].push({ companyId: '', deptName: '' });
@@ -13417,7 +13429,18 @@ function isPerpetualSoftware(softwareId) {
       renderRelatedDeptsBox(prefix);
     }
     function onRelatedDeptFieldChange(prefix, idx, field, value) {
-      relatedDeptsState[prefix][Number(idx)][field] = value;
+      const row = relatedDeptsState[prefix][Number(idx)];
+      row[field] = value;
+      if (field === 'companyId') {
+        // Đổi Công ty có thể khiến Phòng đang chọn không còn hợp lệ (đã gán
+        // sang Công ty khác) — xóa lựa chọn cũ, rồi render lại để danh sách
+        // Phòng lọc đúng theo Công ty mới.
+        const dept = ContractDB.depts.find(d => d.name === row.deptName);
+        if (dept && dept.companyId && String(dept.companyId) !== String(row.companyId)) {
+          row.deptName = '';
+        }
+        renderRelatedDeptsBox(prefix);
+      }
     }
     // Đọc lại state lúc lưu: bỏ dòng chưa chọn đủ Công ty+Phòng, gộp trùng
     // (cùng 1 cặp Công ty+Phòng chỉ giữ 1 lần).
