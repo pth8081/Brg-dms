@@ -1129,6 +1129,11 @@ CALL create_index_if_not_exists('ctr_addendums', 'idx_ctr_addendums_contract', '
 -- — VD phụ lục chỉ gia hạn thêm 1 phần hoặc 1 hạng mục cụ thể).
 CALL add_column_if_not_exists('ctr_addendums', 'expiry_date', 'DATE NULL DEFAULT NULL');
 CALL add_column_if_not_exists('ctr_addendums', 'related_depts', 'VARCHAR(2000) NULL DEFAULT NULL');
+-- replaces_addendum_id ("⇄ Thay thế") — y hệt cơ chế replaces_guarantee_id ở
+-- ctr_guarantees bên dưới: status REPLACED tự gán cho phụ lục CŨ khi phụ lục
+-- thay thế nó được duyệt (APPROVED), xem registerContractApproveReject().
+CALL add_column_if_not_exists('ctr_addendums', 'replaces_addendum_id', 'BIGINT NULL DEFAULT NULL');
+CALL create_index_if_not_exists('ctr_addendums', 'idx_ctr_addendums_replaces', 'replaces_addendum_id');
 
 -- Bảo lãnh phát hành — gắn đúng 1 trong 2 (contract_id HOẶC addendum_id, KHÔNG
 -- bao giờ cả hai). parent_guarantee_id (bảo lãnh CON) và replaces_guarantee_id

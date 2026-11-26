@@ -2877,7 +2877,7 @@
   <div id="addendumModal" class="modal-backdrop hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
     <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
       <div class="p-5 border-b flex justify-between items-center">
-        <h3 class="font-bold text-gray-800">📎 Thêm Phụ lục hợp đồng</h3>
+        <h3 id="addendumModalTitle" class="font-bold text-gray-800">📎 Thêm Phụ lục hợp đồng</h3>
         <button type="button" data-evt-click="closeAddendumModal" data-args='[]' class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
       </div>
       <div class="p-5 space-y-3">
@@ -2885,6 +2885,12 @@
           <label class="block text-xs font-semibold text-gray-600 mb-1">Hợp đồng liên quan</label>
           <input id="addendumContractLabel" type="text" readonly class="w-full border p-2 rounded text-sm bg-gray-100 font-mono text-gray-600">
           <input id="addendumContractId" type="hidden">
+        </div>
+        <div id="addendumReplacesWrap" class="hidden">
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Phụ lục được thay thế</label>
+          <input id="addendumReplacesLabel" type="text" readonly class="w-full border p-2 rounded text-sm bg-gray-100 font-mono text-gray-600">
+          <input id="addendumReplacesId" type="hidden">
+          <p class="text-[11px] text-amber-700 mt-1">⚠️ Khi phụ lục này được duyệt, phụ lục cũ sẽ tự động chuyển trạng thái sang "Đã thay thế" (vẫn giữ lại để tham chiếu).</p>
         </div>
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Đơn vị liên quan <span class="text-gray-400 font-normal">(tùy chọn)</span></label>
