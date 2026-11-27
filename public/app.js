@@ -3522,6 +3522,10 @@
           document.getElementById('userBudgetScopeOrgUnitId').value = p.budgetScopeId || '';
         }
       }
+      // Cuộn lên khung Sửa user (phản hồi người dùng: bấm "Sửa" ở cuối danh
+      // sách dài không thấy gì đổi vì form nằm tít trên đầu) — giống hệt
+      // cách "+ Thêm người dùng" (addUserToGroup) đã cuộn tới.
+      document.getElementById('uUsername').scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
 
     async function deleteUser(id) {
