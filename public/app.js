@@ -3046,7 +3046,7 @@
           </div>
           <div class="flex flex-wrap gap-1">${permsSummaryBadgesHtml(g.perms || {})}</div>
           <div class="flex gap-1.5 pt-1 border-t text-xs">
-            <button ${dc('addUserToGroup', g.id)} class="text-emerald-700 hover:underline font-semibold">+ Thêm người dùng</button>
+            <button ${dc('openGroupAssignUsersModal', g.id)} class="text-emerald-700 hover:underline font-semibold">+ Thêm người dùng</button>
             <button ${dc('openPermissionGroupModal', g.id)} class="text-blue-600 hover:underline font-semibold">Sửa</button>
             <button ${dc('deletePermissionGroup', g.id)} class="text-red-600 hover:underline font-semibold">Xóa</button>
           </div>
@@ -3207,13 +3207,61 @@
       }
     }
 
-    // "+ Thêm người dùng" ngay trên 1 nhóm — mở sẵn form Thêm User (như bấm
-    // Hủy để về form trống) với Nhóm quyền đã điền sẵn, cuộn tới để điền tiếp.
-    function addUserToGroup(groupId) {
-      resetUserForm();
-      document.getElementById('uPermissionGroupId').value = groupId;
-      onUserGroupChange();
-      document.getElementById('uUsername').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // "+ Thêm người dùng" ngay trên 1 Nhóm Quyền — bật hộp tìm kiếm + chọn
+    // nhiều (multi-select) user ĐÃ CÓ SẴN để gán thẳng vào nhóm (phản hồi
+    // người dùng: trước đây bấm vào lại mở form TẠO USER MỚI, không phải
+    // thứ cần dùng khi muốn gán nhanh nhiều user đã tồn tại vào 1 nhóm).
+    // Chỉ set permissionGroupId — KHÔNG đụng tới perms riêng của user (khác
+    // với lưu từ form Sửa User, vốn ghi đè perms về rỗng khi chọn nhóm) nên
+    // an toàn tuyệt đối với quyền Admin hay bất kỳ quyền riêng nào khác.
+    let groupAssignSelectedIds = new Set();
+    function openGroupAssignUsersModal(groupId) {
+      const g = DB.permissionGroups.find(x => x.id === groupId);
+      document.getElementById('groupAssignGroupId').value = groupId;
+      document.getElementById('groupAssignModalTitle').textContent = `+ Thêm người dùng vào nhóm "${g ? g.name : ''}"`;
+      document.getElementById('groupAssignUserSearch').value = '';
+      groupAssignSelectedIds = new Set();
+      renderGroupAssignUserList();
+      document.getElementById('groupAssignUsersModal').classList.remove('hidden');
+    }
+    function closeGroupAssignUsersModal() { document.getElementById('groupAssignUsersModal').classList.add('hidden'); }
+    function onGroupAssignSearchInput() { renderGroupAssignUserList(); }
+    function renderGroupAssignUserList() {
+      const groupId = Number(document.getElementById('groupAssignGroupId').value);
+      const search = document.getElementById('groupAssignUserSearch').value.trim().toLowerCase();
+      const list = document.getElementById('groupAssignUserList');
+      let users = DB.users.filter(u => u.permissionGroupId !== groupId);
+      if (search) users = users.filter(u => `${u.username} ${u.name}`.toLowerCase().includes(search));
+      list.innerHTML = users.length ? users.map(u => {
+        const otherGroup = u.permissionGroupId ? DB.permissionGroups.find(g => g.id === u.permissionGroupId) : null;
+        return `
+        <label class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer text-xs">
+          <input type="checkbox" ${dchg('toggleGroupAssignUserSelect', u.id, LIVE_CHECKED)} ${groupAssignSelectedIds.has(u.id) ? 'checked' : ''}>
+          <span class="font-mono font-bold text-blue-900">${escapeHtml(u.username)}</span>
+          <span class="font-semibold">${escapeHtml(u.name)}</span>
+          <span class="text-gray-400">${escapeHtml(u.dept || '')}</span>
+          ${otherGroup ? `<span class="text-amber-600 text-[10px] ml-auto whitespace-nowrap">⚠️ đang ở nhóm "${escapeHtml(otherGroup.name)}"</span>` : ''}
+        </label>`;
+      }).join('') : '<p class="text-xs text-gray-400 italic text-center p-3">Không tìm thấy người dùng nào.</p>';
+    }
+    function toggleGroupAssignUserSelect(id, checked) {
+      id = Number(id);
+      if (checked) groupAssignSelectedIds.add(id); else groupAssignSelectedIds.delete(id);
+      document.getElementById('groupAssignSelectedCount').textContent = `Đã chọn: ${groupAssignSelectedIds.size} người`;
+    }
+    async function confirmGroupAssignUsers() {
+      const groupId = Number(document.getElementById('groupAssignGroupId').value);
+      if (groupAssignSelectedIds.size === 0) return showToast('Chưa chọn người dùng nào.', 'warning');
+      const prevUsers = DB.users;
+      DB.users = DB.users.map(u => groupAssignSelectedIds.has(u.id) ? { ...u, permissionGroupId: groupId } : u);
+      const ok = await syncStorage('users');
+      if (!ok) { DB.users = prevUsers; return; }
+      const count = groupAssignSelectedIds.size;
+      logSystemAction('USER_MGM', 'ASSIGN_GROUP', `Gán ${count} người dùng vào nhóm quyền (id=${groupId})`, 'SUCCESS');
+      showToast(`Đã gán ${count} người dùng vào nhóm.`, 'success');
+      closeGroupAssignUsersModal();
+      renderUsers();
+      renderPermissionGroupList();
     }
 
     let pendingNewUsers = [];
@@ -3312,9 +3360,15 @@
       // resolveUserPerms ở server.js) — các ô quyền riêng bên dưới bị ẩn nên
       // không đọc nữa, gửi perms rỗng (chỉ giữ lại Phạm vi tự phục vụ + Phạm
       // vi Ngân sách, đều là khái niệm riêng của từng user, không thuộc bộ
-      // quyền của nhóm).
+      // quyền của nhóm). RIÊNG "admin" vẫn phải giữ lại (dù ô đang ẩn, giá trị
+      // checkbox vẫn đúng vì editUser() set trước khi gọi onUserGroupChange)
+      // — phản hồi người dùng: gán Nhóm quyền cho 1 Admin không được tự làm
+      // mất quyền Admin của họ (server cũng tự cộng lại nếu thiếu, xem
+      // resolveUserPerms, nhưng vẫn lưu đúng ở đây để không mất dữ liệu khi
+      // sau này đổi/gỡ Nhóm quyền).
       const permissionGroupId = document.getElementById('uPermissionGroupId').value ? Number(document.getElementById('uPermissionGroupId').value) : null;
       const perms = permissionGroupId ? {
+        admin: document.getElementById('pAdmin').checked,
         licenseScopeType: userScope.scopeType, licenseScopeId: userScope.scopeId,
         budgetScopeType: userBudgetScope.scopeType, budgetScopeId: userBudgetScope.scopeId
       } : {
@@ -3523,8 +3577,7 @@
         }
       }
       // Cuộn lên khung Sửa user (phản hồi người dùng: bấm "Sửa" ở cuối danh
-      // sách dài không thấy gì đổi vì form nằm tít trên đầu) — giống hệt
-      // cách "+ Thêm người dùng" (addUserToGroup) đã cuộn tới.
+      // sách dài không thấy gì đổi vì form nằm tít trên đầu).
       document.getElementById('uUsername').scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
 

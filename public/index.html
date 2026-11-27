@@ -4942,6 +4942,29 @@
     </div>
   </div>
 
+  <!-- MODAL: "+ Thêm người dùng" trên 1 Nhóm Quyền — tìm kiếm + chọn nhiều
+       (multi-select) user ĐÃ CÓ SẴN để gán vào nhóm, thay vì phải tạo user
+       mới. Chỉ GÁN (set permissionGroupId), không đụng tới perms riêng của
+       từng user (xem confirmGroupAssignUsers). -->
+  <div id="groupAssignUsersModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[65] p-4">
+    <input id="groupAssignGroupId" type="hidden">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[85vh] flex flex-col">
+      <div class="p-4 border-b flex justify-between items-center flex-none">
+        <h3 id="groupAssignModalTitle" class="font-bold text-gray-900 text-base">+ Thêm người dùng vào nhóm</h3>
+        <button type="button" data-evt-click="closeGroupAssignUsersModal" data-args='[]' class="text-gray-500 font-bold hover:text-gray-700 text-lg">✕</button>
+      </div>
+      <div class="p-4 space-y-2 flex-none border-b">
+        <input id="groupAssignUserSearch" type="text" data-evt-input="onGroupAssignSearchInput" data-args='[{"__live__":"event"}]' placeholder="🔍 Tìm theo tên đăng nhập hoặc họ tên..." class="w-full border p-2 rounded text-sm">
+        <p id="groupAssignSelectedCount" class="text-[11px] text-gray-500">Đã chọn: 0 người</p>
+      </div>
+      <div id="groupAssignUserList" class="p-2 overflow-y-auto flex-1 space-y-0.5"></div>
+      <div class="flex justify-end gap-2 p-3 border-t flex-none">
+        <button type="button" data-evt-click="closeGroupAssignUsersModal" data-args='[]' class="bg-gray-400 text-white px-4 py-2 rounded text-xs font-bold">Hủy</button>
+        <button type="button" data-evt-click="confirmGroupAssignUsers" data-args='[]' class="btn-primary px-5 py-2 rounded text-xs font-bold">Gán đã chọn vào nhóm</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/app.min.js"></script>
 </body>
 </html>

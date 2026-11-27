@@ -387,12 +387,21 @@ function sanitizeUser(u) {
 function parsePerms(raw) {
     return typeof raw === 'string' ? JSON.parse(raw || '{}') : (raw || {});
 }
+// Quyền Admin là cờ "siêu người dùng" riêng của CHÍNH tài khoản — không phải
+// 1 quyền do Nhóm quyền cấp hay thu hồi. Gán 1 user vốn đã là Admin (perms.
+// admin lưu riêng ở bản ghi user) vào bất kỳ Nhóm quyền nào (kể cả nhóm
+// không hề có Admin) KHÔNG được làm mất quyền Admin của họ — trước đây quyền
+// hiệu lực lấy NGUYÊN của nhóm, lỡ ghi đè mất Admin (phản hồi người dùng).
 async function resolveUserPerms(rawUser) {
+    const ownPerms = parsePerms(rawUser && rawUser.perms);
     if (rawUser && rawUser.permission_group_id) {
         const [rows] = await pool.query('SELECT perms FROM permission_groups WHERE id = ?', [rawUser.permission_group_id]);
-        if (rows[0]) return parsePerms(rows[0].perms);
+        if (rows[0]) {
+            const groupPerms = parsePerms(rows[0].perms);
+            return ownPerms.admin ? { ...groupPerms, admin: true } : groupPerms;
+        }
     }
-    return parsePerms(rawUser && rawUser.perms);
+    return ownPerms;
 }
 async function loadPermissionGroupPermsMap() {
     const [rows] = await pool.query('SELECT id, perms FROM permission_groups');
@@ -401,10 +410,12 @@ async function loadPermissionGroupPermsMap() {
     return map;
 }
 function resolvePermsWithMap(rawUser, groupPermsMap) {
+    const ownPerms = parsePerms(rawUser && rawUser.perms);
     if (rawUser && rawUser.permission_group_id && groupPermsMap.has(rawUser.permission_group_id)) {
-        return groupPermsMap.get(rawUser.permission_group_id);
+        const groupPerms = groupPermsMap.get(rawUser.permission_group_id);
+        return ownPerms.admin ? { ...groupPerms, admin: true } : groupPerms;
     }
-    return parsePerms(rawUser && rawUser.perms);
+    return ownPerms;
 }
 
 // --- AUDIT LOG TỰ ĐỘNG Ở SERVER ---
