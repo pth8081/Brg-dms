@@ -2672,6 +2672,7 @@
             <option value="APPROVED">Đã duyệt</option>
             <option value="REJECTED">Từ chối</option>
             <option value="TERMINATED">Đã thanh lý</option>
+            <option value="EXPIRED">Hết hạn</option>
           </select>
         </div>
         <div>
@@ -2694,6 +2695,7 @@
             <option value="APPROVED">Đã duyệt</option>
             <option value="REJECTED">Từ chối</option>
             <option value="REPLACED">Đã thay thế</option>
+            <option value="EXPIRED">Hết hạn</option>
           </select>
         </div>
         <div>
@@ -2813,10 +2815,12 @@
   <div id="contractModal" class="modal-backdrop hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
     <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
       <div class="p-5 border-b flex justify-between items-center">
-        <h3 class="font-bold text-gray-800">📄 Thêm Hợp đồng</h3>
+        <h3 id="contractModalTitle" class="font-bold text-gray-800">📄 Thêm Hợp đồng</h3>
         <button type="button" data-evt-click="closeContractModal" data-args='[]' class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
       </div>
       <div class="p-5 space-y-3">
+        <input id="editContractId" type="hidden">
+        <div id="contractEditNotice" class="hidden bg-amber-50 border border-amber-200 text-amber-800 text-[11px] rounded p-2">⚠️ Lưu thay đổi sẽ chuyển hồ sơ về "Chờ duyệt" (nếu hiện không phải Chờ duyệt) — cần phê duyệt lại mới có hiệu lực. File đính kèm không sửa được ở đây, dùng "⇄ Thay thế" nếu cần đổi file.</div>
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="block text-xs font-semibold text-gray-600 mb-1">Công ty <span class="text-red-500">*</span></label>
@@ -2861,18 +2865,20 @@
           <label class="block text-xs font-semibold text-gray-600 mb-1">Ghi chú</label>
           <textarea id="contractNote" rows="2" class="w-full border p-2 rounded text-sm"></textarea>
         </div>
-        <div class="border rounded-lg p-3 bg-blue-50">
-          <label class="block text-xs font-bold text-blue-800 mb-1">📎 Hợp đồng đính kèm (chọn nhiều file)</label>
-          <input id="contractFilesMain" type="file" multiple class="w-full text-xs">
-        </div>
-        <div class="border rounded-lg p-3 bg-amber-50">
-          <label class="block text-xs font-bold text-amber-800 mb-1">📑 Tờ trình đính kèm (chọn nhiều file)</label>
-          <input id="contractFilesProposal" type="file" multiple class="w-full text-xs">
+        <div id="contractFilesWrap">
+          <div class="border rounded-lg p-3 bg-blue-50">
+            <label class="block text-xs font-bold text-blue-800 mb-1">📎 Hợp đồng đính kèm (chọn nhiều file)</label>
+            <input id="contractFilesMain" type="file" multiple class="w-full text-xs">
+          </div>
+          <div class="border rounded-lg p-3 bg-amber-50 mt-3">
+            <label class="block text-xs font-bold text-amber-800 mb-1">📑 Tờ trình đính kèm (chọn nhiều file)</label>
+            <input id="contractFilesProposal" type="file" multiple class="w-full text-xs">
+          </div>
         </div>
       </div>
       <div class="p-5 border-t flex justify-end gap-2">
         <button type="button" data-evt-click="closeContractModal" data-args='[]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" data-evt-click="saveContract" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Gửi duyệt</button>
+        <button type="button" id="contractSaveBtn" data-evt-click="saveContract" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Gửi duyệt</button>
       </div>
     </div>
   </div>
@@ -2885,6 +2891,8 @@
         <button type="button" data-evt-click="closeAddendumModal" data-args='[]' class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
       </div>
       <div class="p-5 space-y-3">
+        <input id="editAddendumId" type="hidden">
+        <div id="addendumEditNotice" class="hidden bg-amber-50 border border-amber-200 text-amber-800 text-[11px] rounded p-2">⚠️ Lưu thay đổi sẽ chuyển hồ sơ về "Chờ duyệt" (nếu hiện không phải Chờ duyệt) — cần phê duyệt lại mới có hiệu lực. File đính kèm không sửa được ở đây, dùng "⇄ Thay thế" nếu cần đổi file.</div>
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Hợp đồng liên quan</label>
           <input id="addendumContractLabel" type="text" readonly class="w-full border p-2 rounded text-sm bg-gray-100 font-mono text-gray-600">
@@ -2920,18 +2928,20 @@
           <label class="block text-xs font-semibold text-gray-600 mb-1">Nội dung thay đổi / Ghi chú</label>
           <textarea id="addendumNote" rows="2" class="w-full border p-2 rounded text-sm"></textarea>
         </div>
-        <div class="border rounded-lg p-3 bg-blue-50">
-          <label class="block text-xs font-bold text-blue-800 mb-1">📎 Phụ lục đính kèm (chọn nhiều file)</label>
-          <input id="addendumFilesMain" type="file" multiple class="w-full text-xs">
-        </div>
-        <div class="border rounded-lg p-3 bg-amber-50">
-          <label class="block text-xs font-bold text-amber-800 mb-1">📑 Tờ trình đính kèm (chọn nhiều file)</label>
-          <input id="addendumFilesProposal" type="file" multiple class="w-full text-xs">
+        <div id="addendumFilesWrap">
+          <div class="border rounded-lg p-3 bg-blue-50">
+            <label class="block text-xs font-bold text-blue-800 mb-1">📎 Phụ lục đính kèm (chọn nhiều file)</label>
+            <input id="addendumFilesMain" type="file" multiple class="w-full text-xs">
+          </div>
+          <div class="border rounded-lg p-3 bg-amber-50 mt-3">
+            <label class="block text-xs font-bold text-amber-800 mb-1">📑 Tờ trình đính kèm (chọn nhiều file)</label>
+            <input id="addendumFilesProposal" type="file" multiple class="w-full text-xs">
+          </div>
         </div>
       </div>
       <div class="p-5 border-t flex justify-end gap-2">
         <button type="button" data-evt-click="closeAddendumModal" data-args='[]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" data-evt-click="saveAddendum" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Gửi duyệt</button>
+        <button type="button" id="addendumSaveBtn" data-evt-click="saveAddendum" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Gửi duyệt</button>
       </div>
     </div>
   </div>
@@ -2948,6 +2958,8 @@
         <input id="guaranteeContractId" type="hidden">
         <input id="guaranteeAddendumId" type="hidden">
         <input id="guaranteeParentId" type="hidden">
+        <input id="editGuaranteeId" type="hidden">
+        <div id="guaranteeEditNotice" class="hidden bg-amber-50 border border-amber-200 text-amber-800 text-[11px] rounded p-2">⚠️ Lưu thay đổi sẽ chuyển hồ sơ về "Chờ duyệt" (nếu hiện không phải Chờ duyệt) — cần phê duyệt lại mới có hiệu lực. File đính kèm không sửa được ở đây, dùng "⇄ Thay thế" nếu cần đổi file.</div>
         <div>
           <label class="block text-xs font-semibold text-gray-600 mb-1">Gắn với</label>
           <input id="guaranteeParentLabel" type="text" readonly class="w-full border p-2 rounded text-sm bg-gray-100 font-mono text-gray-600">
@@ -2999,14 +3011,14 @@
           <label class="block text-xs font-semibold text-gray-600 mb-1">Ghi chú</label>
           <textarea id="guaranteeNote" rows="2" class="w-full border p-2 rounded text-sm"></textarea>
         </div>
-        <div class="border rounded-lg p-3 bg-blue-50">
+        <div id="guaranteeFilesWrap" class="border rounded-lg p-3 bg-blue-50">
           <label class="block text-xs font-bold text-blue-800 mb-1">📎 Đính kèm (chọn nhiều file)</label>
           <input id="guaranteeFilesMain" type="file" multiple class="w-full text-xs">
         </div>
       </div>
       <div class="p-5 border-t flex justify-end gap-2">
         <button type="button" data-evt-click="closeGuaranteeModal" data-args='[]' class="bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-bold hover:bg-gray-300">Hủy</button>
-        <button type="button" data-evt-click="saveGuarantee" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Gửi duyệt</button>
+        <button type="button" id="guaranteeSaveBtn" data-evt-click="saveGuarantee" data-args='[]' class="btn-primary px-4 py-2 rounded text-sm font-bold">Gửi duyệt</button>
       </div>
     </div>
   </div>
@@ -3023,6 +3035,21 @@
       <div id="guaranteeViewContent" class="p-4 space-y-2.5 text-sm"></div>
       <div class="p-3 border-t flex justify-end gap-2">
         <button type="button" data-evt-click="closeGuaranteeViewModal" data-args='[]' class="bg-gray-200 text-gray-700 px-4 py-1.5 rounded text-xs font-bold">Đóng</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: "🕘 Lịch sử thay đổi" — ghi lại mọi lần Sửa Hợp đồng/Phụ lục/Bảo
+       lãnh (xem GET /api/contracts/history/:recordType/:recordId). -->
+  <div id="ctrHistoryModal" class="modal-backdrop hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+      <div class="p-4 border-b flex justify-between items-center">
+        <h3 class="font-bold text-gray-900 text-sm">🕘 Lịch sử thay đổi</h3>
+        <button type="button" data-evt-click="closeCtrHistoryModal" data-args='[]' class="text-gray-500 font-bold hover:text-gray-700 text-lg">✕</button>
+      </div>
+      <div id="ctrHistoryContent" class="p-4 text-sm"></div>
+      <div class="p-3 border-t flex justify-end gap-2">
+        <button type="button" data-evt-click="closeCtrHistoryModal" data-args='[]' class="bg-gray-200 text-gray-700 px-4 py-1.5 rounded text-xs font-bold">Đóng</button>
       </div>
     </div>
   </div>

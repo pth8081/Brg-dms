@@ -1134,6 +1134,7 @@ CALL add_column_if_not_exists('ctr_addendums', 'related_depts', 'VARCHAR(2000) N
 -- thay thế nó được duyệt (APPROVED), xem registerContractApproveReject().
 CALL add_column_if_not_exists('ctr_addendums', 'replaces_addendum_id', 'BIGINT NULL DEFAULT NULL');
 CALL create_index_if_not_exists('ctr_addendums', 'idx_ctr_addendums_replaces', 'replaces_addendum_id');
+CALL create_index_if_not_exists('ctr_addendums', 'idx_ctr_addendums_status', 'status');
 
 -- Bảo lãnh phát hành — gắn đúng 1 trong 2 (contract_id HOẶC addendum_id, KHÔNG
 -- bao giờ cả hai). parent_guarantee_id (bảo lãnh CON) và replaces_guarantee_id
@@ -1169,6 +1170,25 @@ CALL create_index_if_not_exists('ctr_guarantees', 'idx_ctr_guarantees_parent', '
 CALL create_index_if_not_exists('ctr_guarantees', 'idx_ctr_guarantees_replaces', 'replaces_guarantee_id');
 CALL create_index_if_not_exists('ctr_guarantees', 'idx_ctr_guarantees_status', 'status');
 CALL add_column_if_not_exists('ctr_guarantees', 'related_depts', 'VARCHAR(2000) NULL DEFAULT NULL');
+
+-- Trạng thái EXPIRED ("Hết hạn") — KHÔNG phải cột ENUM riêng, chỉ là 1 giá
+-- trị string tự nhiên trong cột status (vốn đã VARCHAR(20) tự do) của cả 3
+-- bảng trên. Job chạy nền mỗi giờ (xem maybeRunScheduledContractExpiryCheck
+-- ở server.js) tự UPDATE status 'APPROVED' -> 'EXPIRED' khi quá expiry_date.
+-- Sửa 1 bản ghi đang APPROVED/EXPIRED/REJECTED (xem PUT .../:id ở server.js)
+-- sẽ tự đưa status về lại PENDING để chờ phê duyệt lại — mọi lần sửa đều ghi
+-- vào ctr_change_history bên dưới để tham chiếu.
+CREATE TABLE IF NOT EXISTS ctr_change_history (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    record_type VARCHAR(20) NOT NULL,
+    record_id BIGINT NOT NULL,
+    field_label VARCHAR(100) NOT NULL,
+    old_value VARCHAR(2000) NULL DEFAULT NULL,
+    new_value VARCHAR(2000) NULL DEFAULT NULL,
+    changed_by VARCHAR(100) NOT NULL,
+    changed_at VARCHAR(100) NOT NULL
+);
+CALL create_index_if_not_exists('ctr_change_history', 'idx_ctr_change_history_record', 'record_type, record_id');
 
 -- Đính kèm multi-upload dùng chung cho cả 3 loại văn bản — record_type phân
 -- biệt loại, attachment_group phân biệt "Đính kèm" (MAIN) và "Tờ trình đính

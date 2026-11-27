@@ -1093,6 +1093,34 @@ if (isScheduledJobOwner) {
     setTimeout(maybeRunScheduledExpiryCheck, 15000);
 }
 
+// --- Tự động chuyển Hợp đồng/Phụ lục/Bảo lãnh "Đã duyệt" quá Ngày hết hạn
+// sang trạng thái "Hết hạn" (EXPIRED) — quét mỗi giờ, chỉ là UPDATE điều
+// kiện đơn giản nên không cần cơ chế throttle qua app_configs như job nhắc
+// hạn CNTT (gửi email) ở trên. Bảo lãnh "Vô thời hạn" (has_term = 0) không
+// bao giờ hết hạn nên không nằm trong điều kiện quét. Sửa 1 bản ghi đang
+// EXPIRED (xem PUT .../:id) sẽ tự đưa status về PENDING để chờ duyệt lại —
+// không xung đột với job này (job chỉ đụng tới status đang APPROVED).
+async function runContractExpiryCheck() {
+    const [r1] = await pool.query(`UPDATE ctr_contracts SET status = 'EXPIRED' WHERE status = 'APPROVED' AND expiry_date IS NOT NULL AND expiry_date < CURDATE()`);
+    const [r2] = await pool.query(`UPDATE ctr_addendums SET status = 'EXPIRED' WHERE status = 'APPROVED' AND expiry_date IS NOT NULL AND expiry_date < CURDATE()`);
+    const [r3] = await pool.query(`UPDATE ctr_guarantees SET status = 'EXPIRED' WHERE status = 'APPROVED' AND has_term = 1 AND expiry_date IS NOT NULL AND expiry_date < CURDATE()`);
+    return { contracts: r1.affectedRows, addendums: r2.affectedRows, guarantees: r3.affectedRows };
+}
+async function maybeRunScheduledContractExpiryCheck() {
+    try {
+        const r = await runContractExpiryCheck();
+        if (r.contracts || r.addendums || r.guarantees) {
+            console.log(`⏰ Tự động chuyển "Hết hạn": ${r.contracts} hợp đồng, ${r.addendums} phụ lục, ${r.guarantees} bảo lãnh.`);
+        }
+    } catch (e) {
+        console.error('❌ Lỗi kiểm tra Hợp đồng/Phụ lục/Bảo lãnh hết hạn:', e.message);
+    }
+}
+if (isScheduledJobOwner) {
+    setInterval(maybeRunScheduledContractExpiryCheck, 60 * 60 * 1000);
+    setTimeout(maybeRunScheduledContractExpiryCheck, 15000);
+}
+
 // --- Kiểm soát License tự động: đối chiếu nhân viên đang giữ license với
 // tài khoản AD đã bị disable (đúng logic báo cáo "Kiểm soát" thủ công ở tab
 // Phân bổ, nay tính ở server để job tự động và nút bấm thủ công dùng chung 1
@@ -9831,6 +9859,26 @@ function canCreateContractFor(perms, companyId, deptName) {
     return true;
 }
 
+// Ghi "🕘 Lịch sử thay đổi" khi Sửa Hợp đồng/Phụ lục/Bảo lãnh (xem PUT
+// .../:id bên dưới) — so sánh giá trị cũ (bản ghi DB, snake_case) với giá
+// trị mới (đã chuẩn hoá cùng kiểu), CHỈ ghi những trường thực sự đổi. Trả về
+// số trường đã đổi để route gọi quyết định có cần reset status về PENDING
+// hay không (không đổi gì thì giữ nguyên trạng thái, không bắt duyệt lại).
+async function recordContractChanges(recordType, recordId, oldRec, newValues, fieldDefs, username) {
+    const now = new Date().toLocaleString('vi-VN');
+    const dispValue = v => (v === null || v === undefined || v === '' ? '(trống)' : String(v));
+    const rows = [];
+    for (const def of fieldDefs) {
+        const oldDisp = dispValue(def.format ? def.format(oldRec[def.key]) : oldRec[def.key]);
+        const newDisp = dispValue(def.format ? def.format(newValues[def.key]) : newValues[def.key]);
+        if (oldDisp !== newDisp) rows.push([recordType, recordId, def.label, oldDisp, newDisp, username, now]);
+    }
+    if (rows.length) {
+        await pool.query('INSERT INTO ctr_change_history (record_type, record_id, field_label, old_value, new_value, changed_by, changed_at) VALUES ?', [rows]);
+    }
+    return rows.length;
+}
+
 // Sinh mã tự động kiểu "MAX số hậu tố hiện có + 1" trong đúng 1 bảng — giống
 // hệt cơ chế nextCodeForPrefix() ở app.post('/api/docs/upload'), KHÔNG dùng
 // bảng đếm riêng để tránh lệch số khi dữ liệu bị xoá (xoá 1 bản ghi giữa dãy
@@ -10025,6 +10073,58 @@ app.post('/api/contracts', requireAuth, requireContractCreateOrAdmin, async (req
     }
 });
 
+// Sửa Hợp đồng/Phụ lục/Bảo lãnh — CHỈ sửa được thông tin nội dung (tên, giá
+// trị, mốc thời gian, ghi chú, đơn vị liên quan...), KHÔNG sửa được Công ty/
+// Phòng/liên kết Hợp đồng-Phụ lục-Bảo lãnh cha (dùng "⇄ Thay thế" nếu cần đổi
+// liên kết) và KHÔNG sửa file đính kèm ở đây. Chặn hẳn với bản ghi đã Thanh
+// lý/Đã thay thế (trạng thái cuối, không còn ý nghĩa để sửa). Sửa xong, nếu
+// CÓ ít nhất 1 trường thực sự đổi và bản ghi đang không phải Chờ duyệt, tự
+// chuyển về PENDING để bắt buộc duyệt lại mới có hiệu lực (APPROVED) —  theo
+// đúng yêu cầu người dùng. Mọi lần sửa đều ghi vào ctr_change_history.
+const money = v => (v === null || v === undefined || v === '') ? null : Number(v);
+app.put('/api/contracts/contracts/:id', requireAuth, requireContractCreateOrAdmin, async (req, res) => {
+    try {
+        const [[contract]] = await pool.query('SELECT * FROM ctr_contracts WHERE id = ?', [req.params.id]);
+        if (!contract) return res.status(404).json({ error: 'Không tìm thấy hợp đồng.' });
+        if (contract.status === 'TERMINATED' || contract.status === 'REPLACED') {
+            return res.status(400).json({ error: 'Không thể sửa hợp đồng đã Thanh lý/Đã thay thế.' });
+        }
+        if (!canCreateContractFor(req.user.perms, contract.company_id, contract.dept_name)) {
+            return res.status(403).json({ error: 'Bạn không có quyền sửa hợp đồng thuộc Công ty/Phòng này.' });
+        }
+        const name = String((req.body && req.body.name) || '').trim();
+        const counterparty = String((req.body && req.body.counterparty) || '').trim();
+        const contractDate = (req.body && req.body.contractDate) || null;
+        const expiryDate = (req.body && req.body.expiryDate) || null;
+        const value = (req.body && req.body.value !== undefined && req.body.value !== '') ? Number(req.body.value) : null;
+        const note = String((req.body && req.body.note) || '').trim();
+        const relatedDepts = sanitizeRelatedDepts(req.body && req.body.relatedDepts);
+        if (!name) return res.status(400).json({ error: 'Vui lòng nhập tên hợp đồng.' });
+
+        const newValues = { name, counterparty: counterparty || null, contract_date: contractDate, expiry_date: expiryDate, value, note: note || null, related_depts: JSON.stringify(relatedDepts) };
+        const fieldDefs = [
+            { key: 'name', label: 'Tên hợp đồng' },
+            { key: 'counterparty', label: 'Đối tác' },
+            { key: 'contract_date', label: 'Ngày ký', format: fmtDate },
+            { key: 'expiry_date', label: 'Ngày hết hạn', format: fmtDate },
+            { key: 'value', label: 'Giá trị', format: money },
+            { key: 'note', label: 'Ghi chú' },
+            { key: 'related_depts', label: 'Đơn vị liên quan' }
+        ];
+        const changedCount = await recordContractChanges('CONTRACT', contract.id, contract, newValues, fieldDefs, req.user.username);
+        const resetToPending = changedCount > 0 && contract.status !== 'PENDING';
+        await pool.query(
+            `UPDATE ctr_contracts SET name = ?, counterparty = ?, contract_date = ?, expiry_date = ?, value = ?, note = ?, related_depts = ?${resetToPending ? ", status = 'PENDING', approved_by = NULL, approved_at = NULL, reject_reason = NULL" : ''} WHERE id = ?`,
+            [name, counterparty || null, contractDate, expiryDate, value, note || null, JSON.stringify(relatedDepts), contract.id]
+        );
+        await writeAuditLog({ module: 'CONTRACT', actionType: 'EDIT_CONTRACT', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: contract.code, description: `Sửa hợp đồng [${contract.code}]${changedCount ? ` (${changedCount} trường thay đổi${resetToPending ? ', chuyển về Chờ duyệt' : ''})` : ' (không có thay đổi)'}.` });
+        res.json({ success: true, changedCount, resetToPending });
+    } catch (err) {
+        console.error('❌ Lỗi sửa hợp đồng:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
 function registerContractApproveReject(entityPath, table, entityLabel, actionPrefix) {
     app.post(`/api/contracts/${entityPath}/:id/approve`, requireAuth, requireContractApproveOrSelfOrAdmin, async (req, res) => {
         try {
@@ -10113,6 +10213,45 @@ app.post('/api/contracts/addendums', requireAuth, requireContractCreateOrAdmin, 
         res.json({ success: true, id: result.insertId, code });
     } catch (err) {
         console.error('❌ Lỗi tạo phụ lục:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.put('/api/contracts/addendums/:id', requireAuth, requireContractCreateOrAdmin, async (req, res) => {
+    try {
+        const [[addendum]] = await pool.query('SELECT * FROM ctr_addendums WHERE id = ?', [req.params.id]);
+        if (!addendum) return res.status(404).json({ error: 'Không tìm thấy phụ lục.' });
+        if (addendum.status === 'REPLACED') return res.status(400).json({ error: 'Không thể sửa phụ lục đã Đã thay thế.' });
+        const [[contract]] = await pool.query('SELECT * FROM ctr_contracts WHERE id = ?', [addendum.contract_id]);
+        if (!contract) return res.status(400).json({ error: 'Hợp đồng gốc của phụ lục không tồn tại.' });
+        if (!canCreateContractFor(req.user.perms, contract.company_id, contract.dept_name)) {
+            return res.status(403).json({ error: 'Bạn không có quyền sửa phụ lục thuộc Công ty/Phòng này.' });
+        }
+        const name = String((req.body && req.body.name) || '').trim();
+        const addendumDate = (req.body && req.body.addendumDate) || null;
+        const expiryDate = (req.body && req.body.expiryDate) || null;
+        const note = String((req.body && req.body.note) || '').trim();
+        const relatedDepts = sanitizeRelatedDepts(req.body && req.body.relatedDepts);
+        if (!name) return res.status(400).json({ error: 'Vui lòng nhập tên phụ lục.' });
+
+        const newValues = { name, addendum_date: addendumDate, expiry_date: expiryDate, note: note || null, related_depts: JSON.stringify(relatedDepts) };
+        const fieldDefs = [
+            { key: 'name', label: 'Tên phụ lục' },
+            { key: 'addendum_date', label: 'Ngày ký', format: fmtDate },
+            { key: 'expiry_date', label: 'Ngày hết hạn', format: fmtDate },
+            { key: 'note', label: 'Ghi chú' },
+            { key: 'related_depts', label: 'Đơn vị liên quan' }
+        ];
+        const changedCount = await recordContractChanges('ADDENDUM', addendum.id, addendum, newValues, fieldDefs, req.user.username);
+        const resetToPending = changedCount > 0 && addendum.status !== 'PENDING';
+        await pool.query(
+            `UPDATE ctr_addendums SET name = ?, addendum_date = ?, expiry_date = ?, note = ?, related_depts = ?${resetToPending ? ", status = 'PENDING', approved_by = NULL, approved_at = NULL, reject_reason = NULL" : ''} WHERE id = ?`,
+            [name, addendumDate, expiryDate, note || null, JSON.stringify(relatedDepts), addendum.id]
+        );
+        await writeAuditLog({ module: 'CONTRACT', actionType: 'EDIT_ADDENDUM', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: addendum.code, description: `Sửa phụ lục [${addendum.code}]${changedCount ? ` (${changedCount} trường thay đổi${resetToPending ? ', chuyển về Chờ duyệt' : ''})` : ' (không có thay đổi)'}.` });
+        res.json({ success: true, changedCount, resetToPending });
+    } catch (err) {
+        console.error('❌ Lỗi sửa phụ lục:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
@@ -10206,6 +10345,80 @@ app.post('/api/contracts/guarantees', requireAuth, requireContractCreateOrAdmin,
         res.json({ success: true, id: result.insertId, code });
     } catch (err) {
         console.error('❌ Lỗi tạo bảo lãnh phát hành:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.put('/api/contracts/guarantees/:id', requireAuth, requireContractCreateOrAdmin, async (req, res) => {
+    try {
+        const [[g]] = await pool.query('SELECT * FROM ctr_guarantees WHERE id = ?', [req.params.id]);
+        if (!g) return res.status(404).json({ error: 'Không tìm thấy bảo lãnh.' });
+        if (g.status === 'REPLACED') return res.status(400).json({ error: 'Không thể sửa bảo lãnh đã Đã thay thế.' });
+
+        let companyId, deptName;
+        if (g.contract_id) {
+            const [[c]] = await pool.query('SELECT * FROM ctr_contracts WHERE id = ?', [g.contract_id]);
+            if (!c) return res.status(400).json({ error: 'Hợp đồng gắn bảo lãnh không tồn tại.' });
+            companyId = c.company_id; deptName = c.dept_name;
+        } else {
+            const [[a]] = await pool.query('SELECT * FROM ctr_addendums WHERE id = ?', [g.addendum_id]);
+            if (!a) return res.status(400).json({ error: 'Phụ lục gắn bảo lãnh không tồn tại.' });
+            const [[c]] = await pool.query('SELECT * FROM ctr_contracts WHERE id = ?', [a.contract_id]);
+            if (!c) return res.status(400).json({ error: 'Hợp đồng gốc không tồn tại.' });
+            companyId = c.company_id; deptName = c.dept_name;
+        }
+        if (!canCreateContractFor(req.user.perms, companyId, deptName)) {
+            return res.status(403).json({ error: 'Bạn không có quyền sửa bảo lãnh thuộc Công ty/Phòng này.' });
+        }
+
+        const name = String((req.body && req.body.name) || '').trim();
+        const issuer = String((req.body && req.body.issuer) || '').trim();
+        const value = (req.body && req.body.value !== undefined && req.body.value !== '') ? Number(req.body.value) : null;
+        const note = String((req.body && req.body.note) || '').trim();
+        const hasTerm = !!(req.body && req.body.hasTerm);
+        const effectiveDate = (req.body && req.body.effectiveDate) ? req.body.effectiveDate : null;
+        const expiryDate = (hasTerm && req.body.expiryDate) ? req.body.expiryDate : null;
+        const relatedDepts = sanitizeRelatedDepts(req.body && req.body.relatedDepts);
+        if (!name) return res.status(400).json({ error: 'Vui lòng nhập tên bảo lãnh.' });
+        if (!effectiveDate) return res.status(400).json({ error: 'Vui lòng nhập Ngày hiệu lực.' });
+        if (hasTerm && !expiryDate) return res.status(400).json({ error: 'Bảo lãnh có thời hạn phải nhập Ngày hết hạn.' });
+
+        const newValues = { name, issuer: issuer || null, value, note: note || null, has_term: hasTerm ? 1 : 0, effective_date: effectiveDate, expiry_date: expiryDate, related_depts: JSON.stringify(relatedDepts) };
+        const fieldDefs = [
+            { key: 'name', label: 'Tên bảo lãnh' },
+            { key: 'issuer', label: 'Đơn vị phát hành' },
+            { key: 'value', label: 'Giá trị', format: money },
+            { key: 'has_term', label: 'Loại thời hạn', format: v => (v === 1 || v === true) ? 'Có thời hạn' : 'Không thời hạn' },
+            { key: 'effective_date', label: 'Ngày hiệu lực', format: fmtDate },
+            { key: 'expiry_date', label: 'Ngày hết hạn', format: fmtDate },
+            { key: 'note', label: 'Ghi chú' },
+            { key: 'related_depts', label: 'Đơn vị liên quan' }
+        ];
+        const changedCount = await recordContractChanges('GUARANTEE', g.id, g, newValues, fieldDefs, req.user.username);
+        const resetToPending = changedCount > 0 && g.status !== 'PENDING';
+        await pool.query(
+            `UPDATE ctr_guarantees SET name = ?, issuer = ?, value = ?, note = ?, has_term = ?, effective_date = ?, expiry_date = ?, related_depts = ?${resetToPending ? ", status = 'PENDING', approved_by = NULL, approved_at = NULL, reject_reason = NULL" : ''} WHERE id = ?`,
+            [name, issuer || null, value, note || null, hasTerm ? 1 : 0, effectiveDate, expiryDate, JSON.stringify(relatedDepts), g.id]
+        );
+        await writeAuditLog({ module: 'CONTRACT', actionType: 'EDIT_GUARANTEE', status: 'SUCCESS', username: req.user.username, fullName: req.user.name, ip: req.ip, targetObject: g.code, description: `Sửa bảo lãnh phát hành [${g.code}]${changedCount ? ` (${changedCount} trường thay đổi${resetToPending ? ', chuyển về Chờ duyệt' : ''})` : ' (không có thay đổi)'}.` });
+        res.json({ success: true, changedCount, resetToPending });
+    } catch (err) {
+        console.error('❌ Lỗi sửa bảo lãnh phát hành:', err.message);
+        res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
+    }
+});
+
+app.get('/api/contracts/history/:recordType/:recordId', requireAuth, requireContractViewOrAdmin, async (req, res) => {
+    try {
+        const recordType = String(req.params.recordType || '').toUpperCase();
+        if (!['CONTRACT', 'ADDENDUM', 'GUARANTEE'].includes(recordType)) return res.status(400).json({ error: 'Loại bản ghi không hợp lệ.' });
+        const [rows] = await pool.query(
+            'SELECT field_label, old_value, new_value, changed_by, changed_at FROM ctr_change_history WHERE record_type = ? AND record_id = ? ORDER BY id DESC',
+            [recordType, Number(req.params.recordId)]
+        );
+        res.json({ history: rows.map(r => ({ fieldLabel: r.field_label, oldValue: r.old_value, newValue: r.new_value, changedBy: r.changed_by, changedAt: r.changed_at })) });
+    } catch (err) {
+        console.error('❌ Lỗi tải lịch sử thay đổi:', err.message);
         res.status(500).json({ error: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau.' });
     }
 });
