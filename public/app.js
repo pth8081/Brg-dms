@@ -12606,6 +12606,27 @@ function isPerpetualSoftware(softwareId) {
     // bản ghi đã Thanh lý/Đã thay thế (trạng thái cuối, dùng "⇄ Thay thế" nếu
     // cần thay đổi nội dung/liên kết thay vì sửa trực tiếp).
     function canEditContractRecord(status) { return status !== 'TERMINATED' && status !== 'REPLACED'; }
+    // Quét toàn bộ cây Phụ lục + Bảo lãnh (mọi cấp, kể cả bảo lãnh con) của 1
+    // Hợp đồng, trả về true nếu có ÍT NHẤT 1 phần tử đang "Đã thay thế" —
+    // dùng cho bộ lọc "⇄ Có Phụ lục/Bảo lãnh đã thay thế" ở tab Hợp đồng.
+    function contractHasReplacedInTree(contractId) {
+      if (ContractDB.addendums.some(a => a.contractId === contractId && a.status === 'REPLACED')) return true;
+      const addendumIds = ContractDB.addendums.filter(a => a.contractId === contractId).map(a => a.id);
+      const rootGuaranteeIds = ContractDB.guarantees
+        .filter(g => g.contractId === contractId || (g.addendumId && addendumIds.includes(g.addendumId)))
+        .map(g => g.id);
+      const stack = [...rootGuaranteeIds];
+      const visited = new Set();
+      while (stack.length) {
+        const gid = stack.pop();
+        if (visited.has(gid)) continue;
+        visited.add(gid);
+        const g = ContractDB.guarantees.find(x => x.id === gid);
+        if (g && g.status === 'REPLACED') return true;
+        ContractDB.guarantees.filter(x => x.parentGuaranteeId === gid).forEach(ch => stack.push(ch.id));
+      }
+      return false;
+    }
     // Dòng nổi bật "✎ Đã sửa — chờ duyệt lại" cho người duyệt thấy NGAY trường
     // nào đổi từ gì sang gì (phản hồi người dùng: phải biết rõ sửa cái gì mới
     // quyết định duyệt hay không) — record.lastEdit do server gắn sẵn (xem
@@ -12905,7 +12926,13 @@ function isPerpetualSoftware(softwareId) {
       const statusFilter = document.getElementById('contractFilterStatus').value;
       const search = document.getElementById('contractFilterSearch').value.trim().toLowerCase();
       let filtered = ContractDB.contracts;
-      if (statusFilter) filtered = filtered.filter(c => c.status === statusFilter);
+      // "⇄ Có Phụ lục/Bảo lãnh đã thay thế" — Hợp đồng KHÔNG có trạng thái
+      // REPLACED thật (không có cơ chế "⇄ Thay thế" cho Hợp đồng), nên lọc
+      // khác hẳn 5 lựa chọn còn lại: quét cả cây Phụ lục + Bảo lãnh (mọi cấp,
+      // kể cả bảo lãnh con) bên trong từng Hợp đồng, hợp đồng nào có ít nhất
+      // 1 phần tử đang "Đã thay thế" mới hiện ra.
+      if (statusFilter === 'REPLACED_TREE') filtered = filtered.filter(c => contractHasReplacedInTree(c.id));
+      else if (statusFilter) filtered = filtered.filter(c => c.status === statusFilter);
       if (search) filtered = filtered.filter(c => `${c.code} ${c.name} ${c.counterparty || ''}`.toLowerCase().includes(search));
 
       if (filtered.length === 0) {
@@ -12914,6 +12941,10 @@ function isPerpetualSoftware(softwareId) {
         return;
       }
       const pageItems = paginateSlice('contractList', filtered, 10);
+      // Lọc theo "Đã thay thế" thì tự mở rộng luôn hợp đồng khớp — thấy ngay
+      // đúng Phụ lục/Bảo lãnh nào đang "Đã thay thế" nằm ở đâu, không bắt bấm
+      // "Chi tiết" thêm 1 lần nữa mới tìm ra.
+      if (statusFilter === 'REPLACED_TREE') pageItems.forEach(c => contractExpandedIds.add(c.id));
       container.innerHTML = pageItems.map(c => {
         const expanded = contractExpandedIds.has(c.id);
         // Gọn cột/hàng Thao tác (phản hồi người dùng: hàng nút trước đây quá
