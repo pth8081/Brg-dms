@@ -3036,7 +3036,10 @@
           <h3 class="font-bold text-base flex items-center gap-2">👁 Xem file đính kèm</h3>
           <p id="contractAttViewSub" class="text-xs text-gray-300 truncate"></p>
         </div>
-        <button data-evt-click="closeContractAttachmentView" data-args='[]' class="text-gray-300 hover:text-white font-bold text-xl px-2 shrink-0">✕</button>
+        <div class="flex items-center gap-2 shrink-0">
+          <button id="contractAttViewPrintBtn" data-evt-click="printContractAttachmentView" data-args='[]' class="hidden text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded whitespace-nowrap">🖨️ In</button>
+          <button data-evt-click="closeContractAttachmentView" data-args='[]' class="text-gray-300 hover:text-white font-bold text-xl px-2">✕</button>
+        </div>
       </div>
       <div class="bg-amber-100 text-amber-900 px-4 py-2 text-xs font-semibold flex items-center justify-between border-b border-amber-200 select-none">
         <span>🔒 Chế độ xem an toàn (chỉ xem trực tiếp trên ứng dụng)</span>
@@ -3046,6 +3049,19 @@
       <div class="p-3 bg-gray-50 border-t flex justify-end items-center text-xs">
         <button data-evt-click="closeContractAttachmentView" data-args='[]' class="bg-gray-600 text-white px-5 py-1.5 rounded font-bold hover:bg-gray-700">Đóng</button>
       </div>
+    </div>
+  </div>
+
+  <!-- MODAL: "Chọn file" khi 1 hồ sơ (Hợp đồng/Bảo lãnh) có từ 2 file đính
+       kèm trở lên — bấm "⬇ Tải" ở menu "⋮ Thao tác" sẽ bật popup này thay vì
+       phải mở cả hồ sơ ra mới thấy từng file (xem openAttachmentPicker). -->
+  <div id="attachmentPickerModal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-[75] p-4">
+    <div class="bg-white rounded-lg shadow-2xl max-w-md w-full overflow-hidden">
+      <div class="flex justify-between items-center bg-gray-800 text-white p-3">
+        <h3 class="font-bold text-sm">📎 Chọn file</h3>
+        <button data-evt-click="closeAttachmentPicker" data-args='[]' class="text-gray-300 hover:text-white font-bold text-lg px-2">✕</button>
+      </div>
+      <div id="attachmentPickerContent" class="p-3 max-h-[60vh] overflow-y-auto space-y-1.5"></div>
     </div>
   </div>
 
