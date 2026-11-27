@@ -10033,12 +10033,32 @@ app.get('/api/contracts/bootstrap', requireAuth, requireContractViewOrAdmin, asy
             attachments = attachments.filter(att => visibleAttachmentKeys.has(`${att.record_type}:${att.record_id}`));
         }
 
+        // "✎ Đã sửa — chờ duyệt lại: <trường> X → Y" hiển thị ngay trên danh
+        // sách cho người duyệt (phản hồi người dùng: cần biết rõ Sửa cái gì
+        // mới quyết định có duyệt hay không, không bắt phải tự mở "🕘 Lịch sử
+        // thay đổi" mới thấy) — chỉ gắn cho bản ghi đang CHỜ DUYỆT (resetToPending
+        // sau khi Sửa, xem PUT .../:id) và có lịch sử, lấy đúng ĐỢT sửa GẦN
+        // NHẤT (cùng changed_at) vì 1 lần Sửa có thể đổi nhiều trường cùng lúc.
+        const [historyRows] = await pool.query('SELECT record_type, record_id, field_label, old_value, new_value, changed_at FROM ctr_change_history ORDER BY id DESC');
+        const lastEditMap = new Map();
+        for (const r of historyRows) {
+            const key = `${r.record_type}:${r.record_id}`;
+            let entry = lastEditMap.get(key);
+            if (!entry) { entry = { changedAt: r.changed_at, fields: [] }; lastEditMap.set(key, entry); }
+            if (r.changed_at === entry.changedAt) entry.fields.push({ fieldLabel: r.field_label, oldValue: r.old_value, newValue: r.new_value });
+        }
+        const attachLastEdit = (recordType, mapped, rawStatus) => {
+            if (rawStatus !== 'PENDING') return mapped;
+            const entry = lastEditMap.get(`${recordType}:${mapped.id}`);
+            return entry ? { ...mapped, lastEdit: entry.fields } : mapped;
+        };
+
         res.json({
             companies: companies.map(c => ({ id: c.id, name: c.name, code: c.code })),
             depts: depts.map(d => ({ name: d.name, abbr: d.abbr, companyId: d.company_id || null })),
-            contracts: contracts.map(mapContract),
-            addendums: addendums.map(mapAddendum),
-            guarantees: guarantees.map(mapGuarantee),
+            contracts: contracts.map(c => attachLastEdit('CONTRACT', mapContract(c), c.status)),
+            addendums: addendums.map(a => attachLastEdit('ADDENDUM', mapAddendum(a), a.status)),
+            guarantees: guarantees.map(g => attachLastEdit('GUARANTEE', mapGuarantee(g), g.status)),
             attachments: attachments.map(mapCtrAttachment),
             createScope: { companyIds: getContractCompanyScope(req.user.perms), deptNames: getContractDeptScope(req.user.perms) }
         });
@@ -10092,7 +10112,11 @@ app.post('/api/contracts', requireAuth, requireContractCreateOrAdmin, async (req
 // CÓ ít nhất 1 trường thực sự đổi và bản ghi đang không phải Chờ duyệt, tự
 // chuyển về PENDING để bắt buộc duyệt lại mới có hiệu lực (APPROVED) —  theo
 // đúng yêu cầu người dùng. Mọi lần sửa đều ghi vào ctr_change_history.
-const money = v => (v === null || v === undefined || v === '') ? null : Number(v);
+const money = v => (v === null || v === undefined || v === '') ? null : Number(v).toLocaleString('vi-VN');
+// Ngày hiển thị trong "🕘 Lịch sử thay đổi"/"✎ Đã sửa" theo đúng kiểu dd/mm/yyyy
+// quen thuộc của cả app (khác fmtDate() thường dùng — trả về ISO yyyy-mm-dd
+// để lưu/so sánh, không phải để hiển thị cho người dùng đọc).
+const dateVN = v => { const d = fmtDate(v); if (!d) return null; const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d); return m ? `${m[3]}/${m[2]}/${m[1]}` : d; };
 app.put('/api/contracts/contracts/:id', requireAuth, requireContractCreateOrAdmin, async (req, res) => {
     try {
         const [[contract]] = await pool.query('SELECT * FROM ctr_contracts WHERE id = ?', [req.params.id]);
@@ -10116,8 +10140,8 @@ app.put('/api/contracts/contracts/:id', requireAuth, requireContractCreateOrAdmi
         const fieldDefs = [
             { key: 'name', label: 'Tên hợp đồng' },
             { key: 'counterparty', label: 'Đối tác' },
-            { key: 'contract_date', label: 'Ngày ký', format: fmtDate },
-            { key: 'expiry_date', label: 'Ngày hết hạn', format: fmtDate },
+            { key: 'contract_date', label: 'Ngày ký', format: dateVN },
+            { key: 'expiry_date', label: 'Ngày hết hạn', format: dateVN },
             { key: 'value', label: 'Giá trị', format: money },
             { key: 'note', label: 'Ghi chú' },
             { key: 'related_depts', label: 'Đơn vị liên quan' }
@@ -10248,8 +10272,8 @@ app.put('/api/contracts/addendums/:id', requireAuth, requireContractCreateOrAdmi
         const newValues = { name, addendum_date: addendumDate, expiry_date: expiryDate, note: note || null, related_depts: JSON.stringify(relatedDepts) };
         const fieldDefs = [
             { key: 'name', label: 'Tên phụ lục' },
-            { key: 'addendum_date', label: 'Ngày ký', format: fmtDate },
-            { key: 'expiry_date', label: 'Ngày hết hạn', format: fmtDate },
+            { key: 'addendum_date', label: 'Ngày ký', format: dateVN },
+            { key: 'expiry_date', label: 'Ngày hết hạn', format: dateVN },
             { key: 'note', label: 'Ghi chú' },
             { key: 'related_depts', label: 'Đơn vị liên quan' }
         ];
@@ -10400,8 +10424,8 @@ app.put('/api/contracts/guarantees/:id', requireAuth, requireContractCreateOrAdm
             { key: 'issuer', label: 'Đơn vị phát hành' },
             { key: 'value', label: 'Giá trị', format: money },
             { key: 'has_term', label: 'Loại thời hạn', format: v => (v === 1 || v === true) ? 'Có thời hạn' : 'Không thời hạn' },
-            { key: 'effective_date', label: 'Ngày hiệu lực', format: fmtDate },
-            { key: 'expiry_date', label: 'Ngày hết hạn', format: fmtDate },
+            { key: 'effective_date', label: 'Ngày hiệu lực', format: dateVN },
+            { key: 'expiry_date', label: 'Ngày hết hạn', format: dateVN },
             { key: 'note', label: 'Ghi chú' },
             { key: 'related_depts', label: 'Đơn vị liên quan' }
         ];

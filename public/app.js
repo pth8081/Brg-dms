@@ -12606,6 +12606,25 @@ function isPerpetualSoftware(softwareId) {
     // bản ghi đã Thanh lý/Đã thay thế (trạng thái cuối, dùng "⇄ Thay thế" nếu
     // cần thay đổi nội dung/liên kết thay vì sửa trực tiếp).
     function canEditContractRecord(status) { return status !== 'TERMINATED' && status !== 'REPLACED'; }
+    // Dòng nổi bật "✎ Đã sửa — chờ duyệt lại" cho người duyệt thấy NGAY trường
+    // nào đổi từ gì sang gì (phản hồi người dùng: phải biết rõ sửa cái gì mới
+    // quyết định duyệt hay không) — record.lastEdit do server gắn sẵn (xem
+    // GET /api/contracts/bootstrap), chỉ có khi đang Chờ duyệt VÀ là lần sửa
+    // lại (không phải lần đầu gửi duyệt).
+    function renderPendingEditNote(record) {
+      if (!record.lastEdit || !record.lastEdit.length) return '';
+      const parts = record.lastEdit.map(f => `<b>${escapeHtml(f.fieldLabel)}</b>: ${escapeHtml(f.oldValue)} → ${escapeHtml(f.newValue)}`).join('; ');
+      return `<div class="text-[11px] bg-amber-50 border border-amber-200 text-amber-800 rounded px-2 py-1 mt-1">✎ Đã sửa — chờ duyệt lại: ${parts}</div>`;
+    }
+    // Dòng nổi bật "⇄ Bản thay thế cho" — ghi rõ ĐÚNG mã + tên bản cũ (trước
+    // đây chỉ ghi số ID trần "#12", không nói lên được gì) để người duyệt biết
+    // ngay đây là bản thay cho hồ sơ nào.
+    function renderReplaceNote(replacesId, lookupArray) {
+      if (!replacesId) return '';
+      const old = lookupArray.find(x => x.id === replacesId);
+      const label = old ? `${escapeHtml(old.code)} — ${escapeHtml(old.name)}` : `#${replacesId}`;
+      return `<div class="text-[11px] bg-indigo-50 border border-indigo-200 text-indigo-800 rounded px-2 py-1 mt-1">⇄ Bản thay thế cho: <b>${label}</b></div>`;
+    }
     function canApproveContractItem(item) {
       const p = currentUser.perms;
       if (p.admin || p.contractManager || p.contractApprover) return true;
@@ -12924,6 +12943,7 @@ function isPerpetualSoftware(softwareId) {
                 ${c.relatedDepts && c.relatedDepts.length ? `<div class="text-[11px] text-indigo-600 mt-0.5">🔗 Đơn vị liên quan: ${escapeHtml(relatedDeptsDisplayLabel(c.relatedDepts))}</div>` : ''}
                 ${c.status === 'REJECTED' && c.rejectReason ? `<div class="text-xs text-red-600 mt-1">Lý do từ chối: ${escapeHtml(c.rejectReason)}</div>` : ''}
                 ${c.status === 'TERMINATED' ? `<div class="text-xs text-slate-600 mt-1">Đã thanh lý bởi ${escapeHtml(c.terminatedBy || '')} lúc ${escapeHtml(c.terminatedAt || '')}${c.terminateNote ? ' — ' + escapeHtml(c.terminateNote) : ''}</div>` : ''}
+                ${renderPendingEditNote(c)}
               </div>
               <div class="flex gap-1.5 items-center shrink-0">
                 <button ${dc('toggleContractExpand', c.id)} class="text-xs font-semibold text-gray-600 hover:underline px-2 py-1 whitespace-nowrap">${expanded ? '▾ Thu gọn' : '▸ Chi tiết'}</button>
@@ -12961,10 +12981,11 @@ function isPerpetualSoftware(softwareId) {
                     <div class="font-mono text-[10px] text-gray-400">${escapeHtml(a.code)}</div>
                     <div class="text-sm font-semibold">${escapeHtml(a.name)} ${contractStatusBadge(a.status)}</div>
                     ${a.addendumDate || a.expiryDate ? `<div class="text-[11px] text-gray-500">${a.addendumDate ? 'Ký ngày ' + escapeHtml(fmtDateVN(a.addendumDate)) : ''}${a.addendumDate && a.expiryDate ? ' · ' : ''}${a.expiryDate ? 'Hết hạn ' + escapeHtml(fmtDateVN(a.expiryDate)) : ''}</div>` : ''}
-                    ${a.replacesAddendumId ? `<div class="text-[11px] text-indigo-600">⇄ Thay thế phụ lục #${a.replacesAddendumId}</div>` : ''}
+                    ${renderReplaceNote(a.replacesAddendumId, ContractDB.addendums)}
                     ${replacedByAddendum ? `<div class="text-[11px] text-gray-500">↳ Đã có phụ lục thay thế: ${escapeHtml(replacedByAddendum.code)}</div>` : ''}
                     ${a.relatedDepts && a.relatedDepts.length ? `<div class="text-[11px] text-indigo-600">🔗 Đơn vị liên quan: ${escapeHtml(relatedDeptsDisplayLabel(a.relatedDepts))}</div>` : ''}
                     ${a.status === 'REJECTED' && a.rejectReason ? `<div class="text-[11px] text-red-600">Lý do: ${escapeHtml(a.rejectReason)}</div>` : ''}
+                    ${renderPendingEditNote(a)}
                   </div>
                   <div class="flex gap-1">
                     ${a.status === 'PENDING' && canApproveContractItem(a) ? `<button ${dc('approveAddendum', a.id)} class="text-[11px] font-bold text-white bg-green-600 hover:bg-green-700 px-2 py-0.5 rounded">✓</button><button ${dc('rejectAddendum', a.id)} class="text-[11px] font-bold text-white bg-red-600 hover:bg-red-700 px-2 py-0.5 rounded">✕</button>` : ''}
@@ -13004,10 +13025,11 @@ function isPerpetualSoftware(softwareId) {
               <div class="font-mono text-[10px] text-gray-400">${escapeHtml(g.code)}</div>
               <div class="text-sm font-semibold">${escapeHtml(g.name)} ${contractStatusBadge(g.status)}</div>
               <div class="text-[11px] text-gray-500">${g.issuer ? escapeHtml(g.issuer) + ' · ' : ''}${g.value ? formatMoney(g.value) + ' · ' : ''}${termLabel}</div>
-              ${g.replacesGuaranteeId ? `<div class="text-[11px] text-indigo-600">⇄ Thay thế bảo lãnh #${g.replacesGuaranteeId}</div>` : ''}
+              ${renderReplaceNote(g.replacesGuaranteeId, ContractDB.guarantees)}
               ${replacedBy ? `<div class="text-[11px] text-gray-500">↳ Đã có bảo lãnh thay thế: ${escapeHtml(replacedBy.code)}</div>` : ''}
               ${g.status === 'REJECTED' && g.rejectReason ? `<div class="text-[11px] text-red-600">Lý do: ${escapeHtml(g.rejectReason)}</div>` : ''}
               ${g.relatedDepts && g.relatedDepts.length ? `<div class="text-[11px] text-indigo-600">🔗 Đơn vị liên quan: ${escapeHtml(relatedDeptsDisplayLabel(g.relatedDepts))}</div>` : ''}
+              ${renderPendingEditNote(g)}
             </div>
             <div class="flex gap-1 flex-wrap justify-end">
               ${canDecide ? `<button ${dc('approveGuarantee', g.id)} class="text-[11px] font-bold text-white bg-green-600 hover:bg-green-700 px-2 py-0.5 rounded">✓ Duyệt</button><button ${dc('rejectGuarantee', g.id)} class="text-[11px] font-bold text-white bg-red-600 hover:bg-red-700 px-2 py-0.5 rounded">✕ Từ chối</button>` : ''}
@@ -13078,7 +13100,7 @@ function isPerpetualSoftware(softwareId) {
         : (depth > 0 ? '<span class="text-gray-300 text-[11px] w-4 inline-block text-center shrink-0">↳</span>' : '<span class="w-4 inline-block shrink-0"></span>');
       const row = `<tr class="hover:bg-gray-50 ${depth > 0 ? 'bg-gray-50/70' : ''}">
           <td class="border p-2 font-mono text-[11px]"><div class="flex items-center gap-1.5" style="padding-left:${indent}px">${caretOrConnector}<span>${escapeHtml(g.code)}</span></div></td>
-          <td class="border p-2">${escapeHtml(g.name)}</td>
+          <td class="border p-2">${escapeHtml(g.name)}${renderReplaceNote(g.replacesGuaranteeId, ContractDB.guarantees)}${renderPendingEditNote(g)}</td>
           <td class="border p-2 text-[11px]">${escapeHtml(guaranteeParentRefLabel(g))}${children.length ? ` <span class="text-gray-400">(${children.length} con)</span>` : ''}</td>
           <td class="border p-2">${escapeHtml(g.issuer || '—')}</td>
           <td class="border p-2 text-right">${g.value ? formatMoney(g.value) : '—'}</td>
