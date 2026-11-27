@@ -12,6 +12,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 
 | Phiên bản | PR | Ngày merge | Nội dung |
 |---|---|---|---|
+| v8.11 | [#144](https://github.com/pth8081/Brg-dms/pull/144) | 2026-11-27 | Bảo lãnh phát hành đổi sang dạng cây cha/con (thu gọn/mở rộng, giống Hợp đồng ↔ Phụ lục), sửa tham chiếu ngược Hợp đồng/Phụ lục cho bảo lãnh con; thêm popup "Chọn file" (Xem/Tải/In) khi 1 hồ sơ có từ 2 file đính kèm trở lên, áp dụng cho cả Hợp đồng; thêm nút "🖨️ In" thật cho từng file (in đúng nội dung đang xem trong Protected Viewer) |
 | v8.9 | [#143](https://github.com/pth8081/Brg-dms/pull/143) | 2026-11-26 | Làm rõ nút Xem/Tải file đính kèm (Hợp đồng, Phụ lục, Bảo lãnh) — thay icon "⬇" đơn độc mờ nhạt bằng 2 nhãn icon+chữ riêng biệt "👁 Xem" (xanh dương)/"⬇ Tải" (xanh lá), đúng màu/kiểu chữ đã dùng ở menu "⋮ Thao tác" |
 | v8.7 | [#142](https://github.com/pth8081/Brg-dms/pull/142) | 2026-11-26 | Bỏ "Phòng IT"/"Phòng Nhân Sự" khỏi dữ liệu mẫu mặc định (`schema.sql`) — 2 phòng ban này bị tự tạo lại mỗi lần deploy dù đã xóa, vì nằm trong seed mặc định chạy lại mỗi lần; cập nhật luôn 2 chỗ còn tham chiếu làm ví dụ (dept mặc định của admin seed, dòng mẫu file Excel nhập người dùng) |
 | v8.5 | [#141](https://github.com/pth8081/Brg-dms/pull/141) | 2026-11-26 | Sửa lỗi "Đơn vị liên quan": ô Phòng không lọc theo Công ty đã chọn, hiện tự do mọi phòng ban — nay lọc đúng theo Công ty (dùng liên kết tùy chọn `depts.org_unit_id` → `lic_org_units.company_id` sẵn có ở module Bản quyền), phòng chưa gán vẫn hiện cho mọi công ty để tránh danh sách trống oan |
@@ -150,7 +151,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 > v6.116, v6.118, v6.120, v6.122, v6.124, v7.26, v7.28, v7.30, v7.32, v7.34,
 > v7.36, v7.38, v7.40, v7.41, v7.43, v7.44, v7.46, v7.47, v7.49, v7.50, v7.52,
 > v7.55, v7.58, v7.61, v7.64, v7.65, v7.67, v7.68, v7.69, v7.70, v7.72, v7.73,
-> v7.97, v7.98, v8.0, v8.2, v8.4, v8.6, v8.8 bị nhảy cóc trong lịch sử — không có Pull Request tương ứng để đối chiếu nội
+> v7.97, v7.98, v8.0, v8.2, v8.4, v8.6, v8.8, v8.10 bị nhảy cóc trong lịch sử — không có Pull Request tương ứng để đối chiếu nội
 > dung (nhiều khả năng do chạy lại workflow tăng version hoặc sửa trực tiếp
 > trên `main` ngoài luồng PR — ví dụ v6.52 phát sinh từ chính commit cập
 > nhật version.md cho v6.51, v6.55/v6.56/v6.58/v6.60 phát sinh tương tự từ
@@ -162,7 +163,7 @@ sinh ra sau merge, số PR, ngày merge, và mô tả ngắn gọn nội dung th
 > v6.76/v6.78/v6.80/v6.82/v6.84/v6.86/v6.90/v6.92/v6.94 phát sinh tương tự
 > từ các commit cập nhật version.md trực tiếp trên `main` cho v6.69/v6.71/
 > v6.73/v6.75/v6.77/v6.79/v6.81/v6.83/v6.85/v6.89/v6.91/v6.93/v6.95/v6.97/v6.99/
-> v6.101/v6.103/v6.105/v6.107/v6.109/v6.111/v6.113/v6.115/v6.117/v6.119/v6.121/v6.123/v7.25/v7.27/v7.29/v7.31/v7.33/v7.35/v7.37/v7.39/v7.40/v7.42/v7.43/v7.45/v7.46/v7.48/v7.49/v7.51/v7.54/v7.57/v7.60/v7.63/v7.64/v7.66/v7.67/v7.68/v7.69/v7.71/v7.72/v7.97/v7.98/v8.0/v8.2/v8.4/v8.6/v8.8 — mỗi lần
+> v6.101/v6.103/v6.105/v6.107/v6.109/v6.111/v6.113/v6.115/v6.117/v6.119/v6.121/v6.123/v7.25/v7.27/v7.29/v7.31/v7.33/v7.35/v7.37/v7.39/v7.40/v7.42/v7.43/v7.45/v7.46/v7.48/v7.49/v7.51/v7.54/v7.57/v7.60/v7.63/v7.64/v7.66/v7.67/v7.68/v7.69/v7.71/v7.72/v7.97/v7.98/v8.0/v8.2/v8.4/v8.6/v8.8/v8.10 — mỗi lần
 > commit trực tiếp/merge như vậy đều vô tình kích hoạt lại workflow tăng
 > version thêm 1
 > lần nữa). Từ PR #65 trở đi, workflow còn tự rebuild
