@@ -12593,9 +12593,9 @@ function isPerpetualSoftware(softwareId) {
         return `<div class="mt-1.5"><div class="text-[10px] font-semibold text-gray-500 mb-1">${grp.label}:</div> ${items.map(a => `
           <div class="inline-flex items-center gap-2.5 flex-wrap bg-gray-50 border rounded-lg px-2.5 py-1.5 mr-1 mb-1">
             <span class="text-[12px] font-medium text-gray-700">${escapeHtml(a.fileName)}</span>
-            <button ${dc('openContractAttachmentView', a.id)} class="text-[12px] font-bold text-blue-700 whitespace-nowrap">👁 Xem</button>
-            ${canDownloadContractAttachment() ? `<a href="/api/contracts/attachments/${a.id}/download" class="text-[12px] font-bold text-emerald-700 whitespace-nowrap">⬇ Tải</a>` : ''}
-            ${canPrintContract() ? `<button ${dc('printSingleContractAttachment', a.id)} class="text-[12px] font-bold text-indigo-700 whitespace-nowrap">🖨️ In</button>` : ''}
+            <button ${dc('openContractAttachmentView', a.id)} class="text-[12px] font-bold text-blue-700 whitespace-nowrap cursor-pointer hover:underline">👁 Xem</button>
+            ${canDownloadContractAttachment() ? `<a href="/api/contracts/attachments/${a.id}/download" class="text-[12px] font-bold text-emerald-700 whitespace-nowrap cursor-pointer hover:underline">⬇ Tải</a>` : ''}
+            ${canPrintContract() ? `<button ${dc('printSingleContractAttachment', a.id)} class="text-[12px] font-bold text-indigo-700 whitespace-nowrap cursor-pointer hover:underline">🖨️ In</button>` : ''}
             <span class="text-gray-300" title="Không thể xóa trực tiếp file đã tải lên — tạo Phụ lục/Bảo lãnh &quot;⇄ Thay thế&quot; nếu cần thay nội dung">🔒</span>
           </div>`).join('')}</div>`;
       }).join('');
@@ -12800,9 +12800,9 @@ function isPerpetualSoftware(softwareId) {
         ? atts.map(a => `
           <div class="flex items-center gap-2 bg-gray-50 border rounded-lg px-2.5 py-2">
             <span class="flex-1 min-w-0 text-[12px] font-medium text-gray-700 truncate" title="${escapeJsAttr(a.fileName)}">${escapeHtml(a.fileName)}</span>
-            <button ${dc('openContractAttachmentViewFromPicker', a.id)} class="text-[12px] font-bold text-blue-700 whitespace-nowrap">👁 Xem</button>
-            ${canDownloadContractAttachment() ? `<a href="/api/contracts/attachments/${a.id}/download" class="text-[12px] font-bold text-emerald-700 whitespace-nowrap">⬇ Tải</a>` : ''}
-            ${canPrintContract() ? `<button ${dc('printContractAttachmentFromPicker', a.id)} class="text-[12px] font-bold text-indigo-700 whitespace-nowrap">🖨️ In</button>` : ''}
+            <button ${dc('openContractAttachmentViewFromPicker', a.id)} class="text-[12px] font-bold text-blue-700 whitespace-nowrap cursor-pointer hover:underline">👁 Xem</button>
+            ${canDownloadContractAttachment() ? `<a href="/api/contracts/attachments/${a.id}/download" class="text-[12px] font-bold text-emerald-700 whitespace-nowrap cursor-pointer hover:underline">⬇ Tải</a>` : ''}
+            ${canPrintContract() ? `<button ${dc('printContractAttachmentFromPicker', a.id)} class="text-[12px] font-bold text-indigo-700 whitespace-nowrap cursor-pointer hover:underline">🖨️ In</button>` : ''}
           </div>`).join('')
         : '<div class="text-xs text-gray-400 italic text-center p-3">Chưa có file đính kèm.</div>';
       document.getElementById('attachmentPickerModal').classList.remove('hidden');
