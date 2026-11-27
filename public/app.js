@@ -12506,6 +12506,7 @@ function isPerpetualSoftware(softwareId) {
     }
     const ContractDB = { companies: [], depts: [], contracts: [], addendums: [], guarantees: [], attachments: [], createScope: { companyIds: null, deptNames: null }, loaded: false };
     const contractExpandedIds = new Set();
+    const guaranteeExpandedIds = new Set();
 
     async function loadContractBootstrapData() {
       if (ContractDB.loaded) return;
@@ -12585,6 +12586,7 @@ function isPerpetualSoftware(softwareId) {
             <span class="text-[12px] font-medium text-gray-700">${escapeHtml(a.fileName)}</span>
             <button ${dc('openContractAttachmentView', a.id)} class="text-[12px] font-bold text-blue-700 whitespace-nowrap">👁 Xem</button>
             ${canDownloadContractAttachment() ? `<a href="/api/contracts/attachments/${a.id}/download" class="text-[12px] font-bold text-emerald-700 whitespace-nowrap">⬇ Tải</a>` : ''}
+            ${canPrintContract() ? `<button ${dc('printSingleContractAttachment', a.id)} class="text-[12px] font-bold text-indigo-700 whitespace-nowrap">🖨️ In</button>` : ''}
             <span class="text-gray-300" title="Không thể xóa trực tiếp file đã tải lên — tạo Phụ lục/Bảo lãnh &quot;⇄ Thay thế&quot; nếu cần thay nội dung">🔒</span>
           </div>`).join('')}</div>`;
       }).join('');
@@ -12597,6 +12599,8 @@ function isPerpetualSoftware(softwareId) {
     let contractAttViewObjectUrl = null;
     let contractAttViewWorkbook = null;
     let contractAttViewSheetIdx = 0;
+    let contractAttViewCurrentExt = '';
+    const CONTRACT_ATT_PRINTABLE_EXT = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'docx', 'xlsx'];
     function contractAttFileExt(fileName) {
       const m = /\.([a-zA-Z0-9]+)$/.exec(String(fileName || '').trim());
       return m ? m[1].toLowerCase() : '';
@@ -12618,13 +12622,16 @@ function isPerpetualSoftware(softwareId) {
       if (contractAttViewObjectUrl) { URL.revokeObjectURL(contractAttViewObjectUrl); contractAttViewObjectUrl = null; }
       contractAttViewWorkbook = null;
       contractAttViewSheetIdx = 0;
+      contractAttViewCurrentExt = '';
     }
     async function openContractAttachmentView(id) {
       const att = ContractDB.attachments.find(a => a.id === id);
       const fileName = att ? att.fileName : 'file';
       document.getElementById('contractAttViewSub').textContent = fileName;
       const container = document.getElementById('contractAttViewContent');
+      const printBtn = document.getElementById('contractAttViewPrintBtn');
       container.innerHTML = `<div class="p-8 text-center text-gray-500 text-sm">⏳ Đang tải nội dung file...</div>`;
+      printBtn.classList.add('hidden');
       document.getElementById('contractAttViewModal').classList.remove('hidden');
 
       if (contractAttViewObjectUrl) { URL.revokeObjectURL(contractAttViewObjectUrl); contractAttViewObjectUrl = null; }
@@ -12640,6 +12647,7 @@ function isPerpetualSoftware(softwareId) {
       }
 
       const ext = contractAttFileExt(fileName);
+      contractAttViewCurrentExt = ext;
       try {
         if (ext === 'pdf') {
           const url = contractAttViewObjectUrl = URL.createObjectURL(blob);
@@ -12666,6 +12674,7 @@ function isPerpetualSoftware(softwareId) {
             <p class="text-xs">Xem trực tiếp áp dụng cho PDF/Ảnh/Word (.docx)/Excel (.xlsx). Dùng nút Tải xuống nếu được cấp quyền.</p>
           </div>`;
         }
+        if (canPrintContract() && CONTRACT_ATT_PRINTABLE_EXT.includes(ext)) printBtn.classList.remove('hidden');
       } catch (e) {
         console.error('Lỗi hiển thị file đính kèm:', e);
         container.innerHTML = `<div class="p-8 text-center text-red-600 text-sm">Không thể hiển thị trực tiếp file này${ext ? ` (.${escapeHtml(ext)})` : ''}. Dùng nút Tải xuống nếu được cấp quyền.</div>`;
@@ -12692,28 +12701,107 @@ function isPerpetualSoftware(softwareId) {
         </div>`;
       return `<div class="w-full flex flex-col items-center">${tabsHtml}${tableHtml}</div>`;
     }
+    // --- In đúng nội dung file đang mở trong Protected Viewer (không phải bản
+    // tóm tắt hồ sơ như "🖨️ In" ở menu "⋮ Thao tác") — áp dụng cho mọi loại
+    // file đang hỗ trợ xem online: PDF dùng print() của chính iframe trình
+    // duyệt đang hiển thị; Ảnh/Word/Excel mở 1 tab trắng chỉ chứa đúng nội
+    // dung đó rồi gọi print(), tránh in kèm khung/nút điều khiển của app.
+    function printContractAttachmentView() {
+      const ext = contractAttViewCurrentExt;
+      const container = document.getElementById('contractAttViewContent');
+      if (ext === 'pdf') {
+        const iframe = container.querySelector('iframe');
+        if (!iframe) return showToast('Chưa tải xong nội dung để in.', 'warning');
+        try { iframe.contentWindow.focus(); iframe.contentWindow.print(); }
+        catch (e) { showToast('Không thể in trực tiếp file này — dùng nút Tải xuống.', 'warning'); }
+        return;
+      }
+      if (['jpg', 'jpeg', 'png', 'gif'].includes(ext)) {
+        const img = container.querySelector('img');
+        if (!img) return showToast('Chưa tải xong nội dung để in.', 'warning');
+        const w = window.open('', '_blank');
+        if (!w) return showToast('Trình duyệt đã chặn cửa sổ in — vui lòng cho phép pop-up.', 'warning');
+        w.document.write(`<!DOCTYPE html><html><head><title>In ảnh</title><style>body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;}img{max-width:100%;max-height:100vh;}</style></head><body><img src="${img.src}"></body></html>`);
+        w.document.close();
+        setTimeout(() => { w.focus(); w.print(); }, 300);
+        return;
+      }
+      if (ext === 'docx') {
+        const doc = container.querySelector('.contract-doc-preview');
+        if (!doc) return showToast('Chưa tải xong nội dung để in.', 'warning');
+        const w = window.open('', '_blank');
+        if (!w) return showToast('Trình duyệt đã chặn cửa sổ in — vui lòng cho phép pop-up.', 'warning');
+        w.document.write(`<!DOCTYPE html><html><head><title>In tài liệu</title><style>
+          body{font-family:"Times New Roman",serif;padding:24px;color:#111;}
+          table{border-collapse:collapse;} td,th{border:1px solid #999;padding:4px 6px;}
+          h1,h2,h3{margin-top:0;}
+        </style></head><body>${doc.innerHTML}</body></html>`);
+        w.document.close();
+        setTimeout(() => { w.focus(); w.print(); }, 300);
+        return;
+      }
+      if (ext === 'xlsx') {
+        const table = container.querySelector('table');
+        if (!table) return showToast('Chưa tải xong nội dung để in.', 'warning');
+        const w = window.open('', '_blank');
+        if (!w) return showToast('Trình duyệt đã chặn cửa sổ in — vui lòng cho phép pop-up.', 'warning');
+        w.document.write(`<!DOCTYPE html><html><head><title>In bảng tính</title><style>
+          body{font-family:Arial,Helvetica,sans-serif;padding:24px;}
+          table{border-collapse:collapse;font-size:12px;} td,th{border:1px solid #999;padding:3px 6px;white-space:nowrap;}
+        </style></head><body>${table.outerHTML}</body></html>`);
+        w.document.close();
+        setTimeout(() => { w.focus(); w.print(); }, 300);
+        return;
+      }
+      showToast('Định dạng tệp này chưa hỗ trợ in trực tiếp — dùng nút Tải xuống.', 'warning');
+    }
     function switchContractAttXlsxSheet(idx) {
       contractAttViewSheetIdx = Number(idx);
       document.getElementById('contractAttViewContent').innerHTML = renderContractAttXlsxPreview();
     }
-    // "⬇ Tải" ngay trong cột Thao tác của bảng Bảo lãnh (phản hồi người dùng:
-    // trước đây phải bấm "Xem" rồi mới thấy icon tải nhỏ cạnh từng file, dễ bị
-    // bỏ qua). 1 file → tải thẳng; nhiều file → mở "Xem" để chọn đúng file.
+    // "⬇ Tải" ngay trong cột Thao tác của bảng Bảo lãnh/Hợp đồng (phản hồi
+    // người dùng: trước đây phải bấm "Xem" rồi mới thấy icon tải nhỏ cạnh từng
+    // file, dễ bị bỏ qua). 1 file → tải thẳng; nhiều file → bật ngay popup
+    // "Chọn file" (Xem/Tải/In riêng từng file), không bắt mở cả hồ sơ ra nữa.
+    function triggerAttachmentDirectDownload(att) {
+      const a = document.createElement('a');
+      a.href = `/api/contracts/attachments/${att.id}/download`;
+      a.download = att.fileName || '';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
     function downloadGuaranteeAttachment(id) {
       const atts = ContractDB.attachments.filter(a => a.recordType === 'GUARANTEE' && a.recordId === id);
       if (atts.length === 0) return showToast('Bảo lãnh này chưa có file đính kèm.', 'warning');
-      if (atts.length === 1) {
-        const a = document.createElement('a');
-        a.href = `/api/contracts/attachments/${atts[0].id}/download`;
-        a.download = atts[0].fileName || '';
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        return;
-      }
-      showToast('Bảo lãnh có nhiều file đính kèm — chọn file cần tải trong phần "Xem".', 'info');
-      openGuaranteeViewModal(id);
+      if (atts.length === 1) return triggerAttachmentDirectDownload(atts[0]);
+      openAttachmentPicker('GUARANTEE', id);
     }
+    function downloadContractAttachment(id) {
+      const atts = ContractDB.attachments.filter(a => a.recordType === 'CONTRACT' && a.recordId === id);
+      if (atts.length === 0) return showToast('Hợp đồng này chưa có file đính kèm.', 'warning');
+      if (atts.length === 1) return triggerAttachmentDirectDownload(atts[0]);
+      openAttachmentPicker('CONTRACT', id);
+    }
+    // --- Popup "Chọn file" khi 1 hồ sơ (Hợp đồng/Bảo lãnh) có từ 2 file đính
+    // kèm trở lên — mỗi file có sẵn 3 thao tác riêng: Xem/Tải/In. ---
+    function openAttachmentPicker(recordType, recordId) {
+      const atts = ContractDB.attachments.filter(a => a.recordType === recordType && a.recordId === recordId);
+      document.getElementById('attachmentPickerContent').innerHTML = atts.length
+        ? atts.map(a => `
+          <div class="flex items-center gap-2 bg-gray-50 border rounded-lg px-2.5 py-2">
+            <span class="flex-1 min-w-0 text-[12px] font-medium text-gray-700 truncate" title="${escapeJsAttr(a.fileName)}">${escapeHtml(a.fileName)}</span>
+            <button ${dc('openContractAttachmentViewFromPicker', a.id)} class="text-[12px] font-bold text-blue-700 whitespace-nowrap">👁 Xem</button>
+            ${canDownloadContractAttachment() ? `<a href="/api/contracts/attachments/${a.id}/download" class="text-[12px] font-bold text-emerald-700 whitespace-nowrap">⬇ Tải</a>` : ''}
+            ${canPrintContract() ? `<button ${dc('printContractAttachmentFromPicker', a.id)} class="text-[12px] font-bold text-indigo-700 whitespace-nowrap">🖨️ In</button>` : ''}
+          </div>`).join('')
+        : '<div class="text-xs text-gray-400 italic text-center p-3">Chưa có file đính kèm.</div>';
+      document.getElementById('attachmentPickerModal').classList.remove('hidden');
+    }
+    function closeAttachmentPicker() { document.getElementById('attachmentPickerModal').classList.add('hidden'); }
+    function openContractAttachmentViewFromPicker(id) { closeAttachmentPicker(); openContractAttachmentView(id); }
+    async function printSingleContractAttachment(id) { await openContractAttachmentView(id); printContractAttachmentView(); }
+    function printContractAttachmentFromPicker(id) { closeAttachmentPicker(); printSingleContractAttachment(id); }
     async function uploadContractAttachmentFiles(recordType, recordId, inputEl, group) {
       if (!inputEl || !inputEl.files || inputEl.files.length === 0) return;
       const fd = new FormData();
@@ -12758,6 +12846,7 @@ function isPerpetualSoftware(softwareId) {
           canDecideContract ? `<button ${dc('approveContractFromMenu', c.id)} class="block w-full text-left px-3 py-2 text-xs text-success-700 hover:bg-gray-100">✓ Duyệt</button>` : '',
           canDecideContract ? `<button ${dc('rejectContractFromMenu', c.id)} class="block w-full text-left px-3 py-2 text-xs text-danger-600 hover:bg-gray-100">✕ Từ chối</button>` : '',
           (c.status === 'APPROVED' && canTerminateContract()) ? `<button ${dc('terminateContractFromMenu', c.id)} class="block w-full text-left px-3 py-2 text-xs text-slate-600 hover:bg-gray-100">🔒 Thanh lý</button>` : '',
+          canDownloadContractAttachment() ? `<button ${dc('downloadContractAttachmentFromMenu', c.id)} class="block w-full text-left px-3 py-2 text-xs text-emerald-700 hover:bg-gray-100">⬇ Tải</button>` : '',
           canPrintContract() ? `<button ${dc('printContractFromMenu', 'contract', c.id)} class="block w-full text-left px-3 py-2 text-xs text-indigo-700 hover:bg-gray-100">🖨️ In</button>` : '',
           currentUser.perms.admin ? `<button ${dc('deleteContractFromMenu', c.id)} class="block w-full text-left px-3 py-2 text-xs text-danger-700 hover:bg-danger-50">🗑️ Xóa</button>` : ''
         ];
@@ -12870,7 +12959,65 @@ function isPerpetualSoftware(softwareId) {
     function guaranteeParentRefLabel(g) {
       if (g.contractId) { const c = ContractDB.contracts.find(x => x.id === g.contractId); return c ? `HĐ: ${c.code}` : '—'; }
       if (g.addendumId) { const a = ContractDB.addendums.find(x => x.id === g.addendumId); return a ? `PL: ${a.code}` : '—'; }
+      // Bảo lãnh con không tự lưu contractId/addendumId riêng — leo ngược lên
+      // bảo lãnh cha để tìm đúng Hợp đồng/Phụ lục mà cả cây đang gắn vào.
+      if (g.parentGuaranteeId) { const pg = ContractDB.guarantees.find(x => x.id === g.parentGuaranteeId); if (pg) return guaranteeParentRefLabel(pg); }
       return '—';
+    }
+    function toggleGuaranteeExpand(id) {
+      id = Number(id);
+      if (guaranteeExpandedIds.has(id)) guaranteeExpandedIds.delete(id); else guaranteeExpandedIds.add(id);
+      renderGuaranteeFlatList();
+    }
+    function guaranteeChildrenOf(id) { return ContractDB.guarantees.filter(x => x.parentGuaranteeId === id); }
+    function guaranteeMatchesFilterText(g, statusFilter, search) {
+      if (statusFilter && g.status !== statusFilter) return false;
+      if (search && !`${g.code} ${g.name} ${g.issuer || ''}`.toLowerCase().includes(search)) return false;
+      return true;
+    }
+    // Có lọc đang bật (trạng thái/tìm kiếm) → 1 bảo lãnh cha vẫn phải hiện ra
+    // nếu bản thân nó không khớp nhưng có bảo lãnh con (ở bất kỳ cấp nào) khớp,
+    // và tự mở rộng luôn để thấy ngay dòng khớp bên dưới — không bắt người
+    // dùng phải tự bấm mở từng cấp mới tìm ra.
+    function guaranteeSubtreeHasMatch(g, statusFilter, search, autoExpandIds) {
+      const children = guaranteeChildrenOf(g.id);
+      let childMatched = false;
+      children.forEach(ch => { if (guaranteeSubtreeHasMatch(ch, statusFilter, search, autoExpandIds)) childMatched = true; });
+      if (childMatched) autoExpandIds.add(g.id);
+      return guaranteeMatchesFilterText(g, statusFilter, search) || childMatched;
+    }
+    function renderGuaranteeNodeRow(g, depth, autoExpandIds) {
+      const children = guaranteeChildrenOf(g.id);
+      const expanded = guaranteeExpandedIds.has(g.id) || autoExpandIds.has(g.id);
+      const canDecide = g.status === 'PENDING' && canApproveContractItem(g);
+      // Gọn cột Thao tác (phản hồi người dùng: trước đây quá nhiều nút sát
+      // nhau, tràn ngang trên điện thoại) — gộp HẾT vào 1 menu "⋮" thả xuống,
+      // dùng chung cơ chế renderRowActionsMenu/toggleRowMenu như bảng Hợp đồng.
+      const menuId = `rowMenu_guarantee_${g.id}`;
+      const menuItems = [
+        canDecide ? `<button ${dc('approveGuaranteeFromMenu', g.id)} class="block w-full text-left px-3 py-2 text-xs text-success-700 hover:bg-gray-100">✓ Duyệt</button>` : '',
+        canDecide ? `<button ${dc('rejectGuaranteeFromMenu', g.id)} class="block w-full text-left px-3 py-2 text-xs text-danger-600 hover:bg-gray-100">✕ Từ chối</button>` : '',
+        `<button ${dc('openGuaranteeViewModalFromMenu', g.id)} class="block w-full text-left px-3 py-2 text-xs text-blue-700 hover:bg-gray-100">👁 Xem</button>`,
+        canDownloadContractAttachment() ? `<button ${dc('downloadGuaranteeAttachmentFromMenu', g.id)} class="block w-full text-left px-3 py-2 text-xs text-emerald-700 hover:bg-gray-100">⬇ Tải</button>` : '',
+        canPrintContract() ? `<button ${dc('printContractFromMenu', 'guarantee', g.id)} class="block w-full text-left px-3 py-2 text-xs text-indigo-700 hover:bg-gray-100">🖨️ In</button>` : '',
+        currentUser.perms.admin ? `<button ${dc('deleteGuaranteeFromMenu', g.id)} class="block w-full text-left px-3 py-2 text-xs text-danger-700 hover:bg-danger-50">🗑️ Xóa</button>` : ''
+      ];
+      const indent = depth * 18;
+      const caretOrConnector = children.length
+        ? `<button ${dc('toggleGuaranteeExpand', g.id)} class="text-[10px] font-bold text-gray-500 bg-gray-100 border rounded w-4 h-4 inline-flex items-center justify-center shrink-0">${expanded ? '▾' : '▸'}</button>`
+        : (depth > 0 ? '<span class="text-gray-300 text-[11px] w-4 inline-block text-center shrink-0">↳</span>' : '<span class="w-4 inline-block shrink-0"></span>');
+      const row = `<tr class="hover:bg-gray-50 ${depth > 0 ? 'bg-gray-50/70' : ''}">
+          <td class="border p-2 font-mono text-[11px]"><div class="flex items-center gap-1.5" style="padding-left:${indent}px">${caretOrConnector}<span>${escapeHtml(g.code)}</span></div></td>
+          <td class="border p-2">${escapeHtml(g.name)}</td>
+          <td class="border p-2 text-[11px]">${escapeHtml(guaranteeParentRefLabel(g))}${children.length ? ` <span class="text-gray-400">(${children.length} con)</span>` : ''}</td>
+          <td class="border p-2">${escapeHtml(g.issuer || '—')}</td>
+          <td class="border p-2 text-right">${g.value ? formatMoney(g.value) : '—'}</td>
+          <td class="border p-2 text-center text-[11px]">${g.hasTerm ? escapeHtml(fmtDateVN(g.expiryDate)) : escapeHtml(fmtDateVN(g.effectiveDate)) + ' → ∞'}</td>
+          <td class="border p-2 text-center">${contractStatusBadge(g.status)}</td>
+          <td class="border p-2 text-center"><div class="inline-flex items-center justify-center">${renderRowActionsMenu(menuId, menuItems)}</div></td>
+        </tr>`;
+      const childRows = expanded ? children.map(ch => renderGuaranteeNodeRow(ch, depth + 1, autoExpandIds)).join('') : '';
+      return row + childRows;
     }
     function renderGuaranteeFlatList() {
       const statusEl = document.getElementById('guaranteeFilterStatus');
@@ -12878,36 +13025,17 @@ function isPerpetualSoftware(softwareId) {
       if (!statusEl) return;
       const statusFilter = statusEl.value;
       const search = searchEl.value.trim().toLowerCase();
-      let rows = ContractDB.guarantees;
-      if (statusFilter) rows = rows.filter(g => g.status === statusFilter);
-      if (search) rows = rows.filter(g => `${g.code} ${g.name} ${g.issuer || ''}`.toLowerCase().includes(search));
-      const pageRows = paginateSlice('guaranteeList', rows, 10);
-      document.getElementById('guaranteeFlatTableBody').innerHTML = pageRows.length ? pageRows.map(g => {
-        const canDecide = g.status === 'PENDING' && canApproveContractItem(g);
-        // Gọn cột Thao tác (phản hồi người dùng: trước đây quá nhiều nút sát
-        // nhau, tràn ngang trên điện thoại) — gộp HẾT vào 1 menu "⋮" thả xuống,
-        // dùng chung cơ chế renderRowActionsMenu/toggleRowMenu như bảng Hợp đồng.
-        const menuId = `rowMenu_guarantee_${g.id}`;
-        const menuItems = [
-          canDecide ? `<button ${dc('approveGuaranteeFromMenu', g.id)} class="block w-full text-left px-3 py-2 text-xs text-success-700 hover:bg-gray-100">✓ Duyệt</button>` : '',
-          canDecide ? `<button ${dc('rejectGuaranteeFromMenu', g.id)} class="block w-full text-left px-3 py-2 text-xs text-danger-600 hover:bg-gray-100">✕ Từ chối</button>` : '',
-          `<button ${dc('openGuaranteeViewModalFromMenu', g.id)} class="block w-full text-left px-3 py-2 text-xs text-blue-700 hover:bg-gray-100">👁 Xem</button>`,
-          canDownloadContractAttachment() ? `<button ${dc('downloadGuaranteeAttachmentFromMenu', g.id)} class="block w-full text-left px-3 py-2 text-xs text-emerald-700 hover:bg-gray-100">⬇ Tải</button>` : '',
-          canPrintContract() ? `<button ${dc('printContractFromMenu', 'guarantee', g.id)} class="block w-full text-left px-3 py-2 text-xs text-indigo-700 hover:bg-gray-100">🖨️ In</button>` : '',
-          currentUser.perms.admin ? `<button ${dc('deleteGuaranteeFromMenu', g.id)} class="block w-full text-left px-3 py-2 text-xs text-danger-700 hover:bg-danger-50">🗑️ Xóa</button>` : ''
-        ];
-        return `<tr class="hover:bg-gray-50">
-          <td class="border p-2 font-mono text-[11px]">${escapeHtml(g.code)}</td>
-          <td class="border p-2">${escapeHtml(g.name)}</td>
-          <td class="border p-2 text-[11px]">${escapeHtml(guaranteeParentRefLabel(g))}${g.parentGuaranteeId ? ' <span class="text-gray-400">(con)</span>' : ''}</td>
-          <td class="border p-2">${escapeHtml(g.issuer || '—')}</td>
-          <td class="border p-2 text-right">${g.value ? formatMoney(g.value) : '—'}</td>
-          <td class="border p-2 text-center text-[11px]">${g.hasTerm ? escapeHtml(fmtDateVN(g.expiryDate)) : escapeHtml(fmtDateVN(g.effectiveDate)) + ' → ∞'}</td>
-          <td class="border p-2 text-center">${contractStatusBadge(g.status)}</td>
-          <td class="border p-2 text-center"><div class="inline-flex items-center justify-center">${renderRowActionsMenu(menuId, menuItems)}</div></td>
-        </tr>`;
-      }).join('') : '<tr><td colspan="8" class="text-center p-4 text-gray-500">Chưa có bảo lãnh nào.</td></tr>';
-      renderPaginationBar('guaranteeListPaginationBox', 'guaranteeList', rows.length, 'renderGuaranteeFlatList', { itemLabel: 'bảo lãnh', pageSizeOptions: [10, 20, 50, 100] });
+      const hasFilter = !!(statusFilter || search);
+      const roots = ContractDB.guarantees.filter(g => !g.parentGuaranteeId);
+      const autoExpandIds = new Set();
+      const visibleRoots = hasFilter
+        ? roots.filter(r => guaranteeSubtreeHasMatch(r, statusFilter, search, autoExpandIds))
+        : roots;
+      const pageRoots = paginateSlice('guaranteeList', visibleRoots, 10);
+      document.getElementById('guaranteeFlatTableBody').innerHTML = pageRoots.length
+        ? pageRoots.map(g => renderGuaranteeNodeRow(g, 0, autoExpandIds)).join('')
+        : '<tr><td colspan="8" class="text-center p-4 text-gray-500">Chưa có bảo lãnh nào.</td></tr>';
+      renderPaginationBar('guaranteeListPaginationBox', 'guaranteeList', visibleRoots.length, 'renderGuaranteeFlatList', { itemLabel: 'bảo lãnh', pageSizeOptions: [10, 20, 50, 100] });
     }
 
     // --- Công ty/Phòng theo phạm vi quyền người tạo (mirror uploadAll/uploadDepts) ---
@@ -13162,6 +13290,7 @@ function isPerpetualSoftware(softwareId) {
     function deleteGuaranteeFromMenu(id) { closeAllRowMenus(); deleteGuarantee(id); }
     function openGuaranteeViewModalFromMenu(id) { closeAllRowMenus(); openGuaranteeViewModal(id); }
     function downloadGuaranteeAttachmentFromMenu(id) { closeAllRowMenus(); downloadGuaranteeAttachment(id); }
+    function downloadContractAttachmentFromMenu(id) { closeAllRowMenus(); downloadContractAttachment(id); }
 
     // --- Thanh lý/Chấm dứt Hợp đồng (một chiều, CHỈ contractManager/Admin) ---
     async function terminateContract(id) {
